@@ -128,6 +128,24 @@ public final class ClientProjectStore {
         return Collections.unmodifiableMap(openFiles);
     }
 
+    /** Paths of the open editor tabs, in the order they were opened. */
+    public List<String> openTabs() {
+        return new ArrayList<>(openFiles.keySet());
+    }
+
+    /** Closes an editor tab; when the active file is closed the newest tab becomes active. */
+    public void closeFile(String path) {
+        if (path == null || !openFiles.containsKey(path)) {
+            return;
+        }
+        openFiles.remove(path);
+        dirty.remove(path);
+        if (path.equals(activeFile)) {
+            activeFile = openFiles.isEmpty() ? null : new ArrayList<>(openFiles.keySet()).get(openFiles.size() - 1);
+        }
+        notifyListener();
+    }
+
     public String fileContent(String path) {
         return openFiles.get(path);
     }
@@ -203,6 +221,22 @@ public final class ClientProjectStore {
             request(ProjectAction.FIND_DEFINITION, activeProjectId, symbol);
         }
     }
+
+    /** Result of {@link #requestAsset}; {@code data} is empty when {@code error} is set. */
+    public record AssetBytes(String path, byte[] data, String error) {
+    }
+
+    /**
+     * Fetches a project asset file from the server for previewing. The callback
+     * runs on the client thread. One request is in flight at a time - previews
+     * are opened one screen at a time anyway.
+     */
+    public void requestAsset(String projectId, String path, java.util.function.Consumer<AssetBytes> callback) {
+        this.assetCallback = callback;
+        request(ProjectAction.READ_ASSET, projectId, path);
+    }
+
+    private java.util.function.Consumer<AssetBytes> assetCallback;
 
     public record EntryOp(String path, String type) {
     }
@@ -406,6 +440,27 @@ public final class ClientProjectStore {
                 ProjectManager.FindResult result = Json.COMPACT.fromJson(payload.json(), ProjectManager.FindResult.class);
                 if (definitionCallback != null && result != null) {
                     definitionCallback.accept(result.file(), result.line());
+                }
+                return;
+            }
+            case READ_ASSET -> {
+                java.util.function.Consumer<AssetBytes> callback = this.assetCallback;
+                this.assetCallback = null;
+                if (callback == null) {
+                    return;
+                }
+                if (!payload.success()) {
+                    callback.accept(new AssetBytes("", new byte[0],
+                            payload.message().isEmpty() ? "Failed to read asset" : payload.message()));
+                    return;
+                }
+                try {
+                    com.google.gson.JsonObject object = Json.COMPACT.fromJson(payload.json(), JsonObject.class);
+                    String path = object.get("path").getAsString();
+                    byte[] data = java.util.Base64.getDecoder().decode(object.get("data").getAsString());
+                    callback.accept(new AssetBytes(path, data, ""));
+                } catch (Exception e) {
+                    callback.accept(new AssetBytes("", new byte[0], "Bad asset payload: " + e.getMessage()));
                 }
                 return;
             }

@@ -359,6 +359,36 @@ public final class ProjectManager {
         });
     }
 
+    /**
+     * Reads a binary file (asset) inside the project, capped at
+     * {@link #BINARY_READ_LIMIT} bytes so it fits in a single response packet.
+     */
+    public CompletableFuture<BinaryRead> readBinary(String id, String path) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            Path dir = projectsDir.resolve(id);
+            Path file = resolveSafe(dir, path);
+            if (file == null || !Files.isRegularFile(file)) {
+                return new BinaryRead(path, false, "File not found: " + path, new byte[0]);
+            }
+            try {
+                long size = Files.size(file);
+                if (size > BINARY_READ_LIMIT) {
+                    return new BinaryRead(path, false, "File too large to preview (" + size / 1024 + " KB, limit "
+                            + BINARY_READ_LIMIT / 1024 + " KB)", new byte[0]);
+                }
+                return new BinaryRead(path, true, "", Files.readAllBytes(file));
+            } catch (IOException e) {
+                return new BinaryRead(path, false, "Failed to read " + path + ": " + e.getMessage(), new byte[0]);
+            }
+        });
+    }
+
+    /** Maximum binary preview size; must fit a single base64 response payload. */
+    public static final int BINARY_READ_LIMIT = 24 * 1024;
+
+    public record BinaryRead(String path, boolean success, String message, byte[] data) {
+    }
+
     /** Creates a new file or directory inside the project. */
     public CompletableFuture<OpResult> createEntry(String id, String path, String type) {
         return CraftPyExecutors.supplyAsync(() -> {

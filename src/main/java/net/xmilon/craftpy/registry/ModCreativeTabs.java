@@ -24,22 +24,9 @@ public final class ModCreativeTabs {
                     })
                     .build());
 
-    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> SLOTS = TABS.register("slots",
-            () -> CreativeModeTab.builder()
-                    .title(Component.translatable("itemGroup.craftpy.slots"))
-                    .withTabsAfter(net.minecraft.resources.ResourceKey.create(
-                            Registries.CREATIVE_MODE_TAB,
-                            net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(CraftPy.MODID, "main")))
-                    .icon(() -> ModItems.SLOT_BLOCK_ITEMS.get(0).get().getDefaultInstance())
-                    .displayItems((parameters, output) -> {
-                        for (var item : ModItems.SLOT_BLOCK_ITEMS) {
-                            output.accept(item.get());
-                        }
-                        for (var item : ModItems.SLOT_ITEMS) {
-                            output.accept(item.get());
-                        }
-                    })
-                    .build());
+    // NOTE: project content (the generic slot pool) deliberately has NO creative
+    // tab and cannot be obtained with /give - it is exclusively distributed via
+    // /craftpy give <player> <project>:<id> <block|item> (namespace isolation).
 
     private ModCreativeTabs() {
     }

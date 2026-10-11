@@ -67,6 +67,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     private Button assetsButton;
 
     private int fileScroll;
+    private int tabScroll;
     private int bottomTab;
     private int bottomScroll;
     private int focus;
@@ -361,6 +362,30 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 net.xmilon.craftpy.assets.AssetKind.TEXTURE);
     }
 
+    /**
+     * Opens an explorer entry like an IDE: text files become editor tabs, asset
+     * files (textures / sounds) open a preview viewer instead of raw text.
+     */
+    private void openProjectEntry(String path) {
+        String lower = path.toLowerCase(Locale.ROOT).replace('\\', '/');
+        boolean preview = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".ogg") || lower.endsWith(".wav") || lower.endsWith(".mp3");
+        if (!preview) {
+            ClientProjectStore.getInstance().openFile(path);
+            return;
+        }
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        String projectId = store.activeProjectId();
+        if (projectId == null) {
+            return;
+        }
+        store.requestAsset(projectId, path, asset -> {
+            if (this.minecraft != null && this.minecraft.screen == this) {
+                this.minecraft.setScreen(new AssetFileScreen(this, projectId, path, asset.data(), asset.error()));
+            }
+        });
+    }
+
     private void openAssetPickerAtCursor() {
         openAssetPicker(this.editor.cursorLineIndex(), this.editor.cursorColumn(), this.editor.cursorColumn(),
                 net.xmilon.craftpy.assets.AssetKind.TEXTURE, false);
@@ -437,6 +462,12 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                     this.pendingDefinitionFile = null;
                     this.pendingDefinitionLine = -1;
                 }
+            } else if (active == null && this.displayedFile != null) {
+                // The last tab was closed: clear the buffer instead of keeping stale text.
+                this.displayedFile = null;
+                syncGuard = true;
+                this.editor.setContent("");
+                syncGuard = false;
             }
             if (store.activeProjectId() == null || store.activeFile() == null) {
                 this.editor.setFocused(false);
@@ -549,29 +580,55 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     }
 
     // ------------------------------------------------------------------
-    // Editor tab geometry (must mirror renderTabs)
+    // Editor tab geometry (shared by renderTabs and the click handler)
     // ------------------------------------------------------------------
 
-    /** Returns the index of the editor tab under the mouse, or -1. */
-    private int tabIndexAt(double mouseX) {
-        List<String> files = ClientProjectStore.getInstance().files();
-        int x = tabX();
-        int current = 0;
-        for (int i = 0; i < files.size(); i++) {
-            String path = files.get(i);
+    private record TabRect(String path, int x, int width, int labelX, int closeX, boolean dirty) {
+    }
+
+    /** One rectangle per open editor tab, laid out left to right. */
+    private List<TabRect> tabRects() {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        List<TabRect> rects = new ArrayList<>();
+        int x = tabX() - this.tabScroll;
+        for (String path : store.openTabs()) {
             String label = path.substring(Math.max(0, path.lastIndexOf('/') + 1));
-            int labelW = this.font.width(label);
-            int start = x + current - 2;
-            int end = x + current + labelW + 2;
-            if (mouseX >= start && mouseX <= end) {
-                return i;
-            }
-            current += labelW + 6;
-            if (i < files.size() - 1) {
-                current += 4;
-            }
+            boolean dirty = store.isDirty(path);
+            int labelW = this.font.width(label) + (dirty ? this.font.width("*") : 0);
+            int width = labelW + 21;
+            rects.add(new TabRect(path, x, width, x + 5, x + 11 + labelW, dirty));
+            x += width + 2;
         }
-        return -1;
+        return rects;
+    }
+
+    private int tabStripWidth() {
+        int total = 0;
+        for (TabRect rect : tabRects()) {
+            total += rect.width() + 2;
+        }
+        return total;
+    }
+
+    /** Mouse-wheel horizontal scrolling for long tab strips. */
+    private void scrollTabs(double delta) {
+        int visible = (this.width - layoutPad()) - tabX();
+        int max = Math.max(0, tabStripWidth() - visible + 12);
+        this.tabScroll = (int) Math.max(0, Math.min(this.tabScroll - delta, max));
+    }
+
+    /** Closes a tab; unsaved buffers need an explicit confirmation first. */
+    private void requestCloseTab(String path) {
+        if (path == null) {
+            return;
+        }
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        if (store.isDirty(path)) {
+            openConfirm("Close '" + path + "' without saving? Unsaved edits will be lost.",
+                    () -> store.closeFile(path));
+        } else {
+            store.closeFile(path);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -623,6 +680,10 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 }
                 case GLFW.GLFW_KEY_F -> {
                     toggleSearch();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_W -> {
+                    requestCloseTab(ClientProjectStore.getInstance().activeFile());
                     return true;
                 }
                 case GLFW.GLFW_KEY_R -> {
@@ -770,7 +831,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         // file list (only the drawn row area)
         int fileIndex = fileRowAt(mouseX, mouseY);
         if (fileIndex >= 0) {
-            ClientProjectStore.getInstance().openFile(ClientProjectStore.getInstance().files().get(fileIndex));
+            openProjectEntry(ClientProjectStore.getInstance().files().get(fileIndex));
             return true;
         }
 
@@ -784,10 +845,18 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         // editor tab bar (center): same 20px bar that render() draws
         int tabY = editorTabBarTop();
         if (mouseY >= tabY && mouseY < tabY + EDITOR_TAB_BAR_H) {
-            int index = tabIndexAt(mouseX);
-            if (index >= 0) {
-                ClientProjectStore.getInstance().openFile(ClientProjectStore.getInstance().files().get(index));
-                return true;
+            for (TabRect rect : tabRects()) {
+                if (mouseX >= rect.x() && mouseX <= rect.x() + rect.width()) {
+                    if (button == 0 && mouseX >= rect.closeX() && mouseX <= rect.closeX() + 10) {
+                        requestCloseTab(rect.path());
+                    } else if (button == 1 || button == 2) {
+                        // right- or middle-click closes the tab
+                        requestCloseTab(rect.path());
+                    } else if (button == 0) {
+                        ClientProjectStore.getInstance().openFile(rect.path());
+                    }
+                    return true;
+                }
             }
         }
 
@@ -833,6 +902,11 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 this.fileScroll = (int) Math.max(0, this.fileScroll - vertical * 16);
                 return true;
             }
+        }
+        int tabY = editorTabBarTop();
+        if (mouseY >= tabY && mouseY < tabY + EDITOR_TAB_BAR_H) {
+            scrollTabs(vertical * 24);
+            return true;
         }
         int panelY = bottomPanelY();
         if (mouseY >= panelY && mouseY < height - pad && mouseX >= pad && mouseX <= width - pad) {
@@ -887,7 +961,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
         List<MenuItem> items = new ArrayList<>();
         if (path != null) {
-            items.add(new MenuItem("Open", () -> store.openFile(path)));
+            items.add(new MenuItem("Open", () -> openProjectEntry(path)));
             items.add(new MenuItem("Rename...", () -> promptRename(path)));
             items.add(new MenuItem("Delete...", () -> confirmDelete(path)));
         }
@@ -1574,7 +1648,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         graphics.fill(editorX, bodyTop + pad, editorX + editorW, bodyBottom, PANEL);
         // tab bar
         graphics.fill(editorX, bodyTop + pad, editorX + editorW, bodyTop + pad + 20, PANEL_ALT);
-        renderTabs(graphics, tabX(), bodyTop + pad + 3);
+        renderTabs(graphics, mouseX, mouseY, editorX, editorW);
         renderStatusBar(graphics, editorX, editorW, bodyTop + pad + 3);
         if (searchOpen) {
             this.searchBox.setX(tabX() + 8);
@@ -1801,24 +1875,31 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 lineY + 4, MUTED, false);
     }
 
-    private void renderTabs(GuiGraphics graphics, int x, int y) {
-        List<String> files = ClientProjectStore.getInstance().files();
-        String active = ClientProjectStore.getInstance().activeFile();
-        int current = 0;
-        for (int i = 0; i < files.size(); i++) {
-            String label = files.get(i).substring(Math.max(0, files.get(i).lastIndexOf('/') + 1));
-            boolean isActive = files.get(i).equals(active);
-            int labelW = this.font.width(label);
+    /**
+     * The open-file tab strip with per-tab close buttons. Unsaved tabs show a
+     * trailing "*"; the close box highlights on hover. Long strips clip at the
+     * editor edge and scroll with the mouse wheel.
+     */
+    private void renderTabs(GuiGraphics graphics, int mouseX, int mouseY, int editorX, int editorW) {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        String active = store.activeFile();
+        int y = editorTabBarTop();
+        graphics.enableScissor(editorX, y, editorX + editorW, y + EDITOR_TAB_BAR_H);
+        for (TabRect rect : tabRects()) {
+            boolean isActive = rect.path().equals(active);
             if (isActive) {
-                graphics.fill(x + current - 2, y - 3, x + current + labelW + 2, y - 3 + EDITOR_TAB_BAR_H, SELECTED);
+                graphics.fill(rect.x(), y + 1, rect.x() + rect.width(), y + EDITOR_TAB_BAR_H - 1, SELECTED);
             }
-            graphics.drawString(this.font, label, x + current, y, isActive ? ACCENT : MUTED, false);
-            current += labelW + 6;
-            if (i < files.size() - 1) {
-                graphics.drawString(this.font, "|", x + current, y, BORDER, false);
-                current += 4;
+            boolean closeHover = mouseX >= rect.closeX() && mouseX <= rect.closeX() + 10
+                    && mouseY >= y && mouseY < y + EDITOR_TAB_BAR_H;
+            if (closeHover) {
+                graphics.fill(rect.closeX() - 1, y + 4, rect.closeX() + 9, y + 14, 0x40FF6B6B);
             }
+            graphics.drawString(this.font, rect.path().substring(Math.max(0, rect.path().lastIndexOf('/') + 1))
+                    + (rect.dirty() ? "*" : ""), rect.labelX(), y + 6, isActive ? ACCENT : MUTED, false);
+            graphics.drawString(this.font, "x", rect.closeX() + 2, y + 6, closeHover ? ERROR_COLOR : MUTED, false);
         }
+        graphics.disableScissor();
     }
 
     /** PyCharm-style editor status line: language, active file, cursor position. */

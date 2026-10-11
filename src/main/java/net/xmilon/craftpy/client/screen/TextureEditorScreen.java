@@ -97,6 +97,24 @@ public class TextureEditorScreen extends Screen {
         return new TextureEditorScreen(parent, projectId, w, h, px, sanitize(sourceId));
     }
 
+    /** Opens the editor pre-filled from an already decoded image (e.g. the asset viewer). */
+    public static TextureEditorScreen fromImage(Screen parent, String projectId, NativeImage image, String name) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        int[] px = new int[w * h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int v = image.getPixelRGBA(x, y);
+                int a = (v >>> 24) & 0xFF;
+                int b = (v >>> 16) & 0xFF;
+                int g = (v >>> 8) & 0xFF;
+                int r = v & 0xFF;
+                px[y * w + x] = (a << 24) | (r << 16) | (g << 8) | b;
+            }
+        }
+        return new TextureEditorScreen(parent, projectId, w, h, px, sanitize(name));
+    }
+
     private static NativeImage loadSource(AssetKind kind, String id) {
         try {
             String ns = id.contains(":") ? id.substring(0, id.indexOf(':')) : "minecraft";

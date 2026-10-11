@@ -1,5 +1,6 @@
 package net.xmilon.craftpy;
 
+import net.xmilon.craftpy.command.CraftPyCommand;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -38,6 +39,8 @@ public class CraftPy {
         modEventBus.addListener(DynamicPackManager::registerSources);
 
         NeoForge.EVENT_BUS.register(this);
+        // Project content is /craftpy give only - blocks it from vanilla /give.
+        NeoForge.EVENT_BUS.register(net.xmilon.craftpy.command.CommandGuard.class);
 
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
     }
@@ -74,5 +77,10 @@ public class CraftPy {
     public void onServerStopping(ServerStoppingEvent event) {
         ProjectManager.shutdown();
         net.xmilon.craftpy.python.PyRuntime.shutdown();
+    }
+
+    @SubscribeEvent
+    public void onRegisterCommands(net.neoforged.neoforge.event.RegisterCommandsEvent event) {
+        CraftPyCommand.register(event.getDispatcher(), event.getBuildContext());
     }
 }

@@ -71,12 +71,18 @@ public final class AssetIndex implements ResourceManagerReloadListener {
 
         Set<String> itm = new TreeSet<>();
         for (ResourceLocation rl : BuiltInRegistries.ITEM.keySet()) {
+            if (isSlotContent(rl)) {
+                continue;
+            }
             itm.add(rl.toString());
             ns.add(rl.getNamespace());
         }
 
         Set<String> blk = new TreeSet<>();
         for (ResourceLocation rl : BuiltInRegistries.BLOCK.keySet()) {
+            if (isSlotContent(rl)) {
+                continue;
+            }
             blk.add(rl.toString());
             ns.add(rl.getNamespace());
         }
@@ -109,6 +115,13 @@ public final class AssetIndex implements ResourceManagerReloadListener {
     }
 
     private volatile boolean building = false;
+
+    /** Project slot content is not an "existing thing" to reference; keep it out of the bank. */
+    private static boolean isSlotContent(ResourceLocation rl) {
+        String path = rl.getPath();
+        return "craftpy".equals(rl.getNamespace())
+                && (path.startsWith("pcblock_") || path.startsWith("pcitem_"));
+    }
 
     private static String strip(String full, String prefix, String suffix) {
         // full looks like "<ns>:<prefix><path><suffix>"

@@ -76,6 +76,18 @@ public final class ProjectRequestHandler {
                         .thenApply(read -> read.success()
                                 ? new ResponsePayload(ProjectAction.READ_FILE, true, "", Json.COMPACT.toJson(read))
                                 : new ResponsePayload(ProjectAction.READ_FILE, false, read.message(), ""));
+            case READ_ASSET:
+                if (!ProjectManager.isValidId(id)) {
+                    return CompletableFuture.completedFuture(fail(action, "Invalid project id"));
+                }
+                return manager.readBinary(id, request.data()).thenApply(read -> {
+                    if (!read.success()) {
+                        return fail(action, read.message());
+                    }
+                    String encoded = java.util.Base64.getEncoder().encodeToString(read.data());
+                    return ResponsePayload.success(ProjectAction.READ_ASSET, "",
+                            Json.COMPACT.toJson(new AssetDownload(read.path(), read.data().length, encoded)));
+                });
             case WRITE_FILE: {
                 FileWrite file = Json.COMPACT.fromJson(request.data(), FileWrite.class);
                 if (file == null || file.path == null) {
@@ -231,6 +243,9 @@ public final class ProjectRequestHandler {
     }
 
     public record AssetUpload(String path, int chunk, int total, String data) {
+    }
+
+    public record AssetDownload(String path, int size, String data) {
     }
 
     /**

@@ -46,6 +46,8 @@ public class CodeEditor {
     private static final int COLOR_POPUP_BORDER = 0xFF4FC3F7;
     private static final int COLOR_POPUP_SEL = 0xFF2C5B7A;
     private static final int COLOR_POPUP_TEXT = 0xFFD7E1EA;
+    private static final int COLOR_POPUP_DOC = 0xFF9AB2C6;
+    private static final int COLOR_GHOST = 0xFF6E8296;
 
     private static final Set<String> KEYWORDS = Set.of("False", "None", "True", "and", "as", "assert", "async",
             "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from",
@@ -92,11 +94,53 @@ public class CodeEditor {
     private int matchLine = -1;
     private int matchCol = -1;
 
-    private List<String> suggestions = List.of();
+    private List<Suggestion> suggestions = List.of();
     private int suggestionIndex;
     private int suggestionLine;
     private int suggestionCol;
     private int suggestionStartCol;
+
+    /**
+     * One completion entry. {@code insert} is what accepting replaces the typed
+     * word with; {@code cursorOffset} places the caret inside it (between quotes
+     * or parentheses). Multi-line entries are snippet templates shown as a grey
+     * "ghost" preview and applied with Tab.
+     */
+    private static final class Suggestion {
+        final String label;
+        final String signature;
+        final String description;
+        final String insert;
+        final int cursorOffset;
+        final String placeholder;
+
+        Suggestion(String label, String signature, String description, String insert, int cursorOffset,
+                String placeholder) {
+            this.label = label;
+            this.signature = signature;
+            this.description = description;
+            this.insert = insert;
+            this.cursorOffset = cursorOffset;
+            this.placeholder = placeholder;
+        }
+
+        boolean isSnippet() {
+            return placeholder != null;
+        }
+    }
+
+    /** Snippet templates: decorator + the fields a definition needs, ready to fill in. */
+    private static final String BLOCK_SNIPPET =
+            "@block(\"my_block\", name=\"My Block\", texture=\"minecraft:block/stone\",\n"
+                    + "       hardness=2.0, resistance=6.0, light=0, tool=\"pickaxe\",\n"
+                    + "       sound=\"stone\", needs_tool=False)\n"
+                    + "class MyBlock:\n"
+                    + "    pass";
+    private static final String ITEM_SNIPPET =
+            "@item(\"my_item\", name=\"My Item\", texture=\"minecraft:item/paper\",\n"
+                    + "      max_stack=64, glow=False)\n"
+                    + "class MyItem:\n"
+                    + "    pass";
 
     private Runnable changeListener;
 
@@ -690,6 +734,8 @@ public class CodeEditor {
         if (!extend) {
             setAnchorToCursor();
         }
+        // Moving the caret away from the typed word dismisses the popup.
+        closeSuggestions();
         clampCursor();
     }
 
@@ -750,6 +796,7 @@ public class CodeEditor {
         cursorLine = Math.max(0, Math.min(pos[0], lines.size() - 1));
         cursorCol = Math.max(0, Math.min(pos[1], lines.get(cursorLine).length()));
         setAnchorToCursor();
+        closeSuggestions();
         clickButton = button;
         return true;
     }
@@ -912,6 +959,7 @@ public class CodeEditor {
                 beginGroup();
                 deleteBack();
                 endGroup();
+                maybeSuggest();
                 notifyChanged();
                 return true;
             }
@@ -965,6 +1013,7 @@ public class CodeEditor {
         if (hasSelection()) {
             deleteSelection();
             insertWithoutSnapshot(String.valueOf(codePoint));
+            closeSuggestions();
         } else {
             char close = autoclose(codePoint);
             String line = lines.get(cursorLine);
@@ -977,11 +1026,15 @@ public class CodeEditor {
                             line.substring(0, cursorCol) + codePoint + close + line.substring(cursorCol));
                     cursorCol++;
                 }
+                closeSuggestions();
             } else {
                 lines.set(cursorLine, line.substring(0, cursorCol) + codePoint + line.substring(cursorCol));
                 cursorCol++;
                 if (Character.isLetterOrDigit(codePoint) || codePoint == '_') {
                     maybeSuggest();
+                } else {
+                    // Typing punctuation ends the word: drop the popup instead of leaving it stale.
+                    closeSuggestions();
                 }
             }
         }
@@ -995,27 +1048,45 @@ public class CodeEditor {
     // Suggestions
     // ------------------------------------------------------------------
 
+    /** The visible suggestion labels (backing list is internal). */
     public List<String> suggestionsBacking() {
-        return suggestions;
+        List<String> labels = new ArrayList<>();
+        for (Suggestion suggestion : suggestions) {
+            labels.add(suggestion.label);
+        }
+        return labels;
     }
 
+    /**
+     * Recomputes the popup for the word being typed. Anything that no longer
+     * matches - a word without candidates, or a non-word character - dismisses
+     * the popup instead of leaving stale entries on screen.
+     */
     private void maybeSuggest() {
         String word = currentWord();
-        if (word.length() >= 2 && focused) {
-            List<String> list = suggestFor(word);
-            if (!list.isEmpty()) {
-                suggestionStartCol = cursorCol - word.length();
-                suggestionLine = cursorLine;
-                suggestionCol = cursorCol;
-                suggestionIndex = 0;
-                suggestions = list;
-            }
+        if (word.length() < 2 || !focused) {
+            closeSuggestions();
+            return;
         }
+        List<Suggestion> list = suggestFor(word);
+        if (list.isEmpty()) {
+            closeSuggestions();
+            return;
+        }
+        suggestionStartCol = cursorCol - word.length();
+        suggestionLine = cursorLine;
+        suggestionCol = cursorCol;
+        suggestionIndex = 0;
+        suggestions = list;
     }
 
     private void openSuggestions() {
         String word = currentWord();
-        List<String> list = suggestFor(word);
+        List<Suggestion> list = suggestFor(word);
+        if (list.isEmpty()) {
+            closeSuggestions();
+            return;
+        }
         suggestionStartCol = cursorCol - word.length();
         suggestionLine = cursorLine;
         suggestionCol = cursorCol;
@@ -1039,37 +1110,120 @@ public class CodeEditor {
     private void closeSuggestions() {
         suggestions = List.of();
         suggestionIndex = 0;
-    }
-
-    private boolean isFunctionName(String word) {
+    }    private boolean isFunctionName(String word) {
         return word.equals("recipe_shaped") || word.equals("recipe_shapeless") || word.equals("recipe_smelting")
                 || word.equals("loot_table") || word.equals("loot_self") || word.equals("tag");
     }
 
+    /** Functions taking one id string: accepting inserts {@code name("")} with the caret inside. */
+    private boolean isIdCall(String word) {
+        return word.equals("tex") || word.equals("snd") || word.equals("mdl") || word.equals("on");
+    }
+
+    /**
+     * Accepts the selected entry: snippets insert their full template (with the
+     * placeholder selected so typing replaces it), fields insert {@code name=""},
+     * function calls insert {@code name()} with the caret inside the parens.
+     */
     private void acceptSuggestion() {
         if (suggestions.isEmpty()) {
             return;
         }
-        String chosen = suggestions.get(suggestionIndex);
-        // re-validate word length in case content changed
+        Suggestion chosen = suggestions.get(suggestionIndex);
         int start = Math.max(0, Math.min(suggestionStartCol, currentLine().length()));
+        int end = Math.min(Math.max(suggestionCol, cursorCol), currentLine().length());
         beginGroup();
-        String line = lines.get(cursorLine);
-        String before = line.substring(0, Math.min(start, line.length()));
-        int end = Math.min(Math.max(suggestionCol, cursorCol), line.length());
+        String line = currentLine();
+        String before = line.substring(0, start);
         String after = line.substring(end);
-        String rest = chosen + (isFunctionName(chosen) ? "()" : "");
-        lines.set(cursorLine, before + rest + after);
-        cursorCol = before.length() + rest.length();
+        if (chosen.isSnippet() && before.isBlank()) {
+            // Full template at a statement start; the placeholder stays selected.
+            String[] parts = chosen.insert.split("\n", -1);
+            lines.set(suggestionLine, before + parts[0] + after);
+            for (int i = 1; i < parts.length; i++) {
+                lines.add(suggestionLine + i, parts[i]);
+            }
+            int phLine = -1;
+            int phStart = -1;
+            for (int i = 0; i < parts.length; i++) {
+                int at = parts[i].indexOf(chosen.placeholder);
+                if (at >= 0) {
+                    phLine = i;
+                    phStart = at + (i == 0 ? before.length() : 0);
+                    break;
+                }
+            }
+            if (phLine >= 0) {
+                cursorLine = suggestionLine + phLine;
+                cursorCol = phStart + chosen.placeholder.length();
+                anchorLine = cursorLine;
+                anchorCol = phStart;
+                selecting = true;
+            } else {
+                cursorLine = suggestionLine + parts.length - 1;
+                cursorCol = parts[parts.length - 1].length();
+                setAnchorToCursor();
+            }
+        } else {
+            lines.set(cursorLine, before + chosen.insert + after);
+            cursorCol = before.length() + chosen.cursorOffset;
+            setAnchorToCursor();
+        }
         clampCursor();
         endGroup();
         closeSuggestions();
         notifyChanged();
     }
 
-    private List<String> suggestFor(String prefix) {
+    private List<Suggestion> suggestFor(String prefix) {
+        List<Suggestion> result = new ArrayList<>();
+
+        // Inside @block( ... ) / @item( ... ) etc: offer the fields of that kind,
+        // each with a short explanation of what it controls.
+        String decorator = activeDecorator();
+        if (decorator != null) {
+            for (ApiDocs.Field field : ApiDocs.fieldsFor(decorator)) {
+                if (field.name().startsWith(prefix)) {
+                    String insert = field.name() + "=\"\"";
+                    result.add(new Suggestion(field.name(), field.name() + " = ...", field.description(),
+                            insert, field.name().length() + 2, null));
+                }
+            }
+            return result;
+        }
+
+        // Snippet templates for declarations (block / item).
+        if ("block".startsWith(prefix)) {
+            ApiDocs.Doc doc = ApiDocs.get("block");
+            result.add(new Suggestion("block", doc.signature(), doc.description(), BLOCK_SNIPPET, 0, "my_block"));
+        }
+        if ("item".startsWith(prefix)) {
+            ApiDocs.Doc doc = ApiDocs.get("item");
+            result.add(new Suggestion("item", doc.signature(), doc.description(), ITEM_SNIPPET, 0, "my_item"));
+        }
+
+        // Documented API names with signatures and descriptions.
+        Set<String> known = new HashSet<>();
+        for (String name : CRAFTPY_API) {
+            known.add(name);
+            // block/item are covered by the snippet templates above.
+            if (!name.startsWith(prefix) || name.equals("block") || name.equals("item")) {
+                continue;
+            }
+            ApiDocs.Doc doc = ApiDocs.get(name);
+            String signature = doc != null ? doc.signature() : name;
+            String description = doc != null ? doc.description() : "";
+            if (isIdCall(name)) {
+                result.add(new Suggestion(name, signature, description, name + "(\"\")", name.length() + 2, null));
+            } else if (isFunctionName(name)) {
+                result.add(new Suggestion(name, signature, description, name + "()", name.length() + 1, null));
+            } else {
+                result.add(new Suggestion(name, signature, description, name, name.length(), null));
+            }
+        }
+
+        // Keywords, builtins and identifiers already present in the document.
         Set<String> words = new HashSet<>();
-        java.util.Collections.addAll(words, CRAFTPY_API);
         words.addAll(KEYWORDS);
         words.addAll(BUILTINS);
         for (String line : lines) {
@@ -1078,14 +1232,85 @@ public class CodeEditor {
                 words.add(matcher.group());
             }
         }
-        List<String> result = new ArrayList<>();
         for (String word : words) {
-            if (!word.equals(prefix) && word.startsWith(prefix)) {
-                result.add(word);
+            if (!word.startsWith(prefix) || known.contains(word)) {
+                continue;
+            }
+            String signature = KEYWORDS.contains(word) ? "keyword" : BUILTINS.contains(word) ? "builtin" : "";
+            result.add(new Suggestion(word, signature, "", word, word.length(), null));
+        }
+
+        result.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.label, b.label));
+        return result.size() > 24 ? new ArrayList<>(result.subList(0, 24)) : result;
+    }
+
+    private static final java.util.regex.Pattern DECORATOR =
+            java.util.regex.Pattern.compile("@(block|item|entity|effect)\\s*\\(");
+
+    /**
+     * The declaration decorator whose argument list contains the cursor:
+     * "block", "item", "entity" or "effect", or null when outside one.
+     */
+    private String activeDecorator() {
+        for (int i = cursorLine; i >= 0 && cursorLine - i < 12; i--) {
+            String scan = lineAt(i);
+            int limit = scan.length();
+            if (i == cursorLine) {
+                limit = Math.min(cursorCol, scan.length());
+            }
+            Matcher matcher = DECORATOR.matcher(scan.substring(0, limit));
+            int start = -1;
+            String kind = null;
+            while (matcher.find()) {
+                kind = matcher.group(1);
+                start = matcher.start();
+            }
+            if (kind == null) {
+                continue;
+            }
+            StringBuilder region = new StringBuilder();
+            if (i == cursorLine) {
+                region.append(scan, start, limit);
+            } else {
+                region.append(scan.substring(start));
+                for (int j = i + 1; j <= cursorLine; j++) {
+                    region.append('\n');
+                    String l = lineAt(j);
+                    region.append(j == cursorLine ? l.substring(0, Math.min(cursorCol, l.length())) : l);
+                }
+            }
+            if (parenBalance(region.toString()) > 0) {
+                return kind;
             }
         }
-        result.sort(String.CASE_INSENSITIVE_ORDER);
-        return result.subList(0, Math.min(result.size(), 24));
+        return null;
+    }
+
+    /** Counts unclosed '(' in the region, ignoring parentheses inside strings. */
+    private static int parenBalance(String region) {
+        int balance = 0;
+        boolean inString = false;
+        char quote = 0;
+        for (int i = 0; i < region.length(); i++) {
+            char c = region.charAt(i);
+            if (inString) {
+                if (c == '\\') {
+                    i++;
+                } else if (c == quote) {
+                    inString = false;
+                }
+                continue;
+            }
+            if (c == '"' || c == '\'') {
+                inString = true;
+                quote = c;
+            } else if (c == '(') {
+                balance++;
+            } else if (c == ')') {
+                balance--;
+            }
+        }
+        return balance;
     }
 
     // ------------------------------------------------------------------
@@ -1227,7 +1452,39 @@ public class CodeEditor {
 
         if (isSuggesting()) {
             drawSuggestions(graphics);
+            drawSnippetGhost(graphics);
         }
+    }
+
+    /**
+     * Grey inline preview of the snippet Tab would insert (the fields a
+     * definition needs). Dismissed automatically as soon as typing stops
+     * matching the snippet.
+     */
+    private void drawSnippetGhost(GuiGraphics graphics) {
+        Suggestion selected = suggestions.get(suggestionIndex);
+        if (selected == null || !selected.isSnippet() || !atStatementStart()) {
+            return;
+        }
+        int textLeft = x + gutterWidth();
+        String[] parts = selected.insert.split("\n", -1);
+        int lineY = y + (int) ((suggestionLine - scrollLine) * lineHeight());
+        int startX = textLeft + (int) (colToX(lineAt(suggestionLine), suggestionStartCol) - scrollX);
+        graphics.enableScissor(textLeft, y, x + width, y + height);
+        for (int i = 0; i < parts.length; i++) {
+            int gy = lineY + i * lineHeight();
+            int gx = i == 0 ? startX : textLeft + 4;
+            graphics.fill(gx, gy, x + width, gy + lineHeight(), COLOR_BG);
+            graphics.drawString(font, parts[i], gx, gy, COLOR_GHOST, false);
+        }
+        graphics.disableScissor();
+    }
+
+    /** True when only whitespace precedes the typed word on its line. */
+    private boolean atStatementStart() {
+        String line = lineAt(suggestionLine);
+        int start = Math.min(suggestionStartCol, line.length());
+        return line.substring(0, start).isBlank();
     }
 
     private void drawLine(GuiGraphics graphics, int lineIndex, int offsetY) {
@@ -1366,27 +1623,89 @@ public class CodeEditor {
         return null;
     }
 
+    /**
+     * Completion popup: candidate list on the left, and a description panel for
+     * the selected entry (signature + what it does) on the right.
+     */
     private void drawSuggestions(GuiGraphics graphics) {
-        int popupWidth = Math.min(220, width - 8);
-        int popupHeight = Math.min(suggestions.size() * 10 + 6, height - 8);
-        int cx = x + gutterWidth() + (int) (colToX(currentLine(), suggestionCol) - scrollX) - 6;
+        Suggestion selected = suggestions.get(suggestionIndex);
+        int availW = Math.min(width - 8, 320);
+        boolean showDetail = availW >= 220 && selected != null;
+        int listW = showDetail ? 132 : availW;
+        int detailW = showDetail ? availW - listW - 2 : 0;
+        int popupWidth = listW + (showDetail ? detailW + 2 : 0);
+
+        int maxRows = Math.max(2, (height - 24) / 10);
+        int visible = Math.min(suggestions.size(), maxRows);
+        int first = Math.max(0, Math.min(suggestionIndex - visible + 1, suggestions.size() - visible));
+        int listHeight = visible * 10 + 6;
+
+        List<String> signatureLines = List.of();
+        List<String> descriptionLines = List.of();
+        int detailHeight = 0;
+        if (showDetail) {
+            signatureLines = wrap(selected.signature, detailW - 8, 2);
+            descriptionLines = wrap(selected.description, detailW - 8, 5);
+            detailHeight = 6 + signatureLines.size() * 10 + 2 + descriptionLines.size() * 10;
+        }
+        int popupHeight = Math.max(listHeight, detailHeight);
+
+        int cx = x + gutterWidth() + (int) (colToX(lineAt(suggestionLine), suggestionCol) - scrollX) - 6;
         int cy = y + (int) ((suggestionLine - scrollLine) * lineHeight()) + lineHeight();
         if (cy + popupHeight > y + height) {
-            cy = Math.max(y + 4, y + (int) ((suggestionLine - scrollLine) * lineHeight()) - popupHeight - 4);
+            cy = Math.max(y + 2, y + (int) ((suggestionLine - scrollLine) * lineHeight()) - popupHeight - 4);
         }
         int cpx = Math.max(x + 2, Math.min(cx, x + width - popupWidth - 2));
         graphics.fill(cpx - 1, cy - 1, cpx + popupWidth + 1, cy + popupHeight + 1, COLOR_POPUP_BORDER);
         graphics.fill(cpx, cy, cpx + popupWidth, cy + popupHeight, COLOR_POPUP_BG);
-        for (int i = 0; i < suggestions.size(); i++) {
+        for (int i = 0; i < visible; i++) {
+            int index = first + i;
             int sy = cy + 3 + i * 10;
-            if (sy + 10 > cy + popupHeight) {
-                break;
+            if (index == suggestionIndex) {
+                graphics.fill(cpx + 1, sy - 2, cpx + listW - 1, sy + 8, COLOR_POPUP_SEL);
             }
-            if (i == suggestionIndex) {
-                graphics.fill(cpx + 1, sy - 2, cpx + popupWidth - 1, sy + 8, COLOR_POPUP_SEL);
-            }
-            graphics.drawString(font, suggestions.get(i), cpx + 4, sy, COLOR_POPUP_TEXT, false);
+            graphics.drawString(font, font.plainSubstrByWidth(suggestions.get(index).label, listW - 8), cpx + 4, sy,
+                    COLOR_POPUP_TEXT, false);
         }
+        if (showDetail) {
+            int dx = cpx + listW + 2;
+            graphics.fill(dx - 1, cy + 1, dx, cy + popupHeight - 1, COLOR_POPUP_BORDER);
+            int dy = cy + 3;
+            for (String line : signatureLines) {
+                graphics.drawString(font, line, dx + 4, dy, COLOR_POPUP_BORDER, false);
+                dy += 10;
+            }
+            dy += 2;
+            for (String line : descriptionLines) {
+                graphics.drawString(font, line, dx + 4, dy, COLOR_POPUP_DOC, false);
+                dy += 10;
+            }
+        }
+    }
+
+    /** Word-wraps {@code text} to {@code maxWidth} pixels, at most {@code maxLines} lines. */
+    private List<String> wrap(String text, int maxWidth, int maxLines) {
+        List<String> out = new ArrayList<>();
+        if (text == null || text.isEmpty()) {
+            return out;
+        }
+        String line = "";
+        for (String word : text.split(" ")) {
+            String candidate = line.isEmpty() ? word : line + " " + word;
+            if (!line.isEmpty() && font.width(candidate) > maxWidth) {
+                out.add(line);
+                if (out.size() >= maxLines) {
+                    return out;
+                }
+                line = word;
+            } else {
+                line = candidate;
+            }
+        }
+        if (!line.isEmpty()) {
+            out.add(line);
+        }
+        return out;
     }
 
     public boolean isSuggesting() {
