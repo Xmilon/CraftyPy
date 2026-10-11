@@ -1,0 +1,1524 @@
+package net.xmilon.craftpy.client.screen;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.lwjgl.glfw.GLFW;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
+import net.xmilon.craftpy.assets.AssetKind;
+import net.xmilon.craftpy.assets.AssetReference;
+import net.xmilon.craftpy.assets.AssetReferences;
+
+/**
+ * A self-contained Python text editor for the CraftPy IDE. Pure rendering +
+ * input; it has no game or network dependencies. All file IO is coordinated by
+ * the owning screen on background threads; edits are applied to the local
+ * buffer and flushed to disk on save.
+ */
+public class CodeEditor {
+    private static final int COLOR_TEXT = 0xFFD4D4D4;
+    private static final int COLOR_KEYWORD = 0xFFC586C0;
+    private static final int COLOR_BUILTIN = 0xFFDCDCAA;
+    private static final int COLOR_STRING = 0xFFCE9178;
+    private static final int COLOR_COMMENT = 0xFF6A9955;
+    private static final int COLOR_NUMBER = 0xFFB5CEA8;
+    private static final int COLOR_DECORATOR = 0xFF4EC9B0;
+    private static final int COLOR_DEF_NAME = 0xFF9CDCFE;
+    private static final int COLOR_CURSOR = 0xFFFFFFFF;
+    private static final int COLOR_SELECTION = 0x4026465A;
+    private static final int COLOR_SEARCH = 0x40FFEB3B;
+    private static final int COLOR_BRACKET = 0xFFFFE082;
+    private static final int COLOR_GUTTER = 0xFF7D8B9A;
+    private static final int COLOR_GUTTER_BG = 0xFF171D25;
+    private static final int COLOR_BG = 0xFF10141A;
+    private static final int COLOR_LINE_HIGHLIGHT = 0xFF161D26;
+    private static final int COLOR_POPUP_BG = 0xFF1B222C;
+    private static final int COLOR_POPUP_BORDER = 0xFF4FC3F7;
+    private static final int COLOR_POPUP_SEL = 0xFF2C5B7A;
+    private static final int COLOR_POPUP_TEXT = 0xFFD7E1EA;
+
+    private static final Set<String> KEYWORDS = Set.of("False", "None", "True", "and", "as", "assert", "async",
+            "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from",
+            "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try",
+            "while", "with", "yield");
+
+    private static final Set<String> BUILTINS = Set.of("print", "len", "range", "str", "int", "float", "list", "dict",
+            "set", "tuple", "sum", "min", "max", "enumerate", "zip", "map", "filter", "isinstance", "type", "id",
+            "open", "sorted", "reversed", "abs", "all", "any", "bool", "bytes", "chr", "ord", "divmod", "format",
+            "frozenset", "getattr", "hasattr", "setattr", "hash", "hex", "oct", "bin", "input", "iter", "next",
+            "object", "property", "slice", "super", "vars");
+
+    private static final Pattern WORD = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+
+    /** The CraftPy v1 API surface, kept in sync with docs/pyforge_api.md. */
+    public static final String[] CRAFTPY_API = { "block", "item", "entity", "effect", "recipe_shaped", "recipe_shapeless",
+            "recipe_smelting", "loot_table", "loot_self", "tag", "tex", "snd", "mdl", "on", "Command", "Player",
+            "World", "BlockPos", "SoundEvent", "ItemStack", "context", "ctx", "main", "register" };
+
+    private final Font font;
+    private int x;
+    private int y;
+    private int width;
+    private int height;
+
+    private final List<String> lines = new ArrayList<>();
+    private boolean focused;
+    private int clickButton = -1;
+
+    private int cursorLine;
+    private int cursorCol;
+    private boolean selecting;
+    private int anchorLine;
+    private int anchorCol;
+    private int scrollLine;
+    private int scrollX;
+
+    private final Deque<String> undo = new ArrayDeque<>();
+    private final Deque<String> redo = new ArrayDeque<>();
+    private boolean grouped;
+
+    private String searchQuery = "";
+    private int searchFromLine = 0;
+    private int matchLine = -1;
+    private int matchCol = -1;
+
+    private List<String> suggestions = List.of();
+    private int suggestionIndex;
+    private int suggestionLine;
+    private int suggestionCol;
+    private int suggestionStartCol;
+
+    private Runnable changeListener;
+
+    /** Callback used to open the asset picker from a gutter marker or Ctrl+Space. */
+    public interface AssetPickerRequest {
+        void open(int line, int start, int end, AssetKind kind, boolean existing);
+    }
+
+    /** Callback used for shift-click "go to definition". */
+    public interface DefinitionLookup {
+        boolean goTo(int line, int col);
+    }
+
+    private AssetPickerRequest assetPickerRequest;
+
+    public void setDefinitionLookup(DefinitionLookup lookup) {
+        this.definitionLookup = lookup;
+    }
+
+    private DefinitionLookup definitionLookup;
+
+    /** Scrolls so the given line is visible (roughly centered). */
+    public void scrollToLine(int target) {
+        int visible = visibleLineCount();
+        int line = Math.max(0, Math.min(target, lines.size() - 1));
+        scrollLine = Math.max(0, line - visible / 2);
+        clampCursor();
+    }
+
+    public int visibleLineCount() {
+        int lineHeight = Math.max(1, lineHeight());
+        return Math.max(1, (int) (height / lineHeight));
+    }
+    private final List<int[]> assetMarkers = new ArrayList<>();
+
+    /** Bumped whenever the document changes; used to invalidate per-frame caches. */
+    private long docStamp;
+    private long cacheStamp = -1;
+    private List<Token>[] tokenCache;
+    private List<AssetReference>[] refCache;
+
+    public CodeEditor(Font font) {
+        this.font = font;
+        setContent("");
+    }
+
+    public void setAssetPickerRequest(AssetPickerRequest request) {
+        this.assetPickerRequest = request;
+    }
+
+    public int cursorLineIndex() {
+        return cursorLine;
+    }
+
+    public int cursorColumn() {
+        return cursorCol;
+    }
+
+    /** Replaces the text in [start,end) on the given line, recording one undo step. */
+    public void replaceRange(int line, int start, int end, String text) {
+        if (line < 0 || line >= lines.size()) {
+            return;
+        }
+        beginGroup();
+        String current = lines.get(line);
+        int s = Math.max(0, Math.min(start, current.length()));
+        int e = Math.max(s, Math.min(end, current.length()));
+        lines.set(line, current.substring(0, s) + text + current.substring(e));
+        cursorLine = line;
+        cursorCol = s + text.length();
+        clampCursor();
+        endGroup();
+        notifyChanged();
+    }
+
+    private boolean openAssetAtCursor() {
+        if (assetPickerRequest == null) {
+            return false;
+        }
+        String line = currentLine();
+        List<AssetReference> refs = AssetReferences.parse(line);
+        for (AssetReference ref : refs) {
+            if (cursorCol >= ref.start() && cursorCol <= ref.end() + 1) {
+                assetPickerRequest.open(cursorLine, ref.start(), ref.end(), ref.kind(), true);
+                return true;
+            }
+        }
+        // No reference under the cursor: offer to insert a tex(...) call.
+        AssetKind guess = AssetKind.TEXTURE;
+        String lower = line.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("sound")) {
+            guess = AssetKind.SOUND;
+        } else if (lower.contains("model")) {
+            guess = AssetKind.MODEL;
+        } else if (lower.contains("icon")) {
+            guess = AssetKind.ITEM;
+        }
+        assetPickerRequest.open(cursorLine, cursorCol, cursorCol, guess, false);
+        return true;
+    }
+
+    public void setChangeListener(Runnable listener) {
+        this.changeListener = listener;
+    }
+
+    private void notifyChanged() {
+        docStamp++;
+        if (changeListener != null) {
+            changeListener.run();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Content
+    // ------------------------------------------------------------------
+
+    public void setContent(String content) {
+        lines.clear();
+        if (content == null || content.isEmpty()) {
+            lines.add("");
+        } else {
+            String[] parts = content.replace("\r\n", "\n").replace("\r", "\n").split("\n", -1);
+            java.util.Collections.addAll(lines, parts);
+            if (lines.get(lines.size() - 1).isEmpty() && lines.size() > 1) {
+                lines.remove(lines.size() - 1);
+            }
+            if (lines.isEmpty()) {
+                lines.add("");
+            }
+        }
+        cursorLine = 0;
+        cursorCol = 0;
+        anchorLine = 0;
+        anchorCol = 0;
+        scrollLine = 0;
+        scrollX = 0;
+        undo.clear();
+        redo.clear();
+        closeSuggestions();
+        docStamp++;
+    }
+
+    public String getContent() {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < lines.size(); i++) {
+            if (i > 0) {
+                builder.append('\n');
+            }
+            builder.append(lines.get(i));
+        }
+        return builder.toString();
+    }
+
+    public String currentLine() {
+        return lineAt(cursorLine);
+    }
+
+    public String lineAt(int index) {
+        if (index < 0 || index >= lines.size()) {
+            return "";
+        }
+        return lines.get(index);
+    }
+
+    /** Returns the identifier under (line, col), or "" if the position is not inside a word. */
+    public String wordAt(int line, int col) {
+        String text = lineAt(line);
+        Matcher matcher = WORD.matcher(text);
+        while (matcher.find()) {
+            if (col >= matcher.start() && col <= matcher.end()) {
+                return matcher.group();
+            }
+        }
+        return "";
+    }
+
+    public int lineCount() {
+        return lines.size();
+    }
+
+    public void setBounds(int x, int y, int width, int height) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+    }
+
+    public void setFocused(boolean focused) {
+        this.focused = focused;
+        if (!focused) {
+            closeSuggestions();
+            clickButton = -1;
+        }
+    }
+
+    public boolean isFocused() {
+        return focused;
+    }
+
+    public String searchQuery() {
+        return searchQuery;
+    }
+
+    public void setSearchQuery(String query) {
+        this.searchQuery = query == null ? "" : query;
+        this.matches = null;
+        this.searchFromLine = cursorLine;
+        findNextMatch();
+    }
+
+    // ------------------------------------------------------------------
+    // Undo
+    // ------------------------------------------------------------------
+
+    private void beginGroup() {
+        if (grouped) {
+            return;
+        }
+        undo.push(getContent());
+        while (undo.size() > 300) {
+            undo.removeLast();
+        }
+        redo.clear();
+        grouped = true;
+    }
+
+    private void endGroup() {
+        grouped = false;
+    }
+
+    public void undo() {
+        if (undo.isEmpty()) {
+            return;
+        }
+        redo.push(getContent());
+        restore(undo.pop());
+        notifyChanged();
+    }
+
+    public void redo() {
+        if (redo.isEmpty()) {
+            return;
+        }
+        undo.push(getContent());
+        restore(redo.pop());
+        notifyChanged();
+    }
+
+    private void restore(String content) {
+        lines.clear();
+        if (content.isEmpty()) {
+            lines.add("");
+        } else {
+            String[] parts = content.split("\n", -1);
+            java.util.Collections.addAll(lines, parts);
+        }
+        clampCursor();
+        closeSuggestions();
+    }
+
+    public boolean hasSelection() {
+        return selecting && !(anchorLine == cursorLine && anchorCol == cursorCol);
+    }
+
+    public String getSelectedText() {
+        if (!hasSelection()) {
+            return "";
+        }
+        int[] start = selectionStart();
+        int[] end = selectionEnd();
+        if (start[0] == end[0]) {
+            return lines.get(start[0]).substring(start[1], end[1]);
+        }
+        StringBuilder builder = new StringBuilder();
+        builder.append(lines.get(start[0]).substring(start[1]));
+        for (int i = start[0] + 1; i < end[0]; i++) {
+            builder.append('\n').append(lines.get(i));
+        }
+        builder.append('\n').append(lines.get(end[0]), 0, end[1]);
+        return builder.toString();
+    }
+
+    public void selectAll() {
+        selecting = true;
+        anchorLine = 0;
+        anchorCol = 0;
+        cursorLine = lines.size() - 1;
+        cursorCol = lines.get(cursorLine).length();
+        clampCursor();
+    }
+
+    // ------------------------------------------------------------------
+    // Editing primitives
+    // ------------------------------------------------------------------
+
+    private void insertWithoutSnapshot(String text) {
+        String[] parts = text.split("\n", -1);
+        String line = lines.get(cursorLine);
+        if (parts.length == 1) {
+            lines.set(cursorLine, line.substring(0, cursorCol) + parts[0] + line.substring(cursorCol));
+            cursorCol += parts[0].length();
+            return;
+        }
+        lines.set(cursorLine, line.substring(0, cursorCol) + parts[0]);
+        for (int i = 1; i < parts.length; i++) {
+            lines.add(cursorLine + i, parts[i] + (i == parts.length - 1 ? line.substring(cursorCol) : ""));
+        }
+        cursorLine = Math.min(lines.size() - 1, cursorLine + parts.length - 1);
+        cursorCol = parts[parts.length - 1].length();
+    }
+
+    private void newline() {
+        String line = lines.get(cursorLine);
+        String before = line.substring(0, cursorCol);
+        String after = line.substring(cursorCol);
+        String trimmed = before.trim();
+        String indent = currentIndent(cursorLine);
+        if (!trimmed.isEmpty() && (trimmed.endsWith(":") || trimmed.endsWith("(") || trimmed.endsWith("[")
+                || trimmed.endsWith("{"))) {
+            indent = indent + "    ";
+        }
+        lines.set(cursorLine, before);
+        lines.add(cursorLine + 1, indent + after);
+        cursorLine++;
+        cursorCol = indent.length();
+    }
+
+    private String currentIndent(int lineIndex) {
+        String line = lineAt(lineIndex);
+        int i = 0;
+        while (i < line.length() && line.charAt(i) == ' ') {
+            i++;
+        }
+        return line.substring(0, i);
+    }
+
+    private void deleteBack() {
+        if (hasSelection()) {
+            deleteSelection();
+            return;
+        }
+        if (cursorCol > 0) {
+            String line = lines.get(cursorLine);
+            int step = 1;
+            if (cursorCol >= 4 && line.startsWith("    ") && cursorCol % 4 == 0
+                    && indentationOnly(line, cursorCol)) {
+                step = 4;
+            }
+            lines.set(cursorLine, line.substring(0, cursorCol - step) + line.substring(cursorCol));
+            cursorCol -= step;
+        } else if (cursorLine > 0) {
+            String prev = lines.get(cursorLine - 1);
+            cursorCol = prev.length();
+            lines.set(cursorLine - 1, prev + lines.get(cursorLine));
+            lines.remove(cursorLine);
+            cursorLine--;
+        }
+        clampCursor();
+    }
+
+    private boolean indentationOnly(String line, int col) {
+        for (int i = 0; i < col; i++) {
+            if (line.charAt(i) != ' ') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void deleteForward() {
+        if (hasSelection()) {
+            deleteSelection();
+            return;
+        }
+        String line = lines.get(cursorLine);
+        if (cursorCol < line.length()) {
+            lines.set(cursorLine, line.substring(0, cursorCol) + line.substring(cursorCol + 1));
+        } else if (cursorLine < lines.size() - 1) {
+            lines.set(cursorLine, line + lines.get(cursorLine + 1));
+            lines.remove(cursorLine + 1);
+        }
+        clampCursor();
+    }
+
+    private void deleteSelection() {
+        int[] start = selectionStart();
+        int[] end = selectionEnd();
+        if (start[0] == end[0]) {
+            String line = lines.get(start[0]);
+            lines.set(start[0], line.substring(0, start[1]) + line.substring(end[1]));
+        } else {
+            String head = lines.get(start[0]).substring(0, start[1]);
+            String tail = lines.get(end[0]).substring(end[1]);
+            for (int i = end[0]; i > start[0]; i--) {
+                lines.remove(i);
+            }
+            lines.set(start[0], head + tail);
+        }
+        cursorLine = start[0];
+        cursorCol = start[1];
+        setAnchorToCursor();
+        clampCursor();
+    }
+
+    public void copy() {
+        if (hasSelection()) {
+            Minecraft.getInstance().keyboardHandler.setClipboard(getSelectedText());
+        }
+    }
+
+    public void cut() {
+        if (hasSelection()) {
+            String text = getSelectedText();
+            Minecraft.getInstance().keyboardHandler.setClipboard(text);
+            beginGroup();
+            deleteSelection();
+            endGroup();
+            notifyChanged();
+        }
+    }
+
+    public void paste() {
+        String clip = Minecraft.getInstance().keyboardHandler.getClipboard();
+        if (clip == null || clip.isEmpty()) {
+            return;
+        }
+        beginGroup();
+        if (hasSelection()) {
+            deleteSelection();
+        }
+        insertWithoutSnapshot(clip.replace("\r\n", "\n").replace("\r", "\n"));
+        clampCursor();
+        endGroup();
+        notifyChanged();
+    }
+
+    /** Returns the matching closer for an opening bracket/quote, or 0 for normal chars. */
+    private char autoclose(char codePoint) {
+        return switch (codePoint) {
+            case '(' -> ')';
+            case '[' -> ']';
+            case '{' -> '}';
+            case '"', '\'' -> codePoint;
+            default -> 0;
+        };
+    }
+
+    /** Ctrl+D: duplicates the current line (or the text selected on one line) below. */
+    private void duplicateLine() {
+        beginGroup();
+        if (hasSelection() && selectionStart()[0] == selectionEnd()[0]) {
+            int[] start = selectionStart();
+            int[] end = selectionEnd();
+            String line = lines.get(start[0]);
+            String selected = line.substring(start[1], end[1]);
+            lines.set(start[0], line.substring(0, end[1]) + selected + line.substring(end[1]));
+            cursorLine = start[0];
+            cursorCol = end[1] + selected.length();
+        } else {
+            String line = lines.get(cursorLine);
+            lines.add(cursorLine + 1, line);
+            cursorLine++;
+        }
+        setAnchorToCursor();
+        clampCursor();
+        endGroup();
+        notifyChanged();
+    }
+
+    /** Ctrl+/: toggles "# " comments on the cursor line or every selected line. */
+    private void toggleComment() {
+        int start = Math.min(anchorLine, cursorLine);
+        int end = Math.max(anchorLine, cursorLine);
+        boolean uncomment = true;
+        for (int i = start; i <= end; i++) {
+            if (!lineAt(i).isBlank() && !isCommented(lineAt(i))) {
+                uncomment = false;
+                break;
+            }
+        }
+        boolean anyChanged = false;
+        beginGroup();
+        for (int i = start; i <= end; i++) {
+            String line = lines.get(i);
+            if (line.isBlank()) {
+                continue;
+            }
+            String updated = uncomment ? stripComment(line) : insertComment(line);
+            if (!updated.equals(line)) {
+                lines.set(i, updated);
+                anyChanged = true;
+            }
+        }
+        setAnchorToCursor();
+        clampCursor();
+        endGroup();
+        if (anyChanged) {
+            notifyChanged();
+        }
+    }
+
+    private static boolean isCommented(String line) {
+        int i = 0;
+        while (i < line.length() && line.charAt(i) == ' ') {
+            i++;
+        }
+        return i < line.length() && line.charAt(i) == '#';
+    }
+
+    private static String stripComment(String line) {
+        int i = 0;
+        while (i < line.length() && line.charAt(i) == ' ') {
+            i++;
+        }
+        if (i < line.length() && line.charAt(i) == '#') {
+            int end = i + 1;
+            if (end < line.length() && line.charAt(end) == ' ') {
+                end++;
+            }
+            return line.substring(0, i) + line.substring(end);
+        }
+        return line;
+    }
+
+    private static String insertComment(String line) {
+        int i = 0;
+        while (i < line.length() && line.charAt(i) == ' ') {
+            i++;
+        }
+        return line.substring(0, i) + "# " + line.substring(i);
+    }
+
+    private void indentSelection(boolean unindent) {
+        int start = Math.min(anchorLine, cursorLine);
+        int end = Math.max(anchorLine, cursorLine);
+        if (unindent) {
+            for (int i = start; i <= end; i++) {
+                String line = lines.get(i);
+                if (line.startsWith("    ")) {
+                    lines.set(i, line.substring(4));
+                } else if (line.startsWith(" ")) {
+                    lines.set(i, line.substring(1));
+                }
+            }
+            cursorCol = Math.max(0, cursorCol - 4);
+            anchorCol = Math.max(0, anchorCol - 4);
+        } else {
+            for (int i = start; i <= end; i++) {
+                lines.set(i, "    " + lines.get(i));
+            }
+            cursorCol += 4;
+            anchorCol += 4;
+        }
+        clampCursor();
+    }
+
+    // ------------------------------------------------------------------
+    // Cursor
+    // ------------------------------------------------------------------
+
+    public void clampCursor() {
+        if (lines.isEmpty()) {
+            lines.add("");
+        }
+        cursorLine = Math.max(0, Math.min(cursorLine, lines.size() - 1));
+        anchorLine = Math.max(0, Math.min(anchorLine, lines.size() - 1));
+        cursorCol = Math.max(0, Math.min(cursorCol, lines.get(cursorLine).length()));
+        anchorCol = Math.max(0, Math.min(anchorCol, lines.get(anchorLine).length()));
+        int visible = Math.max(1, (int) (height / lineHeight()));
+        if (cursorLine < scrollLine) {
+            scrollLine = cursorLine;
+        }
+        if (cursorLine >= scrollLine + visible) {
+            scrollLine = cursorLine - visible + 1;
+        }
+        int xPx = colToX(currentLine(), cursorCol);
+        int avail = textWidth();
+        if (xPx < scrollX) {
+            scrollX = Math.max(0, xPx - 16);
+        }
+        if (xPx > scrollX + avail) {
+            scrollX = Math.max(0, xPx - avail + 8);
+        }
+    }
+
+    private void moveCursor(int line, int col, boolean extend) {
+        int clampedLine = Math.max(0, Math.min(line, lines.size() - 1));
+        int clampedCol = Math.max(0, Math.min(col, lines.get(clampedLine).length()));
+        cursorLine = clampedLine;
+        cursorCol = clampedCol;
+        if (!extend) {
+            setAnchorToCursor();
+        }
+        clampCursor();
+    }
+
+    private void setAnchorToCursor() {
+        anchorLine = cursorLine;
+        anchorCol = cursorCol;
+        selecting = false;
+    }
+
+    private int[] selectionStart() {
+        if (!selecting) {
+            return new int[] { cursorLine, cursorCol };
+        }
+        if (cursorLine < anchorLine || (cursorLine == anchorLine && cursorCol < anchorCol)) {
+            return new int[] { cursorLine, cursorCol };
+        }
+        return new int[] { anchorLine, anchorCol };
+    }
+
+    private int[] selectionEnd() {
+        if (!selecting) {
+            return new int[] { cursorLine, cursorCol };
+        }
+        int[] start = selectionStart();
+        if (start[0] == anchorLine && start[1] == anchorCol) {
+            return new int[] { cursorLine, cursorCol };
+        }
+        return new int[] { anchorLine, anchorCol };
+    }
+
+    // ------------------------------------------------------------------
+    // Mouse
+    // ------------------------------------------------------------------
+
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // Gutter asset markers take priority over text placement.
+        for (int[] marker : assetMarkers) {
+            if (mouseX >= marker[1] && mouseX <= marker[1] + marker[3]
+                    && mouseY >= marker[2] && mouseY <= marker[2] + marker[4]
+                    && assetPickerRequest != null) {
+                int line = marker[0];
+                List<AssetReference> refs = AssetReferences.parse(lineAt(line));
+                if (!refs.isEmpty()) {
+                    AssetReference ref = refs.get(0);
+                    assetPickerRequest.open(line, ref.start(), ref.end(), ref.kind(), true);
+                    return true;
+                }
+            }
+        }
+        if (!contains(mouseX, mouseY)) {
+            return false;
+        }
+        int[] pos = posAt(mouseX, mouseY);
+        if (button == 0 && Screen.hasShiftDown() && definitionLookup != null
+                && definitionLookup.goTo(pos[0], pos[1])) {
+            return true;
+        }
+        cursorLine = Math.max(0, Math.min(pos[0], lines.size() - 1));
+        cursorCol = Math.max(0, Math.min(pos[1], lines.get(cursorLine).length()));
+        setAnchorToCursor();
+        clickButton = button;
+        return true;
+    }
+
+    public void mouseDragged(double mouseX, double mouseY, int button) {
+        if (clickButton != 0) {
+            return;
+        }
+        int[] pos = posAt(mouseX, mouseY);
+        int targetLine = Math.max(0, Math.min(pos[0], lines.size() - 1));
+        int targetCol = Math.max(0, Math.min(pos[1], lines.get(targetLine).length()));
+        if (!selecting) {
+            selecting = true;
+            anchorLine = cursorLine;
+            anchorCol = cursorCol;
+        }
+        cursorLine = targetLine;
+        cursorCol = targetCol;
+        clampCursor();
+    }
+
+    public boolean mouseScrolled(double horizontalAmount, double verticalAmount) {
+        double result = horizontalAmount;
+        if (result == 0) {
+            result = verticalAmount;
+        }
+        if (!focused || result == 0) {
+            return false;
+        }
+        scrollLine = Math.max(0, (int) (scrollLine - Math.signum(result) * 3));
+        return true;
+    }
+
+    private boolean contains(double mouseX, double mouseY) {
+        return mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
+    }
+
+    private int[] posAt(double mouseX, double mouseY) {
+        double localX = (mouseX - x - gutterWidth()) + scrollX;
+        double localY = (mouseY - y);
+        int line = Math.max(0, Math.min((int) (localY / lineHeight()), lines.size() - 1));
+        String text = lineAt(line);
+        int col = 0;
+        for (int i = 0; i <= text.length(); i++) {
+            int w = font.width(text.substring(0, i));
+            if (localX < w + font.width(" ") / 2.0) {
+                col = i;
+                break;
+            }
+            col = i + 1;
+        }
+        return new int[] { line, col };
+    }
+
+    // ------------------------------------------------------------------
+    // Keyboard
+    // ------------------------------------------------------------------
+
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        boolean ctrl = Screen.hasControlDown();
+        boolean shift = Screen.hasShiftDown();
+
+        if (!suggestions.isEmpty()) {
+            switch (keyCode) {
+                case GLFW.GLFW_KEY_UP -> {
+                    suggestionIndex = Math.max(0, suggestionIndex - 1);
+                    return true;
+                }
+                case GLFW.GLFW_KEY_DOWN -> {
+                    suggestionIndex = Math.min(suggestions.size() - 1, suggestionIndex + 1);
+                    return true;
+                }
+                case GLFW.GLFW_KEY_TAB, GLFW.GLFW_KEY_ENTER -> {
+                    acceptSuggestion();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_ESCAPE -> {
+                    closeSuggestions();
+                    return true;
+                }
+                default -> {
+                }
+            }
+        }
+
+        if (ctrl) {
+            switch (keyCode) {
+                case GLFW.GLFW_KEY_A -> {
+                    selectAll();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_C -> {
+                    copy();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_X -> {
+                    cut();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_V -> {
+                    paste();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_Z -> {
+                    undo();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_Y -> {
+                    redo();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_SPACE -> {
+                    if (!openAssetAtCursor()) {
+                        openSuggestions();
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_D -> {
+                    duplicateLine();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_SLASH -> {
+                    toggleComment();
+                    return true;
+                }
+                default -> {
+                }
+            }
+        }
+
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_LEFT -> {
+                int target = cursorCol - 1;
+                int line = cursorLine;
+                if (target < 0 && line > 0) {
+                    line--;
+                    target = lines.get(line).length();
+                }
+                moveCursor(line, Math.max(0, target), shift);
+            }
+            case GLFW.GLFW_KEY_RIGHT -> {
+                int target = cursorCol + 1;
+                int line = cursorLine;
+                if (cursorCol >= lines.get(line).length() && line < lines.size() - 1) {
+                    line++;
+                    target = 0;
+                }
+                moveCursor(line, target, shift);
+            }
+            case GLFW.GLFW_KEY_UP -> moveCursor(cursorLine - 1, cursorCol, shift);
+            case GLFW.GLFW_KEY_DOWN -> moveCursor(cursorLine + 1, cursorCol, shift);
+            case GLFW.GLFW_KEY_HOME -> moveCursor(ctrl ? 0 : cursorLine, 0, shift);
+            case GLFW.GLFW_KEY_END -> moveCursor(ctrl ? lines.size() - 1 : cursorLine,
+                    lines.get(cursorLine).length(), shift);
+            case GLFW.GLFW_KEY_PAGE_UP -> moveCursor(Math.max(0, cursorLine - (int) (height / lineHeight())), cursorCol,
+                    shift);
+            case GLFW.GLFW_KEY_PAGE_DOWN -> moveCursor(Math.min(lines.size() - 1, cursorLine + (int) (height / lineHeight())),
+                    cursorCol, shift);
+            case GLFW.GLFW_KEY_BACKSPACE -> {
+                beginGroup();
+                deleteBack();
+                endGroup();
+                notifyChanged();
+                return true;
+            }
+            case GLFW.GLFW_KEY_DELETE -> {
+                beginGroup();
+                deleteForward();
+                endGroup();
+                notifyChanged();
+                return true;
+            }
+            case GLFW.GLFW_KEY_ENTER -> {
+                beginGroup();
+                newline();
+                clampCursor();
+                endGroup();
+                notifyChanged();
+                return true;
+            }
+            case GLFW.GLFW_KEY_TAB -> {
+                beginGroup();
+                if (hasSelection()) {
+                    indentSelection(shift);
+                } else {
+                    insertWithoutSnapshot("    ");
+                    clampCursor();
+                }
+                endGroup();
+                notifyChanged();
+                return true;
+            }
+            case GLFW.GLFW_KEY_ESCAPE -> {
+                closeSuggestions();
+                if (!searchQuery.isEmpty()) {
+                    setSearchQuery("");
+                    return true;
+                }
+                return false;
+            }
+            default -> {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (codePoint == 0 || Character.isISOControl(codePoint)) {
+            return false;
+        }
+        beginGroup();
+        if (hasSelection()) {
+            deleteSelection();
+            insertWithoutSnapshot(String.valueOf(codePoint));
+        } else {
+            char close = autoclose(codePoint);
+            String line = lines.get(cursorLine);
+            if (close != 0) {
+                // Overtype instead of duplicating a closing bracket/quote (PyCharm behavior).
+                if (cursorCol < line.length() && line.charAt(cursorCol) == close) {
+                    cursorCol++;
+                } else {
+                    lines.set(cursorLine,
+                            line.substring(0, cursorCol) + codePoint + close + line.substring(cursorCol));
+                    cursorCol++;
+                }
+            } else {
+                lines.set(cursorLine, line.substring(0, cursorCol) + codePoint + line.substring(cursorCol));
+                cursorCol++;
+                if (Character.isLetterOrDigit(codePoint) || codePoint == '_') {
+                    maybeSuggest();
+                }
+            }
+        }
+        clampCursor();
+        endGroup();
+        notifyChanged();
+        return true;
+    }
+
+    // ------------------------------------------------------------------
+    // Suggestions
+    // ------------------------------------------------------------------
+
+    public List<String> suggestionsBacking() {
+        return suggestions;
+    }
+
+    private void maybeSuggest() {
+        String word = currentWord();
+        if (word.length() >= 2 && focused) {
+            List<String> list = suggestFor(word);
+            if (!list.isEmpty()) {
+                suggestionStartCol = cursorCol - word.length();
+                suggestionLine = cursorLine;
+                suggestionCol = cursorCol;
+                suggestionIndex = 0;
+                suggestions = list;
+            }
+        }
+    }
+
+    private void openSuggestions() {
+        String word = currentWord();
+        List<String> list = suggestFor(word);
+        suggestionStartCol = cursorCol - word.length();
+        suggestionLine = cursorLine;
+        suggestionCol = cursorCol;
+        suggestionIndex = 0;
+        suggestions = list;
+    }
+
+    private String currentWord() {
+        String line = currentLine();
+        int start = cursorCol;
+        while (start > 0 && isWordChar(line.charAt(start - 1))) {
+            start--;
+        }
+        return line.substring(start, cursorCol);
+    }
+
+    private static boolean isWordChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_';
+    }
+
+    private void closeSuggestions() {
+        suggestions = List.of();
+        suggestionIndex = 0;
+    }
+
+    private boolean isFunctionName(String word) {
+        return word.equals("recipe_shaped") || word.equals("recipe_shapeless") || word.equals("recipe_smelting")
+                || word.equals("loot_table") || word.equals("loot_self") || word.equals("tag");
+    }
+
+    private void acceptSuggestion() {
+        if (suggestions.isEmpty()) {
+            return;
+        }
+        String chosen = suggestions.get(suggestionIndex);
+        // re-validate word length in case content changed
+        int start = Math.max(0, Math.min(suggestionStartCol, currentLine().length()));
+        beginGroup();
+        String line = lines.get(cursorLine);
+        String before = line.substring(0, Math.min(start, line.length()));
+        int end = Math.min(Math.max(suggestionCol, cursorCol), line.length());
+        String after = line.substring(end);
+        String rest = chosen + (isFunctionName(chosen) ? "()" : "");
+        lines.set(cursorLine, before + rest + after);
+        cursorCol = before.length() + rest.length();
+        clampCursor();
+        endGroup();
+        closeSuggestions();
+        notifyChanged();
+    }
+
+    private List<String> suggestFor(String prefix) {
+        Set<String> words = new HashSet<>();
+        java.util.Collections.addAll(words, CRAFTPY_API);
+        words.addAll(KEYWORDS);
+        words.addAll(BUILTINS);
+        for (String line : lines) {
+            Matcher matcher = WORD.matcher(line);
+            while (matcher.find()) {
+                words.add(matcher.group());
+            }
+        }
+        List<String> result = new ArrayList<>();
+        for (String word : words) {
+            if (!word.equals(prefix) && word.startsWith(prefix)) {
+                result.add(word);
+            }
+        }
+        result.sort(String.CASE_INSENSITIVE_ORDER);
+        return result.subList(0, Math.min(result.size(), 24));
+    }
+
+    // ------------------------------------------------------------------
+    // Search
+    // ------------------------------------------------------------------
+
+    private int[][] matches;
+
+    public void findNextMatch() {
+        if (searchQuery.isEmpty()) {
+            matches = null;
+            matchLine = -1;
+            matchCol = -1;
+            return;
+        }
+        List<int[]> found = new ArrayList<>();
+        for (int i = 0; i < lines.size(); i++) {
+            String text = lines.get(i);
+            int idx = text.indexOf(searchQuery);
+            while (idx >= 0) {
+                found.add(new int[] { i, idx });
+                idx = text.indexOf(searchQuery, idx + 1);
+            }
+        }
+        matches = found.isEmpty() ? null : found.toArray(new int[0][0]);
+        if (matches == null) {
+            matchLine = -1;
+            matchCol = -1;
+            return;
+        }
+        int best = 0;
+        for (int i = 0; i < matches.length; i++) {
+            if (matches[i][0] > matchLine || (matches[i][0] == matchLine && matches[i][1] >= matchCol)) {
+                best = i;
+                break;
+            }
+        }
+        jumpToMatch(best);
+    }
+
+    public void findNext() {
+        if (matches == null || matches.length == 0) {
+            findNextMatch();
+            return;
+        }
+        int current = currentMatchIndex();
+        jumpToMatch((current + 1) % matches.length);
+    }
+
+    public void findPrevious() {
+        if (matches == null || matches.length == 0) {
+            findNextMatch();
+            return;
+        }
+        int current = currentMatchIndex();
+        jumpToMatch((current - 1 + matches.length) % matches.length);
+    }
+
+    private int currentMatchIndex() {
+        for (int i = 0; i < matches.length; i++) {
+            if (matches[i][0] == matchLine && matches[i][1] == matchCol) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void jumpToMatch(int index) {
+        matchLine = matches[index][0];
+        matchCol = matches[index][1];
+        cursorLine = matchLine;
+        cursorCol = matchCol;
+        setAnchorToCursor();
+        clampCursor();
+    }
+
+    public int matchCount() {
+        return matches == null ? 0 : matches.length;
+    }
+
+    // ------------------------------------------------------------------
+    // Layout helpers
+    // ------------------------------------------------------------------
+
+    private int lineHeight() {
+        return font.lineHeight;
+    }
+
+    private int gutterWidth() {
+        int digits = Math.max(1, Integer.toString(lines.size()).length());
+        return digits * 6 + 14;
+    }
+
+    private int textWidth() {
+        return width - gutterWidth();
+    }
+
+    private int colToX(String text, int col) {
+        if (col <= 0) {
+            return 0;
+        }
+        int end = Math.min(col, text.length());
+        return font.width(text.substring(0, end));
+    }
+
+    // ------------------------------------------------------------------
+    // Rendering
+    // ------------------------------------------------------------------
+
+    public void render(GuiGraphics graphics, int mouseX, int mouseY) {
+        graphics.fill(x, y, x + width, y + height, COLOR_BG);
+        int textLeft = x + gutterWidth();
+        graphics.fill(x, y, textLeft, y + height, COLOR_GUTTER_BG);
+        assetMarkers.clear();
+
+        int offsetY = 0;
+        int visibleLines = (int) (height / lineHeight()) + 1;
+        for (int lineIndex = scrollLine; lineIndex < Math.min(scrollLine + visibleLines, lines.size()); lineIndex++) {
+            if (offsetY > height) {
+                break;
+            }
+            drawLine(graphics, lineIndex, offsetY);
+            offsetY += lineHeight();
+        }
+
+        // scrollbar
+        int visible = Math.max(1, (int) (height / lineHeight()));
+        if (lines.size() > visible) {
+            int barHeight = Math.max(12, height * visible / lines.size());
+            int barY = y + (int) ((height - barHeight) * ((double) scrollLine / (lines.size() - visible)));
+            graphics.fill(x + width - 3, barY, x + width, barY + barHeight, 0xFF2E3A48);
+        }
+
+        if (focused && (System.currentTimeMillis() / 500) % 2 == 0) {
+            int cx = textLeft + (int) (colToX(currentLine(), cursorCol) - scrollX);
+            int cy = y + (int) ((cursorLine - scrollLine) * lineHeight());
+            graphics.fill(cx, cy, cx + Math.max(1, font.width(" ") / 2), cy + lineHeight(), COLOR_CURSOR);
+        }
+
+        if (isSuggesting()) {
+            drawSuggestions(graphics);
+        }
+    }
+
+    private void drawLine(GuiGraphics graphics, int lineIndex, int offsetY) {
+        int textLeft = x + gutterWidth();
+        String text = lineAt(lineIndex);
+        int yTop = y + offsetY;
+        int yBot = y + offsetY + lineHeight() - 1;
+
+        if (lineIndex == cursorLine && focused) {
+            graphics.fill(textLeft, yTop, x + width, yBot + 1, COLOR_LINE_HIGHLIGHT);
+        }
+        String number = Integer.toString(lineIndex + 1);
+        graphics.drawString(font, number, textLeft - font.width(number) - 8, yTop, COLOR_GUTTER, false);
+
+        // Asset reference gutter marker ("A"): clickable to open the picker.
+        if (!cachedRefs(lineIndex, text).isEmpty() && assetPickerRequest != null) {
+            int mx = textLeft - 12;
+            graphics.fill(mx, yTop, mx + 9, yTop + 9, 0xFF2E7D32);
+            graphics.drawString(font, "A", mx + 2, yTop + 1, 0xFFB9F6CA, false);
+            assetMarkers.add(new int[] { lineIndex, mx, yTop, 9, 9 });
+        }
+
+        if (hasSelection()) {
+            int[] start = selectionStart();
+            int[] end = selectionEnd();
+            if (lineIndex >= start[0] && lineIndex <= end[0]) {
+                int from = lineIndex == start[0] ? start[1] : 0;
+                int to = lineIndex == end[0] ? end[1] : text.length();
+                int sx = textLeft + (int) (colToX(text, from) - scrollX);
+                int ex = textLeft + (int) (colToX(text, to) - scrollX);
+                graphics.fill(Math.max(sx, textLeft), yTop, Math.max(sx + 1, ex), yBot + 1, COLOR_SELECTION);
+            }
+        }
+
+        if (searchQuery != null && !searchQuery.isEmpty()) {
+            int idx = text.indexOf(searchQuery);
+            while (idx >= 0) {
+                boolean isCurrent = lineIndex == matchLine && idx == matchCol;
+                int shx = textLeft + (int) (colToX(text, idx) - scrollX);
+                int ehx = textLeft + (int) (colToX(text, idx + searchQuery.length()) - scrollX);
+                graphics.fill(Math.max(shx, textLeft), yTop, Math.max(shx + 1, ehx), yBot + 1,
+                        isCurrent ? 0x80FF9800 : COLOR_SEARCH);
+                idx = text.indexOf(searchQuery, idx + 1);
+            }
+        }
+
+        // bracket match
+        int[] bm = bracketMatch();
+        if (bm != null) {
+            highlightBracket(graphics, textLeft, lineIndex, text, yTop, yBot, bm[0], bm[1]);
+            highlightBracket(graphics, textLeft, lineIndex, text, yTop, yBot, bm[2], bm[3]);
+        }
+
+        List<Token> tokens = cachedTokens(lineIndex, text);
+        int drawX = textLeft + (int) (0 - scrollX);
+        for (Token token : tokens) {
+            int tokenWidth = font.width(token.text);
+            if (drawX + tokenWidth < textLeft || drawX > x + width) {
+                drawX += tokenWidth;
+                continue;
+            }
+            graphics.drawString(font, token.text, drawX, yTop, token.color, false);
+            drawX += tokenWidth;
+        }
+    }
+
+    private void highlightBracket(GuiGraphics graphics, int textLeft, int lineIndex, String text, int yTop, int yBot,
+            int bLine, int bCol) {
+        if (lineIndex != bLine) {
+            return;
+        }
+        if (bCol < 0 || bCol >= text.length()) {
+            return;
+        }
+        int bx = textLeft + (int) (colToX(text, bCol) - scrollX);
+        int bw = font.width(String.valueOf(text.charAt(bCol)));
+        graphics.fill(Math.max(bx, textLeft), yTop, Math.max(bx + 1, bx + bw), yBot, COLOR_BRACKET);
+    }
+
+    /** Returns {line,col,targetLine,targetCol} if cursor sits on a matching bracket pair. */
+    private int[] bracketMatch() {
+        String line = currentLine();
+        int col = cursorCol;
+        char at = col < line.length() ? line.charAt(col) : 0;
+        char before = col > 0 ? line.charAt(col - 1) : 0;
+        int startLine = cursorLine;
+        int startCol;
+        char open;
+        char close;
+        boolean forward;
+        if (at == '(' || at == '[' || at == '{') {
+            open = at;
+            close = open == '(' ? ')' : open == '[' ? ']' : '}';
+            startCol = col;
+            forward = true;
+        } else if (before == ')' || before == ']' || before == '}') {
+            close = before;
+            open = close == ')' ? '(' : close == ']' ? '[' : '{';
+            startCol = col - 1;
+            forward = false;
+        } else {
+            return null;
+        }
+        int depth = 0;
+        if (forward) {
+            for (int i = startLine; i < lines.size(); i++) {
+                String text = lines.get(i);
+                int from = i == startLine ? startCol + 1 : 0;
+                for (int j = from; j < text.length(); j++) {
+                    if (text.charAt(j) == open) {
+                        depth++;
+                    } else if (text.charAt(j) == close) {
+                        depth--;
+                        if (depth < 0) {
+                            return new int[] { startLine, startCol, i, j };
+                        }
+                    }
+                }
+            }
+        } else {
+            for (int i = startLine; i >= 0; i--) {
+                String text = lines.get(i);
+                int from = i == startLine ? startCol - 1 : text.length() - 1;
+                for (int j = from; j >= 0; j--) {
+                    if (text.charAt(j) == close) {
+                        depth++;
+                    } else if (text.charAt(j) == open) {
+                        depth--;
+                        if (depth < 0) {
+                            return new int[] { startLine, startCol, i, j };
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private void drawSuggestions(GuiGraphics graphics) {
+        int popupWidth = Math.min(220, width - 8);
+        int popupHeight = Math.min(suggestions.size() * 10 + 6, height - 8);
+        int cx = x + gutterWidth() + (int) (colToX(currentLine(), suggestionCol) - scrollX) - 6;
+        int cy = y + (int) ((suggestionLine - scrollLine) * lineHeight()) + lineHeight();
+        if (cy + popupHeight > y + height) {
+            cy = Math.max(y + 4, y + (int) ((suggestionLine - scrollLine) * lineHeight()) - popupHeight - 4);
+        }
+        int cpx = Math.max(x + 2, Math.min(cx, x + width - popupWidth - 2));
+        graphics.fill(cpx - 1, cy - 1, cpx + popupWidth + 1, cy + popupHeight + 1, COLOR_POPUP_BORDER);
+        graphics.fill(cpx, cy, cpx + popupWidth, cy + popupHeight, COLOR_POPUP_BG);
+        for (int i = 0; i < suggestions.size(); i++) {
+            int sy = cy + 3 + i * 10;
+            if (sy + 10 > cy + popupHeight) {
+                break;
+            }
+            if (i == suggestionIndex) {
+                graphics.fill(cpx + 1, sy - 2, cpx + popupWidth - 1, sy + 8, COLOR_POPUP_SEL);
+            }
+            graphics.drawString(font, suggestions.get(i), cpx + 4, sy, COLOR_POPUP_TEXT, false);
+        }
+    }
+
+    public boolean isSuggesting() {
+        return !suggestions.isEmpty();
+    }
+
+    // ------------------------------------------------------------------
+    // Python syntax highlighting
+    // ------------------------------------------------------------------
+
+    private record Token(String text, int color) {
+    }
+
+    /** Tokenizes one visible line, reusing the result while the document is unchanged. */
+    private List<Token> cachedTokens(int index, String text) {
+        ensureCaches();
+        List<Token> tokens = tokenCache[index];
+        if (tokens == null) {
+            tokens = tokenize(text);
+            tokenCache[index] = tokens;
+        }
+        return tokens;
+    }
+
+    /** Parses the asset references on one visible line, cached like the tokens. */
+    private List<AssetReference> cachedRefs(int index, String text) {
+        ensureCaches();
+        List<AssetReference> refs = refCache[index];
+        if (refs == null) {
+            refs = AssetReferences.parse(text);
+            refCache[index] = refs;
+        }
+        return refs;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void ensureCaches() {
+        if (tokenCache != null && refCache != null && cacheStamp == docStamp
+                && tokenCache.length == lines.size()) {
+            return;
+        }
+        int size = lines.size();
+        tokenCache = new List[size];
+        refCache = new List[size];
+        cacheStamp = docStamp;
+    }
+
+    static List<Token> tokenize(String line) {
+        List<Token> tokens = new ArrayList<>();
+        if (line.isEmpty()) {
+            return tokens;
+        }
+        int i = 0;
+        String prevWord = "";
+        while (i < line.length()) {
+            char c = line.charAt(i);
+            int start = i;
+            if (c == '#') {
+                tokens.add(new Token(line.substring(i), COLOR_COMMENT));
+                return tokens;
+            }
+            if (c == '"' || c == '\'') {
+                char quote = c;
+                i++;
+                boolean closed = false;
+                while (i < line.length()) {
+                    if (line.charAt(i) == '\\') {
+                        i += 2;
+                        continue;
+                    }
+                    if (line.charAt(i) == quote) {
+                        i++;
+                        closed = true;
+                        break;
+                    }
+                    i++;
+                }
+                if (!closed) {
+                    i = Math.min(i, line.length());
+                }
+                tokens.add(new Token(line.substring(start, i), COLOR_STRING));
+                continue;
+            }
+            if (Character.isDigit(c)) {
+                while (i < line.length() && (Character.isLetterOrDigit(line.charAt(i)) || line.charAt(i) == '.'
+                        || line.charAt(i) == '_')) {
+                    i++;
+                }
+                tokens.add(new Token(line.substring(start, i), COLOR_NUMBER));
+                continue;
+            }
+            if (Character.isLetter(c) || c == '_') {
+                while (i < line.length() && (Character.isLetterOrDigit(line.charAt(i)) || line.charAt(i) == '_')) {
+                    i++;
+                }
+                String word = line.substring(start, i);
+                int color = COLOR_TEXT;
+                if (KEYWORDS.contains(word)) {
+                    color = COLOR_KEYWORD;
+                } else if (BUILTINS.contains(word)) {
+                    color = COLOR_BUILTIN;
+                } else if (prevWord.equals("def") || prevWord.equals("class")) {
+                    color = COLOR_DEF_NAME;
+                } else {
+                    int after = i;
+                    while (after < line.length() && line.charAt(after) == ' ') {
+                        after++;
+                    }
+                    if (after < line.length() && line.charAt(after) == '(') {
+                        color = COLOR_DEF_NAME;
+                    }
+                }
+                prevWord = word;
+                tokens.add(new Token(line.substring(start, i), color));
+                continue;
+            }
+            if (c == '@') {
+                i++;
+                while (i < line.length() && (Character.isLetterOrDigit(line.charAt(i)) || line.charAt(i) == '_'
+                        || line.charAt(i) == '.')) {
+                    i++;
+                }
+                tokens.add(new Token(line.substring(start, i), COLOR_DECORATOR));
+                continue;
+            }
+            while (i < line.length() && !isWordChar(line.charAt(i)) && line.charAt(i) != '#'
+                    && line.charAt(i) != '"' && line.charAt(i) != '\'' && line.charAt(i) != '@'
+                    && !Character.isDigit(line.charAt(i))) {
+                i++;
+            }
+            tokens.add(new Token(line.substring(start, i), COLOR_TEXT));
+        }
+        return tokens;
+    }
+}

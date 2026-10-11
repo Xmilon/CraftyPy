@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "craftpy:block/python_computer"
+    }
+  }
+}
