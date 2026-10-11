@@ -837,7 +837,9 @@ public class CodeEditor {
     private int[] posAt(double mouseX, double mouseY) {
         double localX = (mouseX - x - gutterWidth()) + scrollX;
         double localY = (mouseY - y);
-        int line = Math.max(0, Math.min((int) (localY / lineHeight()), lines.size() - 1));
+        // The visible row is relative to the scroll position; without this the
+        // caret jumped to the top of the document whenever it was scrolled.
+        int line = Math.max(0, Math.min(scrollLine + (int) (localY / lineHeight()), lines.size() - 1));
         String text = lineAt(line);
         int col = 0;
         for (int i = 0; i <= text.length(); i++) {

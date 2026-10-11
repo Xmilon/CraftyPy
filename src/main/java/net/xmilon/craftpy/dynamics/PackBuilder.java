@@ -156,6 +156,7 @@ public final class PackBuilder {
             if (declarations == null) {
                 continue;
             }
+            java.util.Map<String, JsonObject> declaredLoot = new java.util.LinkedHashMap<>();
             for (Declarations.DatapackEntry entry : declarations.datapack()) {
                 if (entry.payload() == null || !entry.payload().isJsonObject()) {
                     continue;
@@ -163,13 +164,64 @@ public final class PackBuilder {
                 JsonObject json = entry.payload().getAsJsonObject();
                 switch (entry.kind()) {
                     case "recipe" -> writeRecipe(data, projectId, json);
-                    case "loot_table" -> writeLootTable(data, projectId, json);
+                    case "loot_table" -> {
+                        writeLootTable(data, projectId, json);
+                        String id = jsonString(json, "id", "");
+                        if (!id.isBlank()) {
+                            declaredLoot.put(id, json);
+                        }
+                    }
                     case "tag" -> writeTag(data, projectId, json);
                     default -> {
                     }
                 }
             }
+            writeBlockLootTables(data, projectId, declaredLoot);
         }
+    }
+
+    /**
+     * Every mapped block slot gets a loot table at the vanilla lookup path
+     * ({@code loot_table/blocks/pcblock_<i>.json}) so mining a project block
+     * behaves like a normal Minecraft block: it drops itself, unless the project
+     * declared a {@code loot_table("<content_id>", ...)} with the same id as the
+     * block - then that one is used instead.
+     */
+    private static void writeBlockLootTables(Path data, String projectId,
+            java.util.Map<String, JsonObject> declaredLoot) throws Exception {
+        for (java.util.Map.Entry<String, SlotRegistry.SlotRef> entry : SlotRegistry.snapshotByHolder().entrySet()) {
+            if (entry.getValue().kind() != SlotRegistry.Kind.BLOCK
+                    || !entry.getKey().startsWith(projectId + ":")) {
+                continue;
+            }
+            String contentId = entry.getKey().substring(projectId.length() + 1);
+            String target = "blocks/pcblock_" + entry.getValue().index();
+            JsonObject custom = declaredLoot.get(contentId);
+            if (custom != null && custom.has("entries") && custom.getAsJsonArray("entries").size() > 0) {
+                writeLootTable(data, projectId, custom, target);
+            } else {
+                writeJson(selfDropLoot("craftpy:pcblock_" + entry.getValue().index()),
+                        data.resolve("loot_table/" + target + ".json"));
+            }
+        }
+    }
+
+    /** A block-type loot table that simply drops the given item. Package-visible for tests. */
+    static JsonObject selfDropLoot(String itemRef) {
+        JsonObject entry = new JsonObject();
+        entry.addProperty("type", "minecraft:item");
+        entry.addProperty("name", itemRef);
+        JsonArray entries = new JsonArray();
+        entries.add(entry);
+        JsonObject pool = new JsonObject();
+        pool.addProperty("rolls", 1.0f);
+        pool.add("entries", entries);
+        JsonArray pools = new JsonArray();
+        pools.add(pool);
+        JsonObject table = new JsonObject();
+        table.addProperty("type", "minecraft:block");
+        table.add("pools", pools);
+        return table;
     }
 
     private static void writeRecipe(Path data, String projectId, JsonObject raw) throws Exception {
@@ -230,6 +282,11 @@ public final class PackBuilder {
     }
 
     private static void writeLootTable(Path data, String projectId, JsonObject raw) throws Exception {
+        writeLootTable(data, projectId, raw, fileName(jsonString(raw, "id", "loot")));
+    }
+
+    /** Writes a block-type loot table to {@code loot_table/<target>.json}. */
+    private static void writeLootTable(Path data, String projectId, JsonObject raw, String target) throws Exception {
         JsonObject table = new JsonObject();
         table.addProperty("type", "minecraft:block");
         JsonArray pools = new JsonArray();
@@ -245,8 +302,7 @@ public final class PackBuilder {
         pool.add("entries", entries);
         pools.add(pool);
         table.add("pools", pools);
-        String name = fileName(jsonString(raw, "id", "loot"));
-        writeJson(table, data.resolve("loot_table/" + name + ".json"));
+        writeJson(table, data.resolve("loot_table/" + target + ".json"));
     }
 
     private static void writeTag(Path data, String projectId, JsonObject raw) throws Exception {

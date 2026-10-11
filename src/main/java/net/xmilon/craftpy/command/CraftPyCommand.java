@@ -10,6 +10,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.network.chat.Component;
@@ -38,6 +39,8 @@ public class CraftPyCommand {
                                 .requires(source -> source.hasPermission(2))
                                 .then(Commands.argument("target", EntityArgument.player())
                                         .then(Commands.argument("id", ResourceLocationArgument.id())
+                                                .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
+                                                        contentIds(), builder))
                                                 .then(Commands.literal("block")
                                                         .executes(ctx -> give(ctx, SlotRegistry.Kind.BLOCK, 1))
                                                         .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
@@ -48,6 +51,11 @@ public class CraftPyCommand {
                                                         .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
                                                                 .executes(ctx -> give(ctx, SlotRegistry.Kind.ITEM,
                                                                         IntegerArgumentType.getInteger(ctx, "count")))))))));
+    }
+
+    /** Every project content id, offered as tab completions for the {@code id} argument. */
+    private static Iterable<String> contentIds() {
+        return new java.util.TreeSet<>(SlotRegistry.snapshotByHolder().keySet());
     }
 
     private static int give(CommandContext<CommandSourceStack> ctx, SlotRegistry.Kind kind, int count)
