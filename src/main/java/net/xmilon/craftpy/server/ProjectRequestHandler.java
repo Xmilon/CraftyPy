@@ -207,6 +207,23 @@ public final class ProjectRequestHandler {
                 return manager.findDefinition(id, request.data())
                         .thenApply(result -> new ResponsePayload(ProjectAction.FIND_DEFINITION, true, "",
                                 Json.COMPACT.toJson(result)));
+            case BUILD: {
+                if (!ProjectManager.isValidId(id)) {
+                    return CompletableFuture.completedFuture(fail(action, "Invalid project id"));
+                }
+                String version = request.data() == null ? "" : request.data().trim();
+                java.io.File target = net.xmilon.craftpy.project.PyForgePaths.exports()
+                        .resolve(id + (version.isEmpty() ? "" : "-" + version) + ".cpm").toFile();
+                return CraftPyExecutors.supplyAsync(() -> {
+                    try {
+                        net.xmilon.craftpy.project.ModuleBuilder.build(id, version.isEmpty() ? null : version);
+                        return new ResponsePayload(ProjectAction.BUILD, true, "Built project '" + id + "' to "
+                                + target.getAbsolutePath(), "");
+                    } catch (java.io.IOException e) {
+                        return fail(ProjectAction.BUILD, "Build failed: " + e.getMessage());
+                    }
+                }, CraftPyExecutors.io());
+            }
             default:
                 return CompletableFuture.completedFuture(fail(action, "Unsupported action: " + action));
         }

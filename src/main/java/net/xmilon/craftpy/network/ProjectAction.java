@@ -23,5 +23,7 @@ public enum ProjectAction {
     RENAME_ENTRY,
     FIND_DEFINITION,
     READ_ASSET,
-    INTERRUPT
+    INTERRUPT,
+    OPEN_IDE,
+    BUILD
 }

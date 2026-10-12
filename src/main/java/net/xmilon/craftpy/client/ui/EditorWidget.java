@@ -20,6 +20,13 @@ public class EditorWidget extends Widget {
     }
 
     @Override
+    public boolean contains(double mouseX, double mouseY) {
+        // Delegate to the editor's own bounds: layoutWidgets() may re-bounds the
+        // CodeEditor directly, so its box is the rendered box.
+        return editor.isInside(mouseX, mouseY);
+    }
+
+    @Override
     protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         editor.render(graphics, mouseX, mouseY);
     }

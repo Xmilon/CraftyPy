@@ -20,7 +20,7 @@ public class MainIDE extends Widget {
     private final AssetViewer assetViewer = new AssetViewer();
     
     private final VBox bottomContainer = new VBox().padding(0).gap(0);
-    private final TabStrip bottomTabs = new TabStrip(new java.util.ArrayList<>(java.util.List.of("CONSOLE", "PROBLEMS", "ASSETS", "API", "PREVIEW", "SETTINGS")), 0, idx -> {});
+    private final TabStrip bottomTabs = new TabStrip(new java.util.ArrayList<>(java.util.List.of("CONSOLE", "PROBLEMS", "PREVIEW")), 0, idx -> {});
     private final Panel bottomPanel = new Panel(Theme.PANEL).withBorder();
     private final Deck bottomDeck = new Deck();
     private final java.util.Map<String, ConsoleWidget> consoles = new java.util.HashMap<>();
@@ -162,6 +162,30 @@ public class MainIDE extends Widget {
             overlay.parent = this;
             layout();
         }
+    }
+
+    /** Adds a widget to the top toolbar (spacer or an icon button). */
+    public void addToolbarWidget(Widget widget) {
+        topBarContent.addChild(widget);
+        layout();
+    }
+
+    public void clearToolbar() {
+        topBarContent.clearChildren();
+        layout();
+    }
+
+    /** Adds an icon button to the top toolbar; the color chip marks the action. */
+    public Button addToolbarChip(String colorToken, String label, Runnable action) {
+        Button button = new Button(label, action).chip(colorToken);
+        button.setBounds(0, 0, Math.max(56, 6 + 7 + this.fontWidth(label)), 14);
+        topBarContent.addChild(button);
+        layout();
+        return button;
+    }
+
+    private int fontWidth(String text) {
+        return net.minecraft.client.Minecraft.getInstance().font.width(text) + 14;
     }
 
     @Override

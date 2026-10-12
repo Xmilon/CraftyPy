@@ -33,12 +33,16 @@ public final class Json {
     public static <T> T read(Path path, Class<T> type) throws IOException {
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             return GSON.fromJson(reader, type);
+        } catch (com.google.gson.JsonParseException e) {
+            throw new IOException("Malformed JSON in " + path.getFileName() + ": " + e.getMessage(), e);
         }
     }
 
     public static JsonElement readTree(Path path) throws IOException {
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             return GSON.fromJson(reader, JsonElement.class);
+        } catch (com.google.gson.JsonParseException e) {
+            throw new IOException("Malformed JSON in " + path.getFileName() + ": " + e.getMessage(), e);
         }
     }
 

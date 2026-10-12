@@ -11,11 +11,18 @@ import net.minecraft.network.chat.Component;
 public class Button extends Widget {
     private Component label;
     private Runnable action;
+    private String chipToken;
     private boolean hovered;
 
     public Button(String label, Runnable action) {
         this.label = Component.literal(label);
         this.action = action;
+    }
+
+    /** Adds a small colored square left of the label (acts as an icon). */
+    public Button chip(String colorToken) {
+        this.chipToken = colorToken;
+        return this;
     }
 
     @Override
@@ -34,7 +41,15 @@ public class Button extends Widget {
 
         Font font = Minecraft.getInstance().font;
         int tw = font.width(label);
-        graphics.drawString(font, label, x + (width - tw) / 2, y + (height - 9) / 2, text, false);
+        int chipW = chipToken == null ? 0 : 7;
+        int total = chipW + tw;
+        int startX = x + (width - total) / 2;
+        if (chipToken != null) {
+            graphics.fill(startX, y + (height - 4) / 2, startX + 4, y + (height - 4) / 2 + 4,
+                    theme.color(chipToken));
+            startX += 7;
+        }
+        graphics.drawString(font, label, startX, y + (height - 9) / 2, text, false);
     }
 
     @Override

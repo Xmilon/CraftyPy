@@ -81,6 +81,13 @@ public final class CraftPyNetwork {
         }));
     }
 
+    /** Sends an action to one player from any thread (CommandEvent handlers, worker callbacks). */
+    public static void sendTo(ServerPlayer player, ProjectAction action, boolean success, String message, String json) {
+        if (player != null) {
+            PacketDistributor.sendToPlayer(player, new ResponsePayload(action, success, message, json));
+        }
+    }
+
     private static void handleRequest(RequestPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) {

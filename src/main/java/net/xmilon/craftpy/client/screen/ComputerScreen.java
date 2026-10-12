@@ -5,22 +5,28 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.lwjgl.glfw.GLFW;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.layouts.LinearLayout;
+import net.minecraft.client.gui.layouts.SpacerElement;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MenuAccess;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.client.Minecraft;
-import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.world.entity.player.Inventory;
 import net.xmilon.craftpy.assets.AssetKind;
 import net.xmilon.craftpy.assets.AssetReference;
@@ -28,25 +34,30 @@ import net.xmilon.craftpy.assets.AssetReferences;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.CodeProblems;
 import net.xmilon.craftpy.client.assets.AssetIndex;
-import net.xmilon.craftpy.client.ui.*;
+import net.xmilon.craftpy.client.ide.CodeEditorWidget;
+import net.xmilon.craftpy.client.ide.EditorTabs;
+import net.xmilon.craftpy.client.ide.IconButton;
+import net.xmilon.craftpy.client.ide.IdeColors;
+import net.xmilon.craftpy.client.ide.ScrollView;
+import net.xmilon.craftpy.client.ide.ScrollView.Row;
 import net.xmilon.craftpy.menu.ComputerMenu;
 import net.xmilon.craftpy.network.ProjectAction;
 import net.xmilon.craftpy.python.PyRuntime;
 
 public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
-    private static final int BG = 0xFF10141A;
-    private static final int PANEL = 0xFF1B222C;
-    private static final int PANEL_ALT = 0xFF232C38;
-    private static final int ACCENT = 0xFF4FC3F7;
-    private static final int TEXT = 0xFFD7E1EA;
-    private static final int MUTED = 0xFF7D8B9A;
-    private static final int BORDER = 0xFF2E3A48;
-    private static final int SELECTED = 0xFF2C5B7A;
-    private static final int ERROR_COLOR = 0xFFFF6B6B;
-    private static final int DIMMER = 0xAA000000;
+    // ------------------------------------------------------------------
+    // Layout metrics (official widgets are positioned by these regions)
+    // ------------------------------------------------------------------
+    private static final int MENU_BAR_H = 26;
+    private static final int TOOLBAR_H = 30;
+    private static final int STATUS_H = 20;
+    private static final int EXPLORER_W = 200;
+    private static final int TAB_H = 24;
+    private static final int BOTTOM_TAB_H = 20;
+    private static final int BOTTOM_INPUT_H = 16;
+    private static final String CONSOLE_PROMPT = ">>> ";
 
-    private static final String[] MENU_TITLES = { "File", "Edit", "Run", "Assets", "Help" };
-    private static final int MENU_BAR_HEIGHT = 18;
+    private static final String[] MENU_TITLES = { "File", "Edit", "Run", "Assets", "Window", "Help" };
     private static final int MENU_ITEM_HEIGHT = 13;
     private static final int CONTEXT_ITEM_HEIGHT = 13;
 
@@ -64,25 +75,40 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     private final ComputerMenu menu;
     private final Inventory inventory;
 
-    private MainIDE mainIDE;
-    private Explorer explorer;
-    private StatusBar statusBar;
-    private CommandPalette commandPalette;
+    // Core editor pair: the real editor (business logic) wrapped in a widget.
     private CodeEditor editor;
+    private CodeEditorWidget editorWidget;
+
+    private EditorTabs editorTabs;
+    private LinearLayout toolbarLayout;
+    private IdeMenuBar menuBar;
+    private ToolbarBackground toolbarBg;
+    private ExplorerHeader explorerHeader;
+    private ExplorerPanel explorerPanel;
+    private BottomTabBar bottomTabBar;
+    private PanelScrollView bottomPanel;
+    private StatusView statusView;
+    private MenuPopup menuPopup;
+    private ContextPopup contextPopup;
+    private PromptDialog promptDialog;
+    private ConfirmDialog confirmDialog;
+    private PalettePopup palettePopup;
+
     private EditBox searchBox;
+    private EditBox replaceBox;
+    private Button replaceButton;
+    private Button replaceAllButton;
     private boolean searchOpen;
 
-    private Button runButton;
-    private Button stopButton;
-    private Button assetsButton;
-
-    private int fileScroll;
-    private int tabScroll;
     private int bottomTab;
-    private int bottomScroll;
     private int focus;
-    private int lastLogSize = -1;
-    private int lastProblemsSize = -1;
+
+    /** Bottom-tab order and titles; indices double as tab ids (Settings is id 5). */
+    private static final int[] BOTTOM_TAB_IDS = { 0, 1, 2, 5 };
+    private static final String[] BOTTOM_TAB_TITLES = { "Console", "Problems", "Preview", "Settings" };
+    /** Tabs currently shown in the bottom panel; empty hides the panel entirely. */
+    private final java.util.LinkedHashSet<Integer> openBottomTabs =
+            new java.util.LinkedHashSet<>(java.util.List.of(0, 1, 2, 5));
 
     private final List<List<MenuItem>> menus = new ArrayList<>();
     private int openMenu = -1;
@@ -98,9 +124,6 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     private final Runnable storeListener = this::refreshFromCache;
 
     // Explorer right-click context menu.
-    private boolean contextOpen;
-    private int contextX;
-    private int contextY;
     private String contextPath;
     private List<MenuItem> contextItems = new ArrayList<>();
 
@@ -138,9 +161,6 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     private record MenuItem(String label, Runnable action) {
     }
 
-    private record Row(String text, int color) {
-    }
-
     public ComputerScreen(ComputerMenu menu, Inventory inventory, Component title) {
         super(title);
         this.menu = menu;
@@ -161,14 +181,16 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         return false;
     }
 
+    // ------------------------------------------------------------------
+    // Widget construction
+    // ------------------------------------------------------------------
+
     @Override
     protected void init() {
-        // init() also runs on window resize / GUI-scale change. The editor and the
-        // widgets are recreated, so any open popup is dropped and the current file
-        // is reloaded into the fresh editor (otherwise it would stay empty).
+        // init() also runs on window resize / GUI-scale change. Open popups are
+        // dropped and the current file is reloaded into the fresh editor.
         this.promptOpen = false;
         this.confirmOpen = false;
-        this.contextOpen = false;
         this.openMenu = -1;
         this.focus = FOCUS_EDITOR;
 
@@ -199,44 +221,91 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 });
             });
         }
-        if (this.mainIDE == null) {
-            this.explorer = new Explorer(path -> {
-                store.openFile(path);
-                this.focus = FOCUS_EDITOR;
-            }, (path, mx, my) -> {
-                this.contextPath = path;
-                this.contextX = mx;
-                this.contextY = my;
-                openContextMenu(mx, my, path);
-            });
-            this.statusBar = new StatusBar(() -> {
-                String file = this.displayedFile == null ? "no file" : this.displayedFile;
-                String lang = this.editor.getLanguage();
-                String title = lang.substring(0, 1).toUpperCase(Locale.ROOT) + lang.substring(1);
-                String currentLine = Integer.toString(this.editor.cursorLineIndex() + 1);
-                String currentCol = Integer.toString(this.editor.cursorColumn() + 1);
-                return title + " | " + file + " | Ln " + currentLine + ", Col " + currentCol;
-            });
-            this.mainIDE = new MainIDE(new EditorWidget(this.editor), this.explorer, this.statusBar,
-                    (graphics, mx, my, pt, x, y, w, h) -> {
-                        switch (this.bottomTab) {
-                            case 0 -> renderConsole(graphics, x, y, w, h);
-                            case 1 -> renderProblems(graphics, x, y, w, h);
-                            case 2 -> renderAssetPanel(graphics, x, y, w, h);
-                            case 3 -> renderApiReference(graphics, x, y, w, h);
-                            case 4 -> renderMarkdownPreview(graphics, x, y, w, h);
-                            default -> renderSettings(graphics, x, y, w, h);
-                        }
-                    });
-            
-            this.commandPalette = new CommandPalette();
-            this.commandPalette.setVisible(false);
-            this.commandPalette.setOnCancel(() -> this.commandPalette.setVisible(false));
-            this.mainIDE.setOverlay(this.commandPalette);
-        }
+
+        this.clearWidgets();
+        this.buildWidgets();
+        this.buildMenus();
+        this.buildToolbar();
+        this.buildOverlays();
+
+        // Overlays now exist; reset their open state.
+        this.contextOpen(false);
+        this.openMenu(-1);
+
         store.setDefinitionCallback(this::onDefinitionFound);
 
-        buildMenus();
+        layoutWidgets();
+        loadApiDoc();
+        refreshFromCache();
+    }
+
+    private void buildWidgets() {
+        this.editorWidget = new CodeEditorWidget(this.editor);
+
+        this.menuBar = new IdeMenuBar();
+        this.addRenderableWidget(this.menuBar);
+
+        this.toolbarBg = new ToolbarBackground();
+        this.addRenderableWidget(this.toolbarBg);
+
+        this.explorerHeader = new ExplorerHeader();
+        this.addRenderableWidget(this.explorerHeader);
+
+        this.explorerPanel = new ExplorerPanel();
+        this.addRenderableWidget(this.explorerPanel);
+
+        this.editorTabs = new EditorTabs(new EditorTabs.Delegate() {
+            @Override
+            public List<EditorTabs.TabInfo> tabs() {
+                List<EditorTabs.TabInfo> out = new ArrayList<>();
+                ClientProjectStore s = ClientProjectStore.getInstance();
+                for (String path : s.openTabs()) {
+                    String label = path.substring(Math.max(0, path.lastIndexOf('/') + 1));
+                    out.add(new EditorTabs.TabInfo(label, s.isDirty(path), path));
+                }
+                return out;
+            }
+
+            @Override
+            public int activeTab() {
+                String active = ClientProjectStore.getInstance().activeFile();
+                List<String> tabs = ClientProjectStore.getInstance().openTabs();
+                return active == null ? -1 : tabs.indexOf(active);
+            }
+
+            @Override
+            public void onSelect(int index) {
+                ClientProjectStore.getInstance().openFile(ClientProjectStore.getInstance().openTabs().get(index));
+            }
+
+            @Override
+            public void onClose(int index) {
+                requestCloseTab(ClientProjectStore.getInstance().openTabs().get(index));
+            }
+
+            @Override
+            public void onNewFile() {
+                promptNewFile("");
+            }
+        });
+        this.addRenderableWidget(this.editorTabs);
+
+        this.addRenderableWidget(this.editorWidget);
+
+        this.bottomTabBar = new BottomTabBar();
+        this.addRenderableWidget(this.bottomTabBar);
+
+        this.bottomPanel = new PanelScrollView();
+        this.addRenderableWidget(this.bottomPanel);
+
+        this.consoleInput = new EditBox(this.font, 0, 0, 120, 12, Component.literal("console"));
+        this.consoleInput.setMaxLength(400);
+        this.consoleInput.setBordered(false);
+        this.consoleInput.setTextColor(IdeColors.TEXT);
+        this.consoleInput.setHint(Component.literal("Python or command; Tab completes"));
+        this.consoleInput.setVisible(false);
+        this.consoleInput.setResponder(this::updateConsoleHint);
+        this.addRenderableWidget(this.consoleInput);
 
         this.searchBox = new EditBox(this.font, 0, 0, 120, 14, Component.literal("search"));
         this.searchBox.setMaxLength(200);
@@ -244,28 +313,74 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         this.searchBox.setResponder(query -> this.editor.setSearchQuery(query));
         this.addRenderableWidget(this.searchBox);
 
+        this.replaceBox = new EditBox(this.font, 0, 0, 100, 14, Component.literal("replace"));
+        this.replaceBox.setMaxLength(200);
+        this.replaceBox.setHint(Component.literal("replace"));
+        this.replaceBox.visible = false;
+        this.addRenderableWidget(this.replaceBox);
+
+        this.replaceButton = Button.builder(Component.literal("Replace"), b -> replaceNext())
+                .bounds(0, 0, 56, 14).build();
+        this.replaceButton.visible = false;
+        this.addRenderableWidget(this.replaceButton);
+
+        this.replaceAllButton = Button.builder(Component.literal("All"), b -> replaceAll())
+                .bounds(0, 0, 40, 14).build();
+        this.replaceAllButton.visible = false;
+        this.addRenderableWidget(this.replaceAllButton);
+
         this.promptBox = new EditBox(this.font, 0, 0, 200, 14, Component.literal("input"));
         this.promptBox.setMaxLength(240);
         this.promptBox.setVisible(false);
         this.addRenderableWidget(this.promptBox);
 
-        this.consoleInput = new EditBox(this.font, 0, 0, 120, 12, Component.literal("console"));
-        this.consoleInput.setMaxLength(400);
-        this.consoleInput.setHint(Component.literal("Python or command; Tab completes"));
-        this.consoleInput.setVisible(false);
-        this.consoleInput.setResponder(this::updateConsoleHint);
-        this.addRenderableWidget(this.consoleInput);
+        this.statusView = new StatusView();
+        this.addRenderableWidget(this.statusView);
 
-        this.runButton = Button.builder(Component.literal("Run"), b -> runProject()).build();
-        this.stopButton = Button.builder(Component.literal("Stop"), b -> store.interrupt()).build();
-        this.assetsButton = Button.builder(Component.literal("Assets"), b -> openAssetPickerAtCursor()).build();
-        this.addRenderableWidget(this.runButton);
-        this.addRenderableWidget(this.stopButton);
-        this.addRenderableWidget(this.assetsButton);
+        this.searchBox.setVisible(false);
+        this.searchBox.setPosition(-200, -200);
+        this.replaceBox.visible = false;
+        this.replaceButton.visible = false;
+        this.replaceAllButton.visible = false;
+        this.promptBox.setVisible(false);
+        this.promptBox.setPosition(-200, -200);
+    }
 
-        layoutWidgets();
-        loadApiDoc();
-        refreshFromCache();
+    /**
+     * Overlays are added last so they render on top and (with the reversed
+     * dispatch in {@link #dispatchClick}) also receive input first.
+     */
+    private void buildOverlays() {
+        this.menuPopup = new MenuPopup();
+        this.addRenderableWidget(this.menuPopup);
+        this.contextPopup = new ContextPopup();
+        this.addRenderableWidget(this.contextPopup);
+        this.promptDialog = new PromptDialog();
+        this.addRenderableWidget(this.promptDialog);
+        this.confirmDialog = new ConfirmDialog();
+        this.addRenderableWidget(this.confirmDialog);
+        this.palettePopup = new PalettePopup();
+        this.addRenderableWidget(this.palettePopup);
+    }
+
+    private void buildToolbar() {
+        this.toolbarLayout = LinearLayout.horizontal().spacing(2);
+        ClientProjectStore store = ClientProjectStore.getInstance();
+
+        this.toolbarLayout.addChild(new IconButton(IconButton.Icon.BUILD, "Build", Component.literal("Build the project (Ctrl+Enter)"), this::buildProject));
+        this.toolbarLayout.addChild(new IconButton(IconButton.Icon.PLAY, "Run", Component.literal("Save and run the project (Ctrl+Shift+R)"), this::runProject));
+        this.toolbarLayout.addChild(new IconButton(IconButton.Icon.STOP, "Stop", Component.literal("Interrupt the running project"), store::interrupt));
+        this.toolbarLayout.addChild(SpacerElement.width(8));
+        this.toolbarLayout.addChild(new IconButton(IconButton.Icon.SAVE, Component.literal("Save the active file (Ctrl+S)"), store::saveActiveFile));
+        this.toolbarLayout.addChild(new IconButton(IconButton.Icon.VALIDATE, Component.literal("Validate the active file (Ctrl+Enter)"), store::validateActiveFile));
+        this.toolbarLayout.addChild(SpacerElement.width(8));
+        this.toolbarLayout.addChild(new IconButton(IconButton.Icon.ASSETS, "Assets", Component.literal("Open the asset bank"), this::openAssetPickerAtCursor));
+        this.toolbarLayout.addChild(new IconButton(IconButton.Icon.FIND, Component.literal("Find in file (Ctrl+F)"), this::toggleSearch));
+        this.toolbarLayout.addChild(SpacerElement.width(8));
+        this.toolbarLayout.addChild(new IconButton(IconButton.Icon.REFRESH, Component.literal("Show the command palette (Ctrl+Shift+P)"), this::openCommandPalette));
+        toolbarLayout.arrangeElements();
+        toolbarLayout.setPosition(8, MENU_BAR_H + (TOOLBAR_H - 22) / 2);
+        toolbarLayout.visitWidgets(widget -> this.addRenderableWidget(widget));
     }
 
     private void buildMenus() {
@@ -294,12 +409,25 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 new MenuItem("Insert Texture...", () -> openAssetPickerKind(AssetKind.TEXTURE)),
                 new MenuItem("Insert Sound...", () -> openAssetPickerKind(AssetKind.SOUND)),
                 new MenuItem("Insert Model...", () -> openAssetPickerKind(AssetKind.MODEL))));
+        List<MenuItem> windowItems = new ArrayList<>();
+        for (int i = 0; i < BOTTOM_TAB_IDS.length; i++) {
+            int id = BOTTOM_TAB_IDS[i];
+            boolean open = this.openBottomTabs.contains(id);
+            windowItems.add(new MenuItem((open ? "\u2713 " : "   ") + BOTTOM_TAB_TITLES[i],
+                    () -> toggleBottomTab(id)));
+        }
+        this.menus.add(windowItems);
         this.menus.add(List.of(
-                new MenuItem("API Reference", () -> showBottomTab(3)),
+                new MenuItem("API Reference", this::openApiDocAsFile),
+                new MenuItem("Settings", () -> showBottomTab(5)),
                 new MenuItem("Controls & Tips", this::showHelp),
                 new MenuItem("About CraftPy", () -> ClientProjectStore.getInstance()
                         .append("CraftPy IDE - write Python to add blocks, items, recipes and more."))));
     }
+
+    // ------------------------------------------------------------------
+    // Actions
+    // ------------------------------------------------------------------
 
     private void formatDocument() {
         if ("json".equals(this.editor.getLanguage())) {
@@ -332,403 +460,173 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         showBottomTab(0);
     }
 
-    private void showBottomTab(int tab) {
-        this.bottomTab = tab;
-        // Console follows the newest line; other tabs start at the top.
-        this.bottomScroll = tab == 0 ? Integer.MAX_VALUE : 0;
-        if (tab != 0 && this.focus == FOCUS_CONSOLE) {
-            this.focus = FOCUS_EDITOR;
-            if (this.consoleInput != null) {
-                this.consoleInput.setFocused(false);
-            }
-        }
-    }
-
-    private void openAssetPickerKind(AssetKind kind) {
-        openAssetPicker(this.editor.cursorLineIndex(), this.editor.cursorColumn(), this.editor.cursorColumn(), kind,
-                false);
-    }
-
-    private void showHelp() {
+    private void buildProject() {
         ClientProjectStore store = ClientProjectStore.getInstance();
-        store.append("Quick help:");
-        store.append("  - Ctrl+S save, Ctrl+Enter validate, Ctrl+F find, Ctrl+Shift+R run.");
-        store.append("  - Shift-click an identifier in the editor to jump to its definition.");
-        store.append("  - Assets menu or the Assets button opens the asset bank (click to insert).");
-        store.append("  - Drop image files on the window to upload them to the selected project.");
-        store.append("  - Right-click the file list to create, rename or delete files.");
-        store.append("  - Click the console input to type commands or Python; type 'help' for commands.");
-        showBottomTab(0);
-    }
-
-    /** Opens the definition (def/class/@block id) for the word under the cursor. */
-    private boolean goToDefinition(int line, int col) {
-        String word = this.editor.wordAt(line, col);
-        if (word.isEmpty()) {
-            return false;
-        }
-        rebuildSymbolIndex();
-        Integer target = symbolLines.get(word);
-        ClientProjectStore store = ClientProjectStore.getInstance();
-        if (target != null) {
-            this.editor.scrollToLine(target);
-            this.editor.setFocused(true);
-            this.focus = FOCUS_EDITOR;
-            store.append("Jumped to definition of '" + word + "' (line " + (target + 1) + ")");
-            return true;
-        }
-        store.append("Searching project for '" + word + "' ...");
-        store.findDefinition(word);
-        return true;
-    }
-
-    /** Handles a cross-file definition result from the server. */
-    private void onDefinitionFound(String file, int line) {
-        ClientProjectStore store = ClientProjectStore.getInstance();
-        if (file == null || file.isEmpty() || line < 0) {
-            store.append("No definition found in this project");
+        if (store.activeProjectId() == null) {
+            store.append("No project loaded - pick one via File > Projects...");
             showBottomTab(0);
             return;
         }
-        if (!file.equals(store.activeFile())) {
-            this.pendingDefinitionFile = file;
-            this.pendingDefinitionLine = line;
-            store.openFile(file);
-            store.append("Definition: " + file + ":" + (line + 1));
+        store.saveActiveFile();
+        store.buildProject(null);
+        showBottomTab(0);
+    }
+
+    private void showBottomTab(int tab) {
+        if (tab >= 0) {
+            this.openBottomTabs.add(tab);
+        }
+        this.bottomTab = tab;
+        this.bottomPanel.setRows(this::bottomRows, tab == 0);
+        layoutWidgets();
+    }
+
+    /** Opens or closes a bottom tab from the Window menu. */
+    private void toggleBottomTab(int id) {
+        if (this.openBottomTabs.contains(id)) {
+            closeBottomTab(id);
         } else {
-            this.editor.scrollToLine(line);
-            this.editor.setFocused(true);
-            this.focus = FOCUS_EDITOR;
-            store.append("Jumped to definition (line " + (line + 1) + ")");
+            showBottomTab(id);
         }
+        buildMenus();
     }
 
-    private void rebuildSymbolIndex() {
-        symbolLines.clear();
-        for (int i = 0; i < this.editor.lineCount(); i++) {
-            String text = this.editor.lineAt(i);
-            recordMatch(SYMBOL_DEF, text, i, 1);
-            recordMatch(SYMBOL_DECL, text, i, 1);
-            recordMatch(SYMBOL_ASSIGN, text, i, 1);
+    /** Closes a bottom tab; when it was active, picks the next open one (or hides the panel). */
+    private void closeBottomTab(int id) {
+        this.openBottomTabs.remove(id);
+        if (this.bottomTab == id) {
+            this.bottomTab = this.openBottomTabs.isEmpty() ? -1 : this.openBottomTabs.iterator().next();
         }
+        this.bottomPanel.setRows(this::bottomRows, this.bottomTab == 0);
+        layoutWidgets();
+        buildMenus();
     }
 
-    private void recordMatch(Pattern pattern, String text, int line, int group) {
-        Matcher matcher = pattern.matcher(text);
-        while (matcher.find()) {
-            symbolLines.putIfAbsent(matcher.group(group), line);
-        }
+    private boolean bottomPanelVisible() {
+        return this.bottomTab >= 0 && !this.openBottomTabs.isEmpty();
     }
 
-    /** Returns to the standalone project browser window. */
-    private void goToChooser() {
-        if (this.minecraft != null) {
-            this.minecraft.setScreen(new ProjectChooserScreen(menu, inventory, Component.literal("CraftPy Projects")));
-        }
+    private void refreshBottomPanel() {
+        this.bottomPanel.setRows(this::bottomRows, this.bottomTab == 0);
     }
 
-    /** Handles files dropped onto the window: uploads them to the selected project. */
-    public void handleDroppedAssets(java.util.List<java.nio.file.Path> paths) {
-        net.xmilon.craftpy.client.ClientProjectStore store = net.xmilon.craftpy.client.ClientProjectStore.getInstance();
-        String projectId = store.selectedId() != null ? store.selectedId() : store.activeProjectId();
-        if (projectId == null) {
-            store.append("Select a project before dropping assets");
-            return;
-        }
-        net.xmilon.craftpy.client.assets.AssetUploader.uploadAll(projectId, paths,
-                net.xmilon.craftpy.assets.AssetKind.TEXTURE);
-    }
-
-    /**
-     * Opens an explorer entry like an IDE: text files become editor tabs, asset
-     * files (textures / sounds) open a preview viewer instead of raw text.
-     */
-    private void openProjectEntry(String path) {
-        String lower = path.toLowerCase(Locale.ROOT).replace('\\', '/');
-        boolean preview = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
-                || lower.endsWith(".ogg") || lower.endsWith(".wav") || lower.endsWith(".mp3");
-        if (!preview) {
-            ClientProjectStore.getInstance().openFile(path);
-            return;
-        }
+    private List<ScrollView.Row> bottomRows() {
         ClientProjectStore store = ClientProjectStore.getInstance();
-        String projectId = store.activeProjectId();
-        if (projectId == null) {
-            return;
-        }
-        store.requestAsset(projectId, path, asset -> {
-            if (this.minecraft != null && this.minecraft.screen == this) {
-                this.minecraft.setScreen(new AssetFileScreen(this, projectId, path, asset.data(), asset.error()));
+        switch (this.bottomTab) {
+            case 0 -> {
+                return consoleRows();
             }
-        });
-    }
-
-    private void openAssetPickerAtCursor() {
-        openAssetPicker(this.editor.cursorLineIndex(), this.editor.cursorColumn(), this.editor.cursorColumn(),
-                net.xmilon.craftpy.assets.AssetKind.TEXTURE, false);
-    }
-
-    private void openAssetPicker(int line, int start, int end, net.xmilon.craftpy.assets.AssetKind kind,
-                                 boolean existing) {
-        if (this.minecraft == null) {
-            return;
-        }
-        CodeEditor editor = this.editor;
-        net.xmilon.craftpy.client.ClientProjectStore store = net.xmilon.craftpy.client.ClientProjectStore.getInstance();
-        String projectId = store.selectedId() != null ? store.selectedId() : store.activeProjectId();
-        this.minecraft.setScreen(new AssetPickerScreen(this, kind, id -> {
-            if (existing) {
-                editor.replaceRange(line, start, end, id);
-            } else {
-                String helper = kind == net.xmilon.craftpy.assets.AssetKind.SOUND ? "snd"
-                        : kind == net.xmilon.craftpy.assets.AssetKind.MODEL ? "mdl" : "tex";
-                editor.replaceRange(line, start, end, helper + "(\"" + id + "\")");
+            case 1 -> {
+                return problemsRows(store);
             }
-        }, projectId));
-    }
-
-    private void openCommandPalette() {
-        if (commandPalette == null) return;
-        commandPalette.clearCommands();
-        ClientProjectStore store = ClientProjectStore.getInstance();
-        
-        commandPalette.addCommand("Run Project", this::runProject);
-        commandPalette.addCommand("Stop Project", store::interrupt);
-        commandPalette.addCommand("Validate Project", () -> store.validateActiveFile());
-        commandPalette.addCommand("Save File", store::saveActiveFile);
-        commandPalette.addCommand("New File", () -> promptNewFile(""));
-        commandPalette.addCommand("New Folder", () -> promptNewFolder(""));
-        commandPalette.addCommand("Clear Console", store::clearLog);
-        commandPalette.addCommand("Open API Reference", () -> showBottomTab(3));
-        
-        for (String file : store.files()) {
-            commandPalette.addCommand("Open: " + file, () -> store.openFile(file));
-        }
-        
-        commandPalette.setVisible(true);
-        commandPalette.focus();
-    }
-
-    private void layoutWidgets() {
-        if (this.mainIDE != null) {
-            this.mainIDE.setBounds(0, 0, width, height);
-        }
-        int pad = layoutPad();
-        int leftW = leftPanelWidth();
-        int bottomH = bottomPanelHeight();
-        int w = this.width;
-
-        int runW = 46;
-        int stopW = 46;
-        int assetsW = 58;
-        this.runButton.setPosition(w - pad - runW, 2);
-        this.runButton.setSize(runW, 14);
-        this.stopButton.setPosition(w - pad - runW - 4 - stopW, 2);
-        this.stopButton.setSize(stopW, 14);
-        this.assetsButton.setPosition(w - pad - runW - 4 - stopW - 4 - assetsW, 2);
-        this.assetsButton.setSize(assetsW, 14);
-
-        int editorX = pad + leftW + pad;
-        int editorY = topBarHeight() + pad + 22;
-        int editorWidth = w - editorX - pad;
-        int editorHeight = height - bottomH - pad - editorY;
-        this.editor.setBounds(editorX + 2, editorY + 2, editorWidth - 4, editorHeight - 4);
-
-        // Console input sits on the last row of the bottom panel (CONSOLE tab only).
-        boolean consoleVisible = this.bottomTab == 0 && !this.promptOpen && !this.confirmOpen;
-        this.consoleInput.visible = consoleVisible;
-        this.consoleInput.setX(pad + 6);
-        this.consoleInput.setY(height - pad - 14);
-        this.consoleInput.setWidth(w - pad * 2 - 12);
-    }
-
-    private void refreshFromCache() {
-        if (refreshing) {
-            return;
-        }
-        refreshing = true;
-        try {
-            ClientProjectStore store = ClientProjectStore.getInstance();
-            // Only clear a *stale* selection; calling select(null) when nothing is
-            // selected re-notifies the listener and loops forever (freezing the game).
-            String selected = store.selectedId();
-            if (selected != null && store.find(selected) == null) {
-                store.select(null);
+            case 2 -> {
+                return markdownRows();
             }
-            String active = store.activeFile();
-            if (this.mainIDE != null) {
-                this.mainIDE.updateTabs(store.openTabs(), active, this.bottomTab,
-                        idx -> store.openFile(store.openTabs().get(idx)),
-                        idx -> store.closeFile(store.openTabs().get(idx)),
-                        idx -> this.bottomTab = idx);
+            default -> {
+                return settingsRows();
             }
+        }
+    }
 
-            if (active != null && !active.equals(this.displayedFile)) {
-                this.displayedFile = active;
-                int dot = active.lastIndexOf('.');
-                this.editor.setLanguage(dot >= 0 ? active.substring(dot + 1) : "python");
-                syncGuard = true;
-                this.editor.setContent(store.fileContent(active));
-                syncGuard = false;
-                focus = FOCUS_EDITOR;
-                if (pendingDefinitionFile != null && pendingDefinitionFile.equals(active)) {
-                    this.editor.scrollToLine(this.pendingDefinitionLine);
-                    this.pendingDefinitionFile = null;
-                    this.pendingDefinitionLine = -1;
+    private List<ScrollView.Row> consoleRows() {
+        List<ScrollView.Row> rows = new ArrayList<>();
+        for (String line : ClientProjectStore.getInstance().log()) {
+            String text = line;
+            int color = IdeColors.TEXT;
+            if (line.contains("ERROR") || line.contains("Error")) {
+                text = line.split("\n")[0];
+                color = IdeColors.ERROR;
+            } else if (line.startsWith("> ")) {
+                color = IdeColors.ACCENT;
+            }
+            rows.add(new ScrollView.Row(text, color, false));
+        }
+        if (rows.isEmpty()) {
+            rows.add(new ScrollView.Row("Console is empty. Use Run or Validate, or type a command below ('help').",
+                    IdeColors.MUTED, false));
+        }
+        rows.add(new ScrollView.Row(" ", IdeColors.MUTED, false));
+        return rows;
+    }
+
+    private List<ScrollView.Row> problemsRows(ClientProjectStore store) {
+        List<ScrollView.Row> rows = new ArrayList<>();
+        for (net.xmilon.craftpy.python.ValidationProblem problem : store.validationProblems()) {
+            int color = problem.isError() ? IdeColors.ERROR : IdeColors.WARNING;
+            String label = (problem.line() + 1) + ":" + problem.column() + " " + problem.message()
+                    + (problem.file().isEmpty() ? "" : " [" + problem.file() + "]");
+            rows.add(new ScrollView.Row(label, color, false));
+        }
+        for (CodeProblems.Problem problem : CodeProblems.snapshot()) {
+            int color = switch (problem.severity()) {
+                case ERROR -> IdeColors.ERROR;
+                case WARNING -> IdeColors.WARNING;
+                case INFO -> IdeColors.MUTED;
+            };
+            rows.add(new ScrollView.Row((problem.line() + 1) + ":" + problem.column() + " " + problem.message(), color, false));
+        }
+        String active = store.activeFile();
+        if (active != null) {
+            AssetIndex.get().ensureBuilt();
+            String content = store.fileContent(active);
+            if (content != null) {
+                int lineNo = 0;
+                for (String line : content.split("\n", -1)) {
+                    for (AssetReference ref : AssetReferences.parse(line)) {
+                        if (!AssetIndex.get().exists(ref.kind(), ref.value())) {
+                            rows.add(new ScrollView.Row((lineNo + 1) + " missing "
+                                    + ref.kind().name().toLowerCase(Locale.ROOT) + " '" + ref.value() + "'",
+                                    IdeColors.WARNING, false));
+                        }
+                    }
+                    lineNo++;
                 }
-            } else if (active == null && this.displayedFile != null) {
-                // The last tab was closed: clear the buffer instead of keeping stale text.
-                this.displayedFile = null;
-                syncGuard = true;
-                this.editor.setContent("");
-                syncGuard = false;
-            }
-            if (store.activeProjectId() == null || store.activeFile() == null) {
-                this.editor.setFocused(false);
-            } else {
-                this.editor.setFocused(focus == FOCUS_EDITOR);
-            }
-        } finally {
-            refreshing = false;
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Layout helpers
-    // ------------------------------------------------------------------
-
-    private int layoutPad() {
-        return Math.max(6, Math.min(width, height) / 60);
-    }
-
-    private int menuBarHeight() {
-        return MENU_BAR_HEIGHT;
-    }
-
-    private int topBarHeight() {
-        return menuBarHeight();
-    }
-
-    private int leftPanelWidth() {
-        return Math.max(140, width / 5);
-    }
-
-    private int bottomPanelHeight() {
-        return Math.max(72, height / 4);
-    }
-
-    // ------------------------------------------------------------------
-    // Menu bar geometry
-    // ------------------------------------------------------------------
-
-    private int menuTitleStartX() {
-        return layoutPad() + this.font.width("CraftPy IDE") + 12;
-    }
-
-    private int menuTitleX(int index) {
-        int x = menuTitleStartX();
-        for (int i = 0; i < index; i++) {
-            x += this.font.width(MENU_TITLES[i]) + 14;
-        }
-        return x;
-    }
-
-    private int menuTitleW(int index) {
-        return this.font.width(MENU_TITLES[index]) + 10;
-    }
-
-    private int menuTitleAt(double mouseX) {
-        for (int i = 0; i < MENU_TITLES.length; i++) {
-            int x = menuTitleX(i);
-            if (mouseX >= x && mouseX <= x + menuTitleW(i)) {
-                return i;
             }
         }
-        return -1;
-    }
-
-    private int dropdownWidth(int index) {
-        int max = 140;
-        for (MenuItem item : this.menus.get(index)) {
-            max = Math.max(max, this.font.width(item.label()) + 24);
+        if (rows.isEmpty()) {
+            rows.add(new ScrollView.Row("No problems detected. Use Validate (Ctrl+Enter) to run the Python compiler.",
+                    IdeColors.MUTED, false));
         }
-        return max;
+        return rows;
     }
 
-    private int dropdownX(int index) {
-        int x = menuTitleX(index);
-        return Math.min(x, this.width - dropdownWidth(index) - layoutPad());
-    }
-
-    private int dropdownItemY(int itemIndex) {
-        return menuBarHeight() + 3 + itemIndex * MENU_ITEM_HEIGHT;
-    }
-
-    private int dropdownItemAt(double mouseX, double mouseY) {
-        if (this.openMenu < 0) {
-            return -1;
+    private List<ScrollView.Row> markdownRows() {
+        List<ScrollView.Row> rows = new ArrayList<>();
+        String content = this.editor.getContent();
+        if (content.isEmpty()) {
+            rows.add(new ScrollView.Row("No content to preview", IdeColors.MUTED, false));
+            return rows;
         }
-        int x = dropdownX(this.openMenu);
-        int w = dropdownWidth(this.openMenu);
-        if (mouseX < x || mouseX > x + w) {
-            return -1;
-        }
-        List<MenuItem> items = this.menus.get(this.openMenu);
-        for (int i = 0; i < items.size(); i++) {
-            int y = dropdownItemY(i);
-            if (mouseY >= y && mouseY <= y + MENU_ITEM_HEIGHT) {
-                return i;
+        for (String line : content.split("\n")) {
+            int color = IdeColors.TEXT;
+            if (line.startsWith("#")) {
+                color = IdeColors.ACCENT;
+            } else if (line.trim().startsWith("* ") || line.trim().startsWith("- ") || line.trim().startsWith("+ ")) {
+                color = IdeColors.MUTED;
+            } else if (line.contains("`")) {
+                color = 0xFFCE9178;
             }
+            rows.add(new ScrollView.Row(line, color, false));
         }
-        return -1;
+        return rows;
     }
 
-    private boolean insideDropdownPanel(double mouseX, double mouseY) {
-        if (this.openMenu < 0) {
-            return false;
+    private List<ScrollView.Row> settingsRows() {
+        List<ScrollView.Row> rows = new ArrayList<>();
+        rows.add(new ScrollView.Row("KEYMAP SETTINGS", IdeColors.ACCENT, false));
+        String[][] keys = {
+                { "Ctrl + S", "Save active file" },
+                { "Ctrl + Enter", "Validate project" },
+                { "Ctrl + Shift + R", "Run project" },
+                { "Ctrl + Shift + P", "Command Palette" },
+                { "Ctrl + F", "Toggle search" },
+                { "Ctrl + W", "Close active tab" },
+                { "F12", "Go to definition" }
+        };
+        for (String[] key : keys) {
+            rows.add(new ScrollView.Row(String.format("%-18s %s", key[0], key[1]), IdeColors.TEXT, false));
         }
-        int x = dropdownX(this.openMenu);
-        int w = dropdownWidth(this.openMenu);
-        int h = 6 + this.menus.get(this.openMenu).size() * MENU_ITEM_HEIGHT;
-        return mouseX >= x && mouseX <= x + w && mouseY >= menuBarHeight() && mouseY <= menuBarHeight() + h;
-    }
-
-    // ------------------------------------------------------------------
-    // Editor tab geometry (shared by renderTabs and the click handler)
-    // ------------------------------------------------------------------
-
-    private record TabRect(String path, int x, int width, int labelX, int closeX, boolean dirty) {
-    }
-
-    /** One rectangle per open editor tab, laid out left to right. */
-    private List<TabRect> tabRects() {
-        ClientProjectStore store = ClientProjectStore.getInstance();
-        List<TabRect> rects = new ArrayList<>();
-        int x = tabX() - this.tabScroll;
-        for (String path : store.openTabs()) {
-            String label = path.substring(Math.max(0, path.lastIndexOf('/') + 1));
-            boolean dirty = store.isDirty(path);
-            int labelW = this.font.width(label) + (dirty ? this.font.width("*") : 0);
-            int width = labelW + 21;
-            rects.add(new TabRect(path, x, width, x + 5, x + 11 + labelW, dirty));
-            x += width + 2;
-        }
-        return rects;
-    }
-
-    private int tabStripWidth() {
-        int total = 0;
-        for (TabRect rect : tabRects()) {
-            total += rect.width() + 2;
-        }
-        return total;
-    }
-
-    /** Mouse-wheel horizontal scrolling for long tab strips. */
-    private void scrollTabs(double delta) {
-        int visible = (this.width - layoutPad()) - tabX();
-        int max = Math.max(0, tabStripWidth() - visible + 12);
-        this.tabScroll = (int) Math.max(0, Math.min(this.tabScroll - delta, max));
+        return rows;
     }
 
     /** Closes a tab; unsaved buffers need an explicit confirmation first. */
@@ -745,15 +643,292 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         }
     }
 
+    private void toggleSearch() {
+        this.searchOpen = !this.searchOpen;
+        if (this.searchOpen) {
+            this.focus = FOCUS_SEARCH;
+            this.setFocused(this.searchBox);
+            this.searchBox.setFocused(true);
+            this.searchBox.setValue("");
+            this.editor.setSearchQuery("");
+        } else {
+            this.focus = FOCUS_EDITOR;
+            this.searchBox.setFocused(false);
+            this.replaceBox.setFocused(false);
+            this.searchBox.setValue("");
+            this.replaceBox.setValue("");
+            this.editor.setSearchQuery("");
+            this.setFocused(this.editorWidget);
+            this.editorWidget.setFocused(true);
+        }
+    }
+
+    /** Replaces the current search match (replace box Enter / Replace button). */
+    private void replaceNext() {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        if (store.isVirtual(store.activeFile())) {
+            store.append("'" + store.activeFile() + "' is a built-in reference - it is read-only.");
+            return;
+        }
+        if (this.editor.replaceCurrent(this.replaceBox.getValue()) > 0) {
+            this.focus = FOCUS_SEARCH;
+            this.editor.setFocused(false);
+            this.setFocused(this.replaceBox);
+        }
+    }
+
+    /** Replaces every occurrence of the search query. */
+    private void replaceAll() {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        if (store.isVirtual(store.activeFile())) {
+            store.append("'" + store.activeFile() + "' is a built-in reference - it is read-only.");
+            return;
+        }
+        int replaced = this.editor.replaceAll(this.replaceBox.getValue());
+        if (replaced > 0) {
+            store.append("Replaced " + replaced + " occurrence(s) of '" + this.searchBox.getValue() + "'.");
+        } else {
+            store.append("No matches for '" + this.searchBox.getValue() + "'.");
+        }
+    }
+
+    @Override
+    public void onClose() {
+        ClientProjectStore.getInstance().clearListener(storeListener);
+        ClientProjectStore.getInstance().setDefinitionCallback(null);
+        if (this.minecraft != null && this.minecraft.player != null) {
+            this.minecraft.player.closeContainer();
+        }
+        super.onClose();
+    }
+
+    @Override
+    public void removed() {
+        ClientProjectStore.getInstance().clearListener(storeListener);
+        ClientProjectStore.getInstance().setDefinitionCallback(null);
+        super.removed();
+    }
+
     // ------------------------------------------------------------------
-    // Input
+    // Layout
     // ------------------------------------------------------------------
+
+    private void layoutWidgets() {
+        int w = this.width;
+        int h = this.height;
+        int top = MENU_BAR_H + TOOLBAR_H;
+        int statusTop = h - STATUS_H;
+        boolean panelVisible = bottomPanelVisible();
+        int bottomTop = Math.max(top + TAB_H + 40, statusTop - Math.max(96, h / 4));
+        int contentBottom = panelVisible ? bottomTop : statusTop;
+
+        this.menuBar.setPosition(0, 0);
+        this.menuBar.setSize(w, MENU_BAR_H);
+        this.toolbarBg.setPosition(0, MENU_BAR_H);
+        this.toolbarBg.setSize(w, TOOLBAR_H);
+        this.explorerHeader.setPosition(0, top);
+        this.explorerHeader.setSize(EXPLORER_W, 28);
+        this.explorerPanel.setPosition(0, top + 28);
+        this.explorerPanel.setSize(EXPLORER_W, contentBottom - (top + 28));
+        this.editorTabs.setPosition(EXPLORER_W, top);
+        this.editorTabs.setSize(w - EXPLORER_W, TAB_H);
+        this.editorWidget.setPosition(EXPLORER_W, top + TAB_H);
+        this.editorWidget.setSize(w - EXPLORER_W, contentBottom - (top + TAB_H));
+        this.bottomTabBar.visible = panelVisible;
+        this.bottomTabBar.setPosition(0, bottomTop);
+        this.bottomTabBar.setSize(w, BOTTOM_TAB_H);
+        this.bottomPanel.visible = panelVisible;
+        this.bottomPanel.setPosition(0, bottomTop + BOTTOM_TAB_H);
+        this.bottomPanel.setSize(w, statusTop - (bottomTop + BOTTOM_TAB_H));
+        this.statusView.setPosition(0, statusTop);
+        this.statusView.setSize(w, STATUS_H);
+    }
+
+    /** Positions floating widgets (search bar, console input) each frame. */
+    private void positionFloatingWidgets() {
+        int w = this.width;
+        int top = MENU_BAR_H + TOOLBAR_H;
+
+        // Search / replace bar sits in the tab strip row of the editor area.
+        if (this.searchOpen) {
+            int sx = EXPLORER_W + 8;
+            int sy = top + 3;
+            this.searchBox.visible = true;
+            this.searchBox.setX(sx);
+            this.searchBox.setY(sy);
+            this.searchBox.setWidth(Math.min(110, Math.max(60, w - EXPLORER_W - 320)));
+            int rx = sx + this.searchBox.getWidth() + 4;
+            this.replaceBox.visible = true;
+            this.replaceBox.setX(rx);
+            this.replaceBox.setY(sy);
+            this.replaceBox.setWidth(Math.min(100, Math.max(40, this.searchBox.getWidth() - 60)));
+            this.replaceButton.visible = true;
+            this.replaceButton.setX(rx + this.replaceBox.getWidth() + 4);
+            this.replaceButton.setY(sy);
+            this.replaceAllButton.visible = true;
+            this.replaceAllButton.setX(this.replaceButton.getX() + 56);
+            this.replaceAllButton.setY(sy);
+        } else {
+            this.searchBox.visible = false;
+            this.replaceBox.visible = false;
+            this.replaceButton.visible = false;
+            this.replaceAllButton.visible = false;
+            this.searchBox.setPosition(-200, -200);
+            this.replaceBox.setPosition(-200, -200);
+            this.replaceButton.setPosition(-200, -200);
+            this.replaceAllButton.setPosition(-200, -200);
+        }
+
+        // Console input is embedded in the foot of the bottom panel (Console tab only).
+        boolean consoleVisible = this.bottomTab == 0 && !this.promptOpen && !this.confirmOpen;
+        this.consoleInput.visible = consoleVisible;
+        int promptW = this.font.width(CONSOLE_PROMPT);
+        this.consoleInput.setX(8 + promptW);
+        this.consoleInput.setY(this.height - STATUS_H - BOTTOM_INPUT_H + 3);
+        this.consoleInput.setWidth(w - 16 - promptW);
+
+        // Modal prompt edit box is positioned inside the dialog panel.
+        this.promptBox.visible = this.promptOpen;
+        if (this.promptOpen) {
+            int pw = Math.min(260, w - 20);
+            int px = (w - pw) / 2;
+            int py = this.height / 2 - 30;
+            this.promptBox.setX(px + 8);
+            this.promptBox.setY(py + 22);
+            this.promptBox.setWidth(pw - 16);
+        } else {
+            this.promptBox.setPosition(-200, -200);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // State sync
+    // ------------------------------------------------------------------
+
+    private void refreshFromCache() {
+        if (refreshing) {
+            return;
+        }
+        refreshing = true;
+        try {
+            ClientProjectStore store = ClientProjectStore.getInstance();
+            String selected = store.selectedId();
+            if (selected != null && store.find(selected) == null) {
+                store.select(null);
+            }
+            String active = store.activeFile();
+            if (active != null && !active.equals(this.displayedFile)) {
+                this.displayedFile = active;
+                int dot = active.lastIndexOf('.');
+                this.editor.setLanguage(dot >= 0 ? active.substring(dot + 1) : "python");
+                syncGuard = true;
+                this.editor.setContent(store.fileContent(active));
+                syncGuard = false;
+                focus = FOCUS_EDITOR;
+                this.setFocused(this.editorWidget);
+                this.editorWidget.setFocused(true);
+                if (pendingDefinitionFile != null && pendingDefinitionFile.equals(active)) {
+                    this.editor.scrollToLine(this.pendingDefinitionLine);
+                    this.pendingDefinitionFile = null;
+                    this.pendingDefinitionLine = -1;
+                }
+            } else if (active == null && this.displayedFile != null) {
+                this.displayedFile = null;
+                syncGuard = true;
+                this.editor.setContent("");
+                syncGuard = false;
+            }
+            if (store.activeProjectId() == null || store.activeFile() == null) {
+                this.editorWidget.setFocused(false);
+            } else if (focus == FOCUS_EDITOR) {
+                this.editorWidget.setFocused(true);
+            }
+        } finally {
+            refreshing = false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Input: single routing layer over the official widget tree.
+    // widgets are dispatched topmost-first (render order reversed), matching
+    // how overlays render on top; vanilla Screen children order is bottom-first.
+    // ------------------------------------------------------------------
+
+    private boolean dispatchClick(double mouseX, double mouseY, int button) {
+        List<? extends GuiEventListener> kids = this.children();
+        for (int i = kids.size() - 1; i >= 0; i--) {
+            GuiEventListener listener = kids.get(i);
+            if (listener.mouseClicked(mouseX, mouseY, button)) {
+                // Do not steal focus while a modal (prompt/confirm/palette) owns
+                // the keyboard: the action that just ran may have focused an EditBox.
+                boolean modalOpen = this.promptOpen || this.confirmOpen || this.palettePopupOpen();
+                if (button == 0 && !modalOpen) {
+                    this.setFocused(listener);
+                    this.setDragging(true);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean dispatchScroll(double mouseX, double mouseY, double scrollX, double scrollY) {
+        List<? extends GuiEventListener> kids = this.children();
+        for (int i = kids.size() - 1; i >= 0; i--) {
+            if (kids.get(i).mouseScrolled(mouseX, mouseY, scrollX, scrollY)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        boolean handled = this.dispatchClick(mouseX, mouseY, button);
+        if (handled) {
+            if (this.promptOpen || this.confirmOpen || this.palettePopupOpen() || this.contextOpen() || this.openMenu >= 0) {
+                return true;
+            }
+            if (this.searchBox.isFocused() || this.replaceBox.isFocused()) {
+                this.focus = FOCUS_SEARCH;
+            } else if (this.consoleInput.isFocused()) {
+                this.focus = FOCUS_CONSOLE;
+                this.editorWidget.setFocused(false);
+                this.consoleHint = "";
+            } else {
+                this.focus = FOCUS_EDITOR;
+                this.setFocused(this.editorWidget);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (this.promptOpen || this.confirmOpen) {
+            return true;
+        }
+        return this.dispatchScroll(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        boolean handled = super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+        if (!handled && focus == FOCUS_EDITOR && this.editorWidget.isFocused()) {
+            this.editor.mouseDragged(mouseX, mouseY, button);
+            return true;
+        }
+        return handled;
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (this.mainIDE != null && this.mainIDE.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
         if (this.confirmOpen) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 closeConfirm();
@@ -777,12 +952,15 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
             this.promptBox.keyPressed(keyCode, scanCode, modifiers);
             return true;
         }
-        if (this.contextOpen && keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            this.contextOpen = false;
+        if (this.palettePopupOpen()) {
+            return this.paletteKeys(keyCode, scanCode, modifiers);
+        }
+        if (this.contextOpen() && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            this.contextOpen(false);
             return true;
         }
         if (this.openMenu >= 0 && keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            this.openMenu = -1;
+            this.openMenu(-1);
             return true;
         }
         if (Screen.hasControlDown()) {
@@ -824,10 +1002,10 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         if (focus == FOCUS_CONSOLE) {
             if (this.consoleInput.isFocused()) {
                 if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                    // Esc leaves the console instead of being swallowed.
                     this.consoleInput.setFocused(false);
                     this.setFocused(null);
                     this.focus = FOCUS_EDITOR;
+                    this.setFocused(this.editorWidget);
                     return true;
                 }
                 if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
@@ -853,12 +1031,35 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
             return true;
         }
         if (focus == FOCUS_SEARCH) {
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                if (this.replaceBox.isFocused()) {
+                    replaceNext();
+                } else if (Screen.hasShiftDown()) {
+                    this.editor.findPrevious();
+                } else {
+                    this.editor.findNext();
+                }
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_TAB) {
+                if (this.searchBox.isFocused()) {
+                    this.searchBox.setFocused(false);
+                    this.replaceBox.setFocused(true);
+                    this.setFocused(this.replaceBox);
+                } else {
+                    this.replaceBox.setFocused(false);
+                    this.searchBox.setFocused(true);
+                    this.setFocused(this.searchBox);
+                }
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                toggleSearch();
+                return true;
+            }
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
         if (focus == FOCUS_EDITOR) {
-            if (this.editor.keyPressed(keyCode, scanCode, modifiers)) {
-                return true;
-            }
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -866,223 +1067,193 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
-        if (this.mainIDE != null && this.mainIDE.charTyped(codePoint, modifiers)) {
-            return true;
-        }
         if (this.confirmOpen) {
             return true;
         }
         if (this.promptOpen) {
-            return this.promptBox.charTyped(codePoint, modifiers);
+            this.promptBox.charTyped(codePoint, modifiers);
+            return true;
         }
-        if (focus == FOCUS_SEARCH || focus == FOCUS_CONSOLE) {
-            return super.charTyped(codePoint, modifiers);
-        }
-        if (focus == FOCUS_EDITOR) {
-            if (this.editor.charTyped(codePoint, modifiers)) {
-                return true;
-            }
-            return super.charTyped(codePoint, modifiers);
+        if (this.palettePopupOpen()) {
+            return this.paletteChar(codePoint, modifiers);
         }
         return super.charTyped(codePoint, modifiers);
     }
 
+    private boolean palettePopupOpen() {
+        return this.palettePopup != null && this.palettePopup.isOpen();
+    }
+
+    private boolean paletteKeys(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            this.palettePopup.close();
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+            this.palettePopup.runSelected();
+            return true;
+        }
+        if (this.palettePopup.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        return true;
+    }
+
+    private boolean paletteChar(char codePoint, int modifiers) {
+        return this.palettePopup.charTyped(codePoint, modifiers);
+    }
+
+    // ------------------------------------------------------------------
+    // Rendering
+    // ------------------------------------------------------------------
+
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (this.mainIDE != null && this.mainIDE.mouseClicked(mouseX, mouseY, button)) {
-            // Check if focus needs updating
-            if (this.editor.isFocused()) this.focus = FOCUS_EDITOR;
-            return true;
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // No vanilla blur; the IDE fills its own opaque background in render().
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        graphics.fill(0, 0, this.width, this.height, IdeColors.BG);
+        positionFloatingWidgets();
+        super.render(graphics, mouseX, mouseY, partialTick);
+        renderConsoleHint(graphics);
+    }
+
+    /** Draws the grey completion suffix right after the typed console text. */
+    private void renderConsoleHint(GuiGraphics graphics) {
+        if (this.bottomTab != 0 || !this.consoleInput.visible) {
+            return;
         }
-        if (this.confirmOpen) {
-            if (confirmYesAt(mouseX, mouseY) && button == 0) {
-                acceptConfirm();
-            } else if (confirmNoAt(mouseX, mouseY) && button == 0) {
-                closeConfirm();
+        int promptY = this.consoleInput.getY() + 1;
+        graphics.drawString(this.font, CONSOLE_PROMPT, 8, promptY, IdeColors.ACCENT, false);
+        if (this.consoleHint.isEmpty() || !this.consoleInput.isFocused()) {
+            return;
+        }
+        String value = this.consoleInput.getValue();
+        int x = this.consoleInput.getX() + this.font.width(value);
+        int y = this.consoleInput.getY() + 1;
+        if (x < this.consoleInput.getX() + this.consoleInput.getWidth() - 8) {
+            graphics.drawString(this.font, this.consoleHint, x, y, IdeColors.MUTED, false);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Menu bar
+    // ------------------------------------------------------------------
+
+    private int menuTitleStartX() {
+        return 8 + this.font.width("CraftPy IDE") + 14;
+    }
+
+    private int menuTitleX(int index) {
+        int x = menuTitleStartX();
+        for (int i = 0; i < index; i++) {
+            x += this.font.width(MENU_TITLES[i]) + 16;
+        }
+        return x;
+    }
+
+    private int menuTitleW(int index) {
+        return this.font.width(MENU_TITLES[index]) + 12;
+    }
+
+    private int menuTitleAt(double mouseX) {
+        for (int i = 0; i < MENU_TITLES.length; i++) {
+            int x = menuTitleX(i);
+            if (mouseX >= x && mouseX <= x + menuTitleW(i)) {
+                return i;
             }
-            return true;
         }
-        if (this.promptOpen) {
-            if (button == 0) {
-                this.promptBox.mouseClicked(mouseX, mouseY, button);
-            }
-            return true;
+        return -1;
+    }
+
+    private int dropdownWidth(int index) {
+        int max = 140;
+        for (MenuItem item : this.menus.get(index)) {
+            max = Math.max(max, this.font.width(item.label()) + 30);
         }
-        if (this.contextOpen) {
-            int item = contextItemAt(mouseX, mouseY);
-            if (item >= 0) {
-                MenuItem chosen = this.contextItems.get(item);
-                this.contextOpen = false;
-                chosen.action().run();
-                return true;
-            }
-            this.contextOpen = false;
+        return max;
+    }
+
+    private int dropdownX(int index) {
+        int x = menuTitleX(index);
+        return Math.min(x, this.width - dropdownWidth(index) - 4);
+    }
+
+    private int dropdownItemY(int itemIndex) {
+        return MENU_BAR_H + 3 + itemIndex * MENU_ITEM_HEIGHT;
+    }
+
+    private void openMenu(int index) {
+        this.openMenu = index;
+        this.menuPopup.setVisibility(index >= 0);
+    }
+
+    private void contextOpen(boolean open) {
+        this.contextPopup.visible = open;
+        if (open) {
+            this.contextPopup.refreshGeometry();
         }
-        // Menu bar / open dropdown first (but let the Run/Assets buttons through).
-        if (mouseY < menuBarHeight()) {
+    }
+
+    private boolean contextOpen() {
+        return this.contextPopup.visible;
+    }
+
+    /** Hovering another title while a menu is open switches to it. */
+    private void hoverMenuSwitch(double mouseX, double mouseY) {
+        if (this.openMenu >= 0 && mouseY < MENU_BAR_H) {
             int title = menuTitleAt(mouseX);
-            if (title >= 0) {
-                this.openMenu = this.openMenu == title ? -1 : title;
-                return true;
+            if (title >= 0 && title != this.openMenu) {
+                this.openMenu = title;
+                this.menuPopup.setVisibility(true);
+                return;
             }
-        }
-        if (this.openMenu >= 0) {
-            int item = dropdownItemAt(mouseX, mouseY);
-            if (item >= 0) {
-                MenuItem chosen = this.menus.get(this.openMenu).get(item);
-                this.openMenu = -1;
-                chosen.action().run();
-                return true;
-            }
-            if (insideDropdownPanel(mouseX, mouseY)) {
-                return true;
-            }
-            this.openMenu = -1;
-        }
-
-        // Explorer right-click opens a context menu.
-        if (button == 1 && insideExplorer(mouseX, mouseY)) {
-            int index = fileRowAt(mouseX, mouseY);
-            List<String> files = ClientProjectStore.getInstance().files();
-            String target = index >= 0 ? files.get(index) : null;
-            openContextMenu((int) mouseX, (int) mouseY, target);
-            return true;
-        }
-
-        boolean widgetHandled = super.mouseClicked(mouseX, mouseY, button);
-        if (widgetHandled) {
-            if (this.searchBox.isFocused()) {
-                this.focus = FOCUS_SEARCH;
-            } else if (this.consoleInput.isFocused()) {
-                this.focus = FOCUS_CONSOLE;
-                this.editor.setFocused(false);
-                this.consoleHint = "";
-            }
-            return true;
-        }
-        // file list (only the drawn row area)
-        int fileIndex = fileRowAt(mouseX, mouseY);
-        if (fileIndex >= 0) {
-            openProjectEntry(ClientProjectStore.getInstance().files().get(fileIndex));
-            return true;
-        }
-
-        // bottom tabs (the drawn 60x18 boxes)
-        int bottomIndex = bottomTabAt(mouseX, mouseY);
-        if (bottomIndex >= 0) {
-            showBottomTab(bottomIndex);
-            return true;
-        }
-
-        // editor tab bar (center): same 20px bar that render() draws
-        int tabY = editorTabBarTop();
-        if (mouseY >= tabY && mouseY < tabY + EDITOR_TAB_BAR_H) {
-            for (TabRect rect : tabRects()) {
-                if (mouseX >= rect.x() && mouseX <= rect.x() + rect.width()) {
-                    if (button == 0 && mouseX >= rect.closeX() && mouseX <= rect.closeX() + 10) {
-                        requestCloseTab(rect.path());
-                    } else if (button == 1 || button == 2) {
-                        // right- or middle-click closes the tab
-                        requestCloseTab(rect.path());
-                    } else if (button == 0) {
-                        ClientProjectStore.getInstance().openFile(rect.path());
-                    }
-                    return true;
-                }
-            }
-        }
-
-        // editor
-        if (this.editor.mouseClicked(mouseX, mouseY, button)) {
-            this.focus = FOCUS_EDITOR;
-            this.editor.setFocused(true);
-            if (this.consoleInput != null) {
-                this.consoleInput.setFocused(false);
-            }
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        boolean handled = super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
-        if (!handled && focus == FOCUS_EDITOR) {
-            this.editor.mouseDragged(mouseX, mouseY, button);
-            return true;
-        }
-        return handled;
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (this.mainIDE != null && this.mainIDE.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
-            return true;
-        }
-        if (this.confirmOpen || this.promptOpen) {
-            return true;
-        }
-        boolean handled = super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-        if (handled) {
-            return true;
-        }
-        int pad = layoutPad();
-        int leftW = leftPanelWidth();
-        double vertical = verticalAmount;
-        if (vertical == 0) {
-            vertical = horizontalAmount;
-        }
-        if (mouseX >= pad && mouseX <= pad + leftW) {
-            if (mouseY >= fileListTop() && mouseY <= fileListTop() + fileListHeight()) {
-                this.fileScroll = (int) Math.max(0, this.fileScroll - vertical * 16);
-                return true;
-            }
-        }
-        int tabY = editorTabBarTop();
-        if (mouseY >= tabY && mouseY < tabY + EDITOR_TAB_BAR_H) {
-            scrollTabs(vertical * 24);
-            return true;
-        }
-        int panelY = bottomPanelY();
-        if (mouseY >= panelY && mouseY < height - pad && mouseX >= pad && mouseX <= width - pad) {
-            this.bottomScroll = (int) Math.max(0, (long) this.bottomScroll - (long) (vertical * 16));
-            return true;
-        }
-        if (focus == FOCUS_EDITOR && this.editor.mouseScrolled(horizontalAmount, verticalAmount)) {
-            return true;
-        }
-        return false;
-    }
-
-    private void toggleSearch() {
-        this.searchOpen = !this.searchOpen;
-        if (this.searchOpen) {
-            this.focus = FOCUS_SEARCH;
-            this.searchBox.setFocused(true);
-            this.searchBox.setValue("");
-            this.editor.setSearchQuery("");
-        } else {
-            this.focus = FOCUS_EDITOR;
-            this.searchBox.setFocused(false);
-            this.editor.setSearchQuery("");
         }
     }
 
-    @Override
-    public void onClose() {
-        ClientProjectStore.getInstance().clearListener(storeListener);
-        ClientProjectStore.getInstance().setDefinitionCallback(null);
-        if (this.minecraft != null && this.minecraft.player != null) {
-            this.minecraft.player.closeContainer();
+    private void renderDropdown(GuiGraphics graphics, int mouseX, int mouseY, MenuPopup popup) {
+        if (this.openMenu < 0 || this.menus.isEmpty()) {
+            return;
         }
-        super.onClose();
+        int index = this.openMenu;
+        if (index >= this.menus.size()) {
+            return;
+        }
+        int x = popup.getX();
+        int y = popup.getY();
+        int w = popup.getWidth();
+        int h = popup.getHeight();
+        graphics.fill(x, y, x + w, y + h, IdeColors.PANEL);
+        List<MenuItem> items = this.menus.get(index);
+        for (int i = 0; i < items.size(); i++) {
+            int iy = y + 3 + i * MENU_ITEM_HEIGHT;
+            boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= iy && mouseY <= iy + MENU_ITEM_HEIGHT;
+            if (hovered) {
+                graphics.fill(x + 1, iy, x + w - 1, iy + MENU_ITEM_HEIGHT, IdeColors.SELECTED);
+            }
+            graphics.drawString(this.font, items.get(i).label(), x + 8, iy + 3, hovered ? IdeColors.ACCENT : IdeColors.TEXT, false);
+        }
     }
 
-    @Override
-    public void removed() {
-        ClientProjectStore.getInstance().clearListener(storeListener);
-        ClientProjectStore.getInstance().setDefinitionCallback(null);
-        super.removed();
+    private int dropdownItemAt(double mouseX, double mouseY) {
+        if (this.openMenu < 0 || this.openMenu >= this.menus.size()) {
+            return -1;
+        }
+        int x = dropdownX(this.openMenu);
+        int w = dropdownWidth(this.openMenu);
+        if (mouseX < x || mouseX > x + w) {
+            return -1;
+        }
+        List<MenuItem> items = this.menus.get(this.openMenu);
+        for (int i = 0; i < items.size(); i++) {
+            int y = dropdownItemY(i);
+            if (mouseY >= y && mouseY <= y + MENU_ITEM_HEIGHT) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     // ------------------------------------------------------------------
@@ -1092,66 +1263,35 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     private void openContextMenu(int x, int y, String path) {
         ClientProjectStore store = ClientProjectStore.getInstance();
         this.contextPath = path;
-        this.openMenu = -1;
+        this.openMenu(-1);
 
         List<MenuItem> items = new ArrayList<>();
         if (path != null) {
-            items.add(new MenuItem("Open", () -> openProjectEntry(path)));
+            items.add(new MenuItem(path.endsWith("/") ? "Open Folder" : "Open", () -> openProjectEntry(path)));
             items.add(new MenuItem("Rename...", () -> promptRename(path)));
             items.add(new MenuItem("Delete...", () -> confirmDelete(path)));
         }
         items.add(new MenuItem("New File...", () -> promptNewFile(path)));
         items.add(new MenuItem("New Folder...", () -> promptNewFolder(path)));
+        items.add(new MenuItem("Import file(s) from PC...",
+                () -> net.xmilon.craftpy.client.assets.AssetUploader.openDialog(store.activeProjectId(), null)));
         items.add(new MenuItem("Refresh", store::refresh));
         this.contextItems = items;
-
-        int w = contextWidth();
-        int h = 6 + items.size() * CONTEXT_ITEM_HEIGHT;
-        this.contextX = Math.max(2, Math.min(x, this.width - w - 2));
-        this.contextY = Math.max(2, Math.min(y, this.height - h - 2));
-        this.contextOpen = true;
+        this.contextPopup.setItems(items, x, y);
+        this.contextOpen(true);
     }
 
-    private int contextWidth() {
-        int max = 110;
-        for (MenuItem item : this.contextItems) {
-            max = Math.max(max, this.font.width(item.label()) + 20);
+    private void runContextItem(int index) {
+        if (index < 0 || index >= this.contextItems.size()) {
+            return;
         }
-        return max;
+        MenuItem chosen = this.contextItems.get(index);
+        this.contextOpen(false);
+        chosen.action().run();
     }
 
-    private int contextItemAt(double mouseX, double mouseY) {
-        if (!this.contextOpen) {
-            return -1;
-        }
-        int w = contextWidth();
-        if (mouseX < this.contextX || mouseX > this.contextX + w) {
-            return -1;
-        }
-        for (int i = 0; i < this.contextItems.size(); i++) {
-            int y = this.contextY + 3 + i * CONTEXT_ITEM_HEIGHT;
-            if (mouseY >= y && mouseY <= y + CONTEXT_ITEM_HEIGHT) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private void renderContextMenu(GuiGraphics graphics, int mouseX, int mouseY) {
-        int w = contextWidth();
-        int h = 6 + this.contextItems.size() * CONTEXT_ITEM_HEIGHT;
-        graphics.fill(this.contextX - 1, this.contextY - 1, this.contextX + w + 1, this.contextY + h + 1, BORDER);
-        graphics.fill(this.contextX, this.contextY, this.contextX + w, this.contextY + h, PANEL);
-        for (int i = 0; i < this.contextItems.size(); i++) {
-            int iy = this.contextY + 3 + i * CONTEXT_ITEM_HEIGHT;
-            boolean hovered = mouseX >= this.contextX && mouseX <= this.contextX + w && mouseY >= iy
-                    && mouseY <= iy + CONTEXT_ITEM_HEIGHT;
-            if (hovered) {
-                graphics.fill(this.contextX + 1, iy, this.contextX + w - 1, iy + CONTEXT_ITEM_HEIGHT, SELECTED);
-            }
-            graphics.drawString(this.font, this.contextItems.get(i).label(), this.contextX + 8, iy + 3,
-                    hovered ? ACCENT : TEXT, false);
-        }
+    private int contextItemHeight() {
+        return 6 + this.contextItems.size() * CONTEXT_ITEM_HEIGHT;
     }
 
     // ------------------------------------------------------------------
@@ -1281,33 +1421,21 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     // Modal prompt
     // ------------------------------------------------------------------
 
-    private int promptW() {
-        return Math.min(260, this.width - 20);
-    }
-
-    private int promptX() {
-        return (this.width - promptW()) / 2;
-    }
-
-    private int promptY() {
-        return this.height / 2 - 30;
-    }
-
     private void unfocusAll() {
-        this.editor.setFocused(false);
+        this.editorWidget.setFocused(false);
         this.searchBox.setFocused(false);
+        this.replaceBox.setFocused(false);
         this.consoleInput.setFocused(false);
     }
 
     private void openPrompt(String title, String initial, Consumer<String> accept) {
-        this.openMenu = -1;
-        this.contextOpen = false;
+        this.openMenu(-1);
+        this.contextOpen(false);
         this.promptOpen = true;
         this.promptTitle = title;
         this.promptAccept = accept;
         this.focus = FOCUS_MODAL;
         unfocusAll();
-        this.promptBox.visible = true;
         this.promptBox.setValue(initial);
         this.setFocused(this.promptBox);
         this.promptBox.setFocused(true);
@@ -1317,10 +1445,9 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         this.promptOpen = false;
         this.promptAccept = null;
         this.promptBox.setFocused(false);
-        this.promptBox.visible = false;
-        this.promptBox.setPosition(-200, -200);
         this.setFocused(null);
         this.focus = FOCUS_EDITOR;
+        this.setFocused(this.editorWidget);
     }
 
     private void submitPrompt() {
@@ -1332,65 +1459,26 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         }
     }
 
-    private void renderPrompt(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        int pw = promptW();
-        int px = promptX();
-        int py = promptY();
-        graphics.fill(0, 0, this.width, this.height, DIMMER);
-        graphics.fill(px - 1, py - 1, px + pw + 1, py + 57, BORDER);
-        graphics.fill(px, py, px + pw, py + 56, PANEL);
-        graphics.drawString(this.font, this.font.plainSubstrByWidth(this.promptTitle, pw - 16), px + 8, py + 7, ACCENT,
-                false);
-        this.promptBox.visible = true;
-        this.promptBox.setX(px + 8);
-        this.promptBox.setY(py + 22);
-        this.promptBox.setWidth(pw - 16);
-        this.promptBox.render(graphics, mouseX, mouseY, partialTick);
-        graphics.drawString(this.font, "Enter = OK    Esc = Cancel", px + 8, py + 42, MUTED, false);
-    }
-
     // ------------------------------------------------------------------
     // Confirm dialog
     // ------------------------------------------------------------------
 
-    private int confirmW() {
-        return Math.min(300, this.width - 20);
-    }
-
-    private int confirmX() {
-        return (this.width - confirmW()) / 2;
-    }
-
-    private int confirmY() {
-        return this.height / 2 - 30;
-    }
-
-    private boolean inRect(double mx, double my, int x, int y, int w, int h) {
-        return mx >= x && mx <= x + w && my >= y && my <= y + h;
-    }
-
-    private boolean confirmYesAt(double mx, double my) {
-        return inRect(mx, my, confirmX() + confirmW() / 2 - 66, confirmY() + 38, 60, 14);
-    }
-
-    private boolean confirmNoAt(double mx, double my) {
-        return inRect(mx, my, confirmX() + confirmW() / 2 + 6, confirmY() + 38, 60, 14);
-    }
-
     private void openConfirm(String message, Runnable accept) {
-        this.openMenu = -1;
-        this.contextOpen = false;
+        this.openMenu(-1);
+        this.contextOpen(false);
         this.confirmOpen = true;
         this.confirmMessage = message;
         this.confirmAccept = accept;
         this.focus = FOCUS_MODAL;
         unfocusAll();
+        this.setFocused(null);
     }
 
     private void closeConfirm() {
         this.confirmOpen = false;
         this.confirmAccept = null;
         this.focus = FOCUS_EDITOR;
+        this.setFocused(this.editorWidget);
     }
 
     private void acceptConfirm() {
@@ -1401,26 +1489,18 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         }
     }
 
-    private void renderConfirm(GuiGraphics graphics, int mouseX, int mouseY) {
-        int cw = confirmW();
-        int cx = confirmX();
-        int cy = confirmY();
-        graphics.fill(0, 0, this.width, this.height, DIMMER);
-        graphics.fill(cx - 1, cy - 1, cx + cw + 1, cy + 61, BORDER);
-        graphics.fill(cx, cy, cx + cw, cy + 60, PANEL);
-        graphics.drawString(this.font, "Confirm", cx + 8, cy + 7, ACCENT, false);
-        graphics.drawString(this.font, this.font.plainSubstrByWidth(this.confirmMessage, cw - 16), cx + 8, cy + 22,
-                TEXT, false);
+    private boolean confirmYesAt(double mx, double my) {
+        int cw = Math.min(300, this.width - 20);
+        int cx = (this.width - cw) / 2;
+        int cy = this.height / 2 - 30;
+        return mx >= cx + cw / 2 - 66 && mx <= cx + cw / 2 - 6 && my >= cy + 38 && my <= cy + 52;
+    }
 
-        int yesX = cx + cw / 2 - 66;
-        int noX = cx + cw / 2 + 6;
-        int by = cy + 38;
-        boolean yesHover = confirmYesAt(mouseX, mouseY);
-        boolean noHover = confirmNoAt(mouseX, mouseY);
-        graphics.fill(yesX, by, yesX + 60, by + 14, yesHover ? ERROR_COLOR : SELECTED);
-        graphics.fill(noX, by, noX + 60, by + 14, noHover ? BORDER : PANEL_ALT);
-        graphics.drawString(this.font, "Yes", yesX + (60 - this.font.width("Yes")) / 2, by + 3, TEXT, false);
-        graphics.drawString(this.font, "No", noX + (60 - this.font.width("No")) / 2, by + 3, TEXT, false);
+    private boolean confirmNoAt(double mx, double my) {
+        int cw = Math.min(300, this.width - 20);
+        int cx = (this.width - cw) / 2;
+        int cy = this.height / 2 - 30;
+        return mx >= cx + cw / 2 + 6 && mx <= cx + cw / 2 + 66 && my >= cy + 38 && my <= cy + 52;
     }
 
     // ------------------------------------------------------------------
@@ -1444,7 +1524,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         this.consoleHint = "";
         ClientProjectStore.getInstance().append("> " + line);
         runConsoleLine(line);
-        this.bottomScroll = Integer.MAX_VALUE;
+        this.bottomPanel.scrollToEnd();
     }
 
     private void runConsoleLine(String line) {
@@ -1467,7 +1547,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                     store.append("  " + file);
                 }
             }
-            case "api" -> showBottomTab(3);
+            case "api" -> openApiDocAsFile();
             case "debug" -> toggleDebug();
             case "reset" -> {
                 this.consoleHistory.clear();
@@ -1488,7 +1568,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         store.append("  validate         check the active file");
         store.append("  open <file>      open a file in the editor");
         store.append("  files            list project files");
-        store.append("  api              show the API reference");
+        store.append("  api              open the API reference as a file");
         store.append("  debug            toggle debug trace");
         store.append("  reset            clear history and search");
         store.append("Anything else is sent to the project's Python worker. Tab completes, Up/Down = history.");
@@ -1655,271 +1735,197 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
             this.consoleInput.setValue(head + common);
         } else {
             ClientProjectStore.getInstance().append("  " + String.join("  ", candidates));
-            this.bottomScroll = Integer.MAX_VALUE;
+            this.bottomPanel.scrollToEnd();
         }
     }
 
     // ------------------------------------------------------------------
-    // Position helpers
+    // Definition navigation / API doc
     // ------------------------------------------------------------------
 
-    private int fileListTop() {
-        return topBarHeight() + layoutPad() + 40;
-    }
-
-    private int fileListHeight() {
-        int pad = layoutPad();
-        int bottomH = bottomPanelHeight();
-        return Math.max(40, height - bottomH - pad - fileListTop());
-    }
-
-    private int tabX() {
-        return layoutPad() + leftPanelWidth() + layoutPad() + 6;
-    }
-
-    // Shared hit-box geometry: render and click code both use these, so a
-    // clickable area always matches what is drawn.
-
-    private static final int BOTTOM_TAB_W = 60;
-    private static final int BOTTOM_TAB_H = 18;
-    private static final int BOTTOM_TAB_COUNT = 5;
-    private static final int EDITOR_TAB_BAR_H = 20;
-
-    /** Top edge of the bottom panel exactly as render() draws it. */
-    private int bottomPanelY() {
-        return height - bottomPanelHeight() - layoutPad() + 1;
-    }
-
-    private int bottomTabX(int index) {
-        return layoutPad() + 6 + index * 62;
-    }
-
-    /** Index of the bottom tab under the mouse, or -1 (uses the drawn 60x18 box). */
-    private int bottomTabAt(double mouseX, double mouseY) {
-        int y = bottomPanelY();
-        if (mouseY < y || mouseY >= y + BOTTOM_TAB_H) {
-            return -1;
-        }
-        for (int i = 0; i < BOTTOM_TAB_COUNT; i++) {
-            int x = bottomTabX(i);
-            if (mouseX >= x && mouseX < x + BOTTOM_TAB_W) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private int editorTabBarTop() {
-        return topBarHeight() + 1 + layoutPad();
-    }
-
-    private int explorerTop() {
-        return topBarHeight() + 1 + layoutPad();
-    }
-
-    private int explorerBottom() {
-        return height - bottomPanelHeight() - layoutPad();
-    }
-
-    private boolean insideExplorer(double mouseX, double mouseY) {
-        int pad = layoutPad();
-        return mouseX >= pad && mouseX < pad + leftPanelWidth() && mouseY >= explorerTop()
-                && mouseY < explorerBottom();
-    }
-
-    /** Index of the file row under the mouse (inside the drawn row area), or -1. */
-    private int fileRowAt(double mouseX, double mouseY) {
-        int x = layoutPad() + 4;
-        int w = leftPanelWidth() - 8;
-        int y = fileListTop();
-        if (mouseX < x || mouseX >= x + w || mouseY < y || mouseY >= y + fileListHeight()) {
-            return -1;
-        }
-        int index = (int) Math.floor((mouseY - y + this.fileScroll) / 16.0);
-        int count = ClientProjectStore.getInstance().files().size();
-        return index >= 0 && index < count ? index : -1;
-    }
-
-    // ------------------------------------------------------------------
-    // Render
-    // ------------------------------------------------------------------
-
-    @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // Skip the vanilla blurred-menu layer. Screen.render() calls this during
-        // super.render(), which painted the world blur *over* the editor content.
-        // The IDE fills its own opaque background in render() instead.
-    }
-
-    @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        if (this.mainIDE != null) {
-            this.mainIDE.render(graphics, mouseX, mouseY, partialTick);
-        } else {
-            graphics.fill(0, 0, this.width, this.height, BG);
-        }
-
-        // Popups and overlays that are not yet widgets
-        super.render(graphics, mouseX, mouseY, partialTick);
-        renderConsoleHint(graphics);
-        renderMenuBar(graphics, mouseX, mouseY);
-        
-        if (this.contextOpen) {
-            renderContextMenu(graphics, mouseX, mouseY);
-        }
-        if (this.promptOpen) {
-            renderPrompt(graphics, mouseX, mouseY, partialTick);
-        }
-        if (this.confirmOpen) {
-            renderConfirm(graphics, mouseX, mouseY);
-        }
-        
-        // Handle search box visibility (not a widget yet)
-        if (searchOpen) {
-            int pad = layoutPad();
-            int editorX = pad + leftPanelWidth() + pad;
-            int editorW = width - editorX - pad;
-            this.searchBox.setX(tabX() + 8);
-            this.searchBox.setY(topBarHeight() + 1 + pad + 3);
-            this.searchBox.setWidth(Math.min(160, editorW - (tabX() - editorX) - 20));
-            this.searchBox.visible = true;
-        } else {
-            this.searchBox.setPosition(-200, -200);
+    private void rebuildSymbolIndex() {
+        symbolLines.clear();
+        for (int i = 0; i < this.editor.lineCount(); i++) {
+            String text = this.editor.lineAt(i);
+            recordMatch(SYMBOL_DEF, text, i, 1);
+            recordMatch(SYMBOL_DECL, text, i, 1);
+            recordMatch(SYMBOL_ASSIGN, text, i, 1);
         }
     }
 
-    /** Draws the grey completion suffix right after the typed console text. */
-    private void renderConsoleHint(GuiGraphics graphics) {
-        if (this.bottomTab != 0 || this.consoleHint.isEmpty() || !this.consoleInput.visible
-                || !this.consoleInput.isFocused()) {
+    private void recordMatch(Pattern pattern, String text, int line, int group) {
+        Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            symbolLines.putIfAbsent(matcher.group(group), line);
+        }
+    }
+
+    /** Opens the definition (def/class/@block id) for the word under the cursor. */
+    private boolean goToDefinition(int line, int col) {
+        String word = this.editor.wordAt(line, col);
+        if (word.isEmpty()) {
+            return false;
+        }
+        rebuildSymbolIndex();
+        Integer target = symbolLines.get(word);
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        if (target != null) {
+            this.editor.scrollToLine(target);
+            focusEditor();
+            store.append("Jumped to definition of '" + word + "' (line " + (target + 1) + ")");
+            return true;
+        }
+        store.append("Searching project for '" + word + "' ...");
+        store.findDefinition(word);
+        return true;
+    }
+
+    /** Handles a cross-file definition result from the server. */
+    private void onDefinitionFound(String file, int line) {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        if (file == null || file.isEmpty() || line < 0) {
+            store.append("No definition found in this project");
+            showBottomTab(0);
             return;
         }
-        String value = this.consoleInput.getValue();
-        int x = this.consoleInput.getX() + 4 + this.font.width(value);
-        int y = this.consoleInput.getY() + 2;
-        if (x < this.consoleInput.getX() + this.consoleInput.getWidth() - 8) {
-            graphics.drawString(this.font, this.consoleHint, x, y, MUTED, false);
+        if (!file.equals(store.activeFile())) {
+            this.pendingDefinitionFile = file;
+            this.pendingDefinitionLine = line;
+            store.openFile(file);
+            store.append("Definition: " + file + ":" + (line + 1));
+        } else {
+            this.editor.scrollToLine(line);
+            focusEditor();
+            store.append("Jumped to definition (line " + (line + 1) + ")");
         }
     }
 
-    // ------------------------------------------------------------------
-    // Menu bar
-    // ------------------------------------------------------------------
-
-    private void renderMenuBar(GuiGraphics graphics, int mouseX, int mouseY) {
-        int h = menuBarHeight();
-        int textY = (h - 8) / 2;
-
-        graphics.drawString(this.font, "CraftPy IDE", layoutPad(), textY, ACCENT, false);
-        for (int i = 0; i < MENU_TITLES.length; i++) {
-            int x = menuTitleX(i);
-            int tw = menuTitleW(i);
-            boolean hovered = mouseX >= x && mouseX <= x + tw && mouseY < h;
-            if (this.openMenu == i) {
-                graphics.fill(x, 1, x + tw, h - 1, SELECTED);
-            } else if (hovered) {
-                graphics.fill(x, 1, x + tw, h - 1, PANEL);
-            }
-            graphics.drawString(this.font, MENU_TITLES[i], x + 5, textY, this.openMenu == i ? ACCENT : TEXT, false);
-        }
-
-        // Hovering another title while a menu is open switches to it.
-        if (this.openMenu >= 0 && !this.promptOpen && !this.confirmOpen) {
-            int hoverTitle = menuTitleAt(mouseX);
-            if (hoverTitle >= 0 && hoverTitle != this.openMenu && mouseY < h) {
-                this.openMenu = hoverTitle;
-            }
-        }
-
-        // Active project name, right-aligned before the Run/Assets cluster.
-        int clusterLeft = this.assetsButton.getX();
-        String label = ClientProjectStore.getInstance().activeProjectId();
-        String project = label == null ? "no project loaded" : "project: " + label;
-        int lastTitle = MENU_TITLES.length - 1;
-        int menuEnd = menuTitleX(lastTitle) + menuTitleW(lastTitle);
-        int projectX = menuEnd + 16;
-        int maxProjectX = clusterLeft - 8;
-        // Only draw if there is room; otherwise it would collide with the buttons.
-        if (maxProjectX - projectX > this.font.width(project)) {
-            graphics.drawString(this.font, project, projectX, textY, MUTED, false);
-        }
-
-        if (this.openMenu >= 0) {
-            renderDropdown(graphics, mouseX, mouseY);
+    private void focusEditor() {
+        this.focus = FOCUS_EDITOR;
+        this.setFocused(this.editorWidget);
+        this.editorWidget.setFocused(true);
+        if (this.consoleInput != null) {
+            this.consoleInput.setFocused(false);
         }
     }
 
-    private void renderDropdown(GuiGraphics graphics, int mouseX, int mouseY) {
-        int index = this.openMenu;
-        if (index < 0 || index >= this.menus.size()) {
+    private static final String API_REF_PATH = "API Reference (built-in).md";
+
+    /** Opens the bundled API markdown as a read-only editor tab. */
+    private void openApiDocAsFile() {
+        if (apiDocContent.isEmpty()) {
+            loadApiDoc();
+        }
+        focusEditor();
+        ClientProjectStore.getInstance().openVirtualFile(API_REF_PATH,
+                apiDocContent.isEmpty() ? "# API Reference\n\nThe bundled documentation failed to load."
+                        : apiDocContent);
+    }
+
+    private void openAssetPickerKind(AssetKind kind) {
+        openAssetPicker(this.editor.cursorLineIndex(), this.editor.cursorColumn(), this.editor.cursorColumn(), kind,
+                false);
+    }
+
+    private void showHelp() {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        store.append("Quick help:");
+        store.append("  - Ctrl+S save, Ctrl+Enter validate, Ctrl+F find, Ctrl+Shift+R run.");
+        store.append("  - Shift-click an identifier in the editor to jump to its definition.");
+        store.append("  - Assets menu or the Assets button opens the asset bank (click to insert).");
+        store.append("  - Drop image files on the window to upload them to the selected project.");
+        store.append("  - Right-click the file list to create, rename or delete files.");
+        store.append("  - Click the console input to type commands or Python; type 'help' for commands.");
+        showBottomTab(0);
+    }
+
+    /** Returns to the standalone project browser window. */
+    private void goToChooser() {
+        if (this.minecraft != null) {
+            this.minecraft.setScreen(new ProjectChooserScreen(menu, inventory, Component.literal("CraftPy Projects")));
+        }
+    }
+
+    /** Handles files dropped onto the window: uploads them to the selected project. */
+    public void handleDroppedAssets(java.util.List<java.nio.file.Path> paths) {
+        net.xmilon.craftpy.client.ClientProjectStore store = net.xmilon.craftpy.client.ClientProjectStore.getInstance();
+        String projectId = store.selectedId() != null ? store.selectedId() : store.activeProjectId();
+        if (projectId == null) {
+            store.append("Select a project before dropping assets");
             return;
         }
-        List<MenuItem> items = this.menus.get(index);
-        int x = dropdownX(index);
-        int w = dropdownWidth(index);
-        int h = 6 + items.size() * MENU_ITEM_HEIGHT;
-        int y = menuBarHeight();
-        graphics.fill(x - 1, y - 1, x + w + 1, y + h + 1, BORDER);
-        graphics.fill(x, y, x + w, y + h, PANEL);
-        for (int i = 0; i < items.size(); i++) {
-            int iy = dropdownItemY(i);
-            boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= iy && mouseY <= iy + MENU_ITEM_HEIGHT;
-            if (hovered) {
-                graphics.fill(x + 1, iy, x + w - 1, iy + MENU_ITEM_HEIGHT, SELECTED);
-            }
-            graphics.drawString(this.font, items.get(i).label(), x + 8, iy + 3, hovered ? ACCENT : TEXT, false);
-        }
+        net.xmilon.craftpy.client.assets.AssetUploader.uploadAll(projectId, paths,
+                net.xmilon.craftpy.assets.AssetKind.TEXTURE);
     }
 
     /**
-     * A small offline "definitions" reference for the declarative Python API,
-     * grouped by category and scrollable (mouse wheel over the API tab).
+     * Opens an explorer entry like an IDE: text files become editor tabs, asset
+     * files (textures / sounds) open a preview viewer instead of raw text.
      */
-    private static final String[][] API_ROWS = {
-            { "DECLARATIONS", "" },
-            { "@block(\"id\")", "declare a block; fields: name, texture, hardness, resistance, light, sound, tool, drops" },
-            { "@item(\"id\")", "declare an item; fields: name, texture, max_stack, fuel, food" },
-            { "@entity(\"id\")", "reskinned base mob; fields: base (mob_passive/mob_hostile), health, speed, texture" },
-            { "@effect(\"id\")", "mob effect; fields: name, color, duration, amplifier" },
-            {},
-            { "RECIPES & LOOT", "" },
-            { "recipe_shaped(...)", "shaped crafting recipe from a pattern + key" },
-            { "recipe_shapeless(...)", "shapeless crafting recipe from ingredients" },
-            { "recipe_smelting(...)", "furnace recipe (input -> result, xp, time)" },
-            { "loot_table(...)", "drops for a block/entity" },
-            { "tag(\"#id\", items=[...])", "add ids to a datapack tag" },
-            {},
-            { "EVENTS & CONTEXT", "" },
-            { "@on(\"event\")", "event handler: player_join, block_break, tick(every=20) ..." },
-            { "ctx.player / ctx.world / ctx.pos", "context helpers available inside callbacks" },
-            {},
-            { "ASSET HELPERS", "" },
-            { "tex(\"id\") / snd(\"id\") / mdl(\"id\")", "asset reference helpers used with the picker" },
-    };
-
-    /** Renders a scrollable list of text rows with a scrollbar when needed. */
-    private void renderRows(GuiGraphics graphics, List<Row> rows, int x, int y, int width, int height) {
-        int lineH = 11;
-        int contentH = rows.size() * lineH + 2;
-        int viewH = Math.max(1, height - 4);
-        int maxScroll = Math.max(0, contentH - viewH);
-        if (this.bottomScroll > maxScroll) {
-            this.bottomScroll = maxScroll;
+    private void openProjectEntry(String path) {
+        String lower = path.toLowerCase(Locale.ROOT).replace('\\', '/');
+        boolean preview = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".ogg") || lower.endsWith(".wav") || lower.endsWith(".mp3");
+        if (!preview) {
+            ClientProjectStore.getInstance().openFile(path);
+            return;
         }
-        graphics.enableScissor(x, y, x + width, y + height);
-        int lineY = y + 2 - this.bottomScroll;
-        for (Row row : rows) {
-            if (lineY + lineH >= y && lineY <= y + height) {
-                graphics.drawString(this.font, row.text(), x, lineY, row.color(), false);
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        String projectId = store.activeProjectId();
+        if (projectId == null) {
+            return;
+        }
+        store.requestAsset(projectId, path, asset -> {
+            if (this.minecraft != null && this.minecraft.screen == this) {
+                this.minecraft.setScreen(new AssetFileScreen(this, projectId, path, asset.data(), asset.error()));
             }
-            lineY += lineH;
+        });
+    }
+
+    private void openAssetPickerAtCursor() {
+        openAssetPicker(this.editor.cursorLineIndex(), this.editor.cursorColumn(), this.editor.cursorColumn(),
+                AssetKind.TEXTURE, false);
+    }
+
+    private void openAssetPicker(int line, int start, int end, AssetKind kind, boolean existing) {
+        if (this.minecraft == null) {
+            return;
         }
-        graphics.disableScissor();
-        if (maxScroll > 0) {
-            int barH = Math.max(14, (int) ((height - 8) * Math.max(0.15, (double) viewH / contentH)));
-            int barY = y + (int) ((height - barH) * ((double) this.bottomScroll / maxScroll));
-            graphics.fill(x + width - 4, barY, x + width - 1, barY + barH, ACCENT);
+        CodeEditor editor = this.editor;
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        String projectId = store.selectedId() != null ? store.selectedId() : store.activeProjectId();
+        this.minecraft.setScreen(new AssetPickerScreen(this, kind, id -> {
+            if (existing) {
+                editor.replaceRange(line, start, end, id);
+            } else {
+                String helper = kind == AssetKind.SOUND ? "snd"
+                        : kind == AssetKind.MODEL ? "mdl" : "tex";
+                editor.replaceRange(line, start, end, helper + "(\"" + id + "\")");
+            }
+        }, projectId));
+    }
+
+    // ------------------------------------------------------------------
+    // Command palette
+    // ------------------------------------------------------------------
+
+    private void openCommandPalette() {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        this.palettePopup.clearCommands();
+        this.palettePopup.addCommand("Run Project", this::runProject);
+        this.palettePopup.addCommand("Stop Project", store::interrupt);
+        this.palettePopup.addCommand("Validate Project", () -> store.validateActiveFile());
+        this.palettePopup.addCommand("Save File", store::saveActiveFile);
+        this.palettePopup.addCommand("New File", () -> promptNewFile(""));
+        this.palettePopup.addCommand("New Folder", () -> promptNewFolder(""));
+        this.palettePopup.addCommand("Clear Console", store::clearLog);
+        this.palettePopup.addCommand("Open API Reference", this::openApiDocAsFile);
+
+        for (String file : store.files()) {
+            this.palettePopup.addCommand("Open: " + file, () -> store.openFile(file));
         }
+
+        this.palettePopup.open();
     }
 
     private String apiDocContent = "";
@@ -1940,210 +1946,946 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         }
     }
 
-    private void renderApiReference(GuiGraphics graphics, int x, int y, int width, int height) {
-        List<Row> rows = new ArrayList<>();
-        if (apiDocContent.isEmpty()) {
-            rows.add(new Row("Loading API documentation...", MUTED));
-        } else {
-            for (String line : apiDocContent.split("\n")) {
-                int color = TEXT;
-                if (line.startsWith("#")) color = ACCENT;
-                else if (line.trim().startsWith("* ") || line.trim().startsWith("- ")) color = MUTED;
-                else if (line.contains("`")) color = 0xFFCE9178;
-                rows.add(new Row(line, color));
-            }
-        }
-        renderRows(graphics, rows, x, y, width, height);
-    }
+    // ------------------------------------------------------------------
+    // Inner widgets (all official AbstractWidgets)
+    // ------------------------------------------------------------------
 
-    private void renderMarkdownPreview(GuiGraphics graphics, int x, int y, int width, int height) {
-        String content = this.editor.getContent();
-        List<Row> rows = new ArrayList<>();
-        if (content.isEmpty()) {
-            rows.add(new Row("No content to preview", MUTED));
-        } else {
-            for (String line : content.split("\n")) {
-                int color = TEXT;
-                if (line.startsWith("#")) {
-                    color = ACCENT;
-                } else if (line.trim().startsWith("* ") || line.trim().startsWith("- ") || line.trim().startsWith("+ ")) {
-                    color = MUTED;
-                } else if (line.contains("`")) {
-                    color = 0xFFCE9178; // String-like color for code
+    /** The top menu title strip with the right-aligned project label. */
+    private final class IdeMenuBar extends AbstractWidget {
+        private IdeMenuBar() {
+            super(0, 0, 1, MENU_BAR_H, Component.literal("IDE menu"));
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            int x = this.getX();
+            int y = this.getY();
+            int w = this.getWidth();
+            graphics.fill(x, y, x + w, y + MENU_BAR_H, IdeColors.BG);
+            graphics.fill(x, y + MENU_BAR_H - 1, x + w, y + MENU_BAR_H, IdeColors.BORDER);
+            int textY = (MENU_BAR_H - 8) / 2;
+            graphics.drawString(font, "CraftPy IDE", 8, textY, IdeColors.ACCENT, false);
+            for (int i = 0; i < MENU_TITLES.length; i++) {
+                int tx = menuTitleX(i);
+                int tw = menuTitleW(i);
+                boolean hovered = mouseX >= tx && mouseX <= tx + tw && mouseY < MENU_BAR_H;
+                if (openMenu == i || hovered) {
+                    graphics.fill(tx, 1, tx + tw, MENU_BAR_H - 1, openMenu == i ? IdeColors.SELECTED : IdeColors.PANEL);
                 }
-                rows.add(new Row(line, color));
+                graphics.drawString(font, MENU_TITLES[i], tx + 5, textY, openMenu == i ? IdeColors.ACCENT : IdeColors.TEXT, false);
+            }
+
+            String label = ClientProjectStore.getInstance().activeProjectId();
+            String project = label == null ? "no project loaded" : "project: " + label;
+            int menuEnd = menuTitleX(MENU_TITLES.length - 1) + menuTitleW(MENU_TITLES.length - 1);
+            int projectRight = w - 8;
+            int projectX = projectRight - font.width(project);
+            if (projectX > menuEnd + 12) {
+                graphics.drawString(font, project, projectX, textY, IdeColors.MUTED, false);
             }
         }
-        renderRows(graphics, rows, x, y, width, height);
-    }
 
-    private void renderSettings(GuiGraphics graphics, int x, int y, int width, int height) {
-        int ly = y + 4;
-        graphics.drawString(this.font, "KEYMAP SETTINGS", x, ly, ACCENT, false);
-        ly += 16;
-        
-        String[][] keys = {
-            { "Ctrl + S", "Save active file" },
-            { "Ctrl + Enter", "Validate project" },
-            { "Ctrl + Shift + R", "Run project" },
-            { "Ctrl + Shift + P", "Command Palette" },
-            { "Ctrl + F", "Toggle search" },
-            { "Ctrl + W", "Close active tab" },
-            { "F12", "Go to definition" }
-        };
-        
-        for (String[] key : keys) {
-            graphics.drawString(this.font, key[0], x, ly, TEXT, false);
-            graphics.drawString(this.font, key[1], x + 100, ly, MUTED, false);
-            ly += 12;
-        }
-    }
-
-    /** ASSETS tab group overview: one line per category plus the bank launcher. */
-    private void renderAssetPanel(GuiGraphics graphics, int x, int y, int width, int height) {
-        AssetIndex index = AssetIndex.get();
-        int lineY = y + 2;
-        graphics.drawString(this.font, "ASSETS - grouped by category (counts refresh as packs reload)", x, lineY, ACCENT,
-                false);
-        lineY += 14;
-        String[][] groups = {
-                { "TEXTURES", String.valueOf(index.ids(AssetKind.TEXTURE).size()) },
-                { "ITEMS", String.valueOf(index.ids(AssetKind.ITEM).size()) },
-                { "BLOCKS", String.valueOf(index.ids(AssetKind.BLOCK).size()) },
-                { "MODELS", String.valueOf(index.ids(AssetKind.MODEL).size()) },
-                { "SOUNDS", String.valueOf(index.ids(AssetKind.SOUND).size()) },
-        };
-        for (String[] group : groups) {
-            graphics.drawString(this.font, String.format("%-9s", group[0]), x, lineY, TEXT, false);
-            graphics.drawString(this.font, group[1] + "  (shift-click inside the bank to preview/edit)", x + 70, lineY,
-                    MUTED, false);
-            lineY += 11;
-        }
-        graphics.drawString(this.font, "Open the full asset bank from the Assets menu or the Assets button above.", x,
-                lineY + 4, MUTED, false);
-    }
-
-    /**
-     * The open-file tab strip with per-tab close buttons. Unsaved tabs show a
-     * trailing "*"; the close box highlights on hover. Long strips clip at the
-     * editor edge and scroll with the mouse wheel.
-     */
-    private void renderTabs(GuiGraphics graphics, int mouseX, int mouseY, int editorX, int editorW) {
-        ClientProjectStore store = ClientProjectStore.getInstance();
-        String active = store.activeFile();
-        int y = editorTabBarTop();
-        graphics.enableScissor(editorX, y, editorX + editorW, y + EDITOR_TAB_BAR_H);
-        for (TabRect rect : tabRects()) {
-            boolean isActive = rect.path().equals(active);
-            if (isActive) {
-                graphics.fill(rect.x(), y + 1, rect.x() + rect.width(), y + EDITOR_TAB_BAR_H - 1, SELECTED);
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!this.visible || mouseY >= MENU_BAR_H) {
+                return false;
             }
-            boolean closeHover = mouseX >= rect.closeX() && mouseX <= rect.closeX() + 10
-                    && mouseY >= y && mouseY < y + EDITOR_TAB_BAR_H;
-            if (closeHover) {
-                graphics.fill(rect.closeX() - 1, y + 4, rect.closeX() + 9, y + 14, 0x40FF6B6B);
+            int title = menuTitleAt(mouseX);
+            if (title >= 0) {
+                openMenu(openMenu == title ? -1 : title);
+                return true;
             }
-            graphics.drawString(this.font, rect.path().substring(Math.max(0, rect.path().lastIndexOf('/') + 1))
-                    + (rect.dirty() ? "*" : ""), rect.labelX(), y + 6, isActive ? ACCENT : MUTED, false);
-            graphics.drawString(this.font, "x", rect.closeX() + 2, y + 6, closeHover ? ERROR_COLOR : MUTED, false);
+            return false;
         }
-        graphics.disableScissor();
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return false;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
     }
 
-    /** PyCharm-style editor status line: language, active file, cursor position. */
-    private void renderStatusBar(GuiGraphics graphics, int editorX, int editorW, int y) {
-        String file = this.displayedFile == null ? "no file" : this.displayedFile;
-        String lang = this.editor.getLanguage();
-        String title = lang.substring(0, 1).toUpperCase(Locale.ROOT) + lang.substring(1);
-        String currentLine = Integer.toString(this.editor.cursorLineIndex() + 1);
-        String currentCol = Integer.toString(this.editor.cursorColumn() + 1);
-        String status = title + " | " + file + " | Ln " + currentLine + ", Col " + currentCol;
-        graphics.drawString(this.font, status, editorX + editorW - this.font.width(status) - 4, y, MUTED, false);
+    /** The grey toolbar strip that sits behind the icon buttons. */
+    private final class ToolbarBackground extends AbstractWidget {
+        private ToolbarBackground() {
+            super(0, 0, 1, TOOLBAR_H, Component.literal("toolbar"));
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            int x = this.getX();
+            int y = this.getY();
+            int w = this.getWidth();
+            graphics.fill(x, y, x + w, y + TOOLBAR_H, IdeColors.PANEL_ALT);
+            graphics.fill(x, y, x + w, y + 1, IdeColors.BORDER);
+            graphics.fill(x, y + TOOLBAR_H - 1, x + w, y + TOOLBAR_H, IdeColors.BORDER);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return false;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
     }
 
-    private void renderFileList(GuiGraphics graphics, int x, int y, int width, int height) {
-        List<String> files = ClientProjectStore.getInstance().files();
-        int rowH = 16;
-        int maxScroll = Math.max(0, files.size() * rowH - height);
-        if (this.fileScroll > maxScroll) {
-            this.fileScroll = maxScroll;
+    /** Explorer column header with new-file / new-folder / import / refresh. */
+    private final class ExplorerHeader extends AbstractWidget {
+        private ExplorerHeader() {
+            super(0, 0, 1, 28, Component.literal("Explorer"));
         }
-        graphics.enableScissor(x, y, x + width, y + height);
-        String active = ClientProjectStore.getInstance().activeFile();
-        for (int i = 0; i < files.size(); i++) {
-            int rowY = y + i * rowH - this.fileScroll;
-            if (rowY + rowH < y || rowY > y + height) {
-                continue;
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            int x = this.getX();
+            int y = this.getY();
+            int w = this.getWidth();
+            graphics.fill(x, y, x + w, y + 28, IdeColors.PANEL_ALT);
+            graphics.fill(x, y, x + w, y + 1, IdeColors.BORDER);
+            graphics.fill(x, y + 27, x + w, y + 28, IdeColors.BORDER);
+            graphics.drawString(font, "EXPLORER", x + 6, y + 10, IdeColors.ACCENT, false);
+            renderMiniIcon(graphics, x + w - 22, y + 6, IconButton.Icon.NEW_FILE, hit(mouseX, mouseY, x + w - 24, y + 4));
+            renderMiniIcon(graphics, x + w - 40, y + 6, IconButton.Icon.NEW_FOLDER, hit(mouseX, mouseY, x + w - 42, y + 4));
+            renderMiniIcon(graphics, x + w - 58, y + 6, IconButton.Icon.FIND, hit(mouseX, mouseY, x + w - 60, y + 4));
+            renderMiniIcon(graphics, x + w - 76, y + 6, IconButton.Icon.REFRESH, hit(mouseX, mouseY, x + w - 78, y + 4));
+        }
+
+        private boolean hit(double mx, double my, int x, int y) {
+            return mx >= x && mx < x + 18 && my >= y && my < y + 18;
+        }
+
+        private void renderMiniIcon(GuiGraphics graphics, int x, int y, IconButton.Icon icon, boolean hover) {
+            if (hover) {
+                graphics.fill(x - 2, y - 2, x + 18, y + 18, IdeColors.PANEL_HOVER);
             }
-            boolean isActive = files.get(i).equals(active);
-            if (isActive) {
-                graphics.fill(x, rowY, x + width, rowY + rowH, SELECTED);
+            for (int j = 0; j < 9; j++) {
+                for (int i = 0; i < 9; i++) {
+                    if (rowGlyph(icon, j, i)) {
+                        graphics.fill(x + i, y + j, x + i + 1, y + j + 1, IdeColors.MUTED);
+                    }
+                }
             }
-            String label = files.get(i);
-            String shortLabel = label.startsWith("code/") ? label.substring(5) : label;
-            graphics.drawString(this.font, shortLabel, x + 4, rowY + 3, isActive ? TEXT : MUTED, false);
         }
-        graphics.disableScissor();
-        if (files.isEmpty()) {
-            graphics.drawString(this.font, "Open a project", x + 4, y + 2, MUTED, false);
+
+        private boolean rowGlyph(IconButton.Icon icon, int y, int x) {
+            return iconGlyph(icon, y, x);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!this.visible || mouseY < this.getY() || mouseY >= this.getY() + 28 || button != 0) {
+                return false;
+            }
+            int x = this.getX() + this.getWidth();
+            if (mouseX >= x - 24 && mouseX < x - 6) {
+                promptNewFile("");
+                return true;
+            }
+            if (mouseX >= x - 42 && mouseX < x - 24) {
+                promptNewFolder("");
+                return true;
+            }
+            if (mouseX >= x - 60 && mouseX < x - 42) {
+                net.xmilon.craftpy.client.assets.AssetUploader.openDialog(
+                        ClientProjectStore.getInstance().activeProjectId(), null);
+                return true;
+            }
+            if (mouseX >= x - 78 && mouseX < x - 60) {
+                ClientProjectStore.getInstance().refresh();
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
         }
     }
 
-    private void renderConsole(GuiGraphics graphics, int x, int y, int width, int height) {
-        List<Row> rows = new ArrayList<>();
-        for (String line : ClientProjectStore.getInstance().log()) {
-            rows.add(new Row(line, line.contains("ERROR") || line.contains("Error") ? ERROR_COLOR : TEXT));
+    /** The folder/file tree in the left column. */
+    private final class ExplorerPanel extends ScrollView {
+        private TreeMap<String, FNode> roots = new TreeMap<>();
+        private final TreeMap<String, FNode> nodes = new TreeMap<>();
+        private final TreeMap<String, Boolean> openByPath = new TreeMap<>();
+
+        private ExplorerPanel() {
+            super(Component.literal("Project files"));
         }
-        // Follow the newest line whenever the log grows.
-        if (rows.size() != this.lastLogSize) {
-            this.lastLogSize = rows.size();
-            this.bottomScroll = Integer.MAX_VALUE;
+
+        private FNode ensure(String path) {
+            FNode node = this.nodes.get(path);
+            if (node == null) {
+                node = new FNode(path, path.endsWith("/"));
+                this.nodes.put(path, node);
+            }
+            return node;
         }
-        if (rows.isEmpty()) {
-            rows.add(new Row("Console is empty. Use Run or Validate, or type a command below ('help').", MUTED));
+
+        private void buildTree() {
+            this.roots = new TreeMap<>();
+            this.nodes.clear();
+            this.openByPath.putIfAbsent("assets/", true);
+            this.openByPath.putIfAbsent("code/", true);
+            this.openByPath.putIfAbsent("data/", true);
+            for (String path : ClientProjectStore.getInstance().files()) {
+                addPath(path);
+            }
         }
-        // The last 16px belong to the input box.
-        renderRows(graphics, rows, x, y, width, Math.max(12, height - 16));
+
+        private void addPath(String path) {
+            String p = path.replace('\\', '/');
+            boolean dir = p.endsWith("/");
+            String[] parts = p.split("/");
+            StringBuilder acc = new StringBuilder();
+            FNode parent = null;
+            // Every ancestor directory of a file must be registered as a node, and the
+            // top-most one inserted into roots - otherwise files under code/ or assets/
+            // hang off a directory node that is never reached when walking the tree.
+            int lastDirIndex = dir ? parts.length : parts.length - 1;
+            for (int i = 0; i < lastDirIndex; i++) {
+                acc.append(parts[i]).append('/');
+                FNode node = ensure(acc.toString());
+                node.dir = true;
+                if (parent == null) {
+                    insertRoot(node);
+                } else {
+                    attach(parent, node);
+                }
+                parent = node;
+            }
+            if (dir) {
+                return;
+            }
+            FNode node = ensure(p);
+            node.dir = false;
+            if (parent != null) {
+                attach(parent, node);
+            } else {
+                insertRoot(node);
+            }
+        }
+
+        private void insertRoot(FNode node) {
+            this.roots.put(node.name(), node);
+        }
+
+        private void attach(FNode parent, FNode child) {
+            parent.children.putIfAbsent(child.name(), child);
+        }
+
+        @Override
+        protected List<Row> rows() {
+            this.buildTree();
+            List<Row> out = new ArrayList<>();
+            String active = ClientProjectStore.getInstance().activeFile();
+            for (FNode root : this.roots.values()) {
+                collect(root, 0, out, active);
+            }
+            if (out.isEmpty()) {
+                out.add(new Row("Open a project", IdeColors.MUTED, false));
+            }
+            return out;
+        }
+
+        private void collect(FNode node, int depth, List<Row> out, String active) {
+            String prefix = "  ".repeat(depth);
+            String chevron = node.dir ? (isOpen(node.path()) ? "\u25BE " : "\u25B8 ") : "";
+            int color;
+            boolean highlight = false;
+            if (node.dir) {
+                color = isOpen(node.path()) ? IdeColors.ACCENT : IdeColors.MUTED;
+            } else {
+                highlight = node.path().equals(active);
+                color = highlight ? IdeColors.TEXT : IdeColors.MUTED;
+            }
+            out.add(new Row(prefix + chevron + node.name(), color, highlight));
+            if (node.dir && isOpen(node.path())) {
+                for (FNode child : node.children.values()) {
+                    collect(child, depth + 1, out, active);
+                }
+            }
+        }
+
+        private boolean isOpen(String path) {
+            return this.openByPath.getOrDefault(path, true);
+        }
+
+        @Override
+        public int rowHeight() {
+            return 16;
+        }
+
+        @Override
+        protected void onRowClicked(int index, int button, double x, double y) {
+            if (index < 0 || index >= this.rows().size()) {
+                return;
+            }
+            FNode node = nodeAt(index);
+            if (node == null) {
+                return;
+            }
+            if (node.dir) {
+                if (button == 0) {
+                    boolean next = !isOpen(node.path());
+                    this.openByPath.put(node.path(), next);
+                }
+            } else if (button == 0) {
+                openProjectEntry(node.path());
+            }
+        }
+
+        @Override
+        protected void onRowRightClicked(int index, double x, double y) {
+            FNode node = index >= 0 ? nodeAt(index) : null;
+            String target = node == null ? null : node.path();
+            openContextMenu((int) x, (int) y, target);
+        }
+
+        private FNode nodeAt(int index) {
+            List<Row> rows = this.rows();
+            if (index >= rows.size()) {
+                return null;
+            }
+            String active = ClientProjectStore.getInstance().activeFile();
+            Slice rowByIndex = new Slice(rows, index, this.openByPath);
+            return rowByIndex.findNode(this.roots);
+        }
+
+        @Override
+        protected void renderContents(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            buildTree();
+            super.renderContents(graphics, mouseX, mouseY, partialTick);
+        }
     }
 
-    private void renderProblems(GuiGraphics graphics, int x, int y, int width, int height) {
-        List<Row> rows = new ArrayList<>();
-        for (net.xmilon.craftpy.python.ValidationProblem problem : ClientProjectStore.getInstance()
-                .validationProblems()) {
-            int color = problem.isError() ? ERROR_COLOR : 0xFFFFB86C;
-            String label = (problem.line() + 1) + ":" + problem.column() + " " + problem.message()
-                    + (problem.file().isEmpty() ? "" : " [" + problem.file() + "]");
-            rows.add(new Row(label, color));
+    /** Tiny helper mapping a flattened row index back to a tree node. */
+    private static final class Slice {
+        private final List<Row> flattened;
+        private final int target;
+        private final TreeMap<String, Boolean> openByPath;
+        private FNode found;
+        private int cursor;
+
+        private Slice(List<Row> flattened, int target, TreeMap<String, Boolean> openByPath) {
+            this.flattened = flattened;
+            this.target = target;
+            this.openByPath = openByPath;
         }
-        for (CodeProblems.Problem problem : CodeProblems.snapshot()) {
-            int color = switch (problem.severity()) {
-                case ERROR -> ERROR_COLOR;
-                case WARNING -> 0xFFFFB86C;
-                case INFO -> MUTED;
-            };
-            rows.add(new Row((problem.line() + 1) + ":" + problem.column() + " " + problem.message(), color));
+
+        private FNode findNode(TreeMap<String, FNode> roots) {
+            for (FNode root : roots.values()) {
+                walk(root);
+                if (this.found != null) {
+                    return this.found;
+                }
+            }
+            return null;
         }
-        String active = ClientProjectStore.getInstance().activeFile();
-        if (active != null) {
-            AssetIndex.get().ensureBuilt();
-            String content = ClientProjectStore.getInstance().fileContent(active);
-            if (content != null) {
-                int lineNo = 0;
-                for (String line : content.split("\n", -1)) {
-                    for (AssetReference ref : AssetReferences.parse(line)) {
-                        if (!AssetIndex.get().exists(ref.kind(), ref.value())) {
-                            rows.add(new Row((lineNo + 1) + " missing "
-                                    + ref.kind().name().toLowerCase(java.util.Locale.ROOT) + " '" + ref.value() + "'",
-                                    0xFFFFB86C));
+
+        private void walk(FNode node) {
+            if (this.found != null) {
+                return;
+            }
+            if (this.cursor == this.target) {
+                this.found = node;
+                return;
+            }
+            this.cursor++;
+            if (node.dir && this.openByPath.getOrDefault(node.path(), true)) {
+                for (FNode child : node.children.values()) {
+                    this.walk(child);
+                    if (this.found != null) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    private static final class FNode {
+        final String path;
+        final String name;
+        boolean dir;
+        final TreeMap<String, FNode> children = new TreeMap<>();
+
+        private FNode(String path, boolean dir) {
+            this.path = path;
+            this.dir = dir;
+            String trimmed = path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
+            int slash = trimmed.lastIndexOf('/');
+            this.name = slash < 0 ? trimmed : trimmed.substring(slash + 1);
+        }
+
+        String path() {
+            return this.path;
+        }
+
+        String name() {
+            return this.name;
+        }
+    }
+
+    private boolean iconGlyph(IconButton.Icon icon, int y, int x) {
+        return IconButton.cell(icon, y, x);
+    }
+
+    /** Bottom panel tab strip (Console / Problems / Preview, Settings when open). */
+    private final class BottomTabBar extends AbstractWidget {
+        private BottomTabBar() {
+            super(0, 0, 1, BOTTOM_TAB_H, Component.literal("Bottom panel tabs"));
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            int x = this.getX();
+            int y = this.getY();
+            int w = this.getWidth();
+            graphics.fill(x, y, x + w, y + BOTTOM_TAB_H, IdeColors.PANEL_ALT);
+            graphics.fill(x, y, x + w, y + 1, IdeColors.BORDER);
+            int cx = x + 8;
+            for (int i = 0; i < BOTTOM_TAB_IDS.length; i++) {
+                int id = BOTTOM_TAB_IDS[i];
+                if (!openBottomTabs.contains(id)) {
+                    continue;
+                }
+                boolean active = bottomTab == id;
+                int tw = font.width(BOTTOM_TAB_TITLES[i]) + 20 + (active ? 12 : 0);
+                graphics.fill(cx, y + 3, cx + tw, y + 17, active ? IdeColors.SELECTED : IdeColors.PANEL);
+                graphics.drawString(font, BOTTOM_TAB_TITLES[i], cx + 10, y + 6,
+                        active ? IdeColors.ACCENT : IdeColors.MUTED, false);
+                if (active) {
+                    int chx = cx + tw - 12;
+                    boolean hoverClose = mouseX >= chx && mouseX < cx + tw && mouseY >= y + 3 && mouseY < y + 17;
+                    graphics.drawString(font, "x", chx + 2, y + 6, hoverClose ? IdeColors.ERROR : IdeColors.MUTED, false);
+                }
+                cx += tw + 4;
+            }
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!this.visible || mouseY < this.getY() || mouseY >= this.getY() + BOTTOM_TAB_H) {
+                return false;
+            }
+            int cx = this.getX() + 8;
+            for (int i = 0; i < BOTTOM_TAB_IDS.length; i++) {
+                int id = BOTTOM_TAB_IDS[i];
+                if (!openBottomTabs.contains(id)) {
+                    continue;
+                }
+                boolean active = bottomTab == id;
+                int tw = font.width(BOTTOM_TAB_TITLES[i]) + 20 + (active ? 12 : 0);
+                if (mouseX >= cx && mouseX < cx + tw) {
+                    if (button == 0) {
+                        if (active && mouseX >= cx + tw - 12) {
+                            closeBottomTab(id);
+                        } else {
+                            showBottomTab(id);
                         }
                     }
-                    lineNo++;
+                    return true;
                 }
+                cx += tw + 4;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return false;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
+    }
+
+    /** Scrollable bottom panel; rows provided per active tab. */
+    private final class PanelScrollView extends ScrollView {
+        private Supplier<List<Row>> rowsSupplier;
+        private boolean follow;
+        private int lastCount = -1;
+
+        private PanelScrollView() {
+            super(Component.literal("Output panel"));
+        }
+
+        private void setRows(Supplier<List<Row>> supplier, boolean follow) {
+            this.rowsSupplier = supplier;
+            this.follow = follow;
+            this.lastCount = -1;
+        }
+
+        @Override
+        protected List<Row> rows() {
+            return this.rowsSupplier == null ? List.of() : this.rowsSupplier.get();
+        }
+
+        @Override
+        public int rowHeight() {
+            return bottomTab == 5 ? 12 : 11;
+        }
+
+        @Override
+        protected void renderContents(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            List<Row> r = this.rows();
+            if (this.follow && this.lastCount != r.size()) {
+                this.lastCount = r.size();
+                this.scrollToEnd();
+            }
+            super.renderContents(graphics, mouseX, mouseY, partialTick);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            boolean handled = super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+            this.follow = this.atEnd();
+            return handled;
+        }
+
+        @Override
+        public void refresh() {
+            this.lastCount = -1;
+        }
+    }
+
+    /** Status bar: language | file | cursor position, right-aligned. */
+    private final class StatusView extends AbstractWidget {
+        private StatusView() {
+            super(0, 0, 1, STATUS_H, Component.literal("Status bar"));
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            int x = this.getX();
+            int y = this.getY();
+            int w = this.getWidth();
+            graphics.fill(x, y, x + w, y + STATUS_H, IdeColors.BG);
+            graphics.fill(x, y, x + w, y + 1, IdeColors.BORDER);
+            String file = displayedFile == null ? "no file" : displayedFile;
+            String lang = editor.getLanguage();
+            String title = lang.substring(0, 1).toUpperCase(Locale.ROOT) + lang.substring(1);
+            String currentLine = Integer.toString(editor.cursorLineIndex() + 1);
+            String currentCol = Integer.toString(editor.cursorColumn() + 1);
+            String status = title + " | " + file + " | Ln " + currentLine + ", Col " + currentCol;
+            graphics.drawString(font, status, x + w - font.width(status) - 8, (STATUS_H - 8) / 2, IdeColors.MUTED, false);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return false;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
+    }
+
+    /** Dropdown menu overlay shown when a menu title is open. */
+    private final class MenuPopup extends AbstractWidget {
+        private MenuPopup() {
+            super(0, 0, 1, 1, Component.literal("Menu"));
+            this.visible = false;
+        }
+
+        private void setVisibility(boolean open) {
+            this.visible = open;
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            if (openMenu < 0 || openMenu >= menus.size()) {
+                return;
+            }
+            int x = dropdownX(openMenu);
+            int w = dropdownWidth(openMenu);
+            int h = 6 + menus.get(openMenu).size() * MENU_ITEM_HEIGHT;
+            this.setPosition(x, MENU_BAR_H);
+            this.setSize(w, h);
+            graphics.fill(x - 1, MENU_BAR_H - 1, x + w + 1, MENU_BAR_H + h + 1, IdeColors.BORDER);
+            renderDropdown(graphics, mouseX, mouseY, this);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!this.visible) {
+                return false;
+            }
+            // Title row: let the menu bar underneath handle hover-switching.
+            if (mouseY < MENU_BAR_H) {
+                return false;
+            }
+            int item = dropdownItemAt(mouseX, mouseY);
+            if (item >= 0) {
+                MenuItem chosen = menus.get(openMenu).get(item);
+                openMenu(-1);
+                chosen.action().run();
+                return true;
+            }
+            int x = dropdownX(openMenu);
+            int w = dropdownWidth(openMenu);
+            int h = 6 + menus.get(openMenu).size() * MENU_ITEM_HEIGHT;
+            if (mouseX >= x && mouseX <= x + w && mouseY >= MENU_BAR_H && mouseY <= MENU_BAR_H + h) {
+                return true;
+            }
+            openMenu(-1);
+            return true;
+        }
+
+        @Override
+        public void mouseMoved(double mouseX, double mouseY) {
+            if (this.visible) {
+                hoverMenuSwitch(mouseX, mouseY);
+            }
+            super.mouseMoved(mouseX, mouseY);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return this.visible;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
+    }
+
+    /** Explorer right-click context menu overlay. */
+    private final class ContextPopup extends AbstractWidget {
+        private int menuX;
+        private int menuY;
+        private int menuW;
+        private int menuH;
+
+        private ContextPopup() {
+            super(0, 0, 1, 1, Component.literal("Context menu"));
+            this.visible = false;
+        }
+
+        private void setItems(List<MenuItem> items, int x, int y) {
+            int w = 110;
+            for (MenuItem item : items) {
+                w = Math.max(w, font.width(item.label()) + 26);
+            }
+            int h = 6 + items.size() * CONTEXT_ITEM_HEIGHT;
+            this.menuW = w;
+            this.menuH = h;
+            this.menuX = Math.max(2, Math.min(x, width - w - 2));
+            this.menuY = Math.max(2, Math.min(y, height - h - 2));
+        }
+
+        private void refreshGeometry() {
+            this.setPosition(this.menuX, this.menuY);
+            this.setSize(this.menuW, this.menuH);
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            if (!this.visible) {
+                return;
+            }
+            graphics.fill(this.menuX - 1, this.menuY - 1, this.menuX + this.menuW + 1, this.menuY + this.menuH + 1, IdeColors.BORDER);
+            graphics.fill(this.menuX, this.menuY, this.menuX + this.menuW, this.menuY + this.menuH, IdeColors.PANEL);
+            for (int i = 0; i < contextItems.size(); i++) {
+                int iy = this.menuY + 3 + i * CONTEXT_ITEM_HEIGHT;
+                boolean hovered = mouseX >= this.menuX && mouseX <= this.menuX + this.menuW && mouseY >= iy
+                        && mouseY <= iy + CONTEXT_ITEM_HEIGHT;
+                if (hovered) {
+                    graphics.fill(this.menuX + 1, iy, this.menuX + this.menuW - 1, iy + CONTEXT_ITEM_HEIGHT, IdeColors.SELECTED);
+                }
+                graphics.drawString(font, contextItems.get(i).label(), this.menuX + 8, iy + 3,
+                        hovered ? IdeColors.ACCENT : IdeColors.TEXT, false);
             }
         }
-        if (rows.isEmpty()) {
-            rows.add(new Row("No problems detected. Use Validate (Ctrl+Enter) to run the Python compiler.", MUTED));
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!this.visible) {
+                return false;
+            }
+            int index = -1;
+            if (mouseX >= this.menuX && mouseX <= this.menuX + this.menuW) {
+                for (int i = 0; i < contextItems.size(); i++) {
+                    int iy = this.menuY + 3 + i * CONTEXT_ITEM_HEIGHT;
+                    if (mouseY >= iy && mouseY <= iy + CONTEXT_ITEM_HEIGHT) {
+                        index = i;
+                        break;
+                    }
+                }
+            }
+            runContextItem(index);
+            return true;
         }
-        renderRows(graphics, rows, x, y, width, height);
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return this.visible;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
+    }
+
+    /** Modal input dialog (new file / folder / rename). */
+    private final class PromptDialog extends AbstractWidget {
+        private PromptDialog() {
+            super(0, 0, 1, 1, Component.literal("Prompt"));
+            this.visible = false;
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            if (!promptOpen) {
+                return;
+            }
+            int pw = Math.min(260, width - 20);
+            int px = (width - pw) / 2;
+            int py = height / 2 - 30;
+            graphics.fill(0, 0, width, height, IdeColors.DIMMER);
+            graphics.fill(px - 1, py - 1, px + pw + 1, py + 57, IdeColors.BORDER);
+            graphics.fill(px, py, px + pw, py + 56, IdeColors.PANEL);
+            graphics.drawString(font, font.plainSubstrByWidth(promptTitle, pw - 16), px + 8, py + 7, IdeColors.ACCENT, false);
+            promptBox.render(graphics, mouseX, mouseY, partialTick);
+            graphics.drawString(font, "Enter = OK    Esc = Cancel", px + 8, py + 42, IdeColors.MUTED, false);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!promptOpen) {
+                return false;
+            }
+            if (button == 0) {
+                promptBox.mouseClicked(mouseX, mouseY, button);
+            }
+            return true;
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return promptOpen;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
+    }
+
+    /** Modal confirm dialog (delete / close dirty tab). */
+    private final class ConfirmDialog extends AbstractWidget {
+        private ConfirmDialog() {
+            super(0, 0, 1, 1, Component.literal("Confirm"));
+            this.visible = false;
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            if (!confirmOpen) {
+                return;
+            }
+            int cw = Math.min(300, width - 20);
+            int cx = (width - cw) / 2;
+            int cy = height / 2 - 30;
+            graphics.fill(0, 0, width, height, IdeColors.DIMMER);
+            graphics.fill(cx - 1, cy - 1, cx + cw + 1, cy + 61, IdeColors.BORDER);
+            graphics.fill(cx, cy, cx + cw, cy + 60, IdeColors.PANEL);
+            graphics.drawString(font, "Confirm", cx + 8, cy + 7, IdeColors.ACCENT, false);
+            graphics.drawString(font, font.plainSubstrByWidth(confirmMessage, cw - 16), cx + 8, cy + 22, IdeColors.TEXT, false);
+
+            int yesX = cx + cw / 2 - 66;
+            int noX = cx + cw / 2 + 6;
+            int by = cy + 38;
+            boolean yesHover = confirmYesAt(mouseX, mouseY);
+            boolean noHover = confirmNoAt(mouseX, mouseY);
+            graphics.fill(yesX, by, yesX + 60, by + 14, yesHover ? IdeColors.ERROR : IdeColors.SELECTED);
+            graphics.fill(noX, by, noX + 60, by + 14, noHover ? IdeColors.BORDER : IdeColors.PANEL_ALT);
+            graphics.drawString(font, "Yes", yesX + (60 - font.width("Yes")) / 2, by + 3, IdeColors.TEXT, false);
+            graphics.drawString(font, "No", noX + (60 - font.width("No")) / 2, by + 3, IdeColors.TEXT, false);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!confirmOpen) {
+                return false;
+            }
+            if (button == 0) {
+                if (confirmYesAt(mouseX, mouseY)) {
+                    acceptConfirm();
+                } else if (confirmNoAt(mouseX, mouseY)) {
+                    closeConfirm();
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return confirmOpen;
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
+    }
+
+    /** Command palette overlay (Ctrl+Shift+P). */
+    private final class PalettePopup extends AbstractWidget {
+        private final List<String[]> commands = new ArrayList<>();
+        private final EditBox box;
+        private boolean open;
+
+        private PalettePopup() {
+            super(0, 0, 1, 1, Component.literal("Command palette"));
+            this.box = new EditBox(font, 0, 0, 240, 12, Component.literal("command"));
+            this.box.setMaxLength(200);
+            this.box.setHint(Component.literal("Type to filter commands"));
+            this.box.setResponder(s -> {
+            });
+            this.visible = false;
+        }
+
+        private void clearCommands() {
+            this.commands.clear();
+        }
+
+        private void addCommand(String label, Runnable action) {
+            this.commands.add(new String[] { label, Integer.toString(this.commands.size()) });
+            this.actions.put(label, action);
+        }
+
+        private final Map<String, Runnable> actions = new HashMap<>();
+
+        private boolean isOpen() {
+            return this.visible && this.open;
+        }
+
+        private void open() {
+            this.open = true;
+            this.visible = true;
+            this.box.setValue("");
+            ComputerScreen.this.setFocused(this.box);
+            this.box.setFocused(true);
+        }
+
+        private void close() {
+            this.open = false;
+            this.visible = false;
+            this.box.setFocused(false);
+            ComputerScreen.this.setFocused(editorWidget);
+            focus = FOCUS_EDITOR;
+        }
+
+        private List<String[]> filtered() {
+            String q = this.box.getValue().trim().toLowerCase(Locale.ROOT);
+            List<String[]> out = new ArrayList<>();
+            for (String[] command : this.commands) {
+                if (q.isEmpty() || command[0].toLowerCase(Locale.ROOT).contains(q)) {
+                    out.add(command);
+                }
+            }
+            return out;
+        }
+
+        private void runSelected() {
+            List<String[]> matches = this.filtered();
+            if (matches.isEmpty()) {
+                return;
+            }
+            Runnable action = this.actions.get(matches.get(0)[0]);
+            this.close();
+            if (action != null) {
+                action.run();
+            }
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            if (!isOpen()) {
+                return;
+            }
+            int pw = Math.min(340, width - 40);
+            int px = (width - pw) / 2;
+            int py = Math.max(40, height / 3);
+            int ph = Math.min(240, height - py - 40);
+            List<String[]> matches = this.filtered();
+            int listH = Math.min(ph, matches.size() * 14 + 6);
+            graphics.fill(0, 0, width, height, IdeColors.DIMMER);
+            graphics.fill(px - 1, py - 1, px + pw + 1, py + 26 + 1, IdeColors.BORDER);
+            graphics.fill(px, py, px + pw, py + 25, IdeColors.PANEL);
+            this.box.setX(px + 6);
+            this.box.setY(py + 6);
+            this.box.setWidth(pw - 12);
+            this.box.render(graphics, mouseX, mouseY, partialTick);
+            graphics.fill(px - 1, py + 26, px + pw + 1, py + 26 + listH + 1, IdeColors.BORDER);
+            graphics.fill(px, py + 26, px + pw, py + 26 + listH, IdeColors.PANEL_ALT);
+            int iy = py + 30;
+            for (String[] match : matches) {
+                boolean hover = mouseX >= px && mouseX <= px + pw && mouseY >= iy && mouseY < iy + 14;
+                if (hover) {
+                    graphics.fill(px + 1, iy, px + pw - 1, iy + 14, IdeColors.SELECTED);
+                }
+                graphics.drawString(font, match[0], px + 8, iy + 3, hover ? IdeColors.ACCENT : IdeColors.TEXT, false);
+                iy += 14;
+            }
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!isOpen()) {
+                return false;
+            }
+            int px = (width - Math.min(340, width - 40)) / 2;
+            int py = Math.max(40, height / 3);
+            if (button == 0 && mouseY >= py + 26) {
+                int index = (int) ((mouseY - (py + 30)) / 14);
+                List<String[]> matches = this.filtered();
+                if (index >= 0 && index < matches.size()) {
+                    Runnable action = this.actions.get(matches.get(index)[0]);
+                    this.close();
+                    if (action != null) {
+                        action.run();
+                    }
+                    return true;
+                }
+            }
+            if (button == 0) {
+                this.box.mouseClicked(mouseX, mouseY, button);
+            }
+            return true;
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            return this.box.keyPressed(keyCode, scanCode, modifiers);
+        }
+
+        @Override
+        public boolean charTyped(char codePoint, int modifiers) {
+            return this.box.charTyped(codePoint, modifiers);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return isOpen();
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationOutput) {
+            this.defaultButtonNarrationText(narrationOutput);
+        }
     }
 }

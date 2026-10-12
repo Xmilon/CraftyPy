@@ -56,9 +56,13 @@ public abstract class Widget {
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (!visible || !enabled) return false;
-        // Check children in reverse order (top-most first)
+        // Check children in reverse order (top-most first); a child only gets the
+        // event when the cursor is inside its bounds, so a focused full-size widget
+        // (e.g. the code editor) can no longer swallow clicks/scrolls meant for a
+        // sibling panel.
         for (int i = children.size() - 1; i >= 0; i--) {
-            if (children.get(i).mouseClicked(mouseX, mouseY, button)) {
+            Widget child = children.get(i);
+            if (child.contains(mouseX, mouseY) && child.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
         }
@@ -75,7 +79,9 @@ public abstract class Widget {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (!visible || !enabled) return false;
         for (int i = children.size() - 1; i >= 0; i--) {
-            if (children.get(i).mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+            Widget child = children.get(i);
+            if (child.contains(mouseX, mouseY)
+                    && child.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
                 return true;
             }
         }
@@ -109,6 +115,10 @@ public abstract class Widget {
     public void addChild(Widget child) {
         child.parent = this;
         children.add(child);
+    }
+
+    public void clearChildren() {
+        children.clear();
     }
 
     public int x() { return x; }

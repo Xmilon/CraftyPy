@@ -16,6 +16,7 @@ import java.util.zip.ZipFile;
  */
 public final class ModuleLoader {
     private static final Map<String, ModuleBuilder.ModuleMetadata> LOADED_MODULES = new HashMap<>();
+    private static final Map<String, Path> MODULE_FILES = new HashMap<>();
 
     public static void discoverAndLoad() {
         Path modulesDir = PyForgePaths.modules();
@@ -32,6 +33,23 @@ public final class ModuleLoader {
                 CraftPy.LOGGER.error("Failed to load module {}", file, e);
             }
         }
+    }
+
+    /** Re-loads a single module from its original .cpm file (drop + re-import). */
+    public static boolean reload(String id) throws IOException {
+        Path file = MODULE_FILES.get(id);
+        if (file == null || !Files.isRegularFile(file)) {
+            return false;
+        }
+        LOADED_MODULES.remove(id);
+        MODULE_FILES.remove(id);
+        // Re-extract the code/assets into the cache dir so the worker runs the fresh copy.
+        Path cacheDir = PyForgePaths.root().resolve("cache").resolve(id);
+        if (Files.isDirectory(cacheDir)) {
+            net.xmilon.craftpy.project.ProjectManager.deleteRecursively(cacheDir);
+        }
+        loadModule(file);
+        return true;
     }
 
     private static void scan(Path dir, List<Path> out) {
@@ -65,6 +83,7 @@ public final class ModuleLoader {
             extractZip(zip, cacheDir);
             
             LOADED_MODULES.put(meta.id, meta);
+            MODULE_FILES.put(meta.id, path);
             CraftPy.LOGGER.info("Loaded module: {} ({})", meta.name, meta.id);
             
             // Wire into SlotRegistry as a persistent module

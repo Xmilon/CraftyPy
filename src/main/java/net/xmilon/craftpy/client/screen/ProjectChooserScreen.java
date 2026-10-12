@@ -77,6 +77,7 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
         ClientProjectStore store = ClientProjectStore.getInstance();
         store.setListener(storeListener);
         store.refresh();
+        checkPendingIdeProject();
 
         computeLayout();
 
@@ -236,6 +237,7 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
                 store.select(null);
                 selected = null;
             }
+            checkPendingIdeProject();
             // Right after a successful create, jump straight into the IDE so the
             // browser does not linger on screen.
             if (openAfterCreate && selected != null) {
@@ -244,6 +246,29 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
             }
         } finally {
             refreshing = false;
+        }
+    }
+
+    /** Opens the IDE directly on the project the server requested ({@code /craftpy ide project}). */
+    private void checkPendingIdeProject() {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        String pending = store.pendingIdeProject();
+        if (pending == null || pending.isBlank()) {
+            return;
+        }
+        if (store.find(pending) == null) {
+            // The project list has not arrived yet; the next refresh picks it up.
+            return;
+        }
+        store.setPendingIdeProject(null);
+        openProjectOn(pending);
+    }
+
+    private void openProjectOn(String id) {
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        store.select(id);
+        if (this.minecraft != null) {
+            this.minecraft.setScreen(new ComputerScreen(menu, inventory, Component.literal("CraftPy IDE")));
         }
     }
 

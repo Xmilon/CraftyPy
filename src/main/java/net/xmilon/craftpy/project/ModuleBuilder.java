@@ -16,7 +16,17 @@ import java.util.zip.ZipOutputStream;
 public final class ModuleBuilder {
     private ModuleBuilder() {}
 
+    /** Builds a .cpm from a project using the version from project.json. */
     public static void build(String projectId) throws IOException {
+        build(projectId, null);
+    }
+
+    /**
+     * Builds a .cpm from a project. The version defaults to the project.json
+     * version, or {@code 1.0.0} when none is set; {@code overrideVersion} (when
+     * non-null) wins over both.
+     */
+    public static void build(String projectId, String overrideVersion) throws IOException {
         Path projectDir = PyForgePaths.projects().resolve(projectId);
         if (!Files.isDirectory(projectDir)) {
             throw new NoSuchFileException("Project directory not found: " + projectId);
@@ -24,7 +34,7 @@ public final class ModuleBuilder {
 
         Path exportDir = PyForgePaths.exports();
         Files.createDirectories(exportDir);
-        Path outputFile = exportDir.resolve(projectId + ".cpm");
+        Path outputFile = exportDir.resolve(projectId + (overrideVersion == null ? "" : "-" + overrideVersion) + ".cpm");
 
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(outputFile.toFile()))) {
             // 1. module.json (derived from project.json)
@@ -34,7 +44,9 @@ public final class ModuleBuilder {
                 ModuleMetadata modMeta = new ModuleMetadata();
                 modMeta.id = meta.id;
                 modMeta.name = meta.name;
-                modMeta.version = "1.0.0";
+                modMeta.version = overrideVersion == null
+                        ? (meta.version == null || meta.version.isBlank() ? "1.0.0" : meta.version)
+                        : overrideVersion;
                 
                 zos.putNextEntry(new ZipEntry("module.json"));
                 zos.write(Json.GSON.toJson(modMeta).getBytes());

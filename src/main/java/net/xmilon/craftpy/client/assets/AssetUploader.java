@@ -83,15 +83,23 @@ public final class AssetUploader {
         String name = sanitize(file.getFileName().toString());
         String ext = extension(name);
         String folder;
-        switch (kind) {
-            case SOUND -> folder = "assets/sounds/";
-            case MODEL -> folder = "assets/models/";
-            case ITEM, BLOCK -> folder = "assets/textures/";
-            default -> folder = switch (ext) {
+        if (kind == null) {
+            folder = switch (ext) {
                 case "ogg" -> "assets/sounds/";
                 case "json" -> "assets/models/";
                 default -> "assets/textures/";
             };
+        } else {
+            switch (kind) {
+                case SOUND -> folder = "assets/sounds/";
+                case MODEL -> folder = "assets/models/";
+                case ITEM, BLOCK -> folder = "assets/textures/";
+                default -> folder = switch (ext) {
+                    case "ogg" -> "assets/sounds/";
+                    case "json" -> "assets/models/";
+                    default -> "assets/textures/";
+                };
+            }
         }
         return folder + name;
     }

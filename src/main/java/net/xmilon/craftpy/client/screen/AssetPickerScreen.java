@@ -115,6 +115,13 @@ public class AssetPickerScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Inspect..."), b -> inspectHovered())
                 .bounds(bx, bottomY, 74, 16).build());
         bx += 76;
+        addRenderableWidget(Button.builder(Component.literal("Insert"), b -> {
+            if (hoveredIndex >= 0 && hoveredIndex < filtered.size()) {
+                onPick.accept(filtered.get(hoveredIndex));
+                onClose();
+            }
+        }).bounds(bx, bottomY, 48, 16).build());
+        bx += 50;
         if (kind == AssetKind.SOUND) {
             addRenderableWidget(Button.builder(Component.literal("Play"), b -> playHovered(false))
                     .bounds(bx, bottomY, 46, 16).build());
@@ -296,9 +303,9 @@ public class AssetPickerScreen extends Screen {
         if (hoveredIndex >= 0 && hoveredIndex < filtered.size()) {
             String id = filtered.get(hoveredIndex);
             String hint = switch (kind) {
-                case SOUND -> "  [shift-click: play]";
-                case MODEL -> "  [shift-click: view]";
-                case TEXTURE -> projectId != null ? "  [shift-click: edit]" : "";
+                case SOUND -> "  [shift-click: insert]";
+                case MODEL -> "  [shift-click: insert]";
+                case TEXTURE -> projectId != null ? "  [shift-click: insert]" : "";
                 default -> "";
             };
             guiGraphics.renderTooltip(font, Component.literal(id + hint), mouseX, mouseY);
@@ -397,11 +404,11 @@ public class AssetPickerScreen extends Screen {
         if (hoveredIndex >= 0 && hoveredIndex < filtered.size()) {
             String id = filtered.get(hoveredIndex);
             if (hasShiftDown()) {
-                openViewer(id);
+                onPick.accept(id);
+                onClose();
                 return true;
             }
-            onPick.accept(id);
-            onClose();
+            openViewer(id);
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);

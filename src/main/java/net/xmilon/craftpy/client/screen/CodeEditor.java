@@ -874,8 +874,14 @@ public class CodeEditor {
         if (!focused || result == 0) {
             return false;
         }
-        scrollLine = Math.max(0, (int) (scrollLine - Math.signum(result) * 3));
+        int maxScroll = Math.max(0, lines.size() - Math.max(1, height / lineHeight()));
+        scrollLine = Math.min(maxScroll, Math.max(0, scrollLine - (int) Math.signum(result) * 3));
         return true;
+    }
+
+    /** True when the point falls inside the visible editor region (source of truth for hit-testing). */
+    public boolean isInside(double mouseX, double mouseY) {
+        return contains(mouseX, mouseY);
     }
 
     private boolean contains(double mouseX, double mouseY) {
@@ -1454,6 +1460,59 @@ public class CodeEditor {
 
     public int matchCount() {
         return matches == null ? 0 : matches.length;
+    }
+
+    /**
+     * Replaces the current search match. The caret moves past the replacement and
+     * the scan jumps to the next remaining match. Returns 0 when nothing matched.
+     */
+    public int replaceCurrent(String replacement) {
+        if (searchQuery.isEmpty() || matches == null || matches.length == 0) {
+            return 0;
+        }
+        String query = searchQuery;
+        String line = lines.get(matchLine);
+        int end = Math.min(line.length(), matchCol + query.length());
+        if (!line.substring(matchCol, end).equals(query)) {
+            setSearchQuery(query);
+            return matchCount();
+        }
+        String fill = replacement == null ? "" : replacement;
+        beginGroup();
+        lines.set(matchLine, line.substring(0, matchCol) + fill + line.substring(end));
+        endGroup();
+        cursorLine = matchLine;
+        cursorCol = matchCol + fill.length();
+        clampCursor();
+        notifyChanged();
+        setSearchQuery(query);
+        return matchCount();
+    }
+
+    /** Replaces every occurrence of the search query. Returns the number of replacements made. */
+    public int replaceAll(String replacement) {
+        if (searchQuery.isEmpty()) {
+            return 0;
+        }
+        String query = searchQuery;
+        String content = getContent();
+        String fill = replacement == null ? "" : replacement;
+        String updated = content.replace(query, fill);
+        if (updated.equals(content)) {
+            return 0;
+        }
+        int count = 0;
+        int idx = 0;
+        while ((idx = content.indexOf(query, idx)) >= 0) {
+            count++;
+            idx += query.length();
+        }
+        beginGroup();
+        restore(updated);
+        endGroup();
+        notifyChanged();
+        setSearchQuery(query);
+        return count;
     }
 
     // ------------------------------------------------------------------

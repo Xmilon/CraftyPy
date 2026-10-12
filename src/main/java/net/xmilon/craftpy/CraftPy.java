@@ -43,6 +43,7 @@ public class CraftPy {
         NeoForge.EVENT_BUS.register(this);
         // Project content is /craftpy give only - blocks it from vanilla /give.
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.command.CommandGuard.class);
+        NeoForge.EVENT_BUS.register(net.xmilon.craftpy.command.CraftPyPermissions.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.EventBridge.class);
 
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);

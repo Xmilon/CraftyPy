@@ -263,21 +263,25 @@ public final class ProjectManager {
         if (!Files.isDirectory(dir)) {
             return OpResult.fail("Project '" + id + "' does not exist");
         }
+        ProjectMetadata loadedMetadata;
         try {
-            ProjectMetadata metadata = loadMetadata(id, dir);
-            Project project = projects.computeIfAbsent(id, key -> new Project(key, dir, metadata));
-            if (!loaded && metadata.requiresRestart) {
-                // Restart-only projects keep their behavior until the game restarts.
-                project.setLoaded(false);
-                return OpResult.ok(id, "Marked " + id + " for unload at restart");
-            }
-            project.metadata(metadata);
-            project.setLoaded(loaded);
-            project.setLastError(null);
-            return OpResult.ok(id, (loaded ? "Loaded " : "Unloaded ") + id);
+            loadedMetadata = loadMetadata(id, dir);
         } catch (IOException e) {
-            return OpResult.fail("Failed to " + (loaded ? "load " : "unload ") + id + ": " + e.getMessage());
+            CraftPy.LOGGER.warn("Project '{}' has an unreadable project.json ({}); loading with defaults",
+                    id, e.getMessage());
+            loadedMetadata = new ProjectMetadata(id, id);
         }
+        final ProjectMetadata metadata = loadedMetadata;
+        Project project = projects.computeIfAbsent(id, key -> new Project(key, dir, metadata));
+        if (!loaded && metadata.requiresRestart) {
+            // Restart-only projects keep their behavior until the game restarts.
+            project.setLoaded(false);
+            return OpResult.ok(id, "Marked " + id + " for unload at restart");
+        }
+        project.metadata(metadata);
+        project.setLoaded(loaded);
+        project.setLastError(null);
+        return OpResult.ok(id, (loaded ? "Loaded " : "Unloaded ") + id);
     }
 
     // ------------------------------------------------------------------

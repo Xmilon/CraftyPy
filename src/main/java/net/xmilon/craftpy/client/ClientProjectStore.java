@@ -11,6 +11,7 @@ import com.google.gson.reflect.TypeToken;
 
 import net.minecraft.client.Minecraft;
 import net.neoforged.neoforge.network.PacketDistributor;
+import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.network.ProjectAction;
 import net.xmilon.craftpy.network.RequestPayload;
 import net.xmilon.craftpy.network.ResponsePayload;
@@ -39,8 +40,10 @@ public final class ClientProjectStore {
     private List<ValidationProblem> validationProblems = new ArrayList<>();
     private final List<String> activeProjects = new ArrayList<>();
     private final List<String> dirty = new ArrayList<>();
+    private final java.util.Set<String> virtualFiles = new java.util.HashSet<>();
     private boolean debugMode;
     private java.util.function.BiConsumer<String, Integer> definitionCallback;
+    private String pendingIdeProject;
 
     private ClientProjectStore() {
     }
@@ -131,6 +134,23 @@ public final class ClientProjectStore {
         request(ProjectAction.READ_FILE, activeProjectId, path);
     }
 
+    /** Opens a read-only, project-independent buffer (e.g. the built-in API doc). */
+    public void openVirtualFile(String path, String content) {
+        if (path == null || content == null) {
+            return;
+        }
+        openFiles.put(path, content);
+        virtualFiles.add(path);
+        dirty.remove(path);
+        this.activeFile = path;
+        notifyListener();
+    }
+
+    /** True when the tab is a built-in reference (never written to or validated on the server). */
+    public boolean isVirtual(String path) {
+        return path != null && virtualFiles.contains(path);
+    }
+
     /** Snapshot of all open file contents, used for asset usage scanning. */
     public Map<String, String> openFileContents() {
         return Collections.unmodifiableMap(openFiles);
@@ -148,6 +168,7 @@ public final class ClientProjectStore {
         }
         openFiles.remove(path);
         dirty.remove(path);
+        virtualFiles.remove(path);
         if (path.equals(activeFile)) {
             activeFile = openFiles.isEmpty() ? null : new ArrayList<>(openFiles.keySet()).get(openFiles.size() - 1);
         }
@@ -245,6 +266,15 @@ public final class ClientProjectStore {
     public record AssetBytes(String path, byte[] data, String error) {
     }
 
+    /** Project the server asked the IDE to open (from {@code /craftpy ide project <id>}). */
+    public String pendingIdeProject() {
+        return pendingIdeProject;
+    }
+
+    public void setPendingIdeProject(String id) {
+        this.pendingIdeProject = id;
+    }
+
     /**
      * Fetches a project asset file from the server for previewing. The callback
      * runs on the client thread. One request is in flight at a time - previews
@@ -291,6 +321,10 @@ public final class ClientProjectStore {
             append("Nothing to save");
             return;
         }
+        if (virtualFiles.contains(activeFile)) {
+            append("'" + activeFile + "' is a built-in reference - it cannot be saved.");
+            return;
+        }
         String content = openFiles.get(activeFile);
         if (content == null) {
             return;
@@ -302,6 +336,10 @@ public final class ClientProjectStore {
     public void validateActiveFile() {
         if (activeFile == null) {
             append("No file open to validate");
+            return;
+        }
+        if (virtualFiles.contains(activeFile)) {
+            append("'" + activeFile + "' is a built-in reference - nothing to validate.");
             return;
         }
         String content = openFiles.get(activeFile);
@@ -329,14 +367,51 @@ public final class ClientProjectStore {
         request(ProjectAction.LIST, null, "");
     }
 
+    /** Packs the current project into a shareable .cpm module (empty data = current version). */
+    public void buildProject(String version) {
+        String id = activeProjectId();
+        if (id == null) {
+            append("No project loaded - pick one via File > Projects...");
+            return;
+        }
+        request(ProjectAction.BUILD, id, version == null ? "" : version);
+    }
+
     public void request(ProjectAction action, String projectId, String data) {
         PacketDistributor.sendToServer(RequestPayload.of(action, projectId, data));
+    }
+
+    /** Parses a response payload defensively; a malformed body logs and yields null instead of crashing the client. */
+    private <T> T tryParse(ProjectAction action, String json, Class<T> type) {
+        try {
+            return Json.COMPACT.fromJson(json, type);
+        } catch (Exception e) {
+            CraftPy.LOGGER.warn("CraftPy: bad {} response ({}): {} -> {}", action, type.getSimpleName(), e.getMessage(),
+                    truncate(json));
+            return null;
+        }
+    }
+
+    private <T> T tryParse(ProjectAction action, String json, java.lang.reflect.Type type) {
+        try {
+            return Json.COMPACT.fromJson(json, type);
+        } catch (Exception e) {
+            CraftPy.LOGGER.warn("CraftPy: bad {} response: {} -> {}", action, e.getMessage(), truncate(json));
+            return null;
+        }
+    }
+
+    private static String truncate(String json) {
+        if (json == null) {
+            return "null";
+        }
+        return json.length() <= 120 ? json : json.substring(0, 120) + "...";
     }
 
     public void onResponse(ResponsePayload payload) {
         switch (payload.action()) {
             case LIST -> {
-                List<ProjectSummary> parsed = Json.COMPACT.fromJson(payload.json(),
+                List<ProjectSummary> parsed = tryParse(payload.action(), payload.json(),
                         new TypeToken<List<ProjectSummary>>() {
                         }.getType());
                 projects.clear();
@@ -373,7 +448,7 @@ public final class ClientProjectStore {
                 }
             }
             case LIST_FILES -> {
-                List<String> parsed = Json.COMPACT.fromJson(payload.json(),
+                List<String> parsed = tryParse(payload.action(), payload.json(),
                         new TypeToken<List<String>>() {
                         }.getType());
                 files.clear();
@@ -383,7 +458,7 @@ public final class ClientProjectStore {
                 }
             }
             case READ_FILE -> {
-                ProjectManager.FileRead read = Json.COMPACT.fromJson(payload.json(), ProjectManager.FileRead.class);
+                ProjectManager.FileRead read = tryParse(payload.action(), payload.json(), ProjectManager.FileRead.class);
                 if (read != null && read.success()) {
                     openFiles.put(read.path(), read.content());
                     dirty.remove(read.path());
@@ -394,7 +469,7 @@ public final class ClientProjectStore {
                 }
             }
             case VALIDATE -> {
-                List<ValidationProblem> parsed = Json.COMPACT.fromJson(payload.json(),
+                List<ValidationProblem> parsed = tryParse(payload.action(), payload.json(),
                         new com.google.gson.reflect.TypeToken<List<ValidationProblem>>() {
                         }.getType());
                 validationProblems.clear();
@@ -408,7 +483,7 @@ public final class ClientProjectStore {
                 }
             }
             case SET_ACTIVE -> {
-                List<String> parsed = Json.COMPACT.fromJson(payload.json(),
+                List<String> parsed = tryParse(payload.action(), payload.json(),
                         new com.google.gson.reflect.TypeToken<List<String>>() {
                         }.getType());
                 activeProjects.clear();
@@ -432,7 +507,7 @@ public final class ClientProjectStore {
                 }
             }
             case EVAL -> {
-                JsonObject result = Json.COMPACT.fromJson(payload.json(), JsonObject.class);
+                JsonObject result = tryParse(payload.action(), payload.json(), JsonObject.class);
                 if (result != null) {
                     String session = result.has("session") ? result.get("session").getAsString() : "default";
                     if (result.has("output") && result.get("output").isJsonArray()) {
@@ -457,7 +532,7 @@ public final class ClientProjectStore {
                 }
             }
             case FIND_DEFINITION -> {
-                ProjectManager.FindResult result = Json.COMPACT.fromJson(payload.json(), ProjectManager.FindResult.class);
+                ProjectManager.FindResult result = tryParse(payload.action(), payload.json(), ProjectManager.FindResult.class);
                 if (definitionCallback != null && result != null) {
                     definitionCallback.accept(result.file(), result.line());
                 }
@@ -482,6 +557,18 @@ public final class ClientProjectStore {
                 } catch (Exception e) {
                     callback.accept(new AssetBytes("", new byte[0], "Bad asset payload: " + e.getMessage()));
                 }
+                return;
+            }
+            case OPEN_IDE -> {
+                this.pendingIdeProject = payload.json() == null || payload.json().isBlank() ? null : payload.json();
+                notifyListener();
+                return;
+            }
+            case BUILD -> {
+                if (payload.message() != null && !payload.message().isBlank()) {
+                    append(payload.message());
+                }
+                notifyListener();
                 return;
             }
             default -> {
