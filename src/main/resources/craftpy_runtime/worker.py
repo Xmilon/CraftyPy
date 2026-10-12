@@ -117,7 +117,8 @@ def restricted_builtins(log):
 # ---------------------------------------------------------------------------
 
 _DECLS = {"blocks": [], "items": [], "effects": [], "handlers": [],
-          "recipes": [], "loot_tables": [], "tags": [], "lang": {}}
+          "recipes": [], "loot_tables": [], "tags": [], "lang": {}, "commands": []}
+_HANDLERS = {}
 
 
 def _register(kind):
@@ -148,10 +149,24 @@ item = _register("items")
 effect = _register("effects")
 
 
+def command(name, **kwargs):
+    def deco(fn):
+        _DECLS["commands"].append({"name": name, "params": kwargs})
+        _HANDLERS.setdefault("command_" + name, []).append(fn)
+        return fn
+    return deco
+
 def on(event, every=None):
     def deco(fn):
         _DECLS["handlers"].append({"event": event, "every": every})
+        _HANDLERS.setdefault(event, []).append(fn)
         return fn
+    return deco
+
+def block_logic(id):
+    def deco(cls):
+        # TODO: register block-specific logic class
+        return cls
     return deco
 
 
@@ -198,11 +213,27 @@ def lang(key, value):
 def _api_names():
     return {
         "block": block, "item": item, "effect": effect, "on": on,
+        "command": command,
         "tex": tex, "snd": snd, "mdl": mdl, "loot_self": loot_self,
         "recipe_shaped": recipe_shaped, "recipe_shapeless": recipe_shapeless,
         "recipe_smelting": recipe_smelting, "loot_table": loot_table,
-        "tag": tag, "lang": lang,
+        "tag": tag, "lang": lang, "ui": _ui_module(),
     }
+
+def _ui_module():
+    import types as _types
+    m = _types.ModuleType("ui")
+    def label(text, x=0, y=0, color="text"):
+        return {"type": "label", "text": text, "x": x, "y": y, "color": color}
+    def button(text, x=0, y=0, w=100, h=20, on_click=None):
+        return {"type": "button", "text": text, "x": x, "y": y, "w": w, "h": h, "on_click": on_click}
+    def panel(x=0, y=0, w=200, h=150, children=None):
+        return {"type": "panel", "x": x, "y": y, "w": w, "h": h, "children": children or []}
+    
+    m.label = label
+    m.button = button
+    m.panel = panel
+    return m
 
 
 # ---------------------------------------------------------------------------
@@ -210,40 +241,48 @@ def _api_names():
 # definitions survive between console lines - like a Python REPL in an IDE.
 # ---------------------------------------------------------------------------
 
-_REPL_NS = {}
-_REPL_LOG = []
-_REPL_READY = False
 
 
-def _repl_namespace():
-    global _REPL_READY
-    if not _REPL_READY:
-        _REPL_NS.clear()
-        _REPL_NS["__name__"] = "__craftpy_console__"
-        _REPL_NS["__builtins__"] = restricted_builtins(_REPL_LOG)
-        _REPL_NS.update(_api_names())
-        _REPL_READY = True
-    return _REPL_NS
+_REPL_SESSIONS = {}
 
 
-def reset_repl():
-    global _REPL_READY
-    _REPL_NS.clear()
-    del _REPL_LOG[:]
-    _REPL_READY = False
+def _get_session(session_id):
+    if session_id not in _REPL_SESSIONS:
+        log = []
+        ns = {
+            "__name__": "__repl_%s__" % session_id,
+            "__builtins__": restricted_builtins(log),
+        }
+        ns.update(_api_names())
+        _REPL_SESSIONS[session_id] = {"ns": ns, "log": log}
+    return _REPL_SESSIONS[session_id]
+
+
+def reset_repl(session_id=None):
+    if session_id is None:
+        _REPL_SESSIONS.clear()
+    else:
+        _REPL_SESSIONS.pop(session_id, None)
 
 
 def _repl_eval(params):
     code = params.get("code", "")
-    ns = _repl_namespace()
-    del _REPL_LOG[:]
+    session_id = params.get("session", "default")
+    session = _get_session(session_id)
+    ns = session["ns"]
+    log = session["log"]
+    
+    del log[:]
+    
     import types as _types
     api_module = _types.ModuleType("craftpy")
     api_module.__dict__.update(_api_names())
     sys.modules["craftpy"] = api_module
+    
     value = None
     error = None
     try:
+        sys.settrace(_tracer)
         import ast as _ast
         tree = _ast.parse(code, "<console>", mode="exec")
         last = None
@@ -253,24 +292,42 @@ def _repl_eval(params):
             exec(compile(tree, "<console>", "exec"), ns, ns)
         if last is not None:
             value = repr(eval(compile(last, "<console>", "eval"), ns, ns))
-    except SyntaxError as exc:
-        error = {"message": "SyntaxError: %s" % exc.msg,
-                 "line": max(0, (exc.lineno or 1) - 1)}
+    except (SyntaxError, KeyboardInterrupt) as exc:
+        error = {"message": "%s: %s" % (type(exc).__name__, exc),
+                 "line": max(0, (getattr(exc, "lineno", 1) or 1) - 1)}
     except Exception as exc:  # noqa: BLE001
         tb = traceback.extract_tb(sys.exc_info()[2])
         line = tb[-1].lineno if tb else 0
         error = {"message": "%s: %s" % (type(exc).__name__, exc),
                  "line": max(0, line - 1)}
     finally:
+        sys.settrace(None)
         sys.modules.pop("craftpy", None)
-    return {"output": list(_REPL_LOG), "value": value, "error": error}
+    return {"output": list(log), "value": value, "error": error, "session": session_id}
 
 
 # ---------------------------------------------------------------------------
 # Execute code
 # ---------------------------------------------------------------------------
 
-def _run_code(code, filename, module_name, debug=False):
+def _load_module(params):
+    import os
+    module_id = params.get("id")
+    base_dir = params.get("dir")
+    main_file = os.path.join(base_dir, "code", "main.py")
+    
+    if not os.path.exists(main_file):
+        return {"error": "Main file not found: %s" % main_file}
+        
+    with open(main_file, "r") as f:
+        code = f.read()
+        
+    # Modules are loaded into their own namespace and are NOT reset on run_main
+    # They behave like permanent additions to the API/registry
+    return _run_code(code, main_file, "module_%s" % module_id, persistent=True)
+
+
+def _run_code(code, filename, module_name, debug=False, persistent=False):
     log = []
     import types as _types
     sandbox_module = _types.ModuleType("craftpy_api")
@@ -281,26 +338,27 @@ def _run_code(code, filename, module_name, debug=False):
     }
     steps = []
 
-    def _tracer(frame, event, arg):
-        if event == "line" and frame.f_code.co_filename == filename:
+    def _combined_tracer(frame, event, arg):
+        if _INTERRUPT:
+            raise KeyboardInterrupt("Interrupted by user")
+        if debug and event == "line" and frame.f_code.co_filename == filename:
             if len(steps) < 4000:
                 steps.append(frame.f_lineno)
-        return _tracer
+        return _combined_tracer
 
     sys.modules["craftpy"] = sandbox_module
     compiled = compile(code, filename, "exec")
     try:
-        if debug:
-            sys.settrace(_tracer)
+        sys.settrace(_combined_tracer)
         exec(compiled, globals_, globals_)
-        if debug:
-            sys.settrace(None)
-        main_fn = globals_.get("main")
-        if callable(main_fn):
-            main_fn(_Context(log, debug))
+        if not persistent:
+            main_fn = globals_.get("main")
+            if callable(main_fn):
+                main_fn(_Context(log, debug))
+    except KeyboardInterrupt as exc:
+        log.append("STOPPED: %s" % exc)
     finally:
-        if debug:
-            sys.settrace(None)
+        sys.settrace(None)
         sys.modules.pop("craftpy", None)
     if debug:
         names = sorted(k for k in globals_ if not k.startswith("_"))
@@ -319,6 +377,7 @@ class _Context:
     def __init__(self, log, debug=False):
         self.debug = debug
         self._log = log
+        self.global_state = {}
 
     def log(self, message):
         self._log.append(str(message))
@@ -337,17 +396,36 @@ class _Context:
 # Handlers
 # ---------------------------------------------------------------------------
 
+_INTERRUPT = False
+
+def _tracer(frame, event, arg):
+    if _INTERRUPT:
+        raise KeyboardInterrupt("Interrupted by user")
+    return _tracer
+
 def _handle(method, params):
+    global _INTERRUPT
     if method == "ping":
         return {"version": "%d.%d" % sys.version_info[:2],
                 "implementation": "CPython", "hello": "craftpy"}
+    if method == "interrupt":
+        _INTERRUPT = True
+        return {"ok": True}
     if method == "validate":
+        _INTERRUPT = False
         return _validate(params)
+    if method == "complete":
+        return _complete(params)
+    if method == "load_module":
+        return _load_module(params)
     if method == "eval":
+        _INTERRUPT = False
         return _repl_eval(params)
     if method == "reset_console":
         reset_repl()
         return {"ok": True}
+    if method == "trigger_event":
+        return _trigger_event(params)
     if method == "run_main":
         code = params.get("code", "")
         name = params.get("file", "main.py")
@@ -373,6 +451,97 @@ def reset():
     _DECLS.clear()
     _DECLS.update({"blocks": [], "items": [], "effects": [], "handlers": [],
                    "recipes": [], "loot_tables": [], "tags": [], "lang": {}})
+    _HANDLERS.clear()
+
+
+def _trigger_event(params):
+    event_name = params.get("event")
+    ctx_data = params.get("context", {})
+    handlers = _HANDLERS.get(event_name, [])
+    log = []
+    ctx = _Context(log)
+    for key, value in ctx_data.items():
+        setattr(ctx, key, _wrap_data(value))
+    
+    # Special handling for state: if ctx has a state, we want to capture its mutations
+    has_state = hasattr(ctx, "state")
+    has_global = hasattr(ctx, "global_state")
+    
+    results = []
+    for h in handlers:
+        try:
+            res = h(ctx)
+            results.append(res)
+        except Exception as exc:
+            log.append("ERROR in handler %s: %s" % (event_name, exc))
+            traceback.print_exc()
+            
+    response = {"log": log, "results": results}
+    if has_state:
+        response["state"] = _unwrap_data(ctx.state)
+    if has_global:
+        response["global_state"] = _unwrap_data(ctx.global_state)
+        
+    return response
+
+def _unwrap_data(data):
+    if hasattr(data, "__dict__"):
+        return {k: _unwrap_data(v) for k, v in data.__dict__.items()}
+    if isinstance(data, list):
+        return [_unwrap_data(x) for x in data]
+    return data
+
+def _wrap_data(data):
+    if isinstance(data, dict):
+        class DataObj:
+            def __getattr__(self, name):
+                return self.__dict__.get(name)
+        obj = DataObj()
+        for k, v in data.items():
+            setattr(obj, k, _wrap_data(v))
+        return obj
+    if isinstance(data, list):
+        return [_wrap_data(x) for x in data]
+    return data
+
+def _complete(params):
+    import re
+    import ast
+    code = params.get("code", "")
+    line_idx = params.get("line", 0)
+    col = params.get("column", 0)
+    
+    lines = code.split("\n")
+    prefix = ""
+    if line_idx < len(lines):
+        text = lines[line_idx][:col]
+        match = re.search(r'([A-Za-z_][A-Za-z0-9_]*)$', text)
+        if match:
+            prefix = match.group(1)
+            
+    candidates = set()
+    # 1. Builtins
+    for b in restricted_builtins([]).keys():
+        if b.startswith(prefix):
+            candidates.add(b)
+            
+    # 2. Local names (AST scan)
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+                if node.name.startswith(prefix):
+                    candidates.add(node.name)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                if node.id.startswith(prefix):
+                    candidates.add(node.id)
+            elif isinstance(node, ast.arg):
+                if node.arg.startswith(prefix):
+                    candidates.add(node.arg)
+    except: # noqa: E722
+        pass
+        
+    return {"suggestions": sorted(list(candidates))}
 
 
 def _validate(params):

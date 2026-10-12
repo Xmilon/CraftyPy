@@ -169,7 +169,15 @@ public final class ProjectRequestHandler {
                     return CompletableFuture.completedFuture(fail(action,
                             "No supported Python runtime found. Install CPython 3.13+ or set pythonPath in config."));
                 }
-                return PyRuntime.get().evaluate(id, request.data()).thenApply(ProjectRequestHandler::evalResponse);
+                String code = request.data();
+                String session = "default";
+                try {
+                    com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(request.data()).getAsJsonObject();
+                    if (obj.has("code")) code = obj.get("code").getAsString();
+                    if (obj.has("session")) session = obj.get("session").getAsString();
+                } catch (Exception ignored) {}
+                
+                return PyRuntime.get().evaluate(id, code, session).thenApply(ProjectRequestHandler::evalResponse);
             }
             case CREATE_ENTRY: {
                 EntryOp op = Json.COMPACT.fromJson(request.data(), EntryOp.class);
@@ -191,6 +199,9 @@ public final class ProjectRequestHandler {
                     return CompletableFuture.completedFuture(fail(action, "Malformed rename request"));
                 }
                 return manager.renameEntry(id, op.from, op.to).thenApply(result -> fromResult(action, result));
+            }
+            case INTERRUPT: {
+                return PyRuntime.get().interrupt().thenApply(v -> new ResponsePayload(action, true, "Interrupted", ""));
             }
             case FIND_DEFINITION:
                 return manager.findDefinition(id, request.data())

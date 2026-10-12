@@ -75,7 +75,7 @@ public final class AssetUploader {
                     CraftPy.LOGGER.warn("Failed to read dropped file {}", path, e);
                     Minecraft.getInstance().execute(() -> store.append("Failed to read " + path.getFileName()));
                 }
-            });
+            }, CraftPyExecutors.forProject(projectId));
         }
     }
 

@@ -15,6 +15,7 @@ import com.google.gson.JsonElement;
 
 import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.project.PyForgePaths;
+import net.xmilon.craftpy.util.CraftPyExecutors;
 
 /**
  * High-level facade over the CPython worker. All blocking operations run on the
@@ -43,6 +44,69 @@ public final class PyRuntime {
 
     public static synchronized boolean available() {
         return PythonDiscovery.pythonExecutable() != null;
+    }
+
+    /** Loads a persistent module from the given directory. */
+    public CompletableFuture<JsonObject> loadModule(String id, Path dir) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("id", id);
+                params.addProperty("dir", dir.toAbsolutePath().toString());
+                return client().call("load_module", params, DEFAULT_TIMEOUT_MS);
+            } catch (Exception e) {
+                CraftPy.LOGGER.error("Failed to load Python module: " + id, e);
+                return new JsonObject();
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
+    /** Requests code completions from the worker. */
+    public CompletableFuture<List<String>> complete(String code, int line, int column) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("code", code);
+                params.addProperty("line", line);
+                params.addProperty("column", column);
+                JsonObject result = client().call("complete", params, 2000); // Short timeout for UI
+                List<String> suggestions = new ArrayList<>();
+                if (result.has("suggestions")) {
+                    for (com.google.gson.JsonElement e : result.getAsJsonArray("suggestions")) {
+                        suggestions.add(e.getAsString());
+                    }
+                }
+                return suggestions;
+            } catch (Exception e) {
+                return List.of();
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
+    /** Sends an interrupt request to the worker to stop running code. */
+    public CompletableFuture<Void> interrupt() {
+        return CraftPyExecutors.runAsync(() -> {
+            try {
+                client().call("interrupt", new JsonObject(), 500);
+            } catch (Exception e) {
+                CraftPy.LOGGER.warn("Interrupt failed: {}", e.getMessage());
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
+    /** Triggers a registered Python event handler. */
+    public CompletableFuture<JsonObject> triggerEvent(String eventName, JsonObject context) {
+        return net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(() -> {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("event", eventName);
+                params.add("context", context);
+                return client().call("trigger_event", params, DEFAULT_TIMEOUT_MS);
+            } catch (Exception e) {
+                CraftPy.LOGGER.error("Failed to trigger Python event: " + eventName, e);
+                return new JsonObject();
+            }
+        }, net.xmilon.craftpy.util.CraftPyExecutors.rpc());
     }
 
     private synchronized RpcClient client() {
@@ -95,7 +159,7 @@ public final class PyRuntime {
      * Pings the worker and returns its version string, or an error message.
      */
     public CompletableFuture<String> ping() {
-        return CompletableFuture.supplyAsync(() -> {
+        return CraftPyExecutors.supplyAsync(() -> {
             try {
                 JsonObject result = client().call("ping", new JsonObject(), DEFAULT_TIMEOUT_MS);
                 return "Python " + result.get("version").getAsString() + " OK";
@@ -103,13 +167,13 @@ public final class PyRuntime {
                 CraftPy.LOGGER.error("Python ping failed", e);
                 return "Python unavailable: " + e.getMessage();
             }
-        }, net.xmilon.craftpy.util.CraftPyExecutors.pool());
+        }, CraftPyExecutors.rpc());
     }
 
     /** Runs compile() over the supplied source files on the worker. */
     public CompletableFuture<List<ValidationProblem>> validateProject(String projectId, List<String> pyFiles,
             List<String> contents) {
-        return CompletableFuture.supplyAsync(() -> {
+        return CraftPyExecutors.supplyAsync(() -> {
             List<ValidationProblem> problems = new ArrayList<>();
             int count = Math.min(pyFiles.size(), contents.size());
             for (int i = 0; i < count; i++) {
@@ -133,7 +197,7 @@ public final class PyRuntime {
                 }
             }
             return problems;
-        }, net.xmilon.craftpy.util.CraftPyExecutors.pool());
+        }, CraftPyExecutors.rpc());
     }
 
     /** Runs main.py on the worker and collects declarations. */
@@ -143,7 +207,7 @@ public final class PyRuntime {
 
     /** Runs main.py on the worker and collects declarations; debug adds a trace. */
     public CompletableFuture<Declarations> runMain(String projectId, String code, String fileName, boolean debug) {
-        return CompletableFuture.supplyAsync(() -> {
+        return CraftPyExecutors.supplyAsync(() -> {
             JsonObject params = new JsonObject();
             params.addProperty("file", fileName);
             params.addProperty("code", code == null ? "" : code);
@@ -156,19 +220,20 @@ public final class PyRuntime {
                 CraftPy.LOGGER.error("run_main failed for {}", projectId, e);
                 return Declarations.error("Worker failed: " + e.getMessage());
             }
-        }, net.xmilon.craftpy.util.CraftPyExecutors.pool());
+        }, CraftPyExecutors.rpc());
     }
 
     /** Evaluates a console line in the persistent REPL namespace on the worker. */
-    public CompletableFuture<EvalResult> evaluate(String projectId, String code) {
-        return CompletableFuture.supplyAsync(() -> {
+    public CompletableFuture<EvalResult> evaluate(String projectId, String code, String session) {
+        return CraftPyExecutors.supplyAsync(() -> {
             JsonObject params = new JsonObject();
             params.addProperty("code", code == null ? "" : code);
+            params.addProperty("session", session == null ? "default" : session);
             try {
                 JsonObject result = client().call("eval", params, DEFAULT_TIMEOUT_MS);
                 List<String> output = new ArrayList<>();
                 if (result.has("output") && result.get("output").isJsonArray()) {
-                    for (JsonElement element : result.getAsJsonArray("output")) {
+                    for (com.google.gson.JsonElement element : result.getAsJsonArray("output")) {
                         output.add(element.getAsString());
                     }
                 }
@@ -185,18 +250,20 @@ public final class PyRuntime {
             } catch (Exception e) {
                 return new EvalResult(List.of(), null, "Worker failed: " + e.getMessage(), -1);
             }
-        }, net.xmilon.craftpy.util.CraftPyExecutors.pool());
+        }, CraftPyExecutors.rpc());
     }
 
     /** Clears the worker's persistent REPL namespace. */
-    public CompletableFuture<Void> resetConsole() {
-        return CompletableFuture.runAsync(() -> {
+    public CompletableFuture<Void> resetConsole(String session) {
+        return CraftPyExecutors.runAsync(() -> {
             try {
-                client().call("reset_console", new JsonObject(), DEFAULT_TIMEOUT_MS);
+                JsonObject params = new JsonObject();
+                if (session != null) params.addProperty("session", session);
+                client().call("reset_console", params, DEFAULT_TIMEOUT_MS);
             } catch (Exception e) {
                 CraftPy.LOGGER.warn("reset_console failed: {}", e.getMessage());
             }
-        }, net.xmilon.craftpy.util.CraftPyExecutors.pool());
+        }, CraftPyExecutors.rpc());
     }
 
     public record EvalResult(List<String> output, String value, String error, int errorLine) {

@@ -21,7 +21,14 @@ public final class PyForgePaths {
     }
 
     public static Path root() {
-        return FMLPaths.GAMEDIR.get().resolve("pyforge");
+        Path gameDir = null;
+        try {
+            gameDir = net.neoforged.fml.loading.FMLPaths.GAMEDIR.get();
+        } catch (Throwable ignored) {}
+        if (gameDir == null) {
+            return java.nio.file.Paths.get("run/pyforge");
+        }
+        return gameDir.resolve("pyforge");
     }
 
     public static Path runtime() {
@@ -44,8 +51,12 @@ public final class PyForgePaths {
         return root().resolve("imports");
     }
 
+    public static Path modules() {
+        return root().resolve("modules");
+    }
+
     public static void ensureLayout() {
-        for (Path path : new Path[] { root(), runtime(), logs(), projects(), exports(), imports() }) {
+        for (Path path : new Path[] { root(), runtime(), logs(), projects(), exports(), imports(), modules() }) {
             try {
                 java.nio.file.Files.createDirectories(path);
             } catch (java.io.IOException e) {

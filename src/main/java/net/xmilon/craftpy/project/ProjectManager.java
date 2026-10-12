@@ -96,7 +96,7 @@ public final class ProjectManager {
             }
             summaries.sort((a, b) -> a.id.compareToIgnoreCase(b.id));
             return summaries;
-        });
+        }, CraftPyExecutors.io());
     }
 
     private ProjectSummary scanProject(String id, Path dir) {
@@ -176,7 +176,7 @@ public final class ProjectManager {
                 CraftPy.LOGGER.error("Failed to create project {}", id, e);
                 return OpResult.fail("Failed to create project: " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.io());
     }
 
     public CompletableFuture<OpResult> deleteProject(String id) {
@@ -196,7 +196,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return OpResult.fail("Failed to delete project: " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     public CompletableFuture<OpResult> renameProject(String id, String newName) {
@@ -217,7 +217,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return OpResult.fail("Failed to rename project: " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     public CompletableFuture<OpResult> duplicateProject(String id) {
@@ -243,7 +243,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return OpResult.fail("Failed to duplicate project: " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     public void setLastError(String id, String error) {
@@ -301,7 +301,7 @@ public final class ProjectManager {
             }
             files.sort(String::compareTo);
             return files;
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     /** Reads a file inside the project, verifying the path cannot escape. */
@@ -320,7 +320,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return new FileRead(id, path, false, "Failed to read file: " + e.getMessage(), "");
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     /** Writes a file inside the project. Creates parent directories. */
@@ -338,7 +338,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return OpResult.fail("Failed to save " + path + ": " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     /** Writes a binary file inside the project (asset upload). Creates parent directories. */
@@ -356,7 +356,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return OpResult.fail("Failed to write " + path + ": " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     /**
@@ -380,7 +380,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return new BinaryRead(path, false, "Failed to read " + path + ": " + e.getMessage(), new byte[0]);
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     /** Maximum binary preview size; must fit a single base64 response payload. */
@@ -419,7 +419,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return OpResult.fail("Failed to create " + path + ": " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     /** Deletes a file or directory (recursively) inside the project. */
@@ -448,7 +448,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return OpResult.fail("Failed to delete " + path + ": " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     /** Renames/moves a file or directory inside the project. */
@@ -476,7 +476,7 @@ public final class ProjectManager {
             } catch (IOException e) {
                 return OpResult.fail("Failed to rename: " + e.getMessage());
             }
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     /** Searches the project's Python files for the definition of an identifier. */
@@ -509,7 +509,7 @@ public final class ProjectManager {
                 CraftPy.LOGGER.warn("findDefinition failed for {}: {}", id, e.getMessage());
             }
             return FindResult.missing();
-        });
+        }, CraftPyExecutors.forProject(id));
     }
 
     public record FindResult(boolean found, String file, int line) {

@@ -19,11 +19,15 @@ public final class Declarations {
     public record Handler(String event, Integer every, JsonObject definition) {
     }
 
+    public record CommandDef(String name, JsonObject params) {
+    }
+
     public record DatapackEntry(String kind, String id, JsonElement payload) {
     }
 
     private final List<Content> contents = new ArrayList<>();
     private final List<Handler> handlers = new ArrayList<>();
+    private final List<CommandDef> commands = new ArrayList<>();
     private final List<DatapackEntry> datapack = new ArrayList<>();
     private final List<String> log = new ArrayList<>();
     private final String error;

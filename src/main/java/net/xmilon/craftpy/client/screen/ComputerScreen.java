@@ -18,6 +18,9 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MenuAccess;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.client.Minecraft;
+import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.world.entity.player.Inventory;
 import net.xmilon.craftpy.assets.AssetKind;
 import net.xmilon.craftpy.assets.AssetReference;
@@ -25,8 +28,10 @@ import net.xmilon.craftpy.assets.AssetReferences;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.CodeProblems;
 import net.xmilon.craftpy.client.assets.AssetIndex;
+import net.xmilon.craftpy.client.ui.*;
 import net.xmilon.craftpy.menu.ComputerMenu;
 import net.xmilon.craftpy.network.ProjectAction;
+import net.xmilon.craftpy.python.PyRuntime;
 
 public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     private static final int BG = 0xFF10141A;
@@ -59,11 +64,16 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     private final ComputerMenu menu;
     private final Inventory inventory;
 
+    private MainIDE mainIDE;
+    private Explorer explorer;
+    private StatusBar statusBar;
+    private CommandPalette commandPalette;
     private CodeEditor editor;
     private EditBox searchBox;
     private boolean searchOpen;
 
     private Button runButton;
+    private Button stopButton;
     private Button assetsButton;
 
     private int fileScroll;
@@ -72,6 +82,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     private int bottomScroll;
     private int focus;
     private int lastLogSize = -1;
+    private int lastProblemsSize = -1;
 
     private final List<List<MenuItem>> menus = new ArrayList<>();
     private int openMenu = -1;
@@ -155,7 +166,6 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         // init() also runs on window resize / GUI-scale change. The editor and the
         // widgets are recreated, so any open popup is dropped and the current file
         // is reloaded into the fresh editor (otherwise it would stay empty).
-        this.displayedFile = null;
         this.promptOpen = false;
         this.confirmOpen = false;
         this.contextOpen = false;
@@ -166,18 +176,64 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         store.setListener(storeListener);
         store.refresh();
 
-        this.editor = new CodeEditor(this.font);
-        this.editor.setChangeListener(() -> {
-            if (!syncGuard) {
-                String active = store.activeFile();
-                if (active != null) {
-                    store.markDirty(active, this.editor.getContent());
+        if (this.editor == null) {
+            this.editor = new CodeEditor(this.font);
+            this.editor.setChangeListener(() -> {
+                if (!syncGuard) {
+                    String active = store.activeFile();
+                    if (active != null) {
+                        store.markDirty(active, this.editor.getContent());
+                    }
                 }
-            }
-        });
-        this.editor.setAssetPickerRequest((line, start, end, kind, existing) ->
-                openAssetPicker(line, start, end, kind, existing));
-        this.editor.setDefinitionLookup(this::goToDefinition);
+            });
+            this.editor.setAssetPickerRequest((line, start, end, kind, existing) ->
+                    openAssetPicker(line, start, end, kind, existing));
+            this.editor.setDefinitionLookup(this::goToDefinition);
+            this.editor.setCompletionProvider((code, line, col, word) -> {
+                PyRuntime.get().complete(code, line, col).thenAccept((List<String> results) -> {
+                    List<CodeEditor.Suggestion> suggestionsList = new ArrayList<>();
+                    for (String s : results) {
+                        suggestionsList.add(new CodeEditor.Suggestion(s, "", "", s, s.length(), null));
+                    }
+                    this.minecraft.execute(() -> this.editor.setExternalSuggestions(suggestionsList, word));
+                });
+            });
+        }
+        if (this.mainIDE == null) {
+            this.explorer = new Explorer(path -> {
+                store.openFile(path);
+                this.focus = FOCUS_EDITOR;
+            }, (path, mx, my) -> {
+                this.contextPath = path;
+                this.contextX = mx;
+                this.contextY = my;
+                openContextMenu(mx, my, path);
+            });
+            this.statusBar = new StatusBar(() -> {
+                String file = this.displayedFile == null ? "no file" : this.displayedFile;
+                String lang = this.editor.getLanguage();
+                String title = lang.substring(0, 1).toUpperCase(Locale.ROOT) + lang.substring(1);
+                String currentLine = Integer.toString(this.editor.cursorLineIndex() + 1);
+                String currentCol = Integer.toString(this.editor.cursorColumn() + 1);
+                return title + " | " + file + " | Ln " + currentLine + ", Col " + currentCol;
+            });
+            this.mainIDE = new MainIDE(new EditorWidget(this.editor), this.explorer, this.statusBar,
+                    (graphics, mx, my, pt, x, y, w, h) -> {
+                        switch (this.bottomTab) {
+                            case 0 -> renderConsole(graphics, x, y, w, h);
+                            case 1 -> renderProblems(graphics, x, y, w, h);
+                            case 2 -> renderAssetPanel(graphics, x, y, w, h);
+                            case 3 -> renderApiReference(graphics, x, y, w, h);
+                            case 4 -> renderMarkdownPreview(graphics, x, y, w, h);
+                            default -> renderSettings(graphics, x, y, w, h);
+                        }
+                    });
+            
+            this.commandPalette = new CommandPalette();
+            this.commandPalette.setVisible(false);
+            this.commandPalette.setOnCancel(() -> this.commandPalette.setVisible(false));
+            this.mainIDE.setOverlay(this.commandPalette);
+        }
         store.setDefinitionCallback(this::onDefinitionFound);
 
         buildMenus();
@@ -201,11 +257,14 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         this.addRenderableWidget(this.consoleInput);
 
         this.runButton = Button.builder(Component.literal("Run"), b -> runProject()).build();
+        this.stopButton = Button.builder(Component.literal("Stop"), b -> store.interrupt()).build();
         this.assetsButton = Button.builder(Component.literal("Assets"), b -> openAssetPickerAtCursor()).build();
         this.addRenderableWidget(this.runButton);
+        this.addRenderableWidget(this.stopButton);
         this.addRenderableWidget(this.assetsButton);
 
         layoutWidgets();
+        loadApiDoc();
         refreshFromCache();
     }
 
@@ -222,7 +281,9 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 new MenuItem("Undo  (Ctrl+Z)", () -> this.editor.undo()),
                 new MenuItem("Redo  (Ctrl+Y)", () -> this.editor.redo()),
                 new MenuItem("Select All  (Ctrl+A)", () -> this.editor.selectAll()),
-                new MenuItem("Clear Console", store::clearLog)));
+                new MenuItem("Format Document", this::formatDocument),
+                new MenuItem("Clear Console", store::clearLog),
+                new MenuItem("Interrupt  (Ctrl+C)", store::interrupt)));
         this.menus.add(List.of(
                 new MenuItem("Run Project  (Ctrl+Shift+R)", this::runProject),
                 new MenuItem("Validate Project", store::validateActiveFile),
@@ -240,7 +301,23 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                         .append("CraftPy IDE - write Python to add blocks, items, recipes and more."))));
     }
 
-    /** Saves and (re)loads the active project - the primary "run" action. */
+    private void formatDocument() {
+        if ("json".equals(this.editor.getLanguage())) {
+            String content = this.editor.getContent();
+            try {
+                com.google.gson.Gson gson = new com.google.gson.GsonBuilder().setPrettyPrinting().create();
+                Object json = gson.fromJson(content, Object.class);
+                this.editor.setContent(gson.toJson(json));
+            } catch (Exception e) {
+                ClientProjectStore.getInstance().append("ERROR: Failed to format JSON: " + e.getMessage());
+                showBottomTab(0);
+            }
+        } else {
+            ClientProjectStore.getInstance().append("Formatting is only supported for JSON files currently.");
+            showBottomTab(0);
+        }
+    }
+
     private void runProject() {
         ClientProjectStore store = ClientProjectStore.getInstance();
         if (store.activeProjectId() == null) {
@@ -410,17 +487,45 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         }, projectId));
     }
 
+    private void openCommandPalette() {
+        if (commandPalette == null) return;
+        commandPalette.clearCommands();
+        ClientProjectStore store = ClientProjectStore.getInstance();
+        
+        commandPalette.addCommand("Run Project", this::runProject);
+        commandPalette.addCommand("Stop Project", store::interrupt);
+        commandPalette.addCommand("Validate Project", () -> store.validateActiveFile());
+        commandPalette.addCommand("Save File", store::saveActiveFile);
+        commandPalette.addCommand("New File", () -> promptNewFile(""));
+        commandPalette.addCommand("New Folder", () -> promptNewFolder(""));
+        commandPalette.addCommand("Clear Console", store::clearLog);
+        commandPalette.addCommand("Open API Reference", () -> showBottomTab(3));
+        
+        for (String file : store.files()) {
+            commandPalette.addCommand("Open: " + file, () -> store.openFile(file));
+        }
+        
+        commandPalette.setVisible(true);
+        commandPalette.focus();
+    }
+
     private void layoutWidgets() {
+        if (this.mainIDE != null) {
+            this.mainIDE.setBounds(0, 0, width, height);
+        }
         int pad = layoutPad();
         int leftW = leftPanelWidth();
         int bottomH = bottomPanelHeight();
         int w = this.width;
 
         int runW = 46;
+        int stopW = 46;
         int assetsW = 58;
         this.runButton.setPosition(w - pad - runW, 2);
         this.runButton.setSize(runW, 14);
-        this.assetsButton.setPosition(w - pad - runW - 4 - assetsW, 2);
+        this.stopButton.setPosition(w - pad - runW - 4 - stopW, 2);
+        this.stopButton.setSize(stopW, 14);
+        this.assetsButton.setPosition(w - pad - runW - 4 - stopW - 4 - assetsW, 2);
         this.assetsButton.setSize(assetsW, 14);
 
         int editorX = pad + leftW + pad;
@@ -451,8 +556,17 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 store.select(null);
             }
             String active = store.activeFile();
+            if (this.mainIDE != null) {
+                this.mainIDE.updateTabs(store.openTabs(), active, this.bottomTab,
+                        idx -> store.openFile(store.openTabs().get(idx)),
+                        idx -> store.closeFile(store.openTabs().get(idx)),
+                        idx -> this.bottomTab = idx);
+            }
+
             if (active != null && !active.equals(this.displayedFile)) {
                 this.displayedFile = active;
+                int dot = active.lastIndexOf('.');
+                this.editor.setLanguage(dot >= 0 ? active.substring(dot + 1) : "python");
                 syncGuard = true;
                 this.editor.setContent(store.fileContent(active));
                 syncGuard = false;
@@ -637,6 +751,9 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (this.mainIDE != null && this.mainIDE.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (this.confirmOpen) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 closeConfirm();
@@ -693,6 +810,13 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                     }
                     break;
                 }
+                case GLFW.GLFW_KEY_P -> {
+                    if (Screen.hasShiftDown()) {
+                        openCommandPalette();
+                        return true;
+                    }
+                    break;
+                }
                 default -> {
                 }
             }
@@ -742,6 +866,9 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
+        if (this.mainIDE != null && this.mainIDE.charTyped(codePoint, modifiers)) {
+            return true;
+        }
         if (this.confirmOpen) {
             return true;
         }
@@ -762,6 +889,11 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (this.mainIDE != null && this.mainIDE.mouseClicked(mouseX, mouseY, button)) {
+            // Check if focus needs updating
+            if (this.editor.isFocused()) this.focus = FOCUS_EDITOR;
+            return true;
+        }
         if (this.confirmOpen) {
             if (confirmYesAt(mouseX, mouseY) && button == 0) {
                 acceptConfirm();
@@ -884,6 +1016,9 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (this.mainIDE != null && this.mainIDE.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+            return true;
+        }
         if (this.confirmOpen || this.promptOpen) {
             return true;
         }
@@ -1099,7 +1234,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 fileError("Invalid file name '" + name + "' (use letters, digits, _ - . /)");
                 return;
             }
-            sendProjectAction("CREATE_FILE", "{\"path\":\"" + json(full) + "\"}");
+            sendProjectAction("CREATE_ENTRY", "{\"path\":\"" + json(full) + "\",\"type\":\"file\"}");
         });
     }
 
@@ -1112,7 +1247,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 fileError("Invalid folder name '" + name + "'");
                 return;
             }
-            sendProjectAction("CREATE_FOLDER", "{\"path\":\"" + json(full) + "\"}");
+            sendProjectAction("CREATE_ENTRY", "{\"path\":\"" + json(full) + "\",\"type\":\"dir\"}");
         });
     }
 
@@ -1128,13 +1263,13 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
                 fileError("Invalid file name '" + name + "'");
                 return;
             }
-            sendProjectAction("RENAME_FILE", "{\"from\":\"" + json(path) + "\",\"to\":\"" + json(target) + "\"}");
+            sendProjectAction("RENAME_ENTRY", "{\"from\":\"" + json(path) + "\",\"to\":\"" + json(target) + "\"}");
         });
     }
 
     private void confirmDelete(String path) {
         openConfirm("Delete '" + path + "'? This cannot be undone.",
-                () -> sendProjectAction("DELETE_FILE", "{\"path\":\"" + json(path) + "\"}"));
+                () -> sendProjectAction("DELETE_ENTRY", "{\"path\":\"" + json(path) + "\"}"));
     }
 
     private void fileError(String message) {
@@ -1547,7 +1682,7 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
     private static final int BOTTOM_TAB_W = 60;
     private static final int BOTTOM_TAB_H = 18;
-    private static final int BOTTOM_TAB_COUNT = 4;
+    private static final int BOTTOM_TAB_COUNT = 5;
     private static final int EDITOR_TAB_BAR_H = 20;
 
     /** Top edge of the bottom panel exactly as render() draws it. */
@@ -1618,80 +1753,17 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        int w = this.width;
-        int h = this.height;
-        int pad = layoutPad();
-        int topBar = topBarHeight();
-        int leftW = leftPanelWidth();
-        int bottomH = bottomPanelHeight();
-
-        graphics.fill(0, 0, w, h, BG);
-        graphics.fill(0, 0, w, topBar, PANEL_ALT);
-        graphics.fill(0, topBar - 1, w, topBar, BORDER);
-
-        int bodyTop = topBar + 1;
-        int bodyBottom = h - bottomH - pad;
-
-        // Explorer (files of the active project).
-        graphics.fill(pad, bodyTop + pad, pad + leftW, bodyBottom, PANEL);
-        graphics.drawString(this.font, "EXPLORER", pad + 6, bodyTop + pad + 6, ACCENT, false);
-        String activeProj = ClientProjectStore.getInstance().activeProjectId();
-        graphics.drawString(this.font, activeProj == null ? "no project" : activeProj, pad + 6, bodyTop + pad + 18,
-                MUTED, false);
-        int fileTop = fileListTop();
-        graphics.drawString(this.font, "FILES", pad + 6, fileTop - 12, ACCENT, false);
-        renderFileList(graphics, pad + 4, fileTop, leftW - 8, fileListHeight());
-
-        // Editor area
-        int editorX = pad + leftW + pad;
-        int editorW = w - editorX - pad;
-        graphics.fill(editorX, bodyTop + pad, editorX + editorW, bodyBottom, PANEL);
-        // tab bar
-        graphics.fill(editorX, bodyTop + pad, editorX + editorW, bodyTop + pad + 20, PANEL_ALT);
-        renderTabs(graphics, mouseX, mouseY, editorX, editorW);
-        renderStatusBar(graphics, editorX, editorW, bodyTop + pad + 3);
-        if (searchOpen) {
-            this.searchBox.setX(tabX() + 8);
-            this.searchBox.setY(bodyTop + pad + 3);
-            this.searchBox.setWidth(Math.min(160, editorW - (tabX() - editorX) - 20));
-            this.searchBox.visible = true;
+        if (this.mainIDE != null) {
+            this.mainIDE.render(graphics, mouseX, mouseY, partialTick);
         } else {
-            this.searchBox.setPosition(-200, -200);
+            graphics.fill(0, 0, this.width, this.height, BG);
         }
 
-        layoutWidgets();
-        this.editor.setFocused(focus == FOCUS_EDITOR && displayedFile != null);
-        this.editor.render(graphics, mouseX, mouseY);
-
-        // Bottom panel
-        int panelY = bodyBottom + 1;
-        graphics.fill(pad, panelY, w - pad, h - pad, PANEL);
-        graphics.fill(pad, panelY, w - pad, panelY + 18, PANEL_ALT);
-        String[] tabs = { "CONSOLE", "PROBLEMS", "ASSETS", "API" };
-        for (int i = 0; i < tabs.length; i++) {
-            int tx = bottomTabX(i);
-            boolean active = bottomTab == i;
-            graphics.fill(tx, panelY, tx + BOTTOM_TAB_W, panelY + BOTTOM_TAB_H, active ? SELECTED : PANEL_ALT);
-            graphics.drawString(this.font, tabs[i], tx + 6, panelY + 5, active ? ACCENT : MUTED, false);
-        }
-        int contentX = pad + 6;
-        int contentY = panelY + 20;
-        int contentW = w - pad - 12;
-        int contentH = h - pad - contentY;
-        switch (bottomTab) {
-            case 0 -> renderConsole(graphics, contentX, contentY, contentW, contentH);
-            case 1 -> renderProblems(graphics, contentX, contentY, contentW, contentH);
-            case 2 -> renderAssetPanel(graphics, contentX, contentY, contentW, contentH);
-            default -> renderApiReference(graphics, contentX, contentY, contentW, contentH);
-        }
-        String matches = this.editor.searchQuery().isEmpty() ? "" : " matches: " + this.editor.matchCount();
-        if (!matches.isEmpty()) {
-            graphics.drawString(this.font, matches, w - pad - this.font.width(matches) - 2, panelY + 5, MUTED, false);
-        }
-
+        // Popups and overlays that are not yet widgets
         super.render(graphics, mouseX, mouseY, partialTick);
         renderConsoleHint(graphics);
         renderMenuBar(graphics, mouseX, mouseY);
+        
         if (this.contextOpen) {
             renderContextMenu(graphics, mouseX, mouseY);
         }
@@ -1700,6 +1772,19 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         }
         if (this.confirmOpen) {
             renderConfirm(graphics, mouseX, mouseY);
+        }
+        
+        // Handle search box visibility (not a widget yet)
+        if (searchOpen) {
+            int pad = layoutPad();
+            int editorX = pad + leftPanelWidth() + pad;
+            int editorW = width - editorX - pad;
+            this.searchBox.setX(tabX() + 8);
+            this.searchBox.setY(topBarHeight() + 1 + pad + 3);
+            this.searchBox.setWidth(Math.min(160, editorW - (tabX() - editorX) - 20));
+            this.searchBox.visible = true;
+        } else {
+            this.searchBox.setPosition(-200, -200);
         }
     }
 
@@ -1837,18 +1922,81 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
         }
     }
 
+    private String apiDocContent = "";
+
+    private void loadApiDoc() {
+        try {
+            ResourceLocation loc = ResourceLocation.fromNamespaceAndPath("craftpy", "docs/api.md");
+            Minecraft.getInstance().getResourceManager().getResource(loc).ifPresent(res -> {
+                try (java.io.InputStream is = res.open()) {
+                    byte[] bytes = is.readAllBytes();
+                    apiDocContent = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    apiDocContent = "# Error reading API doc\n" + e.getMessage();
+                }
+            });
+        } catch (Exception e) {
+            apiDocContent = "# Error loading API doc\n" + e.getMessage();
+        }
+    }
+
     private void renderApiReference(GuiGraphics graphics, int x, int y, int width, int height) {
         List<Row> rows = new ArrayList<>();
-        rows.add(new Row("PYFORGE API DEFINITIONS (offline reference, scroll to browse)", ACCENT));
-        for (String[] row : API_ROWS) {
-            if (row.length == 0) {
-                rows.add(new Row("", MUTED));
-                continue;
+        if (apiDocContent.isEmpty()) {
+            rows.add(new Row("Loading API documentation...", MUTED));
+        } else {
+            for (String line : apiDocContent.split("\n")) {
+                int color = TEXT;
+                if (line.startsWith("#")) color = ACCENT;
+                else if (line.trim().startsWith("* ") || line.trim().startsWith("- ")) color = MUTED;
+                else if (line.contains("`")) color = 0xFFCE9178;
+                rows.add(new Row(line, color));
             }
-            boolean header = row[1].isEmpty();
-            rows.add(new Row(header ? row[0] : "  " + row[0] + "  -  " + row[1], header ? ACCENT : TEXT));
         }
         renderRows(graphics, rows, x, y, width, height);
+    }
+
+    private void renderMarkdownPreview(GuiGraphics graphics, int x, int y, int width, int height) {
+        String content = this.editor.getContent();
+        List<Row> rows = new ArrayList<>();
+        if (content.isEmpty()) {
+            rows.add(new Row("No content to preview", MUTED));
+        } else {
+            for (String line : content.split("\n")) {
+                int color = TEXT;
+                if (line.startsWith("#")) {
+                    color = ACCENT;
+                } else if (line.trim().startsWith("* ") || line.trim().startsWith("- ") || line.trim().startsWith("+ ")) {
+                    color = MUTED;
+                } else if (line.contains("`")) {
+                    color = 0xFFCE9178; // String-like color for code
+                }
+                rows.add(new Row(line, color));
+            }
+        }
+        renderRows(graphics, rows, x, y, width, height);
+    }
+
+    private void renderSettings(GuiGraphics graphics, int x, int y, int width, int height) {
+        int ly = y + 4;
+        graphics.drawString(this.font, "KEYMAP SETTINGS", x, ly, ACCENT, false);
+        ly += 16;
+        
+        String[][] keys = {
+            { "Ctrl + S", "Save active file" },
+            { "Ctrl + Enter", "Validate project" },
+            { "Ctrl + Shift + R", "Run project" },
+            { "Ctrl + Shift + P", "Command Palette" },
+            { "Ctrl + F", "Toggle search" },
+            { "Ctrl + W", "Close active tab" },
+            { "F12", "Go to definition" }
+        };
+        
+        for (String[] key : keys) {
+            graphics.drawString(this.font, key[0], x, ly, TEXT, false);
+            graphics.drawString(this.font, key[1], x + 100, ly, MUTED, false);
+            ly += 12;
+        }
     }
 
     /** ASSETS tab group overview: one line per category plus the bank launcher. */
@@ -1905,7 +2053,8 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     /** PyCharm-style editor status line: language, active file, cursor position. */
     private void renderStatusBar(GuiGraphics graphics, int editorX, int editorW, int y) {
         String file = this.displayedFile == null ? "no file" : this.displayedFile;
-        String title = "Python";
+        String lang = this.editor.getLanguage();
+        String title = lang.substring(0, 1).toUpperCase(Locale.ROOT) + lang.substring(1);
         String currentLine = Integer.toString(this.editor.cursorLineIndex() + 1);
         String currentCol = Integer.toString(this.editor.cursorColumn() + 1);
         String status = title + " | " + file + " | Ln " + currentLine + ", Col " + currentCol;

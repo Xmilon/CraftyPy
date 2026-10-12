@@ -100,7 +100,7 @@ public class SoundPlayerScreen extends Screen {
         String path = "assets/sounds/" + rel;
         final ResourceLocation file = resolved;
         status = "Copying " + path + " ...";
-        CraftPyExecutors.supplyAsync(() -> AssetPreview.readResource(file)).thenAccept(bytes -> Minecraft.getInstance()
+        CraftPyExecutors.supplyAsync(() -> AssetPreview.readResource(file), CraftPyExecutors.ui()).thenAccept(bytes -> Minecraft.getInstance()
                 .execute(() -> {
                     if (bytes == null || bytes.length == 0) {
                         status = "Copy failed: could not read " + file;

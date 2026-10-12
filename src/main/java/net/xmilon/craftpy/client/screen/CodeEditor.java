@@ -35,7 +35,7 @@ public class CodeEditor {
     private static final int COLOR_DECORATOR = 0xFF4EC9B0;
     private static final int COLOR_DEF_NAME = 0xFF9CDCFE;
     private static final int COLOR_CURSOR = 0xFFFFFFFF;
-    private static final int COLOR_SELECTION = 0x4026465A;
+    private static final int COLOR_SELECTION = 0x602C5B7A;
     private static final int COLOR_SEARCH = 0x40FFEB3B;
     private static final int COLOR_BRACKET = 0xFFFFE082;
     private static final int COLOR_GUTTER = 0xFF7D8B9A;
@@ -48,6 +48,11 @@ public class CodeEditor {
     private static final int COLOR_POPUP_TEXT = 0xFFD7E1EA;
     private static final int COLOR_POPUP_DOC = 0xFF9AB2C6;
     private static final int COLOR_GHOST = 0xFF6E8296;
+    private static final int COLOR_JSON_KEY = 0xFF9CDCFE;
+    private static final int COLOR_MD_HEADER = 0xFF569CD6;
+    private static final int COLOR_MD_LIST = 0xFFC586C0;
+    private static final int COLOR_MD_LINK = 0xFF9CDCFE;
+    private static final int COLOR_MD_CODE = 0xFFCE9178;
 
     private static final Set<String> KEYWORDS = Set.of("False", "None", "True", "and", "as", "assert", "async",
             "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from",
@@ -66,6 +71,8 @@ public class CodeEditor {
     public static final String[] CRAFTPY_API = { "block", "item", "entity", "effect", "recipe_shaped", "recipe_shapeless",
             "recipe_smelting", "loot_table", "loot_self", "tag", "tex", "snd", "mdl", "on", "Command", "Player",
             "World", "BlockPos", "SoundEvent", "ItemStack", "context", "ctx", "main", "register" };
+
+    private String language = "python";
 
     private final Font font;
     private int x;
@@ -100,21 +107,43 @@ public class CodeEditor {
     private int suggestionCol;
     private int suggestionStartCol;
 
+    private CompletionProvider completionProvider;
+
+    public interface CompletionProvider {
+        void provideCompletions(String code, int line, int col, String word);
+    }
+
+    public void setCompletionProvider(CompletionProvider provider) {
+        this.completionProvider = provider;
+    }
+
+    public void setExternalSuggestions(List<Suggestion> list, String word) {
+        if (list.isEmpty()) {
+            closeSuggestions();
+            return;
+        }
+        suggestionStartCol = cursorCol - word.length();
+        suggestionLine = cursorLine;
+        suggestionCol = cursorCol;
+        suggestionIndex = 0;
+        suggestions = list;
+    }
+
     /**
      * One completion entry. {@code insert} is what accepting replaces the typed
      * word with; {@code cursorOffset} places the caret inside it (between quotes
      * or parentheses). Multi-line entries are snippet templates shown as a grey
      * "ghost" preview and applied with Tab.
      */
-    private static final class Suggestion {
-        final String label;
-        final String signature;
-        final String description;
-        final String insert;
-        final int cursorOffset;
-        final String placeholder;
+    public static final class Suggestion {
+        public final String label;
+        public final String signature;
+        public final String description;
+        public final String insert;
+        public final int cursorOffset;
+        public final String placeholder;
 
-        Suggestion(String label, String signature, String description, String insert, int cursorOffset,
+        public Suggestion(String label, String signature, String description, String insert, int cursorOffset,
                 String placeholder) {
             this.label = label;
             this.signature = signature;
@@ -124,7 +153,7 @@ public class CodeEditor {
             this.placeholder = placeholder;
         }
 
-        boolean isSnippet() {
+        public boolean isSnippet() {
             return placeholder != null;
         }
     }
@@ -141,6 +170,12 @@ public class CodeEditor {
                     + "      max_stack=64, glow=False)\n"
                     + "class MyItem:\n"
                     + "    pass";
+    private static final String ON_SNIPPET =
+            "@on(\"block_break\")\ndef on_break(ctx):\n    pass";
+    private static final String RECIPE_SNIPPET =
+            "@recipe_shaped([\"AAA\", \" B \", \" B \"],\n"
+                    + "               {\"A\": \"minecraft:iron_ingot\", \"B\": \"minecraft:stick\"},\n"
+                    + "               result=\"minecraft:iron_pickaxe\")";
 
     private Runnable changeListener;
 
@@ -319,6 +354,19 @@ public class CodeEditor {
 
     public int lineCount() {
         return lines.size();
+    }
+
+    public void setLanguage(String lang) {
+        if (lang == null) lang = "python";
+        lang = lang.toLowerCase(java.util.Locale.ROOT);
+        if (!lang.equals(this.language)) {
+            this.language = lang;
+            docStamp++; // Force re-tokenize
+        }
+    }
+
+    public String getLanguage() {
+        return language;
     }
 
     public void setBounds(int x, int y, int width, int height) {
@@ -1070,16 +1118,23 @@ public class CodeEditor {
             closeSuggestions();
             return;
         }
+        
+        if (completionProvider != null) {
+            completionProvider.provideCompletions(getContent(), cursorLine, cursorCol, word);
+        }
+
         List<Suggestion> list = suggestFor(word);
-        if (list.isEmpty()) {
+        if (list.isEmpty() && completionProvider == null) {
             closeSuggestions();
             return;
         }
-        suggestionStartCol = cursorCol - word.length();
-        suggestionLine = cursorLine;
-        suggestionCol = cursorCol;
-        suggestionIndex = 0;
-        suggestions = list;
+        if (!list.isEmpty()) {
+            suggestionStartCol = cursorCol - word.length();
+            suggestionLine = cursorLine;
+            suggestionCol = cursorCol;
+            suggestionIndex = 0;
+            suggestions = list;
+        }
     }
 
     private void openSuggestions() {
@@ -1202,6 +1257,14 @@ public class CodeEditor {
         if ("item".startsWith(prefix)) {
             ApiDocs.Doc doc = ApiDocs.get("item");
             result.add(new Suggestion("item", doc.signature(), doc.description(), ITEM_SNIPPET, 0, "my_item"));
+        }
+        if ("on".startsWith(prefix)) {
+            ApiDocs.Doc doc = ApiDocs.get("on");
+            result.add(new Suggestion("on", doc != null ? doc.signature() : "@on(event)", "", ON_SNIPPET, 0, "block_break"));
+        }
+        if ("recipe_shaped".startsWith(prefix)) {
+            ApiDocs.Doc doc = ApiDocs.get("recipe_shaped");
+            result.add(new Suggestion("recipe_shaped", doc != null ? doc.signature() : "@recipe_shaped(...)", "", RECIPE_SNIPPET, 0, "minecraft:iron_ingot"));
         }
 
         // Documented API names with signatures and descriptions.
@@ -1726,7 +1789,7 @@ public class CodeEditor {
         ensureCaches();
         List<Token> tokens = tokenCache[index];
         if (tokens == null) {
-            tokens = tokenize(text);
+            tokens = tokenizeDocLine(text);
             tokenCache[index] = tokens;
         }
         return tokens;
@@ -1755,11 +1818,23 @@ public class CodeEditor {
         cacheStamp = docStamp;
     }
 
-    static List<Token> tokenize(String line) {
-        List<Token> tokens = new ArrayList<>();
+    public static List<Token> tokenize(String line) {
+        return tokenizePython(line);
+    }
+
+    private List<Token> tokenizeDocLine(String line) {
         if (line.isEmpty()) {
-            return tokens;
+            return new ArrayList<>();
         }
+        return switch (language) {
+            case "json" -> tokenizeJson(line);
+            case "md", "markdown" -> tokenizeMarkdown(line);
+            default -> tokenizePython(line);
+        };
+    }
+
+    private static List<Token> tokenizePython(String line) {
+        List<Token> tokens = new ArrayList<>();
         int i = 0;
         String prevWord = "";
         while (i < line.length()) {
@@ -1836,6 +1911,103 @@ public class CodeEditor {
             while (i < line.length() && !isWordChar(line.charAt(i)) && line.charAt(i) != '#'
                     && line.charAt(i) != '"' && line.charAt(i) != '\'' && line.charAt(i) != '@'
                     && !Character.isDigit(line.charAt(i))) {
+                i++;
+            }
+            tokens.add(new Token(line.substring(start, i), COLOR_TEXT));
+        }
+        return tokens;
+    }
+
+    private static List<Token> tokenizeJson(String line) {
+        List<Token> tokens = new ArrayList<>();
+        int i = 0;
+        while (i < line.length()) {
+            char c = line.charAt(i);
+            int start = i;
+            if (c == '"') {
+                i++;
+                boolean closed = false;
+                while (i < line.length()) {
+                    if (line.charAt(i) == '\\') {
+                        i += 2;
+                        continue;
+                    }
+                    if (line.charAt(i) == '"') {
+                        i++;
+                        closed = true;
+                        break;
+                    }
+                    i++;
+                }
+                String str = line.substring(start, i);
+                int color = COLOR_STRING;
+                // Heuristic for keys: if followed by a colon
+                int after = i;
+                while (after < line.length() && Character.isWhitespace(line.charAt(after))) {
+                    after++;
+                }
+                if (after < line.length() && line.charAt(after) == ':') {
+                    color = COLOR_JSON_KEY;
+                }
+                tokens.add(new Token(str, color));
+                continue;
+            }
+            if (Character.isDigit(c) || c == '-') {
+                i++;
+                while (i < line.length() && (Character.isDigit(line.charAt(i)) || line.charAt(i) == '.')) {
+                    i++;
+                }
+                tokens.add(new Token(line.substring(start, i), COLOR_NUMBER));
+                continue;
+            }
+            if (Character.isLetter(c)) {
+                while (i < line.length() && Character.isLetter(line.charAt(i))) {
+                    i++;
+                }
+                String word = line.substring(start, i);
+                int color = ("true".equals(word) || "false".equals(word) || "null".equals(word))
+                        ? COLOR_KEYWORD : COLOR_TEXT;
+                tokens.add(new Token(word, color));
+                continue;
+            }
+            i++;
+            tokens.add(new Token(line.substring(start, i), COLOR_TEXT));
+        }
+        return tokens;
+    }
+
+    private static List<Token> tokenizeMarkdown(String line) {
+        List<Token> tokens = new ArrayList<>();
+        if (line.startsWith("#")) {
+            tokens.add(new Token(line, COLOR_MD_HEADER));
+            return tokens;
+        }
+        if (line.trim().startsWith("* ") || line.trim().startsWith("- ") || line.trim().startsWith("+ ")
+                || line.matches("^\\s*\\d+\\.\\s.*")) {
+            tokens.add(new Token(line, COLOR_MD_LIST));
+            return tokens;
+        }
+        int i = 0;
+        while (i < line.length()) {
+            char c = line.charAt(i);
+            int start = i;
+            if (c == '`') {
+                i++;
+                while (i < line.length() && line.charAt(i) != '`') i++;
+                if (i < line.length()) i++;
+                tokens.add(new Token(line.substring(start, i), COLOR_MD_CODE));
+                continue;
+            }
+            if (c == '[' || c == '(') {
+                char endChar = (c == '[') ? ']' : ')';
+                i++;
+                while (i < line.length() && line.charAt(i) != endChar) i++;
+                if (i < line.length()) i++;
+                tokens.add(new Token(line.substring(start, i), COLOR_MD_LINK));
+                continue;
+            }
+            i++;
+            while (i < line.length() && line.charAt(i) != '`' && line.charAt(i) != '[' && line.charAt(i) != '(') {
                 i++;
             }
             tokens.add(new Token(line.substring(start, i), COLOR_TEXT));

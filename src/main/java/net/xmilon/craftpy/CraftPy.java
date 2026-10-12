@@ -19,6 +19,7 @@ import net.xmilon.craftpy.dynamics.DynamicPackManager;
 import net.xmilon.craftpy.lifecycle.ProjectController;
 import net.xmilon.craftpy.network.CraftPyNetwork;
 import net.xmilon.craftpy.project.ProjectManager;
+import net.xmilon.craftpy.registry.ModBlockEntities;
 import net.xmilon.craftpy.registry.ModBlocks;
 import net.xmilon.craftpy.registry.ModCreativeTabs;
 import net.xmilon.craftpy.registry.ModItems;
@@ -33,6 +34,7 @@ public class CraftPy {
     public CraftPy(IEventBus modEventBus, ModContainer modContainer) {
         ModBlocks.BLOCKS.register(modEventBus);
         ModItems.ITEMS.register(modEventBus);
+        ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);
         modEventBus.register(net.xmilon.craftpy.network.CraftPyNetwork.class);
@@ -41,14 +43,18 @@ public class CraftPy {
         NeoForge.EVENT_BUS.register(this);
         // Project content is /craftpy give only - blocks it from vanilla /give.
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.command.CommandGuard.class);
+        NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.EventBridge.class);
 
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+        
+        net.xmilon.craftpy.project.PyForgePaths.ensureLayout();
     }
 
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
         // All project IO is owned by the server (integrated server = same instance folder).
         ProjectManager.init();
+        net.xmilon.craftpy.project.ModuleLoader.discoverAndLoad();
         LOGGER.info("CraftPy project manager ready");
         // Rebuild generated packs and re-apply previously active projects.
         ProjectController.startup(event.getServer());

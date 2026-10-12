@@ -111,7 +111,7 @@ public final class AssetIndex implements ResourceManagerReloadListener {
             } finally {
                 building = false;
             }
-        });
+        }, net.xmilon.craftpy.util.CraftPyExecutors.ui());
     }
 
     private volatile boolean building = false;

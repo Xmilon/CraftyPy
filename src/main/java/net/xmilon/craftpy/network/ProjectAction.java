@@ -22,5 +22,6 @@ public enum ProjectAction {
     DELETE_ENTRY,
     RENAME_ENTRY,
     FIND_DEFINITION,
-    READ_ASSET
+    READ_ASSET,
+    INTERRUPT
 }

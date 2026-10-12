@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import net.xmilon.craftpy.CraftPy;
@@ -60,7 +61,8 @@ public final class PackBuilder {
         for (int i = 0; i < SlotRegistry.BLOCK_CAP; i++) {
             Defs.BlockDef def = SlotRegistry.blockDef(i);
             String holder = SlotRegistry.holderForBlock(i);
-            String texture = def != null && def.texture != null ? def.texture : UNLOADED_TEXTURE;
+            String projectId = holder.contains(":") ? holder.substring(0, holder.indexOf(':')) : "craftpy";
+            String texture = def != null && def.texture != null ? mapRef(def.texture, projectId, null) : UNLOADED_TEXTURE;
             String name = def != null && def.name != null ? def.name : "Unloaded: " + holder;
             String id = "pcblock_" + i;
 
@@ -91,7 +93,8 @@ public final class PackBuilder {
         for (int i = 0; i < SlotRegistry.ITEM_CAP; i++) {
             Defs.ItemDef def = SlotRegistry.itemDef(i);
             String holder = SlotRegistry.holderForItem(i);
-            String texture = def != null && def.texture != null ? def.texture : UNLOADED_TEXTURE;
+            String projectId = holder.contains(":") ? holder.substring(0, holder.indexOf(':')) : "craftpy";
+            String texture = def != null && def.texture != null ? mapRef(def.texture, projectId, null) : UNLOADED_TEXTURE;
             String name = def != null && def.name != null ? def.name : "Unloaded: " + holder;
             String id = "pcitem_" + i;
 
@@ -146,12 +149,16 @@ public final class PackBuilder {
         }
     }
 
+    static void writeDataPackForTests(Path root) throws Exception {
+        writeDataPack(root);
+    }
+
     private static void writeDataPack(Path root) throws Exception {
         deleteRecursively(root);
         writeMcmeta(root, DATA_FORMAT, "CraftPy project data");
-        Path data = root.resolve("data").resolve("craftpy");
 
         for (String projectId : SlotRegistry.activeProjectIds()) {
+            Path data = root.resolve("data").resolve(projectId);
             Declarations declarations = SlotRegistry.declarations(projectId);
             if (declarations == null) {
                 continue;
@@ -166,13 +173,26 @@ public final class PackBuilder {
                     case "recipe" -> writeRecipe(data, projectId, json);
                     case "loot_table" -> {
                         writeLootTable(data, projectId, json);
-                        String id = jsonString(json, "id", "");
+                        String id = entry.id();
+                        if (id.isBlank()) id = jsonString(json, "id", "");
                         if (!id.isBlank()) {
                             declaredLoot.put(id, json);
                         }
                     }
                     case "tag" -> writeTag(data, projectId, json);
                     default -> {
+                    }
+                }
+            }
+            // Also pick up loot defined inline on blocks
+            for (Declarations.Content content : declarations.contents()) {
+                if ("block".equals(content.kind()) && content.definition().has("loot")) {
+                    JsonElement loot = content.definition().get("loot");
+                    if (loot.isJsonArray()) {
+                        JsonObject table = new JsonObject();
+                        table.addProperty("id", content.id());
+                        table.add("entries", loot.getAsJsonArray());
+                        declaredLoot.put(content.id(), table);
                     }
                 }
             }
@@ -224,69 +244,73 @@ public final class PackBuilder {
         return table;
     }
 
-    private static void writeRecipe(Path data, String projectId, JsonObject raw) throws Exception {
+    static void writeRecipe(Path data, String projectId, JsonObject raw) throws Exception {
         String type = jsonString(raw, "type", "shapeless");
         JsonObject out = new JsonObject();
+        String fallback = "unknown";
         switch (type) {
             case "shaped" -> {
                 out.addProperty("type", "minecraft:crafting_shaped");
                 out.add("pattern", raw.getAsJsonArray("pattern"));
                 out.add("keys", rewriteKeys(raw.getAsJsonObject("keys"), projectId));
-                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId)));
+                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId, SlotRegistry.Kind.ITEM)));
                 out.addProperty("category", jsonString(raw, "category", "misc"));
+                fallback = jsonString(raw, "result", "result");
             }
             case "smelting" -> {
                 JsonObject ingredient = new JsonObject();
-                ingredient.addProperty("item", mapRef(jsonString(raw, "ingredient", "minecraft:iron_ore"), projectId));
+                ingredient.addProperty("item", mapRef(jsonString(raw, "ingredient", "minecraft:iron_ore"), projectId, SlotRegistry.Kind.ITEM));
                 out.addProperty("type", "minecraft:smelting");
                 out.add("ingredient", ingredient);
-                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:iron_ingot"), projectId)));
+                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:iron_ingot"), projectId, SlotRegistry.Kind.ITEM)));
                 out.addProperty("experience", jsonFloat(raw, "xp", 0.0f));
                 out.addProperty("cookingtime", jsonInt(raw, "cook_time", 200));
+                fallback = jsonString(raw, "ingredient", "result");
             }
             default -> {
                 out.addProperty("type", "minecraft:crafting_shapeless");
-                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId)));
+                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId, SlotRegistry.Kind.ITEM)));
                 out.addProperty("category", jsonString(raw, "category", "misc"));
                 JsonArray ingredients = new JsonArray();
                 JsonArray rawIngredients = raw.getAsJsonArray("ingredients");
                 for (var element : rawIngredients) {
                     JsonObject item = new JsonObject();
-                    item.addProperty("item", mapRef(element.getAsString(), projectId));
+                    item.addProperty("item", mapRef(element.getAsString(), projectId, SlotRegistry.Kind.ITEM));
                     ingredients.add(item);
                 }
                 out.add("ingredients", ingredients);
+                fallback = jsonString(raw, "result", "result");
             }
         }
-        String name = fileName(jsonString(raw, "id", jsonString(raw, "result", "result")));
+        String name = fileName(jsonString(raw, "id", fallback));
         writeJson(out, data.resolve("recipe/" + name + ".json"));
     }
 
-    private static JsonObject resultObject(String itemRef) {
+    static JsonObject resultObject(String itemRef) {
         JsonObject result = new JsonObject();
         result.addProperty("id", itemRef);
         result.addProperty("count", 1);
         return result;
     }
 
-    private static JsonObject rewriteKeys(JsonObject keys, String projectId) {
+    static JsonObject rewriteKeys(JsonObject keys, String projectId) {
         JsonObject out = new JsonObject();
         for (String key : keys.keySet()) {
             JsonObject ingredient = keys.getAsJsonObject(key);
             if (ingredient.has("item")) {
-                ingredient.addProperty("item", mapRef(ingredient.get("item").getAsString(), projectId));
+                ingredient.addProperty("item", mapRef(ingredient.get("item").getAsString(), projectId, SlotRegistry.Kind.ITEM));
             }
             out.add(key, ingredient);
         }
         return out;
     }
 
-    private static void writeLootTable(Path data, String projectId, JsonObject raw) throws Exception {
+    static void writeLootTable(Path data, String projectId, JsonObject raw) throws Exception {
         writeLootTable(data, projectId, raw, fileName(jsonString(raw, "id", "loot")));
     }
 
     /** Writes a block-type loot table to {@code loot_table/<target>.json}. */
-    private static void writeLootTable(Path data, String projectId, JsonObject raw, String target) throws Exception {
+    static void writeLootTable(Path data, String projectId, JsonObject raw, String target) throws Exception {
         JsonObject table = new JsonObject();
         table.addProperty("type", "minecraft:block");
         JsonArray pools = new JsonArray();
@@ -296,7 +320,7 @@ public final class PackBuilder {
         for (var element : raw.getAsJsonArray("entries")) {
             JsonObject entry = new JsonObject();
             entry.addProperty("type", "minecraft:item");
-            entry.addProperty("name", mapRef(element.getAsString(), projectId));
+            entry.addProperty("name", mapRef(element.getAsString(), projectId, SlotRegistry.Kind.ITEM));
             entries.add(entry);
         }
         pool.add("entries", entries);
@@ -305,28 +329,52 @@ public final class PackBuilder {
         writeJson(table, data.resolve("loot_table/" + target + ".json"));
     }
 
-    private static void writeTag(Path data, String projectId, JsonObject raw) throws Exception {
+    static void writeTag(Path data, String projectId, JsonObject raw) throws Exception {
         JsonObject tag = new JsonObject();
         tag.addProperty("replace", jsonBool(raw, "replace", false));
+        String type = jsonString(raw, "type", "item");
+        SlotRegistry.Kind kind = type.equals("block") ? SlotRegistry.Kind.BLOCK : SlotRegistry.Kind.ITEM;
         JsonArray values = new JsonArray();
         for (var element : raw.getAsJsonArray("values")) {
-            values.add(mapRef(element.getAsString(), projectId));
+            values.add(mapRef(element.getAsString(), projectId, kind));
         }
         tag.add("values", values);
-        String type = jsonString(raw, "type", "item");
         String id = fileName(jsonString(raw, "id", "example"));
         writeJson(tag, data.resolve("tags/" + type + "/" + id + ".json"));
     }
 
-    /** Maps "<projectId>:<contentId>" references to the allocated slot registry id. */
     static String mapRef(String ref, String buildProject) {
+        return mapRef(ref, buildProject, null);
+    }
+
+    /** Maps "<projectId>:<contentId>" references to the allocated slot registry id. */
+    static String mapRef(String ref, String buildProject, SlotRegistry.Kind preferredKind) {
         if (ref == null || ref.isBlank()) {
             return ref;
         }
-        String candidate = ref.contains(":") ? ref : buildProject + ":" + ref;
+        String val = ref;
+        if (ref.startsWith("project:")) {
+            val = ref.substring("project:".length());
+            if (!val.contains(":")) {
+                val = buildProject + ":" + val;
+            }
+        }
+        String candidate = val.contains(":") ? val : buildProject + ":" + val;
         var mapping = SlotRegistry.snapshotByHolder();
-        if (mapping.containsKey(candidate)) {
-            var slot = mapping.get(candidate);
+
+        SlotRegistry.SlotRef slot = null;
+        if (preferredKind != null) {
+            slot = mapping.get(preferredKind.name() + ":" + candidate);
+        }
+        if (slot == null) {
+            // Try common slot types; heuristic for ambiguous references
+            slot = mapping.get("BLOCK:" + candidate);
+            if (slot == null) {
+                slot = mapping.get("ITEM:" + candidate);
+            }
+        }
+
+        if (slot != null) {
             if (slot.kind() == SlotRegistry.Kind.BLOCK) {
                 return "craftpy:pcblock_" + slot.index();
             }
@@ -338,7 +386,7 @@ public final class PackBuilder {
     }
 
     private static String fileName(String rawId) {
-        String out = rawId.contains(":") ? rawId.substring(rawId.indexOf(':') + 1) : rawId;
+        String out = rawId.replace(':', '_');
         return out.replaceAll("[^a-z0-9_./-]", "_");
     }
 

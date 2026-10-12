@@ -210,11 +210,13 @@ public final class SlotRegistry {
      * If the content already has a slot, it is reused (stable across reloads).
      */
     public static synchronized SlotRef applyBlock(String projectId, String contentId, JsonObject definition) {
-        String contentKey = projectId + ":" + contentId;
+        String contentKey = "BLOCK:" + projectId + ":" + contentId;
         Defs.BlockDef def = Defs.BlockDef.from(definition);
         SlotRef ref = MAPPING.get(contentKey);
         if (ref == null) {
-            int index = allocateFree(Kind.BLOCK, poolSize(Kind.BLOCK, Config.BLOCK_SLOTS.get()));
+            int cap = 256;
+            try { cap = Config.BLOCK_SLOTS.get(); } catch (Throwable ignored) {}
+            int index = allocateFree(Kind.BLOCK, poolSize(Kind.BLOCK, cap));
             ref = new SlotRef(Kind.BLOCK, index);
             MAPPING.put(contentKey, ref);
         }
@@ -224,11 +226,13 @@ public final class SlotRegistry {
     }
 
     public static synchronized SlotRef applyItem(String projectId, String contentId, JsonObject definition) {
-        String contentKey = projectId + ":" + contentId;
+        String contentKey = "ITEM:" + projectId + ":" + contentId;
         Defs.ItemDef def = Defs.ItemDef.from(definition);
         SlotRef ref = MAPPING.get(contentKey);
         if (ref == null) {
-            int index = allocateFree(Kind.ITEM, poolSize(Kind.ITEM, Config.ITEM_SLOTS.get()));
+            int cap = 256;
+            try { cap = Config.ITEM_SLOTS.get(); } catch (Throwable ignored) {}
+            int index = allocateFree(Kind.ITEM, poolSize(Kind.ITEM, cap));
             ref = new SlotRef(Kind.ITEM, index);
             MAPPING.put(contentKey, ref);
         }
@@ -270,7 +274,7 @@ public final class SlotRegistry {
     /** Detaches the live definitions of one project; mapping stays so old grids remain stable. */
     public static synchronized void releaseProject(String projectId) {
         for (String contentKey : new ArrayList<>(MAPPING.keySet())) {
-            if (contentKey.startsWith(projectId + ":")) {
+            if (contentKey.contains(":" + projectId + ":")) {
                 SlotRef ref = MAPPING.get(contentKey);
                 BLOCK_DEFS.remove(key(Kind.BLOCK, ref.index()));
                 ITEM_DEFS.remove(key(Kind.ITEM, ref.index()));

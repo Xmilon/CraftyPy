@@ -7,26 +7,36 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.material.MapColor;
+import net.minecraft.world.phys.BlockHitResult;
 import net.xmilon.craftpy.content.Defs;
+import net.xmilon.craftpy.registry.ModBlockEntities;
 import net.xmilon.craftpy.registry.SlotRegistry;
+
+import javax.annotation.Nullable;
 
 /**
  * One generic pre-registered block slot. Behavior is driven at runtime by the
  * {@link Defs.BlockDef} currently assigned to this index; unassigned slots
  * behave as an inert placeholder so placed blocks never corrupt a save.
  */
-public class SlottedBlock extends Block {
+public class SlottedBlock extends Block implements EntityBlock {
     public static final IntegerProperty CRAFTPY_LIGHT = IntegerProperty.create("craftpy_light", 0, 15);
 
     private final int slotIndex;
@@ -35,6 +45,25 @@ public class SlottedBlock extends Block {
         super(properties.mapColor(MapColor.STONE).strength(2.0F, 6.0F));
         this.slotIndex = slotIndex;
         this.registerDefaultState(this.stateDefinition.any().setValue(CRAFTPY_LIGHT, 0));
+    }
+
+    @Nullable
+    @Override
+    public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+        return new SlottedBlockEntity(pos, state);
+    }
+
+    @Nullable
+    @Override
+    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
+        return createTickerHelper(type, ModBlockEntities.SLOTTED_BLOCK_ENTITY.get(),
+                (lvl, pos, st, be) -> be.tick(lvl, pos, st));
+    }
+
+    @SuppressWarnings("unchecked")
+    protected static <E extends BlockEntity, A extends BlockEntity> BlockEntityTicker<A> createTickerHelper(
+            BlockEntityType<A> actualType, BlockEntityType<E> expectedType, BlockEntityTicker<? super E> ticker) {
+        return expectedType == actualType ? (BlockEntityTicker<A>) ticker : null;
     }
 
     public int slotIndex() {
@@ -83,6 +112,17 @@ public class SlottedBlock extends Block {
             lines.add(Component.literal("Unloaded - load the project to activate.").withStyle(ChatFormatting.GRAY));
         }
         super.appendHoverText(stack, context, lines, flags);
+    }
+
+    @Override
+    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
+        if (!level.isClientSide) {
+            BlockEntity be = level.getBlockEntity(pos);
+            if (be instanceof SlottedBlockEntity sbe) {
+                sbe.interact(player, pos, state);
+            }
+        }
+        return InteractionResult.sidedSuccess(level.isClientSide);
     }
 
     @Override

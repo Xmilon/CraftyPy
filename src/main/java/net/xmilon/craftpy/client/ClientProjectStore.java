@@ -28,7 +28,7 @@ public final class ClientProjectStore {
     private static final int MAX_LOG = 200;
 
     private final List<ProjectSummary> projects = new ArrayList<>();
-    private final List<String> log = new ArrayList<>();
+    private final Map<String, List<String>> consoleLogs = new java.util.HashMap<>();
     private final Map<String, String> openFiles = new LinkedHashMap<>();
     private final List<Runnable> listeners = new ArrayList<>();
     private String selectedId;
@@ -60,11 +60,19 @@ public final class ClientProjectStore {
     }
 
     public List<String> log() {
-        return Collections.unmodifiableList(log);
+        return log("default");
+    }
+
+    public List<String> log(String session) {
+        return Collections.unmodifiableList(consoleLogs.computeIfAbsent(session, k -> new ArrayList<>()));
     }
 
     public void clearLog() {
-        log.clear();
+        clearLog("default");
+    }
+
+    public void clearLog(String session) {
+        consoleLogs.computeIfAbsent(session, k -> new ArrayList<>()).clear();
         notifyListener();
     }
 
@@ -186,12 +194,23 @@ public final class ClientProjectStore {
     // ---- console / explorer actions ----
 
     public void evaluate(String code) {
+        evaluate(code, "default");
+    }
+
+    public void evaluate(String code, String session) {
         if (activeProjectId == null) {
             append("Open a project before using the console");
             notifyListener();
             return;
         }
-        request(ProjectAction.EVAL, activeProjectId, code == null ? "" : code);
+        JsonObject params = new JsonObject();
+        params.addProperty("code", code == null ? "" : code);
+        params.addProperty("session", session);
+        request(ProjectAction.EVAL, activeProjectId, Json.COMPACT.toJson(params));
+    }
+
+    public void interrupt() {
+        request(ProjectAction.INTERRUPT, activeProjectId, "");
     }
 
     public void createEntry(String path, String type) {
@@ -415,15 +434,16 @@ public final class ClientProjectStore {
             case EVAL -> {
                 JsonObject result = Json.COMPACT.fromJson(payload.json(), JsonObject.class);
                 if (result != null) {
+                    String session = result.has("session") ? result.get("session").getAsString() : "default";
                     if (result.has("output") && result.get("output").isJsonArray()) {
                         for (com.google.gson.JsonElement element : result.getAsJsonArray("output")) {
-                            append(element.getAsString());
+                            append(session, element.getAsString());
                         }
                     }
                     if (result.has("error") && !result.get("error").isJsonNull()) {
-                        append("ERROR: " + result.getAsJsonObject("error").get("message").getAsString());
+                        append(session, "ERROR: " + result.getAsJsonObject("error").get("message").getAsString());
                     } else if (result.has("value") && !result.get("value").isJsonNull()) {
-                        append("=> " + result.get("value").getAsString());
+                        append(session, "=> " + result.get("value").getAsString());
                     }
                 }
                 return;
@@ -495,6 +515,11 @@ public final class ClientProjectStore {
     }
 
     public void append(String message) {
+        append("default", message);
+    }
+
+    public void append(String session, String message) {
+        List<String> log = consoleLogs.computeIfAbsent(session, k -> new ArrayList<>());
         log.add(message);
         while (log.size() > MAX_LOG) {
             log.remove(0);
