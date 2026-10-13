@@ -29,6 +29,7 @@ public final class PyRuntime {
 
     private final Path workerScript;
     private RpcClient client;
+    private final java.util.concurrent.atomic.AtomicInteger scheduledTasks = new java.util.concurrent.atomic.AtomicInteger();
 
     private PyRuntime() {
         this.workerScript = PyForgePaths.runtime().resolve("worker.py");
@@ -101,7 +102,9 @@ public final class PyRuntime {
                 JsonObject params = new JsonObject();
                 params.addProperty("event", eventName);
                 params.add("context", context);
-                return client().call("trigger_event", params, DEFAULT_TIMEOUT_MS);
+                JsonObject result = client().call("trigger_event", params, DEFAULT_TIMEOUT_MS);
+                noteSchedule(result);
+                return result;
             } catch (Exception e) {
                 CraftPy.LOGGER.error("Failed to trigger Python event: " + eventName, e);
                 return new JsonObject();
@@ -113,10 +116,36 @@ public final class PyRuntime {
         if (client == null) {
             RpcClient created = new RpcClient(pythonRequired(), workerScript,
                     PyForgePaths.logs().resolve("python_worker.log"));
+            created.setHostHandler(HostBridge::handle);
             created.start();
             client = created;
         }
         return client;
+    }
+
+    /** True while the worker has pending scheduler tasks (drives tick events). */
+    public boolean hasScheduledTasks() {
+        return scheduledTasks.get() > 0;
+    }
+
+    private void noteSchedule(JsonObject result) {
+        if (result != null && result.has("scheduled") && result.get("scheduled").isJsonPrimitive()) {
+            scheduledTasks.set(result.get("scheduled").getAsInt());
+        }
+    }
+
+    /** Delivers a server tick to the worker so scheduled tasks can run. */
+    public CompletableFuture<Void> tick(long tick) {
+        return CraftPyExecutors.runAsync(() -> {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("tick", tick);
+                JsonObject result = client().call("tick", params, 5000);
+                noteSchedule(result);
+            } catch (Exception e) {
+                scheduledTasks.set(0);
+            }
+        }, CraftPyExecutors.rpc());
     }
 
     private Path pythonRequired() {
@@ -215,6 +244,7 @@ public final class PyRuntime {
             params.addProperty("debug", debug);
             try {
                 JsonObject result = client().call("run_main", params, DEFAULT_TIMEOUT_MS);
+                noteSchedule(result);
                 return Declarations.parse(result, fileName);
             } catch (Exception e) {
                 CraftPy.LOGGER.error("run_main failed for {}", projectId, e);

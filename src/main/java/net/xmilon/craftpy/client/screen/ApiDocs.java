@@ -36,9 +36,36 @@ public final class ApiDocs {
         doc("recipe_shaped", "recipe_shaped(result, pattern, keys)", "Shaped crafting recipe from a pattern + key dict.");
         doc("recipe_shapeless", "recipe_shapeless(result, ingredients)", "Shapeless crafting recipe from an ingredient list.");
         doc("recipe_smelting", "recipe_smelting(result, ingredient, xp, cook_time)", "Furnace recipe (input -> result).");
+        doc("recipe_blasting", "recipe_blasting(result, ingredient, xp, cook_time)", "Blast furnace recipe.");
+        doc("recipe_smoking", "recipe_smoking(result, ingredient, xp, cook_time)", "Smoker recipe.");
+        doc("recipe_campfire", "recipe_campfire(result, ingredient, cook_time)", "Campfire cooking recipe.");
+        doc("recipe_stonecutting", "recipe_stonecutting(result, ingredient, count)", "Stonecutter recipe.");
+        doc("recipe_smithing", "recipe_smithing(result, template, base, addition)", "Smithing table transform.");
         doc("loot_table", "loot_table(\"id\", entries=[...])", "Custom drops for a block or entity.");
+        doc("loot_entry", "loot_entry(item, count=1, weight=1)", "One entry inside a loot_table.");
         doc("tag", "tag(\"#id\", values=[...])", "Add ids to a datapack tag (items, blocks ...).");
         doc("lang", "lang(\"key\", \"value\")", "Add a translation entry to en_us.json.");
+        doc("advancement", "advancement(\"id\", **fields)", "Write a data-driven advancement.");
+        doc("sound", "sound(\"event\", sounds=[...])", "Add an entry to the project's sounds.json.");
+        doc("particle", "particle(\"id\", textures=[...])", "Declare a custom particle.");
+        doc("enchantment", "@enchantment(\"id\", **fields)", "Declare a data-driven enchantment.");
+        doc("potion", "potion(\"id\", base=..., effects=[...])", "Declare a potion variant.");
+        doc("raw_json", "raw_json(\"path\", data)", "Escape hatch: raw datapack JSON (version-specific).");
+        doc("every", "@every(20)", "Run a handler every N server ticks.");
+        doc("on_load", "@on_load", "Run a handler when the project loads.");
+        doc("on_unload", "@on_unload", "Run a handler when the project unloads.");
+        doc("command", "@command(\"name\")", "Register a /craftpy subcommand (handler gets ctx.args).");
+        doc("has", "has(\"capability\")", "True when an optional feature is available on this host.");
+        doc("run_later", "run_later(ticks, fn)", "Run fn once after N ticks; returns a cancellable Task.");
+        doc("run_every", "run_every(ticks, fn)", "Run fn every N ticks; returns a cancellable Task.");
+        doc("run_next_tick", "run_next_tick(fn)", "Run fn on the next server tick.");
+        doc("world", "world.get_block(x, y, z)", "World facade: get/set block, spawn, sound, time, weather.");
+        doc("players", "players.send_message(name, msg)", "Player facade: all, get, send_message, teleport, give.");
+        doc("server", "server.broadcast(msg)", "Server facade: broadcast, run_command, log.");
+        doc("storage", "storage.set(key, value)", "Persistent per-scope key-value storage.");
+        doc("scheduler", "scheduler.after(seconds, fn)", "Time-based scheduling built on the tick scheduler.");
+        doc("window", "@window(\"id\", title=...)", "Declare a Python-described in-game window.");
+        doc("ui", "ui.open(player, \"window\")", "Open/close a declared window for a player.");
         doc("main", "main(ctx)", "Optional entry point; ctx.log() writes to the console.");
 
         fields("block", List.of(

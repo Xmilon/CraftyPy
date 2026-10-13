@@ -41,11 +41,29 @@ public final class RpcClient {
     private volatile boolean running;
     private Thread readerThread;
     private Thread stderrThread;
+    private java.util.function.BiFunction<String, JsonObject, JsonObject> hostHandler;
+    private java.util.concurrent.ExecutorService hostExecutor;
 
     public RpcClient(Path python, Path workerScript, Path logFile) {
         this.python = python;
         this.workerScript = workerScript;
         this.logFile = logFile;
+    }
+
+    /** Installs the handler for reverse calls (Python -> Java). */
+    public void setHostHandler(java.util.function.BiFunction<String, JsonObject, JsonObject> handler) {
+        this.hostHandler = handler;
+    }
+
+    private java.util.concurrent.ExecutorService hostExecutor() {
+        if (hostExecutor == null) {
+            hostExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "craftpy-host-call");
+                thread.setDaemon(true);
+                return thread;
+            });
+        }
+        return hostExecutor;
     }
 
     public synchronized boolean isRunning() {
@@ -164,6 +182,10 @@ public final class RpcClient {
                 }
                 try {
                     JsonObject response = JsonParser.parseString(line).getAsJsonObject();
+                    if (response.has("host_call")) {
+                        dispatchHostCall(response);
+                        continue;
+                    }
                     JsonPrimitive idPrimitive = response.getAsJsonPrimitive("id");
                     if (idPrimitive == null || !idPrimitive.isNumber()) {
                         CraftPy.LOGGER.info("[worker log] {}", line);
@@ -216,6 +238,42 @@ public final class RpcClient {
         }
     }
 
+    /** Runs a reverse call from the worker off the reader thread and replies. */
+    private void dispatchHostCall(JsonObject request) {
+        long callId = request.get("host_call").getAsLong();
+        String method = request.get("method") == null ? "" : request.get("method").getAsString();
+        JsonObject params = request.get("params") != null && request.get("params").isJsonObject()
+                ? request.getAsJsonObject("params") : new JsonObject();
+        hostExecutor().execute(() -> {
+            JsonObject message = new JsonObject();
+            message.addProperty("host_response", callId);
+            try {
+                JsonObject result = hostHandler == null ? new JsonObject() : hostHandler.apply(method, params);
+                message.add("result", result == null ? new JsonObject() : result);
+            } catch (Exception e) {
+                JsonObject error = new JsonObject();
+                error.addProperty("message", e.getMessage() == null ? e.toString() : e.getMessage());
+                message.add("error", error);
+            }
+            writeLine(message);
+        });
+    }
+
+    private void writeLine(JsonObject message) {
+        writeLock.lock();
+        try {
+            if (out != null) {
+                out.write(Json.COMPACT.toJson(message));
+                out.newLine();
+                out.flush();
+            }
+        } catch (IOException e) {
+            CraftPy.LOGGER.warn("Failed to reply to host call", e);
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
     private void transportFailure() {
         if (running) {
             running = false;
@@ -239,6 +297,10 @@ public final class RpcClient {
 
     private void stopInternal() {
         running = false;
+        if (hostExecutor != null) {
+            hostExecutor.shutdownNow();
+            hostExecutor = null;
+        }
         if (process != null) {
             process.destroy();
             try {

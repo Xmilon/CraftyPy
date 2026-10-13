@@ -108,12 +108,66 @@ public final class PackBuilder {
             lang.addProperty("item.craftpy." + id, name);
         }
 
+        // Merge translations declared from Python via lang("key", "value").
+        for (String projectId : SlotRegistry.activeProjectIds()) {
+            Declarations declarations = SlotRegistry.declarations(projectId);
+            if (declarations == null) {
+                continue;
+            }
+            for (Declarations.DatapackEntry entry : declarations.datapack()) {
+                if ("lang".equals(entry.kind()) && entry.payload() != null && entry.payload().isJsonObject()) {
+                    for (var field : entry.payload().getAsJsonObject().entrySet()) {
+                        lang.add(field.getKey(), field.getValue());
+                    }
+                }
+            }
+        }
+
         writeJson(lang, assets.resolve("lang/en_us.json"));
 
         // Ship each loaded project's own assets/ folder into the pack under its
         // namespace (assets/<projectId>/...) so textures, models and sounds are
         // actually resolvable in-game and show up in the asset bank.
         copyProjectAssets(root);
+        writeProjectResourceExtras(root);
+    }
+
+    /** Writes resource-pack assets described from Python (sounds.json, particles). */
+    private static void writeProjectResourceExtras(Path root) throws Exception {
+        for (String projectId : SlotRegistry.activeProjectIds()) {
+            Declarations declarations = SlotRegistry.declarations(projectId);
+            if (declarations == null) {
+                continue;
+            }
+            JsonObject sounds = new JsonObject();
+            Path namespace = root.resolve("assets").resolve(projectId);
+            for (Declarations.DatapackEntry entry : declarations.datapack()) {
+                JsonObject payload = entry.payload() != null && entry.payload().isJsonObject()
+                        ? entry.payload().getAsJsonObject() : null;
+                if (payload == null) {
+                    continue;
+                }
+                JsonElement definition = payload.get("definition");
+                switch (entry.kind()) {
+                    case "sound" -> {
+                        if (definition != null && definition.isJsonObject() && !entry.id().isBlank()) {
+                            sounds.add(entry.id(), definition);
+                        }
+                    }
+                    case "particle" -> {
+                        if (definition != null && definition.isJsonObject() && !entry.id().isBlank()) {
+                            writeJson(definition.getAsJsonObject(),
+                                    namespace.resolve("particles/" + fileName(entry.id()) + ".json"));
+                        }
+                    }
+                    default -> {
+                    }
+                }
+            }
+            if (!sounds.entrySet().isEmpty()) {
+                writeJson(sounds, namespace.resolve("sounds.json"));
+            }
+        }
     }
 
     private static void copyProjectAssets(Path root) {
@@ -180,6 +234,9 @@ public final class PackBuilder {
                         }
                     }
                     case "tag" -> writeTag(data, projectId, json);
+                    case "advancement" -> writeDefinitionDatapack(data, "advancement", entry);
+                    case "enchantment" -> writeDefinitionDatapack(data, "enchantment", entry);
+                    case "raw" -> writeRawFile(data, entry);
                     default -> {
                     }
                 }
@@ -253,30 +310,51 @@ public final class PackBuilder {
                 out.addProperty("type", "minecraft:crafting_shaped");
                 out.add("pattern", raw.getAsJsonArray("pattern"));
                 out.add("keys", rewriteKeys(raw.getAsJsonObject("keys"), projectId));
-                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId, SlotRegistry.Kind.ITEM)));
+                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId, SlotRegistry.Kind.ITEM),
+                        jsonInt(raw, "count", 1)));
                 out.addProperty("category", jsonString(raw, "category", "misc"));
                 fallback = jsonString(raw, "result", "result");
             }
-            case "smelting" -> {
-                JsonObject ingredient = new JsonObject();
-                ingredient.addProperty("item", mapRef(jsonString(raw, "ingredient", "minecraft:iron_ore"), projectId, SlotRegistry.Kind.ITEM));
-                out.addProperty("type", "minecraft:smelting");
-                out.add("ingredient", ingredient);
-                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:iron_ingot"), projectId, SlotRegistry.Kind.ITEM)));
+            case "smelting", "blasting", "smoking", "campfire" -> {
+                String vanilla = switch (type) {
+                    case "blasting" -> "minecraft:blasting";
+                    case "smoking" -> "minecraft:smoking";
+                    case "campfire" -> "minecraft:campfire_cooking";
+                    default -> "minecraft:smelting";
+                };
+                out.addProperty("type", vanilla);
+                out.add("ingredient", ingredient(jsonString(raw, "ingredient", "minecraft:iron_ore"), projectId));
+                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:iron_ingot"), projectId, SlotRegistry.Kind.ITEM),
+                        jsonInt(raw, "count", 1)));
                 out.addProperty("experience", jsonFloat(raw, "xp", 0.0f));
                 out.addProperty("cookingtime", jsonInt(raw, "cook_time", 200));
                 fallback = jsonString(raw, "ingredient", "result");
             }
+            case "stonecutting" -> {
+                out.addProperty("type", "minecraft:stonecutting");
+                out.add("ingredient", ingredient(jsonString(raw, "ingredient", "minecraft:stone"), projectId));
+                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stone"), projectId, SlotRegistry.Kind.ITEM),
+                        jsonInt(raw, "count", 1)));
+                fallback = jsonString(raw, "result", "result");
+            }
+            case "smithing" -> {
+                out.addProperty("type", "minecraft:smithing_transform");
+                out.add("template", ingredient(jsonString(raw, "template", "minecraft:netherite_upgrade_smithing_template"), projectId));
+                out.add("base", ingredient(jsonString(raw, "base", "minecraft:diamond_sword"), projectId));
+                out.add("addition", ingredient(jsonString(raw, "addition", "minecraft:netherite_ingot"), projectId));
+                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:netherite_sword"), projectId, SlotRegistry.Kind.ITEM),
+                        jsonInt(raw, "count", 1)));
+                fallback = jsonString(raw, "result", "result");
+            }
             default -> {
                 out.addProperty("type", "minecraft:crafting_shapeless");
-                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId, SlotRegistry.Kind.ITEM)));
+                out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId, SlotRegistry.Kind.ITEM),
+                        jsonInt(raw, "count", 1)));
                 out.addProperty("category", jsonString(raw, "category", "misc"));
                 JsonArray ingredients = new JsonArray();
                 JsonArray rawIngredients = raw.getAsJsonArray("ingredients");
                 for (var element : rawIngredients) {
-                    JsonObject item = new JsonObject();
-                    item.addProperty("item", mapRef(element.getAsString(), projectId, SlotRegistry.Kind.ITEM));
-                    ingredients.add(item);
+                    ingredients.add(ingredient(element.getAsString(), projectId));
                 }
                 out.add("ingredients", ingredients);
                 fallback = jsonString(raw, "result", "result");
@@ -286,19 +364,49 @@ public final class PackBuilder {
         writeJson(out, data.resolve("recipe/" + name + ".json"));
     }
 
+    /** Builds an ingredient object; a leading {@code #} denotes a tag reference. */
+    static JsonObject ingredient(String ref, String projectId) {
+        JsonObject ingredient = new JsonObject();
+        if (ref != null && ref.startsWith("#")) {
+            ingredient.addProperty("tag", ref.substring(1));
+        } else {
+            ingredient.addProperty("item", mapRef(ref, projectId, SlotRegistry.Kind.ITEM));
+        }
+        return ingredient;
+    }
+
     static JsonObject resultObject(String itemRef) {
+        return resultObject(itemRef, 1);
+    }
+
+    static JsonObject resultObject(String itemRef, int count) {
+        if (itemRef != null && itemRef.startsWith("#")) {
+            JsonObject result = new JsonObject();
+            result.addProperty("id", itemRef.substring(1));
+            result.addProperty("count", Math.max(1, count));
+            return result;
+        }
         JsonObject result = new JsonObject();
         result.addProperty("id", itemRef);
-        result.addProperty("count", 1);
+        result.addProperty("count", Math.max(1, count));
         return result;
     }
 
     static JsonObject rewriteKeys(JsonObject keys, String projectId) {
         JsonObject out = new JsonObject();
+        if (keys == null) {
+            return out;
+        }
         for (String key : keys.keySet()) {
             JsonObject ingredient = keys.getAsJsonObject(key);
             if (ingredient.has("item")) {
-                ingredient.addProperty("item", mapRef(ingredient.get("item").getAsString(), projectId, SlotRegistry.Kind.ITEM));
+                String ref = ingredient.get("item").getAsString();
+                if (ref.startsWith("#")) {
+                    ingredient.remove("item");
+                    ingredient.addProperty("tag", ref.substring(1));
+                } else {
+                    ingredient.addProperty("item", mapRef(ref, projectId, SlotRegistry.Kind.ITEM));
+                }
             }
             out.add(key, ingredient);
         }
@@ -320,7 +428,18 @@ public final class PackBuilder {
         for (var element : raw.getAsJsonArray("entries")) {
             JsonObject entry = new JsonObject();
             entry.addProperty("type", "minecraft:item");
-            entry.addProperty("name", mapRef(element.getAsString(), projectId, SlotRegistry.Kind.ITEM));
+            if (element.isJsonObject() && element.getAsJsonObject().has("item")) {
+                JsonObject spec = element.getAsJsonObject();
+                entry.addProperty("name", mapRef(spec.get("item").getAsString(), projectId, SlotRegistry.Kind.ITEM));
+                if (spec.has("weight")) {
+                    entry.addProperty("weight", Math.max(1, spec.get("weight").getAsInt()));
+                }
+                if (spec.has("count")) {
+                    entry.add("functions", countFunction(spec.get("count").getAsInt()));
+                }
+            } else {
+                entry.addProperty("name", mapRef(element.getAsString(), projectId, SlotRegistry.Kind.ITEM));
+            }
             entries.add(entry);
         }
         pool.add("entries", entries);
@@ -333,14 +452,84 @@ public final class PackBuilder {
         JsonObject tag = new JsonObject();
         tag.addProperty("replace", jsonBool(raw, "replace", false));
         String type = jsonString(raw, "type", "item");
-        SlotRegistry.Kind kind = type.equals("block") ? SlotRegistry.Kind.BLOCK : SlotRegistry.Kind.ITEM;
+        SlotRegistry.Kind kind = switch (type) {
+            case "block", "blocks" -> SlotRegistry.Kind.BLOCK;
+            case "item", "items" -> SlotRegistry.Kind.ITEM;
+            default -> null;
+        };
         JsonArray values = new JsonArray();
         for (var element : raw.getAsJsonArray("values")) {
-            values.add(mapRef(element.getAsString(), projectId, kind));
+            if (element.isJsonObject() && element.getAsJsonObject().has("id")) {
+                JsonObject value = element.getAsJsonObject().deepCopy();
+                String ref = value.get("id").getAsString();
+                if (ref.startsWith("#")) {
+                    value.addProperty("id", ref.substring(1));
+                } else if (kind != null) {
+                    value.addProperty("id", mapRef(ref, projectId, kind));
+                }
+                values.add(value);
+            } else {
+                String ref = element.getAsString();
+                if (ref.startsWith("#") || kind == null) {
+                    values.add(ref);
+                } else {
+                    values.add(mapRef(ref, projectId, kind));
+                }
+            }
         }
         tag.add("values", values);
         String id = fileName(jsonString(raw, "id", "example"));
-        writeJson(tag, data.resolve("tags/" + type + "/" + id + ".json"));
+        writeJson(tag, data.resolve("tags/" + tagFolder(type) + "/" + id + ".json"));
+    }
+
+    private static JsonArray countFunction(int count) {
+        JsonObject fn = new JsonObject();
+        fn.addProperty("function", "minecraft:set_count");
+        fn.addProperty("count", Math.max(1, count));
+        JsonArray functions = new JsonArray();
+        functions.add(fn);
+        return functions;
+    }
+
+    private static String tagFolder(String type) {
+        String clean = type.contains(":") ? type.substring(type.indexOf(':') + 1) : type;
+        return switch (clean) {
+            case "item", "items" -> "items";
+            case "block", "blocks" -> "blocks";
+            case "entity_type", "entity_types" -> "entity_types";
+            case "fluid", "fluids" -> "fluids";
+            case "game_event", "game_events" -> "game_events";
+            case "function", "functions" -> "functions";
+            default -> clean.endsWith("s") ? clean : clean + "s";
+        };
+    }
+
+    /** Writes the {@code definition} of a datapack entry to {@code data/<dir>/<id>.json}. */
+    static void writeDefinitionDatapack(Path data, String dir, Declarations.DatapackEntry entry) throws Exception {
+        JsonElement definition = entry.payload().getAsJsonObject().get("definition");
+        if (definition == null || !definition.isJsonObject() || entry.id().isBlank()) {
+            return;
+        }
+        writeJson(definition.getAsJsonObject(), data.resolve(dir + "/" + fileName(entry.id()) + ".json"));
+    }
+
+    /** Writes a raw user-supplied datapack file ({@code raw_json("path", data)}). */
+    static void writeRawFile(Path data, Declarations.DatapackEntry entry) throws Exception {
+        JsonElement definition = entry.payload().getAsJsonObject().get("definition");
+        if (definition == null || entry.id().isBlank()) {
+            return;
+        }
+        String path = entry.id();
+        if (!path.endsWith(".json")) {
+            path = path + ".json";
+        }
+        Path target = data.resolve(path).normalize();
+        if (!target.startsWith(data.normalize())) {
+            CraftPy.LOGGER.warn("Rejected out-of-tree raw datapack path: {}", entry.id());
+            return;
+        }
+        Files.createDirectories(target.getParent());
+        writeString(target, Json.GSON.toJson(definition));
     }
 
     static String mapRef(String ref, String buildProject) {

@@ -58,6 +58,7 @@ public final class Declarations {
 
         addContents(declarations.contents, raw.getAsJsonArray("blocks"), "block");
         addContents(declarations.contents, raw.getAsJsonArray("items"), "item");
+        addContents(declarations.contents, raw.getAsJsonArray("entities"), "entity");
         addContents(declarations.contents, raw.getAsJsonArray("effects"), "effect");
 
         JsonArray handlers = raw.getAsJsonArray("handlers");
@@ -70,6 +71,11 @@ public final class Declarations {
         addDatapack(declarations.datapack, raw.getAsJsonArray("recipes"), "recipe");
         addDatapack(declarations.datapack, raw.getAsJsonArray("loot_tables"), "loot_table");
         addDatapack(declarations.datapack, raw.getAsJsonArray("tags"), "tag");
+        addDatapack(declarations.datapack, raw.getAsJsonArray("advancements"), "advancement");
+        addDatapack(declarations.datapack, raw.getAsJsonArray("sounds"), "sound");
+        addDatapack(declarations.datapack, raw.getAsJsonArray("particles"), "particle");
+        addDatapack(declarations.datapack, raw.getAsJsonArray("enchantments"), "enchantment");
+        addDatapack(declarations.datapack, raw.getAsJsonArray("raw"), "raw");
 
         if (raw.has("lang")) {
             declarations.datapack.add(new DatapackEntry("lang", fileName, raw.getAsJsonObject("lang")));

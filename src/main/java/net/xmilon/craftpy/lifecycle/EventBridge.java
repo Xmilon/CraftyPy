@@ -16,12 +16,22 @@ import net.xmilon.craftpy.util.NbtJson;
 
 public class EventBridge {
 
+    /** Drives the Python scheduler, but only while tasks are pending. */
+    @SubscribeEvent
+    public static void onServerTick(net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) {
+        net.xmilon.craftpy.python.PyRuntime runtime = net.xmilon.craftpy.python.PyRuntime.get();
+        if (runtime.hasScheduledTasks()) {
+            runtime.tick(event.getServer().getTickCount());
+        }
+    }
+
     @SubscribeEvent
     public static void onBlockInteract(PlayerInteractEvent.RightClickBlock event) {
         JsonObject context = new JsonObject();
         context.add("player", wrapPlayer(event.getEntity()));
         context.add("block", wrapBlock(event.getLevel().getBlockState(event.getPos())));
         context.addProperty("hand", event.getHand().name());
+        addPosition(context, event.getPos(), event.getLevel().dimension().location());
         
         if (event.getLevel() instanceof ServerLevel sl) {
             context.add("global_state", NbtJson.nbtToJson(GlobalState.get(sl).getData()));
@@ -48,6 +58,7 @@ public class EventBridge {
         JsonObject context = new JsonObject();
         context.add("player", wrapPlayer(event.getPlayer()));
         context.add("block", wrapBlock(event.getState()));
+        addPosition(context, event.getPos(), event.getPlayer().level().dimension().location());
         
         if (event.getLevel() instanceof ServerLevel sl) {
             context.add("global_state", NbtJson.nbtToJson(GlobalState.get(sl).getData()));
@@ -107,12 +118,30 @@ public class EventBridge {
         JsonObject obj = new JsonObject();
         obj.addProperty("name", player.getName().getString());
         obj.addProperty("uuid", player.getUUID().toString());
+        obj.addProperty("x", player.getX());
+        obj.addProperty("y", player.getY());
+        obj.addProperty("z", player.getZ());
+        obj.addProperty("dimension", player.level().dimension().location().toString());
+        if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            obj.addProperty("health", serverPlayer.getHealth());
+            obj.addProperty("gamemode", serverPlayer.gameMode.getGameModeForPlayer().getName());
+        }
         return obj;
     }
 
     private static JsonObject wrapBlock(BlockState state) {
         JsonObject obj = new JsonObject();
         obj.addProperty("name", state.getBlock().getName().getString());
+        obj.addProperty("id", net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                .getKey(state.getBlock()).toString());
         return obj;
+    }
+
+    private static void addPosition(JsonObject context, net.minecraft.core.BlockPos pos,
+            net.minecraft.resources.ResourceLocation dimension) {
+        context.addProperty("x", pos.getX());
+        context.addProperty("y", pos.getY());
+        context.addProperty("z", pos.getZ());
+        context.addProperty("dimension", dimension == null ? "minecraft:overworld" : dimension.toString());
     }
 }

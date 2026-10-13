@@ -68,9 +68,12 @@ public class CodeEditor {
     private static final Pattern WORD = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
     /** The CraftPy v1 API surface, kept in sync with docs/pyforge_api.md. */
-    public static final String[] CRAFTPY_API = { "block", "item", "entity", "effect", "recipe_shaped", "recipe_shapeless",
-            "recipe_smelting", "loot_table", "loot_self", "tag", "tex", "snd", "mdl", "on", "Command", "Player",
-            "World", "BlockPos", "SoundEvent", "ItemStack", "context", "ctx", "main", "register" };
+    public static final String[] CRAFTPY_API = { "block", "item", "entity", "effect", "enchantment", "potion",
+            "recipe_shaped", "recipe_shapeless", "recipe_smelting", "recipe_blasting", "recipe_smoking",
+            "recipe_campfire", "recipe_stonecutting", "recipe_smithing", "loot_table", "loot_entry", "loot_self",
+            "tag", "lang", "advancement", "sound", "particle", "raw_json", "tex", "snd", "mdl", "on", "every",
+            "on_load", "on_unload", "command", "has", "run_later", "run_every", "run_next_tick", "world", "players",
+            "server", "storage", "scheduler", "window", "ui", "cp", "main" };
 
     private String language = "python";
 
@@ -1174,13 +1177,18 @@ public class CodeEditor {
         suggestions = List.of();
         suggestionIndex = 0;
     }    private boolean isFunctionName(String word) {
-        return word.equals("recipe_shaped") || word.equals("recipe_shapeless") || word.equals("recipe_smelting")
-                || word.equals("loot_table") || word.equals("loot_self") || word.equals("tag");
+        return word.startsWith("recipe_") || word.equals("loot_self") || word.equals("has")
+                || word.equals("run_later") || word.equals("run_every") || word.equals("run_next_tick")
+                || word.equals("every");
     }
 
     /** Functions taking one id string: accepting inserts {@code name("")} with the caret inside. */
     private boolean isIdCall(String word) {
-        return word.equals("tex") || word.equals("snd") || word.equals("mdl") || word.equals("on");
+        return word.equals("tex") || word.equals("snd") || word.equals("mdl") || word.equals("on")
+                || word.equals("advancement") || word.equals("sound") || word.equals("particle")
+                || word.equals("loot_table") || word.equals("loot_entry") || word.equals("tag")
+                || word.equals("raw_json") || word.equals("potion") || word.equals("enchantment")
+                || word.equals("command") || word.equals("window") || word.equals("lang");
     }
 
     /**

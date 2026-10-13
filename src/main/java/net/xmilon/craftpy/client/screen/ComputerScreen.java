@@ -38,6 +38,7 @@ import net.xmilon.craftpy.client.ide.CodeEditorWidget;
 import net.xmilon.craftpy.client.ide.EditorTabs;
 import net.xmilon.craftpy.client.ide.IconButton;
 import net.xmilon.craftpy.client.ide.IdeColors;
+import net.xmilon.craftpy.client.ide.MarkdownRenderer;
 import net.xmilon.craftpy.client.ide.ScrollView;
 import net.xmilon.craftpy.client.ide.ScrollView.Row;
 import net.xmilon.craftpy.menu.ComputerMenu;
@@ -591,22 +592,19 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
     }
 
     private List<ScrollView.Row> markdownRows() {
-        List<ScrollView.Row> rows = new ArrayList<>();
         String content = this.editor.getContent();
         if (content.isEmpty()) {
+            List<ScrollView.Row> rows = new ArrayList<>();
             rows.add(new ScrollView.Row("No content to preview", IdeColors.MUTED, false));
             return rows;
         }
+        String language = this.editor.getLanguage();
+        if ("md".equals(language) || "markdown".equals(language)) {
+            return MarkdownRenderer.render(content);
+        }
+        List<ScrollView.Row> rows = new ArrayList<>();
         for (String line : content.split("\n")) {
-            int color = IdeColors.TEXT;
-            if (line.startsWith("#")) {
-                color = IdeColors.ACCENT;
-            } else if (line.trim().startsWith("* ") || line.trim().startsWith("- ") || line.trim().startsWith("+ ")) {
-                color = IdeColors.MUTED;
-            } else if (line.contains("`")) {
-                color = 0xFFCE9178;
-            }
-            rows.add(new ScrollView.Row(line, color, false));
+            rows.add(new ScrollView.Row(line, IdeColors.TEXT, false));
         }
         return rows;
     }
@@ -820,13 +818,17 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
             if (active != null && !active.equals(this.displayedFile)) {
                 this.displayedFile = active;
                 int dot = active.lastIndexOf('.');
-                this.editor.setLanguage(dot >= 0 ? active.substring(dot + 1) : "python");
+                String language = dot >= 0 ? active.substring(dot + 1).toLowerCase(Locale.ROOT) : "python";
+                this.editor.setLanguage(language);
                 syncGuard = true;
                 this.editor.setContent(store.fileContent(active));
                 syncGuard = false;
                 focus = FOCUS_EDITOR;
                 this.setFocused(this.editorWidget);
                 this.editorWidget.setFocused(true);
+                if ("md".equals(language) || "markdown".equals(language)) {
+                    showBottomTab(2);
+                }
                 if (pendingDefinitionFile != null && pendingDefinitionFile.equals(active)) {
                     this.editor.scrollToLine(this.pendingDefinitionLine);
                     this.pendingDefinitionFile = null;
