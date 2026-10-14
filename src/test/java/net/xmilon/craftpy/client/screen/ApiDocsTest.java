@@ -22,7 +22,7 @@ class ApiDocsTest {
 
     @Test
     void blockFieldsMatchTheDeclarationSurface() {
-        assertEquals(8, ApiDocs.fieldsFor("block").size());
+        assertEquals(23, ApiDocs.fieldsFor("block").size());
         for (ApiDocs.Field field : ApiDocs.fieldsFor("block")) {
             assertFalse(field.description().isBlank(), field.name() + " needs a description");
         }

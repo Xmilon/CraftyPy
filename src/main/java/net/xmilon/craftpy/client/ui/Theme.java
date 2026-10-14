@@ -1,6 +1,7 @@
 package net.xmilon.craftpy.client.ui;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -58,5 +59,143 @@ public final class Theme {
         t.dimensions.put("spacing", 4);
         t.dimensions.put("radius", 0);
         return t;
+    }
+
+    public static Theme light() {
+        Theme t = new Theme();
+        t.colors.put(BG, 0xFFFFFFFF);
+        t.colors.put(PANEL, 0xFFF5F5F5);
+        t.colors.put(PANEL_ALT, 0xFFEEEEEE);
+        t.colors.put(ACCENT, 0xFF1976D2);
+        t.colors.put(TEXT, 0xFF212121);
+        t.colors.put(MUTED, 0xFF757575);
+        t.colors.put(BORDER, 0xFFE0E0E0);
+        t.colors.put(SELECTED, 0xFFBBDEFB);
+        t.colors.put(ERROR, 0xFFD32F2F);
+        t.colors.put(SUCCESS, 0xFF388E3C);
+        t.colors.put(WARNING, 0xFFF57C00);
+
+        t.dimensions.put("padding", 4);
+        t.dimensions.put("spacing", 4);
+        t.dimensions.put("radius", 0);
+        return t;
+    }
+
+    public static Theme highContrast() {
+        Theme t = new Theme();
+        t.colors.put(BG, 0xFF000000);
+        t.colors.put(PANEL, 0xFF000000);
+        t.colors.put(PANEL_ALT, 0xFF1A1A1A);
+        t.colors.put(ACCENT, 0xFFFFFF00);
+        t.colors.put(TEXT, 0xFFFFFFFF);
+        t.colors.put(MUTED, 0xFFCCCCCC);
+        t.colors.put(BORDER, 0xFFFFFF00);
+        t.colors.put(SELECTED, 0xFFFFFF00);
+        t.colors.put(ERROR, 0xFFFF0000);
+        t.colors.put(SUCCESS, 0xFF00FF00);
+        t.colors.put(WARNING, 0xFFFFFF00);
+
+        t.dimensions.put("padding", 4);
+        t.dimensions.put("spacing", 4);
+        t.dimensions.put("radius", 0);
+        return t;
+    }
+
+    public static Theme solarizedDark() {
+        Theme t = new Theme();
+        t.colors.put(BG, 0xFF002B36);
+        t.colors.put(PANEL, 0xFF073642);
+        t.colors.put(PANEL_ALT, 0xFF002B36);
+        t.colors.put(ACCENT, 0xFF268BD2);
+        t.colors.put(TEXT, 0xFF839496);
+        t.colors.put(MUTED, 0xFF586E75);
+        t.colors.put(BORDER, 0xFF073642);
+        t.colors.put(SELECTED, 0xFF2AA198);
+        t.colors.put(ERROR, 0xFFDC322F);
+        t.colors.put(SUCCESS, 0xFF859900);
+        t.colors.put(WARNING, 0xFFCB4B16);
+
+        t.dimensions.put("padding", 4);
+        t.dimensions.put("spacing", 4);
+        t.dimensions.put("radius", 0);
+        return t;
+    }
+
+    public static Theme monokai() {
+        Theme t = new Theme();
+        t.colors.put(BG, 0xFF272822);
+        t.colors.put(PANEL, 0xFF2D2E2A);
+        t.colors.put(PANEL_ALT, 0xFF3A3C34);
+        t.colors.put(ACCENT, 0xFFFD971F);
+        t.colors.put(TEXT, 0xFFF8F8F2);
+        t.colors.put(MUTED, 0xFF75715E);
+        t.colors.put(BORDER, 0xFF49483E);
+        t.colors.put(SELECTED, 0xFF49483E);
+        t.colors.put(ERROR, 0xFFF92672);
+        t.colors.put(SUCCESS, 0xFFA6E22E);
+        t.colors.put(WARNING, 0xFFFD971F);
+
+        t.dimensions.put("padding", 4);
+        t.dimensions.put("spacing", 4);
+        t.dimensions.put("radius", 0);
+        return t;
+    }
+
+    public static Theme dracula() {
+        Theme t = new Theme();
+        t.colors.put(BG, 0xFF282A36);
+        t.colors.put(PANEL, 0xFF343746);
+        t.colors.put(PANEL_ALT, 0xFF44475A);
+        t.colors.put(ACCENT, 0xFFBD93F9);
+        t.colors.put(TEXT, 0xFFF8F8F2);
+        t.colors.put(MUTED, 0xFF6272A4);
+        t.colors.put(BORDER, 0xFF44475A);
+        t.colors.put(SELECTED, 0xFF44475A);
+        t.colors.put(ERROR, 0xFFFF5555);
+        t.colors.put(SUCCESS, 0xFF50FA7B);
+        t.colors.put(WARNING, 0xFFF1FA8C);
+
+        t.dimensions.put("padding", 4);
+        t.dimensions.put("spacing", 4);
+        t.dimensions.put("radius", 0);
+        return t;
+    }
+
+    public static Theme colorblindSafe() {
+        Theme t = new Theme();
+        t.colors.put(BG, 0xFF10141A);
+        t.colors.put(PANEL, 0xFF1B222C);
+        t.colors.put(PANEL_ALT, 0xFF232C38);
+        t.colors.put(ACCENT, 0xFF009E73);  // Blue-green
+        t.colors.put(TEXT, 0xFFD7E1EA);
+        t.colors.put(MUTED, 0xFF7D8B9A);
+        t.colors.put(BORDER, 0xFF2E3A48);
+        t.colors.put(SELECTED, 0xFF0072B2);  // Blue
+        t.colors.put(ERROR, 0xFFCC3311);    // Red
+        t.colors.put(SUCCESS, 0xFF009E73);  // Green
+        t.colors.put(WARNING, 0xFFE69F00);  // Orange
+
+        t.dimensions.put("padding", 4);
+        t.dimensions.put("spacing", 4);
+        t.dimensions.put("radius", 0);
+        return t;
+    }
+
+    /** Returns all built-in theme presets by name. */
+    public static Map<String, Theme> presets() {
+        Map<String, Theme> map = new LinkedHashMap<>();
+        map.put("dark", defaultDark());
+        map.put("light", light());
+        map.put("high_contrast", highContrast());
+        map.put("solarized_dark", solarizedDark());
+        map.put("monokai", monokai());
+        map.put("dracula", dracula());
+        map.put("colorblind_safe", colorblindSafe());
+        return map;
+    }
+
+    /** Gets a preset theme by name, falling back to default dark. */
+    public static Theme getPreset(String name) {
+        return presets().getOrDefault(name, defaultDark());
     }
 }

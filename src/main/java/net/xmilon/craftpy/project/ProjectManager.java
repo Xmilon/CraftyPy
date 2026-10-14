@@ -171,6 +171,7 @@ public final class ProjectManager {
                 ProjectMetadata metadata = new ProjectMetadata(id, rawName == null || rawName.isBlank() ? id : rawName.trim());
                 Json.write(dir.resolve("project.json"), metadata);
                 Json.writeString(dir.resolve("code").resolve("main.py"), templateMainPy(id));
+                Json.writeString(dir.resolve("README.md"), templateReadme(id, metadata.name));
                 return OpResult.ok(id, "Created project " + id);
             } catch (IOException e) {
                 CraftPy.LOGGER.error("Failed to create project {}", id, e);
@@ -253,6 +254,22 @@ public final class ProjectManager {
         }
     }
 
+    public void markRequiresRestart(String id, boolean flag) {
+        Project project = projects.get(id);
+        if (project != null) {
+            project.setRequiresRestart(flag);
+        }
+        try {
+            Path dir = projectsDir.resolve(id);
+            if (Files.isDirectory(dir)) {
+                ProjectMetadata meta = loadMetadata(id, dir);
+                meta.requiresRestart = flag;
+                Json.write(dir.resolve("project.json"), meta);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     /** Marks a project as loaded. The actual content build/apply happens in later
      * milestones via the load pipeline. This method never runs on the game
      * thread itself - callers must invoke it from a worker and apply state back
@@ -279,6 +296,7 @@ public final class ProjectManager {
             return OpResult.ok(id, "Marked " + id + " for unload at restart");
         }
         project.metadata(metadata);
+        project.setRequiresRestart(metadata.requiresRestart);
         project.setLoaded(loaded);
         project.setLastError(null);
         return OpResult.ok(id, (loaded ? "Loaded " : "Unloaded ") + id);
@@ -592,6 +610,25 @@ public final class ProjectManager {
                 + "\n"
                 + "def main(ctx):\n"
                 + "    ctx.log(\"Hello from " + id + "\")\n";
+    }
+
+    private static String templateReadme(String id, String name) {
+        return "# " + name + "\n"
+                + "\n"
+                + "> CraftPy module `" + id + "`\n"
+                + "\n"
+                + "Describe what this module adds here. This Markdown file is bundled into the\n"
+                + "built `.cpm` and shown as the extended description on the Modules page.\n"
+                + "\n"
+                + "## Features\n"
+                + "\n"
+                + "- ...\n"
+                + "\n"
+                + "## Usage\n"
+                + "\n"
+                + "```python\n"
+                + "from craftpy import *\n"
+                + "```\n";
     }
 
     public static void deleteRecursively(Path dir) throws IOException {

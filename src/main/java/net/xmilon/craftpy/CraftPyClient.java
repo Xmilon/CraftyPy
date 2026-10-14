@@ -1,5 +1,6 @@
 package net.xmilon.craftpy;
 
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -9,6 +10,7 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.xmilon.craftpy.client.assets.AssetIndex;
@@ -24,6 +26,13 @@ import org.lwjgl.glfw.GLFW;
 // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
 @EventBusSubscriber(modid = CraftPy.MODID, value = Dist.CLIENT)
 public class CraftPyClient {
+    public static final String KEY_CATEGORY = "key.categories.craftpy";
+    public static final KeyMapping OPEN_IDE_KEY = new KeyMapping(
+            "key.craftpy.open_ide",
+            GLFW.GLFW_KEY_I,
+            KEY_CATEGORY
+    );
+
     public CraftPyClient(ModContainer container) {
         // Allows NeoForge to create a config screen for this mod's configs.
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
@@ -41,6 +50,13 @@ public class CraftPyClient {
                 }
             });
         });
+        // Register key mapping
+        event.enqueueWork(() -> {
+            var opts = Minecraft.getInstance().options;
+            var mappings = new java.util.ArrayList<KeyMapping>(java.util.Arrays.asList(opts.keyMappings));
+            mappings.add(OPEN_IDE_KEY);
+            opts.keyMappings = mappings.toArray(new KeyMapping[0]);
+        });
     }
 
     @SubscribeEvent
@@ -53,5 +69,22 @@ public class CraftPyClient {
     static void onRegisterReloadListeners(RegisterClientReloadListenersEvent event) {
         // Keeps the asset catalogue in sync with resource (and dynamic project) reloads.
         event.registerReloadListener(AssetIndex.get());
+    }
+
+    @SubscribeEvent
+    static void onInput(InputEvent.Key event) {
+        if (OPEN_IDE_KEY.consumeClick()) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null && mc.player.hasPermissions(2)) { // Cheats/admin only
+                if (mc.screen == null || !(mc.screen instanceof ComputerScreen || mc.screen instanceof ProjectChooserScreen)) {
+                    mc.setScreen(new ProjectChooserScreen(
+                            mc.player.containerMenu instanceof net.xmilon.craftpy.menu.ComputerMenu
+                                    ? (net.xmilon.craftpy.menu.ComputerMenu) mc.player.containerMenu
+                                    : null,
+                            mc.player.getInventory(),
+                            net.minecraft.network.chat.Component.literal("CraftPy Projects")));
+                }
+            }
+        }
     }
 }

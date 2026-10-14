@@ -224,6 +224,67 @@ public final class ProjectRequestHandler {
                     }
                 }, CraftPyExecutors.io());
             }
+            case MODULES_LIST:
+                return CraftPyExecutors.supplyAsync(() -> new ResponsePayload(ProjectAction.MODULES_LIST, true, "",
+                        Json.COMPACT.toJson(net.xmilon.craftpy.project.ModuleLoader.list())), CraftPyExecutors.io());
+            case MODULE_README: {
+                final String requestedPath = request.data() == null ? "" : request.data();
+                return CraftPyExecutors.supplyAsync(() -> {
+                    com.google.gson.JsonObject obj = new com.google.gson.JsonObject();
+                    obj.addProperty("path", requestedPath);
+                    obj.addProperty("readme", net.xmilon.craftpy.project.ModuleLoader.readmeFor(requestedPath));
+                    return ResponsePayload.success(ProjectAction.MODULE_README, "", Json.COMPACT.toJson(obj));
+                }, CraftPyExecutors.io());
+            }
+            case MODULE_SET_ENABLED: {
+                ModuleToggle toggle = Json.COMPACT.fromJson(request.data(), ModuleToggle.class);
+                if (toggle == null || toggle.id == null || toggle.id.isBlank()) {
+                    return CompletableFuture.completedFuture(fail(action, "Malformed module toggle"));
+                }
+                final String moduleId = toggle.id;
+                final boolean enabled = toggle.enabled;
+                return CraftPyExecutors.runAsync(
+                        () -> net.xmilon.craftpy.project.ModuleLoader.setEnabled(moduleId, enabled),
+                        CraftPyExecutors.io())
+                        .thenApply(v -> ResponsePayload.success(action,
+                                (enabled ? "Enabled " : "Disabled ") + moduleId, ""));
+            }
+            case MODULE_SET_ALL: {
+                final boolean enabled = Boolean.parseBoolean(request.data());
+                return CraftPyExecutors.runAsync(
+                        () -> net.xmilon.craftpy.project.ModuleLoader.setAllEnabled(enabled),
+                        CraftPyExecutors.io())
+                        .thenApply(v -> ResponsePayload.success(action,
+                                (enabled ? "Enabled" : "Disabled") + " all modules", ""));
+            }
+            case MODULE_RELOAD: {
+                final String moduleId = request.data();
+                return CraftPyExecutors.supplyAsync(() -> {
+                    try {
+                        boolean ok = net.xmilon.craftpy.project.ModuleLoader.reload(moduleId);
+                        return ok ? ResponsePayload.success(action, "Reloaded module " + moduleId, "")
+                                : fail(action, "Module not found: " + moduleId);
+                    } catch (java.io.IOException e) {
+                        return fail(action, "Reload failed: " + e.getMessage());
+                    }
+                }, CraftPyExecutors.io());
+            }
+            case MODULE_DELETE: {
+                ModulePath modulePath = Json.COMPACT.fromJson(request.data(), ModulePath.class);
+                final String path = modulePath == null ? null : modulePath.path;
+                if (path == null || path.isBlank()) {
+                    return CompletableFuture.completedFuture(fail(action, "Malformed delete request"));
+                }
+                return CraftPyExecutors.supplyAsync(() -> {
+                    try {
+                        boolean ok = net.xmilon.craftpy.project.ModuleLoader.delete(java.nio.file.Path.of(path));
+                        return ok ? ResponsePayload.success(action, "Deleted " + path, "")
+                                : fail(action, "Module file not found: " + path);
+                    } catch (java.io.IOException e) {
+                        return fail(action, "Delete failed: " + e.getMessage());
+                    }
+                }, CraftPyExecutors.io());
+            }
             default:
                 return CompletableFuture.completedFuture(fail(action, "Unsupported action: " + action));
         }
@@ -271,6 +332,12 @@ public final class ProjectRequestHandler {
     }
 
     public record AssetUpload(String path, int chunk, int total, String data) {
+    }
+
+    public record ModuleToggle(String id, boolean enabled) {
+    }
+
+    public record ModulePath(String path) {
     }
 
     public record AssetDownload(String path, int size, String data) {

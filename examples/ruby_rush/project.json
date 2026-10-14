@@ -1,0 +1,10 @@
+{
+  "id": "ruby_rush",
+  "name": "Ruby Rush",
+  "version": "1.0.0",
+  "author": "CraftPy",
+  "description": "Complex mining minigame: ruby ore, events, storage, scheduler, loot, recipes, and particles.",
+  "mcVersion": "1.21.1",
+  "apiVersion": "1",
+  "requiresRestart": false
+}

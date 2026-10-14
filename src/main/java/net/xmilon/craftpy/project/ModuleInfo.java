@@ -1,0 +1,41 @@
+package net.xmilon.craftpy.project;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * A single .cpm file discovered anywhere under {@code pyforge/}. This is a
+ * plain data holder shared between the server (which scans the disk) and the
+ * client (which renders the Modules page), so it deliberately has no game or
+ * client types.
+ */
+public class ModuleInfo {
+    /** Declared module id (from module.json); falls back to the file name. */
+    public String id = "";
+    public String name = "";
+    public String version = "";
+    public String author = "";
+    /** One-line summary from module.json. */
+    public String description = "";
+    /** Full markdown README bundled in the .cpm, if any (extended description). */
+    public String readme = "";
+    /** Absolute path of the .cpm file on disk. */
+    public String path = "";
+    /** Folder (relative to pyforge/) the file lives in, e.g. "exports" or "imports/foo". */
+    public String source = "";
+    public long sizeBytes = 0L;
+    public long modified = 0L;
+    /** Whether the user has this module enabled. */
+    public boolean enabled = true;
+    /** Whether the module is currently loaded into the running game. */
+    public boolean loaded = false;
+    /** True when another file declares the same id and wins the load. */
+    public boolean duplicate = false;
+    /** True for the winning file when several share an id (the one that loads). */
+    public boolean primary = true;
+    /** True when disabling this module still needs a restart to fully unload. */
+    public boolean pendingRestart = false;
+    public List<String> dependencies = new ArrayList<>();
+    /** Parse/IO error, when the file could not be read. */
+    public String error;
+}

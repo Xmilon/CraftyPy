@@ -1,8 +1,7 @@
 package net.xmilon.craftpy.client.screen;
 
-import java.util.List;
-
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -13,6 +12,9 @@ import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.menu.ComputerMenu;
 import net.xmilon.craftpy.network.ProjectAction;
 import net.xmilon.craftpy.project.ProjectSummary;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Standalone project browser, shown as its own full window when the computer is
@@ -52,6 +54,13 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
     private boolean refreshing;
     private boolean openAfterCreate;
 
+    // Context menu for project list
+    private ContextPopup contextPopup;
+    private final List<MenuItem> contextItems = new ArrayList<>();
+    private String contextProjectId;
+    private int contextX;
+    private int contextY;
+
     public ProjectChooserScreen(ComputerMenu menu, Inventory inventory, Component title) {
         super(title);
         this.menu = menu;
@@ -78,6 +87,8 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
         store.setListener(storeListener);
         store.refresh();
         checkPendingIdeProject();
+
+        initContextPopup();
 
         computeLayout();
 
@@ -115,6 +126,15 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
                 .bounds(bx1, by, bw, 16).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(bx2, by, bw, 16).build());
+        by += 18;
+        addRenderableWidget(Button.builder(Component.literal("Modules..."), b -> openModules())
+                .bounds(bx1, by, rightW - 16, 16).build());
+    }
+
+    private void openModules() {
+        if (this.minecraft != null) {
+            this.minecraft.setScreen(new ModuleManagerScreen(this.menu, this.inventory));
+        }
     }
 
     private void computeLayout() {
@@ -366,6 +386,10 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
             List<ProjectSummary> projects = ClientProjectStore.getInstance().projects();
             if (index >= 0 && index < projects.size()) {
                 ProjectSummary project = projects.get(index);
+                if (button == 1) { // Right-click
+                    openContextMenu((int) mouseX, (int) mouseY, project.id);
+                    return true;
+                }
                 long now = System.currentTimeMillis();
                 if (project.id.equals(lastClickId) && now - lastClickTime < 400) {
                     ClientProjectStore.getInstance().select(project.id);
@@ -378,6 +402,10 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
                 ClientProjectStore.getInstance().select(project.id);
                 return true;
             }
+        }
+        // Click outside context menu closes it
+        if (this.contextPopup != null && this.contextPopup.visible) {
+            this.contextPopup.visible = false;
         }
         return false;
     }
@@ -397,6 +425,10 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (this.contextPopup != null && this.contextPopup.visible && keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
+            this.contextPopup.visible = false;
+            return true;
+        }
         if ((keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER)
                 && this.nameBox != null && this.nameBox.isFocused()) {
             if (selected() != null) {
@@ -422,5 +454,127 @@ public class ProjectChooserScreen extends Screen implements MenuAccess<ComputerM
     public void removed() {
         ClientProjectStore.getInstance().clearListener(storeListener);
         super.removed();
+    }
+
+    // ------------------------------------------------------------------
+    // Context menu for project list
+    // ------------------------------------------------------------------
+
+    private record MenuItem(String label, Runnable action) {
+    }
+
+    private final class ContextPopup extends AbstractWidget {
+        private int menuX;
+        private int menuY;
+        private int menuW;
+        private int menuH;
+        private List<MenuItem> items = List.of();
+
+        private ContextPopup() {
+            super(0, 0, 1, 1, Component.literal("Context menu"));
+            this.visible = false;
+        }
+
+        private void setItems(List<MenuItem> items, int x, int y) {
+            this.items = items;
+            int w = 140;
+            for (MenuItem item : items) {
+                w = Math.max(w, ProjectChooserScreen.this.font.width(item.label()) + 26);
+            }
+            int h = 6 + items.size() * 20;
+            this.menuW = w;
+            this.menuH = h;
+            this.menuX = Math.max(2, Math.min(x, this.width - w - 2));
+            this.menuY = Math.max(2, Math.min(y, this.height - h - 2));
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            if (!this.visible) {
+                return;
+            }
+            int borderColor = 0xFF2E3A48;
+            int panelColor = 0xFF1B222C;
+            int selectedColor = 0xFF2C5B7A;
+            int accentColor = 0xFF4FC3F7;
+            int textColor = 0xFFD7E1EA;
+
+            graphics.fill(this.menuX - 1, this.menuY - 1, this.menuX + this.menuW + 1, this.menuY + this.menuH + 1, borderColor);
+            graphics.fill(this.menuX, this.menuY, this.menuX + this.menuW, this.menuY + this.menuH, panelColor);
+            for (int i = 0; i < this.items.size(); i++) {
+                int iy = this.menuY + 3 + i * 20;
+                boolean hovered = mouseX >= this.menuX && mouseX <= this.menuX + this.menuW && mouseY >= iy
+                        && mouseY <= iy + 20;
+                if (hovered) {
+                    graphics.fill(this.menuX + 1, iy, this.menuX + this.menuW - 1, iy + 20, selectedColor);
+                }
+                graphics.drawString(ProjectChooserScreen.this.font, this.items.get(i).label(), this.menuX + 8, iy + 3,
+                        hovered ? accentColor : textColor, false);
+            }
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!this.visible) {
+                return false;
+            }
+            int index = -1;
+            if (mouseX >= this.menuX && mouseX <= this.menuX + this.menuW) {
+                for (int i = 0; i < this.items.size(); i++) {
+                    int iy = this.menuY + 3 + i * 20;
+                    if (mouseY >= iy && mouseY <= iy + 20) {
+                        index = i;
+                        break;
+                    }
+                }
+            }
+            runContextItem(index);
+            return true;
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+            return this.visible;
+        }
+
+        @Override
+        protected void updateWidgetNarration(net.minecraft.client.gui.narration.NarrationElementOutput narrationOutput) {
+            // No narration for context menu
+        }
+    }
+
+    private void openContextMenu(int x, int y, String projectId) {
+        this.contextProjectId = projectId;
+        this.contextX = x;
+        this.contextY = y;
+
+        List<MenuItem> items = new ArrayList<>();
+        items.add(new MenuItem("Open", this::openProject));
+        items.add(new MenuItem("Rename...", this::renameProject));
+        items.add(new MenuItem("Duplicate", this::duplicateProject));
+        items.add(new MenuItem("Reload", this::loadProject));
+        items.add(new MenuItem("Unload", this::unloadProject));
+        items.add(new MenuItem("Import Asset...", this::importAsset));
+        items.add(new MenuItem("Delete...", () -> deleteProject()));
+        this.contextItems.clear();
+        this.contextItems.addAll(items);
+
+        this.contextPopup.setItems(items, x, y);
+        this.contextPopup.visible = true;
+    }
+
+    private void runContextItem(int index) {
+        if (index < 0 || index >= this.contextItems.size()) {
+            this.contextPopup.visible = false;
+            return;
+        }
+        MenuItem chosen = this.contextItems.get(index);
+        this.contextPopup.visible = false;
+        chosen.action().run();
+    }
+
+    private void initContextPopup() {
+        this.contextPopup = new ContextPopup();
+        this.addRenderableWidget(this.contextPopup);
     }
 }

@@ -150,6 +150,18 @@ public final class ProjectController {
             }
 
             if (!failed) {
+                if (declarations.requiresRestart()) {
+                    manager.markRequiresRestart(projectId, true);
+                    net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server,
+                            "[" + projectId + "] THIS PROJECT DECLARES A FULL GAME RESTART IS REQUIRED.");
+                    net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server,
+                            "[" + projectId + "] Changes that affect registries cannot be hot-reloaded; run /craftpy game restart when ready.");
+                }
+                try {
+                    net.xmilon.craftpy.command.ProjectCommandRegistry.register(projectId, declarations);
+                } catch (Exception e) {
+                    CraftPy.LOGGER.warn("Failed to register project commands for {}", projectId, e);
+                }
                 manager.markLoaded(projectId, true);
                 manager.setLastError(projectId, null);
                 CraftPy.LOGGER.info("Loaded project {} ({} block(s), {} item(s), {} datapack entr{}), scripts: {}",
@@ -173,6 +185,11 @@ public final class ProjectController {
         ProjectManager manager = ProjectManager.get();
         if (manager == null) {
             return;
+        }
+        try {
+            net.xmilon.craftpy.command.ProjectCommandRegistry.unregister(projectId);
+        } catch (Exception e) {
+            CraftPy.LOGGER.warn("Failed to unregister project commands for {}", projectId, e);
         }
         manager.markLoaded(projectId, false);
         SlotRegistry.releaseProject(projectId);

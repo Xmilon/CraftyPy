@@ -183,8 +183,8 @@ def _try_host(method, params=None, timeout=10.0, default=None):
 # ---------------------------------------------------------------------------
 
 _DECL_KEYS = ("blocks", "items", "entities", "effects", "handlers", "recipes",
-              "loot_tables", "tags", "lang", "commands", "advancements",
-              "sounds", "particles", "enchantments", "raw")
+               "loot_tables", "tags", "lang", "commands", "advancements",
+               "sounds", "particles", "enchantments", "raw", "meta")
 _DECLS = {k: [] for k in _DECL_KEYS}
 _DECLS["lang"] = {}
 _HANDLERS = {}
@@ -826,6 +826,21 @@ cp = _Cp()
 _REPL_SESSIONS = {}
 
 
+def core():
+    """Marks this module as 'core' - it may require a full game restart."""
+    _DECLS.setdefault("meta", {})
+    _DECLS["meta"].setdefault("core", True)
+    _DECLS["meta"]["requiresRestart"] = True
+
+
+def requires_restart(flag=True):
+    """Explicitly declare that this module requires a game restart when loaded/unloaded."""
+    _DECLS.setdefault("meta", {})
+    _DECLS["meta"]["requiresRestart"] = bool(flag)
+    if bool(flag):
+        _DECLS["meta"].setdefault("core", True)
+
+
 def _api_names():
     names = {
         "block": block, "item": item, "entity": entity, "effect": effect,
@@ -848,7 +863,7 @@ def _api_names():
         "Checkbox": Checkbox, "Slider": Slider, "Dropdown": Dropdown, "ListView": ListView,
         "ProgressBar": ProgressBar, "Image": Image, "ItemIcon": ItemIcon,
         "VBox": VBox, "HBox": HBox, "Grid": Grid, "TabView": TabView, "ScrollView": ScrollView,
-        "has": has,
+        "has": has, "core": core, "requires_restart": requires_restart,
     }
     return names
 

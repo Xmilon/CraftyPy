@@ -25,5 +25,11 @@ public enum ProjectAction {
     READ_ASSET,
     INTERRUPT,
     OPEN_IDE,
-    BUILD
+    BUILD,
+    MODULES_LIST,
+    MODULE_README,
+    MODULE_SET_ENABLED,
+    MODULE_SET_ALL,
+    MODULE_RELOAD,
+    MODULE_DELETE
 }

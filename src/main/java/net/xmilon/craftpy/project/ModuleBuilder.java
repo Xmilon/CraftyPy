@@ -44,6 +44,8 @@ public final class ModuleBuilder {
                 ModuleMetadata modMeta = new ModuleMetadata();
                 modMeta.id = meta.id;
                 modMeta.name = meta.name;
+                modMeta.author = meta.author;
+                modMeta.description = meta.description;
                 modMeta.version = overrideVersion == null
                         ? (meta.version == null || meta.version.isBlank() ? "1.0.0" : meta.version)
                         : overrideVersion;
@@ -59,6 +61,14 @@ public final class ModuleBuilder {
                 if (Files.isDirectory(dir)) {
                     zipDirectory(dir, subDir, zos);
                 }
+            }
+
+            // 3. README.md - the human-readable extended description.
+            Path readme = projectDir.resolve("README.md");
+            if (Files.isRegularFile(readme)) {
+                zos.putNextEntry(new ZipEntry("README.md"));
+                zos.write(Files.readAllBytes(readme));
+                zos.closeEntry();
             }
         }
         CraftPy.LOGGER.info("Exported module: {}", outputFile);
@@ -82,6 +92,8 @@ public final class ModuleBuilder {
     public static class ModuleMetadata {
         public String id;
         public String name;
+        public String author;
+        public String description;
         public String version;
         public String[] dependencies = new String[0];
     }

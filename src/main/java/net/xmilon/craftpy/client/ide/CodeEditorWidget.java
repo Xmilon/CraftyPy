@@ -71,7 +71,13 @@ public class CodeEditorWidget extends AbstractWidget {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        return this.visible && this.editor.isInside(mouseX, mouseY) && this.editor.mouseScrolled(scrollX, scrollY);
+        if (!this.visible) {
+            return false;
+        }
+        if (net.minecraft.client.gui.screens.Screen.hasControlDown() && this.editor.isInside(mouseX, mouseY)) {
+            return this.editor.zoomBy(scrollY);
+        }
+        return this.editor.isInside(mouseX, mouseY) && this.editor.mouseScrolled(scrollX, scrollY);
     }
 
     @Override

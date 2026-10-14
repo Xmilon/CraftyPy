@@ -76,7 +76,22 @@ public final class ApiDocs {
                 new Field("light", "Light emitted, 0-15 (15 = glowstone)."),
                 new Field("tool", "Preferred tool: pickaxe, axe, shovel, hoe or sword."),
                 new Field("sound", "Step/placeholder sound set: stone, wood, grass, metal ..."),
-                new Field("needs_tool", "True = drops require the right tool (like stone).")));
+                new Field("needs_tool", "True = drops require the right tool (like stone)."),
+                new Field("harvest_level", "Harvest level required (0=hand, 1=wood, 2=stone, 3=iron, 4=diamond)."),
+                new Field("friction", "Slipperiness factor (0.6 = normal, 0.98 = ice)."),
+                new Field("speed_factor", "Movement speed multiplier on this block."),
+                new Field("jump_factor", "Jump height multiplier on this block."),
+                new Field("dynamic_shape", "True if block shape changes (e.g. crops, doors)."),
+                new Field("collision_shape", "Custom collision shape: \"block\", \"empty\", or custom."),
+                new Field("random_ticks", "True if block receives random ticks (crops, grass)."),
+                new Field("waterlogged", "True if block can be waterlogged."),
+                new Field("instabreak", "True = breaks instantly without tool (like grass)."),
+                new Field("is_redstone_conductor", "True if block conducts redstone."),
+                new Field("is_solid_render", "True if block renders as solid cube."),
+                new Field("occlusion", "True if block occludes light/sky."),
+                new Field("suffocates", "True if entities suffocate in this block."),
+                new Field("block_vision", "True if block blocks line of sight."),
+                new Field("drops", "Loot table id for custom drops, or loot_self().")));
 
         fields("item", List.of(
                 new Field("name", "Display name shown in-game."),
@@ -85,7 +100,19 @@ public final class ApiDocs {
                 new Field("glow", "True = enchantment glint overlay."),
                 new Field("food", "Dict {\"hunger\": 6, \"saturation\": 0.6} to make it edible."),
                 new Field("burn_time", "Furnace fuel value in ticks; 0 = not fuel."),
-                new Field("use_effect", "On right-click: \"effect[:amplifier:seconds]\", e.g. \"speed:2:10\".")));
+                new Field("use_effect", "On right-click: \"effect[:amplifier:seconds]\", e.g. \"speed:2:10\"."),
+                new Field("durability", "Max durability (damage) for tools/armor."),
+                new Field("max_damage", "Alias for durability."),
+                new Field("repair_ingredient", "Item id or tag for repair material (e.g. \"minecraft:iron_ingot\")."),
+                new Field("enchantability", "Enchantment power (higher = better enchants)."),
+                new Field("fire_resistant", "True = item survives fire/lava."),
+                new Field("rarity", "Rarity tier: common, uncommon, rare, epic."),
+                new Field("attribute_modifiers", "List of attribute modifiers for armor/tools."),
+                new Field("cooldown", "Use cooldown in ticks (e.g. ender_pearl = 20)."),
+                new Field("damage", "Attack damage for weapons."),
+                new Field("attack_speed", "Attack speed multiplier (4.0 = default sword)."),
+                new Field("armor_knockback_resistance", "Knockback resistance for armor."),
+                new Field("armor_toughness", "Armor toughness for armor.")));
 
         fields("entity", List.of(
                 new Field("name", "Display name shown in-game."),

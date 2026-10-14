@@ -30,12 +30,20 @@ public final class Declarations {
     private final List<CommandDef> commands = new ArrayList<>();
     private final List<DatapackEntry> datapack = new ArrayList<>();
     private final List<String> log = new ArrayList<>();
+    private final boolean requiresRestart;
     private final String error;
     private final int errorLine;
 
     private Declarations(String error, int errorLine) {
         this.error = error;
         this.errorLine = errorLine;
+        this.requiresRestart = false;
+    }
+
+    private Declarations(String error, int errorLine, boolean requiresRestart) {
+        this.error = error;
+        this.errorLine = errorLine;
+        this.requiresRestart = requiresRestart;
     }
 
     public static Declarations parse(JsonObject result, String fileName) {
@@ -53,8 +61,18 @@ public final class Declarations {
             String message = rawDeclarations == null ? "no declarations returned" : "bad declarations payload";
             return new Declarations(message, -1);
         }
-        Declarations declarations = new Declarations(null, -1);
         JsonObject raw = rawDeclarations.getAsJsonObject();
+        boolean requiresRestart = false;
+        if (raw.has("meta") && raw.get("meta").isJsonObject()) {
+            JsonObject meta = raw.getAsJsonObject("meta");
+            if (meta.has("requiresRestart") && meta.get("requiresRestart").isJsonPrimitive()) {
+                requiresRestart = meta.get("requiresRestart").getAsBoolean();
+            }
+            if (!requiresRestart && meta.has("core") && meta.get("core").isJsonPrimitive()) {
+                requiresRestart = meta.get("core").getAsBoolean();
+            }
+        }
+        Declarations declarations = new Declarations(null, -1, requiresRestart);
 
         addContents(declarations.contents, raw.getAsJsonArray("blocks"), "block");
         addContents(declarations.contents, raw.getAsJsonArray("items"), "item");
@@ -62,10 +80,21 @@ public final class Declarations {
         addContents(declarations.contents, raw.getAsJsonArray("effects"), "effect");
 
         JsonArray handlers = raw.getAsJsonArray("handlers");
-        for (JsonElement element : handlers) {
-            JsonObject entry = element.getAsJsonObject();
-            Integer every = entry.get("every") == null ? null : entry.get("every").getAsInt();
-            declarations.handlers.add(new Handler(entry.get("event").getAsString(), every, entry));
+        if (handlers != null) {
+            for (JsonElement element : handlers) {
+                JsonObject entry = element.getAsJsonObject();
+                Integer every = entry.get("every") == null ? null : entry.get("every").getAsInt();
+                declarations.handlers.add(new Handler(entry.get("event").getAsString(), every, entry));
+            }
+        }
+
+        JsonArray commands = raw.getAsJsonArray("commands");
+        if (commands != null) {
+            for (JsonElement element : commands) {
+                JsonObject entry = element.getAsJsonObject();
+                String name = entry.get("name") == null ? "" : entry.get("name").getAsString();
+                declarations.commands.add(new CommandDef(name, entry));
+            }
         }
 
         addDatapack(declarations.datapack, raw.getAsJsonArray("recipes"), "recipe");
@@ -115,6 +144,10 @@ public final class Declarations {
         return handlers;
     }
 
+    public List<CommandDef> commands() {
+        return commands;
+    }
+
     public List<DatapackEntry> datapack() {
         return datapack;
     }
@@ -125,6 +158,10 @@ public final class Declarations {
 
     public String error() {
         return error;
+    }
+
+    public boolean requiresRestart() {
+        return requiresRestart;
     }
 
     public int errorLine() {

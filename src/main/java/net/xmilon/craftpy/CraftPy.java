@@ -45,6 +45,7 @@ public class CraftPy {
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.command.CommandGuard.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.command.CraftPyPermissions.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.EventBridge.class);
+        NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.RestartManager.class);
 
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
         

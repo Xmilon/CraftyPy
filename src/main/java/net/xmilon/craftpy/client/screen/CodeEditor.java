@@ -15,6 +15,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.resources.ResourceLocation;
+import net.xmilon.craftpy.client.ClientSettings;
 import net.xmilon.craftpy.assets.AssetKind;
 import net.xmilon.craftpy.assets.AssetReference;
 import net.xmilon.craftpy.assets.AssetReferences;
@@ -54,6 +58,16 @@ public class CodeEditor {
     private static final int COLOR_MD_LINK = 0xFF9CDCFE;
     private static final int COLOR_MD_CODE = 0xFFCE9178;
 
+    /**
+     * JetBrains Mono (IntelliJ's editor font), bundled under
+     * assets/craftpy/font/jetbrains_mono.{ttf,json}. Every editor string is
+     * measured and drawn through {@link #EDITOR_STYLE} so both the glyphs and
+     * the metrics use the same font.
+     */
+    private static final ResourceLocation EDITOR_FONT = ResourceLocation.fromNamespaceAndPath("craftpy", "jetbrains_mono");
+    private static final Style EDITOR_STYLE = Style.EMPTY.withFont(EDITOR_FONT);
+    private static final int EDITOR_LINE_HEIGHT = 11;
+
     private static final Set<String> KEYWORDS = Set.of("False", "None", "True", "and", "as", "assert", "async",
             "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from",
             "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try",
@@ -82,6 +96,17 @@ public class CodeEditor {
     private int y;
     private int width;
     private int height;
+
+    /** Font zoom factor (Ctrl + mouse wheel). 1.0 = native size. */
+    private float zoom = 1.0f;
+
+    /** Smart-fill ghost: the class body preview shown after a completed decorator. */
+    private String[] smartFillLines;
+    private int smartFillStartLine;
+    private int smartFillStartCol;
+    public static final float MIN_ZOOM = 0.6f;
+    public static final float MAX_ZOOM = 2.4f;
+    private static final float ZOOM_STEP = 0.1f;
 
     private final List<String> lines = new ArrayList<>();
     private boolean focused;
@@ -210,7 +235,7 @@ public class CodeEditor {
 
     public int visibleLineCount() {
         int lineHeight = Math.max(1, lineHeight());
-        return Math.max(1, (int) (height / lineHeight));
+        return Math.max(1, (int) (viewHeight() / lineHeight));
     }
     private final List<int[]> assetMarkers = new ArrayList<>();
 
@@ -379,6 +404,49 @@ public class CodeEditor {
         this.height = height;
     }
 
+    public float zoom() {
+        return zoom;
+    }
+
+    public void setZoom(float value) {
+        float clamped = net.minecraft.util.Mth.clamp(value, MIN_ZOOM, MAX_ZOOM);
+        if (clamped != zoom) {
+            zoom = clamped;
+            clampCursor();
+        }
+    }
+
+    public void resetZoom() {
+        setZoom(1.0f);
+    }
+
+    /** Adjusts the zoom by {@code steps} wheel notches; returns true when it changed. */
+    public boolean zoomBy(double steps) {
+        float before = zoom;
+        setZoom(zoom + (float) steps * ZOOM_STEP);
+        return zoom != before;
+    }
+
+    /** Editor-space viewport height (screen height shrunk by the zoom factor). */
+    private int viewHeight() {
+        return Math.max(1, (int) (height / zoom));
+    }
+
+    /** Editor-space viewport width (screen width shrunk by the zoom factor). */
+    private int viewWidth() {
+        return Math.max(1, (int) (width / zoom));
+    }
+
+    /** Converts a screen-space X into editor-space (undoes the render zoom). */
+    private double toEditorX(double screenX) {
+        return x + (screenX - x) / zoom;
+    }
+
+    /** Converts a screen-space Y into editor-space (undoes the render zoom). */
+    private double toEditorY(double screenY) {
+        return y + (screenY - y) / zoom;
+    }
+
     public void setFocused(boolean focused) {
         this.focused = focused;
         if (!focused) {
@@ -529,6 +597,7 @@ public class CodeEditor {
     }
 
     private void deleteBack() {
+        clearSmartFill();
         if (hasSelection()) {
             deleteSelection();
             return;
@@ -562,6 +631,7 @@ public class CodeEditor {
     }
 
     private void deleteForward() {
+        clearSmartFill();
         if (hasSelection()) {
             deleteSelection();
             return;
@@ -577,6 +647,7 @@ public class CodeEditor {
     }
 
     private void deleteSelection() {
+        clearSmartFill();
         int[] start = selectionStart();
         int[] end = selectionEnd();
         if (start[0] == end[0]) {
@@ -607,6 +678,7 @@ public class CodeEditor {
             String text = getSelectedText();
             Minecraft.getInstance().keyboardHandler.setClipboard(text);
             beginGroup();
+            clearSmartFill();
             deleteSelection();
             endGroup();
             notifyChanged();
@@ -614,6 +686,7 @@ public class CodeEditor {
     }
 
     public void paste() {
+        clearSmartFill();
         String clip = Minecraft.getInstance().keyboardHandler.getClipboard();
         if (clip == null || clip.isEmpty()) {
             return;
@@ -641,6 +714,7 @@ public class CodeEditor {
 
     /** Ctrl+D: duplicates the current line (or the text selected on one line) below. */
     private void duplicateLine() {
+        clearSmartFill();
         beginGroup();
         if (hasSelection() && selectionStart()[0] == selectionEnd()[0]) {
             int[] start = selectionStart();
@@ -663,6 +737,7 @@ public class CodeEditor {
 
     /** Ctrl+/: toggles "# " comments on the cursor line or every selected line. */
     private void toggleComment() {
+        clearSmartFill();
         int start = Math.min(anchorLine, cursorLine);
         int end = Math.max(anchorLine, cursorLine);
         boolean uncomment = true;
@@ -725,6 +800,7 @@ public class CodeEditor {
     }
 
     private void indentSelection(boolean unindent) {
+        clearSmartFill();
         int start = Math.min(anchorLine, cursorLine);
         int end = Math.max(anchorLine, cursorLine);
         if (unindent) {
@@ -760,7 +836,7 @@ public class CodeEditor {
         anchorLine = Math.max(0, Math.min(anchorLine, lines.size() - 1));
         cursorCol = Math.max(0, Math.min(cursorCol, lines.get(cursorLine).length()));
         anchorCol = Math.max(0, Math.min(anchorCol, lines.get(anchorLine).length()));
-        int visible = Math.max(1, (int) (height / lineHeight()));
+        int visible = Math.max(1, (int) (viewHeight() / lineHeight()));
         if (cursorLine < scrollLine) {
             scrollLine = cursorLine;
         }
@@ -780,6 +856,7 @@ public class CodeEditor {
     private void moveCursor(int line, int col, boolean extend) {
         int clampedLine = Math.max(0, Math.min(line, lines.size() - 1));
         int clampedCol = Math.max(0, Math.min(col, lines.get(clampedLine).length()));
+        boolean lineChanged = clampedLine != cursorLine;
         cursorLine = clampedLine;
         cursorCol = clampedCol;
         if (!extend) {
@@ -788,6 +865,9 @@ public class CodeEditor {
         // Moving the caret away from the typed word dismisses the popup.
         closeSuggestions();
         clampCursor();
+        if (lineChanged && !extend) {
+            updateSmartFill();
+        }
     }
 
     private void setAnchorToCursor() {
@@ -822,6 +902,8 @@ public class CodeEditor {
     // ------------------------------------------------------------------
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        mouseX = toEditorX(mouseX);
+        mouseY = toEditorY(mouseY);
         // Gutter asset markers take priority over text placement.
         for (int[] marker : assetMarkers) {
             if (mouseX >= marker[1] && mouseX <= marker[1] + marker[3]
@@ -856,6 +938,8 @@ public class CodeEditor {
         if (clickButton != 0) {
             return;
         }
+        mouseX = toEditorX(mouseX);
+        mouseY = toEditorY(mouseY);
         int[] pos = posAt(mouseX, mouseY);
         int targetLine = Math.max(0, Math.min(pos[0], lines.size() - 1));
         int targetCol = Math.max(0, Math.min(pos[1], lines.get(targetLine).length()));
@@ -877,18 +961,18 @@ public class CodeEditor {
         if (!focused || result == 0) {
             return false;
         }
-        int maxScroll = Math.max(0, lines.size() - Math.max(1, height / lineHeight()));
+        int maxScroll = Math.max(0, lines.size() - Math.max(1, viewHeight() / lineHeight()));
         scrollLine = Math.min(maxScroll, Math.max(0, scrollLine - (int) Math.signum(result) * 3));
         return true;
     }
 
     /** True when the point falls inside the visible editor region (source of truth for hit-testing). */
     public boolean isInside(double mouseX, double mouseY) {
-        return contains(mouseX, mouseY);
+        return contains(toEditorX(mouseX), toEditorY(mouseY));
     }
 
     private boolean contains(double mouseX, double mouseY) {
-        return mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
+        return mouseX >= x && mouseX <= x + viewWidth() && mouseY >= y && mouseY <= y + viewHeight();
     }
 
     private int[] posAt(double mouseX, double mouseY) {
@@ -900,8 +984,8 @@ public class CodeEditor {
         String text = lineAt(line);
         int col = 0;
         for (int i = 0; i <= text.length(); i++) {
-            int w = font.width(text.substring(0, i));
-            if (localX < w + font.width(" ") / 2.0) {
+            int w = textWidth(text.substring(0, i));
+            if (localX < w + textWidth(" ") / 2.0) {
                 col = i;
                 break;
             }
@@ -981,6 +1065,18 @@ public class CodeEditor {
                     toggleComment();
                     return true;
                 }
+                case GLFW.GLFW_KEY_EQUAL, GLFW.GLFW_KEY_KP_ADD -> {
+                    zoomBy(1);
+                    return true;
+                }
+                case GLFW.GLFW_KEY_MINUS, GLFW.GLFW_KEY_KP_SUBTRACT -> {
+                    zoomBy(-1);
+                    return true;
+                }
+                case GLFW.GLFW_KEY_0, GLFW.GLFW_KEY_KP_0 -> {
+                    resetZoom();
+                    return true;
+                }
                 default -> {
                 }
             }
@@ -1010,9 +1106,9 @@ public class CodeEditor {
             case GLFW.GLFW_KEY_HOME -> moveCursor(ctrl ? 0 : cursorLine, 0, shift);
             case GLFW.GLFW_KEY_END -> moveCursor(ctrl ? lines.size() - 1 : cursorLine,
                     lines.get(cursorLine).length(), shift);
-            case GLFW.GLFW_KEY_PAGE_UP -> moveCursor(Math.max(0, cursorLine - (int) (height / lineHeight())), cursorCol,
+            case GLFW.GLFW_KEY_PAGE_UP -> moveCursor(Math.max(0, cursorLine - (int) (viewHeight() / lineHeight())), cursorCol,
                     shift);
-            case GLFW.GLFW_KEY_PAGE_DOWN -> moveCursor(Math.min(lines.size() - 1, cursorLine + (int) (height / lineHeight())),
+            case GLFW.GLFW_KEY_PAGE_DOWN -> moveCursor(Math.min(lines.size() - 1, cursorLine + (int) (viewHeight() / lineHeight())),
                     cursorCol, shift);
             case GLFW.GLFW_KEY_BACKSPACE -> {
                 beginGroup();
@@ -1035,12 +1131,17 @@ public class CodeEditor {
                 clampCursor();
                 endGroup();
                 notifyChanged();
+                updateSmartFill();
                 return true;
             }
             case GLFW.GLFW_KEY_TAB -> {
                 beginGroup();
-                if (hasSelection()) {
+                if (smartFillLines != null) {
+                    acceptSmartFill();
+                } else if (hasSelection()) {
                     indentSelection(shift);
+                } else if (isSuggesting()) {
+                    acceptSuggestion();
                 } else {
                     insertWithoutSnapshot("    ");
                     clampCursor();
@@ -1068,6 +1169,7 @@ public class CodeEditor {
         if (codePoint == 0 || Character.isISOControl(codePoint)) {
             return false;
         }
+        clearSmartFill();
         beginGroup();
         if (hasSelection()) {
             deleteSelection();
@@ -1122,6 +1224,10 @@ public class CodeEditor {
      * the popup instead of leaving stale entries on screen.
      */
     private void maybeSuggest() {
+        if (!ClientSettings.getBoolean(ClientSettings.AUTO_COMPLETION_ENABLED, true)) {
+            closeSuggestions();
+            return;
+        }
         String word = currentWord();
         if (word.length() < 2 || !focused) {
             closeSuggestions();
@@ -1147,6 +1253,9 @@ public class CodeEditor {
     }
 
     private void openSuggestions() {
+        if (!ClientSettings.getBoolean(ClientSettings.AUTO_COMPLETION_ENABLED, true)) {
+            return;
+        }
         String word = currentWord();
         List<Suggestion> list = suggestFor(word);
         if (list.isEmpty()) {
@@ -1188,7 +1297,11 @@ public class CodeEditor {
                 || word.equals("advancement") || word.equals("sound") || word.equals("particle")
                 || word.equals("loot_table") || word.equals("loot_entry") || word.equals("tag")
                 || word.equals("raw_json") || word.equals("potion") || word.equals("enchantment")
-                || word.equals("command") || word.equals("window") || word.equals("lang");
+                || word.equals("command") || word.equals("window") || word.equals("lang")
+                || word.equals("block") || word.equals("item") || word.equals("entity") || word.equals("effect")
+                || word.equals("recipe_shaped") || word.equals("recipe_shapeless") || word.equals("recipe_smelting")
+                || word.equals("recipe_blasting") || word.equals("recipe_smoking") || word.equals("recipe_campfire")
+                || word.equals("recipe_stonecutting") || word.equals("recipe_smithing");
     }
 
     /**
@@ -1365,6 +1478,123 @@ public class CodeEditor {
         return null;
     }
 
+    /**
+     * Checks if the given line ends with a complete @decorator(...) call and returns
+     * the decorator kind ("block", "item", "entity", "effect") if so.
+     */
+    private String completedDecoratorOnLine(String line) {
+        Matcher matcher = DECORATOR.matcher(line);
+        String kind = null;
+        int lastEnd = -1;
+        while (matcher.find()) {
+            kind = matcher.group(1);
+            lastEnd = matcher.end();
+        }
+        if (kind == null) {
+            return null;
+        }
+        // Check if parentheses are balanced from the decorator to end of line
+        String after = line.substring(lastEnd);
+        if (parenBalance(after) == 0) {
+            return kind;
+        }
+        return null;
+    }
+
+    /**
+     * Returns the class-body template lines for a completed decorator kind,
+     * or null if not a known smart-fill target.
+     */
+    private String[] smartFillTemplate(String kind) {
+        return switch (kind) {
+            case "block" -> BLOCK_SNIPPET.split("\n", -1);
+            case "item" -> ITEM_SNIPPET.split("\n", -1);
+            case "entity" -> new String[] {
+                "@entity(\"my_entity\", name=\"My Entity\", texture=\"minecraft:textures/entity/zombie.png\",",
+                "       health=20.0, speed=0.25, size=0.6, hostile=False)",
+                "class MyEntity:",
+                "    pass"
+            };
+            case "effect" -> new String[] {
+                "@effect(\"my_effect\", name=\"My Effect\", color=0xFF55AAFF,",
+                "       beneficial=True, instant=False)",
+                "class MyEffect:",
+                "    pass"
+            };
+            default -> null;
+        };
+    }
+
+    /**
+     * Updates the smart-fill ghost: if the previous line is a completed decorator
+     * and we're at the start of a new empty line, show the template.
+     */
+    private void updateSmartFill() {
+        if (!ClientSettings.getBoolean(ClientSettings.AUTO_COMPLETION_SMART_FILL, true)) {
+            clearSmartFill();
+            return;
+        }
+        smartFillLines = null;
+        smartFillStartLine = -1;
+        smartFillStartCol = 0;
+        if (cursorLine > 0 && cursorCol == 0) {
+            String prevLine = lineAt(cursorLine - 1);
+            String kind = completedDecoratorOnLine(prevLine);
+            if (kind != null) {
+                String[] template = smartFillTemplate(kind);
+                if (template != null) {
+                    // Skip the decorator line itself; show only the class body (from "class ..." onward)
+                    int classLine = -1;
+                    for (int i = 0; i < template.length; i++) {
+                        if (template[i].trim().startsWith("class ")) {
+                            classLine = i;
+                            break;
+                        }
+                    }
+                    if (classLine >= 0) {
+                        smartFillLines = new String[template.length - classLine];
+                        System.arraycopy(template, classLine, smartFillLines, 0, smartFillLines.length);
+                        smartFillStartLine = cursorLine;
+                        smartFillStartCol = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Clears the smart-fill ghost.
+     */
+    private void clearSmartFill() {
+        smartFillLines = null;
+        smartFillStartLine = -1;
+    }
+
+    /**
+     * Accepts the smart-fill ghost: inserts the class body at the cursor position
+     * as a single undo group.
+     */
+    private void acceptSmartFill() {
+        if (smartFillLines == null || smartFillLines.length == 0) {
+            return;
+        }
+        beginGroup();
+        // Insert lines starting at cursorLine
+        for (int i = 0; i < smartFillLines.length; i++) {
+            if (i == 0) {
+                lines.set(cursorLine, smartFillLines[i]);
+            } else {
+                lines.add(cursorLine + i, smartFillLines[i]);
+            }
+        }
+        cursorLine += smartFillLines.length - 1;
+        cursorCol = smartFillLines[smartFillLines.length - 1].length();
+        clampCursor();
+        endGroup();
+        notifyChanged();
+        clearSmartFill();
+    }
+
     /** Counts unclosed '(' in the region, ignoring parentheses inside strings. */
     private static int parenBalance(String region) {
         int balance = 0;
@@ -1528,7 +1758,7 @@ public class CodeEditor {
     // ------------------------------------------------------------------
 
     private int lineHeight() {
-        return font.lineHeight;
+        return Math.max(font.lineHeight, EDITOR_LINE_HEIGHT);
     }
 
     private int gutterWidth() {
@@ -1537,7 +1767,23 @@ public class CodeEditor {
     }
 
     private int textWidth() {
-        return width - gutterWidth();
+        return viewWidth() - gutterWidth();
+    }
+
+    /** Width of {@code text} using the editor font (falls back to the default metrics when empty). */
+    private int textWidth(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        return font.width(Component.literal(text).withStyle(EDITOR_STYLE));
+    }
+
+    /** Draws {@code text} with the editor font at the given position. */
+    private void drawText(GuiGraphics graphics, String text, int px, int py, int color) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        graphics.drawString(font, Component.literal(text).withStyle(EDITOR_STYLE), px, py, color, false);
     }
 
     private int colToX(String text, int col) {
@@ -1545,7 +1791,7 @@ public class CodeEditor {
             return 0;
         }
         int end = Math.min(col, text.length());
-        return font.width(text.substring(0, end));
+        return textWidth(text.substring(0, end));
     }
 
     // ------------------------------------------------------------------
@@ -1553,15 +1799,27 @@ public class CodeEditor {
     // ------------------------------------------------------------------
 
     public void render(GuiGraphics graphics, int mouseX, int mouseY) {
-        graphics.fill(x, y, x + width, y + height, COLOR_BG);
+        // Render in editor space: the pose scales everything about the top-left
+        // corner so the cursor maths and mouse hit-testing stay zoom-independent.
+        int editorMouseX = (int) toEditorX(mouseX);
+        int editorMouseY = (int) toEditorY(mouseY);
+        int viewW = viewWidth();
+        int viewH = viewHeight();
+        graphics.enableScissor(x, y, x + width, y + height);
+        graphics.pose().pushPose();
+        graphics.pose().translate(x, y, 0.0f);
+        graphics.pose().scale(zoom, zoom, 1.0f);
+        graphics.pose().translate(-x, -y, 0.0f);
+
+        graphics.fill(x, y, x + viewW, y + viewH, COLOR_BG);
         int textLeft = x + gutterWidth();
-        graphics.fill(x, y, textLeft, y + height, COLOR_GUTTER_BG);
+        graphics.fill(x, y, textLeft, y + viewH, COLOR_GUTTER_BG);
         assetMarkers.clear();
 
         int offsetY = 0;
-        int visibleLines = (int) (height / lineHeight()) + 1;
+        int visibleLines = (int) (viewH / lineHeight()) + 1;
         for (int lineIndex = scrollLine; lineIndex < Math.min(scrollLine + visibleLines, lines.size()); lineIndex++) {
-            if (offsetY > height) {
+            if (offsetY > viewH) {
                 break;
             }
             drawLine(graphics, lineIndex, offsetY);
@@ -1569,22 +1827,174 @@ public class CodeEditor {
         }
 
         // scrollbar
-        int visible = Math.max(1, (int) (height / lineHeight()));
+        int visible = Math.max(1, (int) (viewH / lineHeight()));
         if (lines.size() > visible) {
-            int barHeight = Math.max(12, height * visible / lines.size());
-            int barY = y + (int) ((height - barHeight) * ((double) scrollLine / (lines.size() - visible)));
-            graphics.fill(x + width - 3, barY, x + width, barY + barHeight, 0xFF2E3A48);
+            int barHeight = Math.max(12, viewH * visible / lines.size());
+            int barY = y + (int) ((viewH - barHeight) * ((double) scrollLine / (lines.size() - visible)));
+            graphics.fill(x + viewW - 3, barY, x + viewW, barY + barHeight, 0xFF2E3A48);
         }
 
         if (focused && (System.currentTimeMillis() / 500) % 2 == 0) {
             int cx = textLeft + (int) (colToX(currentLine(), cursorCol) - scrollX);
             int cy = y + (int) ((cursorLine - scrollLine) * lineHeight());
-            graphics.fill(cx, cy, cx + Math.max(1, font.width(" ") / 2), cy + lineHeight(), COLOR_CURSOR);
+            graphics.fill(cx, cy, cx + Math.max(1, textWidth(" ") / 2), cy + lineHeight(), COLOR_CURSOR);
         }
 
+        if (smartFillLines != null) {
+            drawSmartFillGhost(graphics);
+        }
         if (isSuggesting()) {
             drawSuggestions(graphics);
             drawSnippetGhost(graphics);
+        }
+
+        drawHoverInfo(graphics, editorMouseX, editorMouseY);
+
+        graphics.pose().popPose();
+        graphics.disableScissor();
+    }
+
+    // ------------------------------------------------------------------
+    // Hover documentation (like an IDE's "quick info" tooltip)
+    // ------------------------------------------------------------------
+
+    private int hoverMouseX = Integer.MIN_VALUE;
+    private int hoverMouseY = Integer.MIN_VALUE;
+    private long hoverSince;
+
+    /** Delay before the quick-info tooltip appears, so it does not flicker while moving. */
+    private static final long HOVER_DELAY_MS = 350;
+
+    /**
+     * Shows a small tooltip when the pointer rests on a documented function,
+     * declaration field, keyword or builtin.
+     */
+    private void drawHoverInfo(GuiGraphics graphics, int mouseX, int mouseY) {
+        if (!ClientSettings.getBoolean(ClientSettings.AUTO_COMPLETION_HOVER_DETAILS, true)) {
+            return;
+        }
+        if (!contains(mouseX, mouseY) || selecting || isSuggesting()) {
+            hoverSince = 0;
+            return;
+        }
+        if (mouseX != hoverMouseX || mouseY != hoverMouseY) {
+            hoverMouseX = mouseX;
+            hoverMouseY = mouseY;
+            hoverSince = System.currentTimeMillis();
+            return;
+        }
+        if (hoverSince == 0 || System.currentTimeMillis() - hoverSince < HOVER_DELAY_MS) {
+            return;
+        }
+        // Check for asset marker hover first
+        for (int[] marker : assetMarkers) {
+            if (mouseX >= marker[1] && mouseX <= marker[1] + marker[3]
+                    && mouseY >= marker[2] && mouseY <= marker[2] + marker[4]) {
+                String line = lineAt(marker[0]);
+                List<AssetReference> refs = AssetReferences.parse(line);
+                if (!refs.isEmpty()) {
+                    AssetReference ref = refs.get(0);
+                    List<String> info = new ArrayList<>();
+                    info.add("Asset: " + ref.kind().name().toLowerCase());
+                    info.add("Reference: " + ref.value());
+                    info.add("Click to open picker");
+                    drawHoverBox(graphics, mouseX, mouseY, info);
+                    return;
+                }
+            }
+        }
+        int[] pos = posAt(mouseX, mouseY);
+        String word = wordAt(pos[0], pos[1]);
+        List<String> info = hoverInfo(word, pos[0]);
+        if (info.isEmpty()) {
+            return;
+        }
+        drawHoverBox(graphics, mouseX, mouseY, info);
+    }
+
+    /** Documentation lines for a hovered word (signature then description), or empty. */
+    private List<String> hoverInfo(String word, int line) {
+        List<String> out = new ArrayList<>();
+        if (word == null || word.isEmpty()) {
+            return out;
+        }
+        ApiDocs.Doc doc = ApiDocs.get(word);
+        if (doc != null) {
+            out.add(doc.signature());
+            if (doc.description() != null && !doc.description().isBlank()) {
+                out.add(doc.description());
+            }
+            // If this is a decorator, also show available fields
+            List<ApiDocs.Field> fields = ApiDocs.fieldsFor(word);
+            if (!fields.isEmpty()) {
+                out.add(""); // separator
+                out.add("Available fields:");
+                for (ApiDocs.Field field : fields) {
+                    out.add("  " + field.name() + " - " + field.description());
+                }
+            }
+            return out;
+        }
+        String decorator = decoratorOnLine(line);
+        if (decorator != null) {
+            for (ApiDocs.Field field : ApiDocs.fieldsFor(decorator)) {
+                if (field.name().equals(word)) {
+                    out.add(decorator + " field: " + field.name());
+                    out.add(field.description());
+                    return out;
+                }
+            }
+        }
+        if (KEYWORDS.contains(word)) {
+            out.add("keyword");
+            out.add("Python keyword.");
+        } else if (BUILTINS.contains(word)) {
+            out.add(word + "(...)");
+            out.add("Python built-in function.");
+        }
+        return out;
+    }
+
+    /** The declaration decorator ("block", "item", ...) on a line, or null. */
+    private String decoratorOnLine(int line) {
+        Matcher matcher = DECORATOR.matcher(lineAt(line));
+        String kind = null;
+        while (matcher.find()) {
+            kind = matcher.group(1);
+        }
+        return kind;
+    }
+
+    private void drawHoverBox(GuiGraphics graphics, int mouseX, int mouseY, List<String> info) {
+        int pad = 4;
+        int maxTextWidth = 220;
+        List<String> rendered = new ArrayList<>();
+        int textBoxWidth = 0;
+        for (String line : info) {
+            for (String wrapped : wrap(line, maxTextWidth, 6)) {
+                rendered.add(wrapped);
+                textBoxWidth = Math.max(textBoxWidth, textWidth(wrapped));
+            }
+        }
+        if (rendered.isEmpty()) {
+            return;
+        }
+        int boxWidth = textBoxWidth + pad * 2;
+        int boxHeight = rendered.size() * 10 + pad * 2;
+        int bx = mouseX + 12;
+        int by = mouseY + 14;
+        if (bx + boxWidth > x + viewWidth()) {
+            bx = Math.max(x + 2, mouseX - boxWidth - 8);
+        }
+        if (by + boxHeight > y + viewHeight()) {
+            by = Math.max(y + 2, y + viewHeight() - boxHeight - 2);
+        }
+        graphics.fill(bx - 1, by - 1, bx + boxWidth + 1, by + boxHeight + 1, COLOR_POPUP_BORDER);
+        graphics.fill(bx, by, bx + boxWidth, by + boxHeight, COLOR_POPUP_BG);
+        int ty = by + pad;
+        for (int i = 0; i < rendered.size(); i++) {
+            drawText(graphics, rendered.get(i), bx + pad, ty, i == 0 ? COLOR_POPUP_BORDER : COLOR_POPUP_DOC);
+            ty += 10;
         }
     }
 
@@ -1594,6 +2004,9 @@ public class CodeEditor {
      * matching the snippet.
      */
     private void drawSnippetGhost(GuiGraphics graphics) {
+        if (!ClientSettings.getBoolean(ClientSettings.AUTO_COMPLETION_SHOW_SNIPPETS, true)) {
+            return;
+        }
         Suggestion selected = suggestions.get(suggestionIndex);
         if (selected == null || !selected.isSnippet() || !atStatementStart()) {
             return;
@@ -1602,14 +2015,33 @@ public class CodeEditor {
         String[] parts = selected.insert.split("\n", -1);
         int lineY = y + (int) ((suggestionLine - scrollLine) * lineHeight());
         int startX = textLeft + (int) (colToX(lineAt(suggestionLine), suggestionStartCol) - scrollX);
-        graphics.enableScissor(textLeft, y, x + width, y + height);
         for (int i = 0; i < parts.length; i++) {
             int gy = lineY + i * lineHeight();
             int gx = i == 0 ? startX : textLeft + 4;
-            graphics.fill(gx, gy, x + width, gy + lineHeight(), COLOR_BG);
-            graphics.drawString(font, parts[i], gx, gy, COLOR_GHOST, false);
+            graphics.fill(gx, gy, x + viewWidth(), gy + lineHeight(), COLOR_BG);
+            drawText(graphics, parts[i], gx, gy, COLOR_GHOST);
         }
-        graphics.disableScissor();
+    }
+
+    /**
+     * Draws the smart-fill ghost: the class body preview that appears after
+     * completing a @block/@item/@entity/@effect decorator line.
+     */
+    private void drawSmartFillGhost(GuiGraphics graphics) {
+        if (smartFillLines == null || smartFillLines.length == 0) {
+            return;
+        }
+        int textLeft = x + gutterWidth();
+        int lineY = y + (int) ((smartFillStartLine - scrollLine) * lineHeight());
+        for (int i = 0; i < smartFillLines.length; i++) {
+            int gy = lineY + i * lineHeight();
+            // Only draw if visible in the viewport
+            if (gy + lineHeight() < y || gy > y + viewHeight()) {
+                continue;
+            }
+            graphics.fill(textLeft, gy, x + viewWidth(), gy + lineHeight(), COLOR_BG);
+            drawText(graphics, smartFillLines[i], textLeft + 4, gy, COLOR_GHOST);
+        }
     }
 
     /** True when only whitespace precedes the typed word on its line. */
@@ -1626,16 +2058,16 @@ public class CodeEditor {
         int yBot = y + offsetY + lineHeight() - 1;
 
         if (lineIndex == cursorLine && focused) {
-            graphics.fill(textLeft, yTop, x + width, yBot + 1, COLOR_LINE_HIGHLIGHT);
+            graphics.fill(textLeft, yTop, x + viewWidth(), yBot + 1, COLOR_LINE_HIGHLIGHT);
         }
         String number = Integer.toString(lineIndex + 1);
-        graphics.drawString(font, number, textLeft - font.width(number) - 8, yTop, COLOR_GUTTER, false);
+        drawText(graphics, number, textLeft - textWidth(number) - 8, yTop, COLOR_GUTTER);
 
         // Asset reference gutter marker ("A"): clickable to open the picker.
         if (!cachedRefs(lineIndex, text).isEmpty() && assetPickerRequest != null) {
             int mx = textLeft - 12;
             graphics.fill(mx, yTop, mx + 9, yTop + 9, 0xFF2E7D32);
-            graphics.drawString(font, "A", mx + 2, yTop + 1, 0xFFB9F6CA, false);
+            drawText(graphics, "A", mx + 2, yTop + 1, 0xFFB9F6CA);
             assetMarkers.add(new int[] { lineIndex, mx, yTop, 9, 9 });
         }
 
@@ -1673,12 +2105,12 @@ public class CodeEditor {
         List<Token> tokens = cachedTokens(lineIndex, text);
         int drawX = textLeft + (int) (0 - scrollX);
         for (Token token : tokens) {
-            int tokenWidth = font.width(token.text);
-            if (drawX + tokenWidth < textLeft || drawX > x + width) {
+            int tokenWidth = textWidth(token.text);
+            if (drawX + tokenWidth < textLeft || drawX > x + viewWidth()) {
                 drawX += tokenWidth;
                 continue;
             }
-            graphics.drawString(font, token.text, drawX, yTop, token.color, false);
+            drawText(graphics, token.text, drawX, yTop, token.color);
             drawX += tokenWidth;
         }
     }
@@ -1692,7 +2124,7 @@ public class CodeEditor {
             return;
         }
         int bx = textLeft + (int) (colToX(text, bCol) - scrollX);
-        int bw = font.width(String.valueOf(text.charAt(bCol)));
+        int bw = textWidth(String.valueOf(text.charAt(bCol)));
         graphics.fill(Math.max(bx, textLeft), yTop, Math.max(bx + 1, bx + bw), yBot, COLOR_BRACKET);
     }
 
@@ -1761,13 +2193,13 @@ public class CodeEditor {
      */
     private void drawSuggestions(GuiGraphics graphics) {
         Suggestion selected = suggestions.get(suggestionIndex);
-        int availW = Math.min(width - 8, 320);
-        boolean showDetail = availW >= 220 && selected != null;
+        int availW = Math.min(viewWidth() - 8, 320);
+        boolean showDetail = availW >= 160 && selected != null;
         int listW = showDetail ? 132 : availW;
         int detailW = showDetail ? availW - listW - 2 : 0;
         int popupWidth = listW + (showDetail ? detailW + 2 : 0);
 
-        int maxRows = Math.max(2, (height - 24) / 10);
+        int maxRows = Math.max(2, (viewHeight() - 24) / 10);
         int visible = Math.min(suggestions.size(), maxRows);
         int first = Math.max(0, Math.min(suggestionIndex - visible + 1, suggestions.size() - visible));
         int listHeight = visible * 10 + 6;
@@ -1784,10 +2216,10 @@ public class CodeEditor {
 
         int cx = x + gutterWidth() + (int) (colToX(lineAt(suggestionLine), suggestionCol) - scrollX) - 6;
         int cy = y + (int) ((suggestionLine - scrollLine) * lineHeight()) + lineHeight();
-        if (cy + popupHeight > y + height) {
+        if (cy + popupHeight > y + viewHeight()) {
             cy = Math.max(y + 2, y + (int) ((suggestionLine - scrollLine) * lineHeight()) - popupHeight - 4);
         }
-        int cpx = Math.max(x + 2, Math.min(cx, x + width - popupWidth - 2));
+        int cpx = Math.max(x + 2, Math.min(cx, x + viewWidth() - popupWidth - 2));
         graphics.fill(cpx - 1, cy - 1, cpx + popupWidth + 1, cy + popupHeight + 1, COLOR_POPUP_BORDER);
         graphics.fill(cpx, cy, cpx + popupWidth, cy + popupHeight, COLOR_POPUP_BG);
         for (int i = 0; i < visible; i++) {
@@ -1796,23 +2228,35 @@ public class CodeEditor {
             if (index == suggestionIndex) {
                 graphics.fill(cpx + 1, sy - 2, cpx + listW - 1, sy + 8, COLOR_POPUP_SEL);
             }
-            graphics.drawString(font, font.plainSubstrByWidth(suggestions.get(index).label, listW - 8), cpx + 4, sy,
-                    COLOR_POPUP_TEXT, false);
+            drawText(graphics, truncateToWidth(suggestions.get(index).label, listW - 8), cpx + 4, sy,
+                    COLOR_POPUP_TEXT);
         }
         if (showDetail) {
             int dx = cpx + listW + 2;
             graphics.fill(dx - 1, cy + 1, dx, cy + popupHeight - 1, COLOR_POPUP_BORDER);
             int dy = cy + 3;
             for (String line : signatureLines) {
-                graphics.drawString(font, line, dx + 4, dy, COLOR_POPUP_BORDER, false);
+                drawText(graphics, line, dx + 4, dy, COLOR_POPUP_BORDER);
                 dy += 10;
             }
             dy += 2;
             for (String line : descriptionLines) {
-                graphics.drawString(font, line, dx + 4, dy, COLOR_POPUP_DOC, false);
+                drawText(graphics, line, dx + 4, dy, COLOR_POPUP_DOC);
                 dy += 10;
             }
         }
+    }
+
+    /** Truncates {@code text} so it fits {@code maxWidth} px in the editor font. */
+    private String truncateToWidth(String text, int maxWidth) {
+        if (text == null || text.isEmpty() || textWidth(text) <= maxWidth) {
+            return text == null ? "" : text;
+        }
+        int end = 0;
+        while (end < text.length() && textWidth(text.substring(0, end + 1)) <= maxWidth - textWidth("...")) {
+            end++;
+        }
+        return text.substring(0, end) + "...";
     }
 
     /** Word-wraps {@code text} to {@code maxWidth} pixels, at most {@code maxLines} lines. */
@@ -1824,7 +2268,7 @@ public class CodeEditor {
         String line = "";
         for (String word : text.split(" ")) {
             String candidate = line.isEmpty() ? word : line + " " + word;
-            if (!line.isEmpty() && font.width(candidate) > maxWidth) {
+            if (!line.isEmpty() && textWidth(candidate) > maxWidth) {
                 out.add(line);
                 if (out.size() >= maxLines) {
                     return out;

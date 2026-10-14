@@ -17,6 +17,7 @@ import net.xmilon.craftpy.network.RequestPayload;
 import net.xmilon.craftpy.network.ResponsePayload;
 import net.xmilon.craftpy.project.ProjectManager;
 import net.xmilon.craftpy.project.ProjectSummary;
+import net.xmilon.craftpy.project.ModuleInfo;
 import net.xmilon.craftpy.python.ValidationProblem;
 import net.xmilon.craftpy.util.Json;
 
@@ -40,6 +41,8 @@ public final class ClientProjectStore {
     private List<ValidationProblem> validationProblems = new ArrayList<>();
     private final List<String> activeProjects = new ArrayList<>();
     private final List<String> dirty = new ArrayList<>();
+    private final List<ModuleInfo> modules = new ArrayList<>();
+    private final java.util.Map<String, java.util.function.Consumer<String>> readmeCallbacks = new java.util.HashMap<>();
     private final java.util.Set<String> virtualFiles = new java.util.HashSet<>();
     private boolean debugMode;
     private java.util.function.BiConsumer<String, Integer> definitionCallback;
@@ -361,6 +364,72 @@ public final class ClientProjectStore {
         return Collections.unmodifiableList(activeProjects);
     }
 
+    // ---- modules ----
+
+    public List<ModuleInfo> modules() {
+        return Collections.unmodifiableList(modules);
+    }
+
+    public ModuleInfo findModule(String path) {
+        if (path == null) {
+            return null;
+        }
+        for (ModuleInfo module : modules) {
+            if (path.equals(module.path)) {
+                return module;
+            }
+        }
+        return null;
+    }
+
+    /** Asks the server to re-scan every .cpm under pyforge/. */
+    public void refreshModules() {
+        request(ProjectAction.MODULES_LIST, null, "");
+    }
+
+    public void setModuleEnabled(String id, boolean enabled) {
+        if (id == null || id.isBlank()) {
+            return;
+        }
+        JsonObject params = new JsonObject();
+        params.addProperty("id", id);
+        params.addProperty("enabled", enabled);
+        request(ProjectAction.MODULE_SET_ENABLED, null, Json.COMPACT.toJson(params));
+    }
+
+    public void setAllModulesEnabled(boolean enabled) {
+        request(ProjectAction.MODULE_SET_ALL, null, Boolean.toString(enabled));
+    }
+
+    public void reloadModule(String id) {
+        if (id != null && !id.isBlank()) {
+            request(ProjectAction.MODULE_RELOAD, null, id);
+        }
+    }
+
+    public void deleteModule(String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        JsonObject params = new JsonObject();
+        params.addProperty("path", path);
+        request(ProjectAction.MODULE_DELETE, null, Json.COMPACT.toJson(params));
+    }
+
+    /** Fetches a module's bundled README (markdown); the callback runs on the client thread. */
+    public void requestModuleReadme(String path, java.util.function.Consumer<String> callback) {
+        if (path == null || path.isBlank()) {
+            if (callback != null) {
+                callback.accept("");
+            }
+            return;
+        }
+        if (callback != null) {
+            readmeCallbacks.put(path, callback);
+        }
+        request(ProjectAction.MODULE_README, null, path);
+    }
+
     // ---- requests ----
 
     public void refresh() {
@@ -570,6 +639,33 @@ public final class ClientProjectStore {
                 }
                 notifyListener();
                 return;
+            }
+            case MODULES_LIST -> {
+                List<ModuleInfo> parsed = tryParse(payload.action(), payload.json(),
+                        new TypeToken<List<ModuleInfo>>() {
+                        }.getType());
+                modules.clear();
+                if (parsed != null) {
+                    modules.addAll(parsed);
+                }
+            }
+            case MODULE_README -> {
+                JsonObject obj = tryParse(payload.action(), payload.json(), JsonObject.class);
+                if (obj != null) {
+                    String path = obj.has("path") && !obj.get("path").isJsonNull() ? obj.get("path").getAsString() : null;
+                    String readme = obj.has("readme") && !obj.get("readme").isJsonNull() ? obj.get("readme").getAsString() : "";
+                    java.util.function.Consumer<String> callback = path == null ? null : readmeCallbacks.remove(path);
+                    if (callback != null) {
+                        callback.accept(readme);
+                    }
+                }
+                return;
+            }
+            case MODULE_SET_ENABLED, MODULE_SET_ALL, MODULE_RELOAD, MODULE_DELETE -> {
+                if (payload.message() != null && !payload.message().isBlank()) {
+                    append(payload.message());
+                }
+                refreshModules();
             }
             default -> {
                 if (payload.message() != null && !payload.message().isBlank()) {

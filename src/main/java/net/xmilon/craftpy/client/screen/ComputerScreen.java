@@ -188,6 +188,11 @@ public class ComputerScreen extends Screen implements MenuAccess<ComputerMenu> {
 
     @Override
     protected void init() {
+        // Apply saved theme
+        String themeName = net.xmilon.craftpy.client.ClientSettings.getString(
+                net.xmilon.craftpy.client.ClientSettings.THEME, "dark");
+        net.xmilon.craftpy.client.ui.Theme.setCurrent(net.xmilon.craftpy.client.ui.Theme.getPreset(themeName));
+
         // init() also runs on window resize / GUI-scale change. Open popups are
         // dropped and the current file is reloaded into the fresh editor.
         this.promptOpen = false;

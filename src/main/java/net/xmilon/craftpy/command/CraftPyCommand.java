@@ -56,6 +56,7 @@ public final class CraftPyCommand {
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext context) {
+        ProjectCommandRegistry.init(dispatcher, context);
         dispatcher.register(Commands.literal("craftpy")
                 .executes(CraftPyCommand::rootHelp)
                 .then(give())
@@ -64,7 +65,8 @@ public final class CraftPyCommand {
                 .then(moduleGroup())
                 .then(py())
                 .then(window())
-                .then(debug()));
+                .then(debug())
+                .then(game()));
     }
 
     // ------------------------------------------------------------------
@@ -634,6 +636,45 @@ public final class CraftPyCommand {
                 .requires(source -> source.hasPermission(3))
                 .then(Commands.literal("list").executes(CraftPyCommand::debugList))
                 .then(Commands.literal("slots").executes(CraftPyCommand::debugSlots));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> game() {
+        return Commands.literal("game")
+                .requires(source -> source.hasPermission(3))
+                .then(Commands.literal("restart")
+                        .executes(ctx -> gameRestart(ctx, 5))
+                        .then(Commands.argument("seconds", IntegerArgumentType.integer(1, 120))
+                                .executes(ctx -> gameRestart(ctx, IntegerArgumentType.getInteger(ctx, "seconds")))))
+                .then(Commands.literal("cancel")
+                        .executes(ctx -> gameCancel(ctx)));
+    }
+
+    private static int gameRestart(CommandContext<CommandSourceStack> ctx, int seconds) {
+        if (!allowed(ctx, CraftPyPermissions.DEBUG)) {
+            fail(ctx, "Missing permission " + CraftPyPermissions.DEBUG.getNodeName() + ".");
+            return 0;
+        }
+        if (net.xmilon.craftpy.lifecycle.RestartManager.isScheduled()) {
+            ctx.getSource().sendFailure(Component.literal("A restart is already scheduled."));
+            return 0;
+        }
+        net.xmilon.craftpy.lifecycle.RestartManager.scheduleRestart(ctx.getSource().getServer(), seconds);
+        ctx.getSource().sendSuccess(() -> Component.literal("Scheduled restart in " + seconds + "s (server will stop; relaunch required)"), true);
+        return 1;
+    }
+
+    private static int gameCancel(CommandContext<CommandSourceStack> ctx) {
+        if (!allowed(ctx, CraftPyPermissions.DEBUG)) {
+            fail(ctx, "Missing permission " + CraftPyPermissions.DEBUG.getNodeName() + ".");
+            return 0;
+        }
+        if (!net.xmilon.craftpy.lifecycle.RestartManager.isScheduled()) {
+            ctx.getSource().sendFailure(Component.literal("No restart is currently scheduled."));
+            return 0;
+        }
+        net.xmilon.craftpy.lifecycle.RestartManager.cancel();
+        ctx.getSource().sendSuccess(() -> Component.literal("Restart cancelled"), true);
+        return 1;
     }
 
     private static int debugList(CommandContext<CommandSourceStack> ctx) {
