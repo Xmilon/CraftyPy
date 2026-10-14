@@ -1,7 +1,8 @@
 {
   "variants": {
-    "": {
-      "model": "craftpy:block/python_computer"
-    }
+    "facing=north": { "model": "craftpy:block/python_computer" },
+    "facing=east": { "model": "craftpy:block/python_computer", "y": 90 },
+    "facing=south": { "model": "craftpy:block/python_computer", "y": 180 },
+    "facing=west": { "model": "craftpy:block/python_computer", "y": 270 }
   }
 }

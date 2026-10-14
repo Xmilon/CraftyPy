@@ -103,9 +103,26 @@ public final class CraftPyCommand {
                                                         IntegerArgumentType.getInteger(ctx, "count")))))));
     }
 
-    /** Every project content id, offered as tab completions for the {@code id} argument. */
+    /**
+     * Every project content id as {@code project:id}, offered as tab completions. Slot keys carry a
+     * kind prefix ({@code BLOCK:project:id}) that is not a valid resource location, so it is stripped.
+     */
     private static Iterable<String> contentIds() {
-        return new TreeSet<>(SlotRegistry.snapshotByHolder().keySet());
+        TreeSet<String> ids = new TreeSet<>();
+        for (String key : SlotRegistry.snapshotByHolder().keySet()) {
+            ids.add(stripKind(key));
+        }
+        return ids;
+    }
+
+    static String stripKind(String key) {
+        for (SlotRegistry.Kind kind : SlotRegistry.Kind.values()) {
+            String prefix = kind.name() + ":";
+            if (key.startsWith(prefix)) {
+                return key.substring(prefix.length());
+            }
+        }
+        return key;
     }
 
     private static int give(CommandContext<CommandSourceStack> ctx, SlotRegistry.Kind kind, int count)
@@ -160,9 +177,18 @@ public final class CraftPyCommand {
         String ns = colon < 0 ? "" : raw.substring(0, colon);
         String path = colon < 0 ? raw : raw.substring(colon + 1);
 
-        SlotRegistry.SlotRef ref = mapping.get(raw);
+        // Live keys are kind-prefixed (BLOCK:project:id); older/plain keys are project:id.
+        String kindPrefix = kind.name() + ":";
+        SlotRegistry.SlotRef ref = mapping.get(kindPrefix + raw);
+        if (ref == null) {
+            ref = mapping.get(raw);
+        }
         if (ref == null && ns.startsWith("project_")) {
-            ref = mapping.get(ns.substring("project_".length()) + ":" + path);
+            String alias = ns.substring("project_".length()) + ":" + path;
+            ref = mapping.get(kindPrefix + alias);
+            if (ref == null) {
+                ref = mapping.get(alias);
+            }
         }
         SlotRegistry.SlotRef byPath = null;
         boolean ambiguous = false;
@@ -395,11 +421,20 @@ public final class CraftPyCommand {
         return Commands.literal("module")
                 .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.PERMISSION_LEVEL.get())))
                 .executes(ctx -> {
-                    fail(ctx, "The CraftPy Modules screen is not built yet (M7); use "
-                            + "/craftpy module list|info|build|reload.");
-                    return 0;
+                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                    openIdeScreen(player, null);
+                    ctx.getSource().sendSuccess(() -> Component.literal("Opened CraftPy - see the Modules page."), false);
+                    return 1;
                 })
                 .then(Commands.literal("list").executes(CraftPyCommand::moduleList))
+                .then(Commands.literal("enable")
+                        .then(Commands.argument("module", StringArgumentType.word())
+                                .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(moduleIds(), builder))
+                                .executes(ctx -> moduleSetEnabled(ctx, StringArgumentType.getString(ctx, "module"), true))))
+                .then(Commands.literal("disable")
+                        .then(Commands.argument("module", StringArgumentType.word())
+                                .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(moduleIds(), builder))
+                                .executes(ctx -> moduleSetEnabled(ctx, StringArgumentType.getString(ctx, "module"), false))))
                 .then(Commands.literal("info")
                         .then(Commands.argument("module", StringArgumentType.word())
                                 .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(moduleIds(), builder))
@@ -495,6 +530,17 @@ public final class CraftPyCommand {
                 ctx.getSource().sendSuccess(() -> Component.literal(message), true);
             }
         }));
+        return 1;
+    }
+
+    private static int moduleSetEnabled(CommandContext<CommandSourceStack> ctx, String id, boolean enabled) {
+        if (!allowed(ctx, CraftPyPermissions.MODULE)) {
+            fail(ctx, "Missing permission " + CraftPyPermissions.MODULE.getNodeName() + ".");
+            return 0;
+        }
+        CraftPyExecutors.runAsync(() -> ModuleLoader.setEnabled(id, enabled), CraftPyExecutors.io())
+                .thenRun(() -> next(ctx, () -> ctx.getSource().sendSuccess(() -> Component.literal(
+                        (enabled ? "Enabled" : "Disabled (fully unloads after a restart)") + " module '" + id + "'."), true)));
         return 1;
     }
 
@@ -772,11 +818,25 @@ public final class CraftPyCommand {
         return ids;
     }
 
-    private static List<String> moduleIds() {
-        List<String> ids = new ArrayList<>();
-        for (ModuleBuilder.ModuleMetadata module : ModuleLoader.loadedModules()) {
-            ids.add(module.id);
+    private static volatile List<String> cachedModuleIds = List.of();
+    private static volatile long cachedModuleIdsAt;
+
+    /**
+     * Every discovered module (loaded or not), so enable/info/reload can complete disabled ones too.
+     * Cached for 5 s: listing opens every .cpm, and suggestions run on each keystroke.
+     */
+    private static Iterable<String> moduleIds() {
+        long now = System.currentTimeMillis();
+        if (now - cachedModuleIdsAt > 5000) {
+            TreeSet<String> ids = new TreeSet<>();
+            for (net.xmilon.craftpy.project.ModuleInfo module : ModuleLoader.list()) {
+                if (module.id != null && !module.id.isBlank()) {
+                    ids.add(module.id);
+                }
+            }
+            cachedModuleIds = List.copyOf(ids);
+            cachedModuleIdsAt = now;
         }
-        return ids;
+        return cachedModuleIds;
     }
 }

@@ -193,10 +193,81 @@ class PackBuilderRecipesTest {
 
         JsonObject written = readJson(data.resolve("recipe/project_bb_ruby.json"));
         assertEquals("minecraft:crafting_shaped", written.get("type").getAsString());
-        JsonObject redKey = written.getAsJsonObject("keys").getAsJsonObject("R");
+        JsonObject redKey = written.getAsJsonObject("key").getAsJsonObject("R");
         assertEquals("minecraft:red_dye", redKey.get("item").getAsString());
         assertEquals("craftpy:pcitem_4", written.getAsJsonObject("result").get("id").getAsString());
         assertEquals("equipment", written.get("category").getAsString());
+    }
+
+    /** Regression: object ingredients ({"item": ..}) used to fall back to iron ore / crash shapeless. */
+    @Test
+    void objectAndStringIngredientsAreAccepted() throws Exception {
+        SlotRegistry.clearAll();
+        SlotRegistry.applyBlock("rr", "ruby_ore", new JsonObject()); // pcblock_0
+        SlotRegistry.applyItem("rr", "ruby", new JsonObject()); // pcitem_0
+        Path data = tmp().resolve("data").resolve("rr");
+
+        JsonObject smelt = new JsonObject();
+        smelt.addProperty("type", "smelting");
+        JsonObject from = new JsonObject();
+        from.addProperty("item", "rr:ruby_ore");
+        smelt.add("ingredient", from);
+        smelt.addProperty("result", "rr:ruby");
+        PackBuilder.writeRecipe(data, "rr", smelt);
+        JsonObject smelted = readJson(data.resolve("recipe/rr_ruby_ore.json"));
+        assertEquals("craftpy:pcblock_0", smelted.getAsJsonObject("ingredient").get("item").getAsString());
+
+        JsonObject shapeless = new JsonObject();
+        shapeless.addProperty("type", "shapeless");
+        shapeless.addProperty("result", "rr:ruby");
+        JsonArray ingredients = new JsonArray();
+        JsonObject diamond = new JsonObject();
+        diamond.addProperty("item", "minecraft:diamond");
+        ingredients.add(diamond);
+        ingredients.add("#minecraft:coals");
+        shapeless.add("ingredients", ingredients);
+        PackBuilder.writeRecipe(data, "rr", shapeless);
+        JsonArray written = readJson(data.resolve("recipe/rr_ruby.json")).getAsJsonArray("ingredients");
+        assertEquals("minecraft:diamond", written.get(0).getAsJsonObject().get("item").getAsString());
+        assertEquals("minecraft:coals", written.get(1).getAsJsonObject().get("tag").getAsString());
+
+        JsonObject shaped = new JsonObject();
+        shaped.addProperty("type", "shaped");
+        shaped.addProperty("id", "sword");
+        shaped.addProperty("result", "minecraft:diamond_sword");
+        JsonArray pattern = new JsonArray();
+        pattern.add("R");
+        shaped.add("pattern", pattern);
+        JsonObject key = new JsonObject();
+        key.addProperty("R", "rr:ruby");
+        shaped.add("key", key);
+        PackBuilder.writeRecipe(data, "rr", shaped);
+        JsonObject sword = readJson(data.resolve("recipe/sword.json"));
+        assertEquals("craftpy:pcitem_0", sword.getAsJsonObject("key").getAsJsonObject("R").get("item").getAsString());
+    }
+
+    /** Regression: loot_self() entries used to crash table generation. */
+    @Test
+    void lootSelfEntryDropsTheBlockItself() throws Exception {
+        SlotRegistry.clearAll();
+        SlotRegistry.applyItem("rr", "ruby", new JsonObject()); // pcitem_0
+        Path data = tmp().resolve("data").resolve("rr");
+        JsonObject raw = new JsonObject();
+        JsonArray entries = new JsonArray();
+        JsonObject self = new JsonObject();
+        self.addProperty("ref", "loot");
+        self.addProperty("value", "self");
+        entries.add(self);
+        JsonObject ruby = new JsonObject();
+        ruby.addProperty("item", "rr:ruby");
+        ruby.addProperty("count", 2);
+        entries.add(ruby);
+        raw.add("entries", entries);
+        PackBuilder.writeLootTable(data, "rr", raw, "blocks/pcblock_4");
+        JsonArray written = readJson(data.resolve("loot_table/blocks/pcblock_4.json"))
+                .getAsJsonArray("pools").get(0).getAsJsonObject().getAsJsonArray("entries");
+        assertEquals("craftpy:pcblock_4", written.get(0).getAsJsonObject().get("name").getAsString());
+        assertEquals("craftpy:pcitem_0", written.get(1).getAsJsonObject().get("name").getAsString());
     }
 
     private static JsonObject readJson(Path path) {

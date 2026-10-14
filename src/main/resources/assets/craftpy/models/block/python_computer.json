@@ -1,6 +1,8 @@
 {
-  "parent": "minecraft:block/cube_all",
+  "parent": "minecraft:block/orientable",
   "textures": {
-    "all": "craftpy:block/python_computer"
+    "front": "craftpy:block/python_computer_front",
+    "side": "craftpy:block/python_computer_side",
+    "top": "craftpy:block/python_computer_top"
   }
 }

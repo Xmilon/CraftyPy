@@ -83,7 +83,9 @@ public final class Declarations {
         if (handlers != null) {
             for (JsonElement element : handlers) {
                 JsonObject entry = element.getAsJsonObject();
-                Integer every = entry.get("every") == null ? null : entry.get("every").getAsInt();
+                // @on("event") sends "every": null - JsonNull must read as "no interval", not crash the module.
+                JsonElement everyValue = entry.get("every");
+                Integer every = everyValue == null || everyValue.isJsonNull() ? null : everyValue.getAsInt();
                 declarations.handlers.add(new Handler(entry.get("event").getAsString(), every, entry));
             }
         }
@@ -92,7 +94,7 @@ public final class Declarations {
         if (commands != null) {
             for (JsonElement element : commands) {
                 JsonObject entry = element.getAsJsonObject();
-                String name = entry.get("name") == null ? "" : entry.get("name").getAsString();
+                String name = entry.get("name") == null || entry.get("name").isJsonNull() ? "" : entry.get("name").getAsString();
                 declarations.commands.add(new CommandDef(name, entry));
             }
         }
@@ -110,7 +112,7 @@ public final class Declarations {
             declarations.datapack.add(new DatapackEntry("lang", fileName, raw.getAsJsonObject("lang")));
         }
 
-        JsonArray log = result.getAsJsonArray("log");
+        JsonArray log = result.has("log") && result.get("log").isJsonArray() ? result.getAsJsonArray("log") : new JsonArray();
         for (JsonElement element : log) {
             if (element.isJsonPrimitive()) {
                 declarations.log.add(element.getAsString());
@@ -120,18 +122,25 @@ public final class Declarations {
     }
 
     private static void addContents(List<Content> target, JsonArray array, String kind) {
+        if (array == null) {
+            return;
+        }
         for (JsonElement element : array) {
             JsonObject entry = element.getAsJsonObject();
             String id = entry.get("id").getAsString();
             JsonElement definition = entry.get("definition");
-            target.add(new Content(kind, id, definition == null ? new JsonObject() : definition.getAsJsonObject()));
+            target.add(new Content(kind, id, definition == null || !definition.isJsonObject()
+                    ? new JsonObject() : definition.getAsJsonObject()));
         }
     }
 
     private static void addDatapack(List<DatapackEntry> target, JsonArray array, String kind) {
+        if (array == null) {
+            return;
+        }
         for (JsonElement element : array) {
             JsonObject entry = element.getAsJsonObject();
-            String id = entry.get("id") == null ? "" : entry.get("id").getAsString();
+            String id = entry.get("id") == null || entry.get("id").isJsonNull() ? "" : entry.get("id").getAsString();
             target.add(new DatapackEntry(kind, id, entry));
         }
     }

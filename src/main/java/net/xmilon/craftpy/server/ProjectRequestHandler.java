@@ -261,6 +261,15 @@ public final class ProjectRequestHandler {
                 final String moduleId = request.data();
                 return CraftPyExecutors.supplyAsync(() -> {
                     try {
+                        if ("*".equals(moduleId)) {
+                            int count = 0;
+                            for (var module : new java.util.ArrayList<>(net.xmilon.craftpy.project.ModuleLoader.loadedModules())) {
+                                if (net.xmilon.craftpy.project.ModuleLoader.reload(module.id)) {
+                                    count++;
+                                }
+                            }
+                            return ResponsePayload.success(action, "Reloaded " + count + " module(s)", "");
+                        }
                         boolean ok = net.xmilon.craftpy.project.ModuleLoader.reload(moduleId);
                         return ok ? ResponsePayload.success(action, "Reloaded module " + moduleId, "")
                                 : fail(action, "Module not found: " + moduleId);

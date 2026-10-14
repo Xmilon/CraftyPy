@@ -65,7 +65,21 @@ public final class ProjectCommandRegistry {
         }
         if (!map.isEmpty()) {
             BINDINGS.put(projectId, map);
+            resendCommandTrees();
         }
+    }
+
+    /** Clients only know the command tree they got on join; resend it so new commands tab-complete. */
+    private static void resendCommandTrees() {
+        var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
+            return;
+        }
+        server.execute(() -> {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                server.getCommands().sendCommands(player);
+            }
+        });
     }
 
     public static void unregister(String projectId) {

@@ -132,6 +132,8 @@ public final class ModuleLoader {
                 MODULE_FILES.remove(id);
                 LOADED_MODULES.remove(id);
                 PENDING_UNLOAD.add(id);
+                // Its Python handlers and timers stop now; placed content stays until a restart.
+                net.xmilon.craftpy.python.PyRuntime.get().unloadOwner(id, true);
                 CraftPy.LOGGER.info("Disabled module {} (fully unloads on next restart)", id);
             }
         }
@@ -251,15 +253,31 @@ public final class ModuleLoader {
                 final String moduleId = meta.id;
                 CompletableFuture<JsonObject> future = net.xmilon.craftpy.python.PyRuntime.get().loadModule(moduleId, cacheDir);
                 future.thenAcceptAsync(result -> {
-                    if (result != null && result.has("declarations")) {
-                        Declarations declarations = Declarations.parse(result, "module:" + moduleId);
-                        if (declarations != null && !declarations.failed()) {
-                            applyModuleDeclarations(moduleId, declarations);
-                            CraftPy.LOGGER.info("Applied module {} declarations: {} block(s), {} item(s)",
-                                    moduleId,
-                                    declarations.contents().stream().filter(c -> "block".equals(c.kind())).count(),
-                                    declarations.contents().stream().filter(c -> "item".equals(c.kind())).count());
-                        }
+                    if (result == null || !result.has("declarations")) {
+                        CraftPy.LOGGER.error("Module {} returned no declarations: {}", moduleId, result);
+                        return;
+                    }
+                    Declarations declarations = Declarations.parse(result, "module:" + moduleId);
+                    if (declarations.failed()) {
+                        CraftPy.LOGGER.error("Module {} failed: {}", moduleId, declarations.error());
+                        var server = ServerLifecycleHooks.getCurrentServer();
+                        net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server,
+                                "[module " + moduleId + "] ERROR: " + declarations.error());
+                        return;
+                    }
+                    // Slots, commands and pack reloads belong to the server thread (same as projects).
+                    var server = ServerLifecycleHooks.getCurrentServer();
+                    Runnable apply = () -> {
+                        applyModuleDeclarations(moduleId, declarations);
+                        CraftPy.LOGGER.info("Applied module {} declarations: {} block(s), {} item(s)",
+                                moduleId,
+                                declarations.contents().stream().filter(c -> "block".equals(c.kind())).count(),
+                                declarations.contents().stream().filter(c -> "item".equals(c.kind())).count());
+                    };
+                    if (server != null) {
+                        server.execute(apply);
+                    } else {
+                        apply.run();
                     }
                 }, CraftPyExecutors.io()).exceptionally(ex -> {
                     CraftPy.LOGGER.error("Failed to apply module {} declarations", moduleId, ex);
@@ -284,7 +302,12 @@ public final class ModuleLoader {
             }
             SlotRegistry.flush();
             SlotRegistry.storeDeclarations(moduleId, declarations);
-            
+            try {
+                net.xmilon.craftpy.command.ProjectCommandRegistry.register(moduleId, declarations);
+            } catch (Exception e) {
+                CraftPy.LOGGER.warn("Failed to register module commands for {}", moduleId, e);
+            }
+
             // Rebuild packs and sync to clients (like ProjectController.afterChange)
             triggerModuleSync(moduleId);
         } catch (RuntimeException e) {

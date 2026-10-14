@@ -61,6 +61,10 @@ public class AssetPickerScreen extends Screen {
         this.kind = kind;
         this.onPick = onPick;
         this.projectId = projectId;
+        // Start on the project's own assets; vanilla and other mods stay one click away (NS button).
+        if (projectId != null && !projectId.isBlank()) {
+            this.namespace = projectId;
+        }
     }
 
     @Override
@@ -209,8 +213,16 @@ public class AssetPickerScreen extends Screen {
         if (namespaceOpen) {
             List<String> ns = new ArrayList<>(AssetIndex.get().namespaces());
             Collections.sort(ns);
-            ns.add(0, "");
-            namespaceList = ns;
+            // Most useful first: this project, vanilla, everything.
+            List<String> first = new ArrayList<>();
+            if (projectId != null && !projectId.isBlank()) {
+                first.add(projectId);
+            }
+            first.add("minecraft");
+            first.add("");
+            ns.removeAll(first);
+            first.addAll(ns);
+            namespaceList = first;
         }
     }
 
@@ -255,6 +267,11 @@ public class AssetPickerScreen extends Screen {
         super.render(guiGraphics, mouseX, mouseY, partialTick);
         guiGraphics.drawString(font, "Asset picker - " + label(kind) + "  (" + filtered.size() + " results)",
                 contentLeft, 44, 0xFFFFFF, false);
+        if (filtered.isEmpty() && projectId != null && projectId.equals(namespace)) {
+            guiGraphics.drawString(font, "This project has no " + label(kind).toLowerCase(java.util.Locale.ROOT)
+                    + " yet (or it is not running). Switch NS to 'minecraft' / 'all', or draw one with New16.",
+                    contentLeft, contentTop + 4, 0xFFAAAAAA, false);
+        }
 
         // Active tab underline (all tabs stay clickable).
         for (int t = 0; t < TABS.length; t++) {

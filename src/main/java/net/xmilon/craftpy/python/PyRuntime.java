@@ -54,7 +54,9 @@ public final class PyRuntime {
                 JsonObject params = new JsonObject();
                 params.addProperty("id", id);
                 params.addProperty("dir", dir.toAbsolutePath().toString());
-                return client().call("load_module", params, DEFAULT_TIMEOUT_MS);
+                JsonObject result = client().call("load_module", params, DEFAULT_TIMEOUT_MS);
+                noteSchedule(result);
+                return result;
             } catch (Exception e) {
                 CraftPy.LOGGER.error("Failed to load Python module: " + id, e);
                 return new JsonObject();
@@ -91,6 +93,22 @@ public final class PyRuntime {
                 client().call("interrupt", new JsonObject(), 500);
             } catch (Exception e) {
                 CraftPy.LOGGER.warn("Interrupt failed: {}", e.getMessage());
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
+    /**
+     * Drops everything a project or module registered in the worker (handlers, timers, declarations),
+     * so a stopped project stops reacting to events. {@code module} selects the module owner namespace.
+     */
+    public CompletableFuture<Void> unloadOwner(String id, boolean module) {
+        return CraftPyExecutors.runAsync(() -> {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("owner", (module ? "module:" : "") + id);
+                noteSchedule(client().call("unload_owner", params, DEFAULT_TIMEOUT_MS));
+            } catch (Exception e) {
+                CraftPy.LOGGER.warn("Failed to unload Python owner {}: {}", id, e.toString());
             }
         }, CraftPyExecutors.rpc());
     }
@@ -142,6 +160,13 @@ public final class PyRuntime {
                 params.addProperty("tick", tick);
                 JsonObject result = client().call("tick", params, 5000);
                 noteSchedule(result);
+                if (result != null && result.has("log") && result.get("log").isJsonArray()) {
+                    var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+                    for (var line : result.getAsJsonArray("log")) {
+                        CraftPy.LOGGER.info("[Python timer] {}", line.getAsString());
+                        net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[timer] " + line.getAsString());
+                    }
+                }
             } catch (Exception e) {
                 scheduledTasks.set(0);
             }
@@ -259,8 +284,12 @@ public final class PyRuntime {
             JsonObject params = new JsonObject();
             params.addProperty("code", code == null ? "" : code);
             params.addProperty("session", session == null ? "default" : session);
+            if (projectId != null) {
+                params.addProperty("project", projectId);
+            }
             try {
                 JsonObject result = client().call("eval", params, DEFAULT_TIMEOUT_MS);
+                noteSchedule(result);
                 List<String> output = new ArrayList<>();
                 if (result.has("output") && result.get("output").isJsonArray()) {
                     for (com.google.gson.JsonElement element : result.getAsJsonArray("output")) {

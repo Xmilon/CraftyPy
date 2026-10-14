@@ -39,14 +39,54 @@ public final class PackBuilder {
     }
 
     /** Rebuilds both packs from the current SlotRegistry state. IO on worker thread. */
+    /**
+     * Writes both packs into a staging folder and then swaps them in. A resource reload that runs
+     * meanwhile (several projects/modules load at world start) therefore never sees a half-written
+     * pack - that used to show up as "missing model for variant" and purple blocks.
+     */
     public static synchronized void rebuild() {
         try {
-            writeResourcePack(resourcePackRoot());
-            writeDataPack(dataPackRoot());
+            Path staging = PyForgePaths.root().resolve("build").resolve("staging");
+            Path resources = staging.resolve("resourcepack");
+            Path data = staging.resolve("datapack");
+            writeResourcePack(resources);
+            writeDataPack(data);
+            swapIn(resources, resourcePackRoot());
+            swapIn(data, dataPackRoot());
             CraftPy.LOGGER.info("CraftPy dynamic packs rebuilt");
         } catch (Exception e) {
             CraftPy.LOGGER.error("Failed to rebuild dynamic packs", e);
         }
+    }
+
+    /** Replaces {@code target} with {@code built} using two renames (retried: Windows locks files being read). */
+    private static void swapIn(Path built, Path target) throws Exception {
+        Path old = built.resolveSibling(built.getFileName() + ".old");
+        deleteRecursively(old);
+        Files.createDirectories(target.getParent());
+        Exception last = null;
+        for (int attempt = 0; attempt < 20; attempt++) {
+            try {
+                if (Files.exists(target)) {
+                    Files.move(target, old);
+                }
+                Files.move(built, target);
+                deleteRecursively(old);
+                return;
+            } catch (java.io.IOException e) {
+                last = e;
+                if (!Files.exists(target) && Files.exists(old)) {
+                    // Put the previous pack back before retrying so it never disappears.
+                    try {
+                        Files.move(old, target);
+                    } catch (java.io.IOException ignored) {
+                        // retried below
+                    }
+                }
+                Thread.sleep(50);
+            }
+        }
+        throw last;
     }
 
     private static void writeResourcePack(Path root) throws Exception {
@@ -61,8 +101,9 @@ public final class PackBuilder {
         for (int i = 0; i < SlotRegistry.BLOCK_CAP; i++) {
             Defs.BlockDef def = SlotRegistry.blockDef(i);
             String holder = SlotRegistry.holderForBlock(i);
-            String projectId = holder.contains(":") ? holder.substring(0, holder.indexOf(':')) : "craftpy";
-            String texture = def != null && def.texture != null ? mapRef(def.texture, projectId, null) : UNLOADED_TEXTURE;
+            String projectId = ownerOf(holder);
+            String texture = def != null && def.texture != null
+                    ? texturePath(mapRef(def.texture, projectId, null), projectId, "block") : UNLOADED_TEXTURE;
             String name = def != null && def.name != null ? def.name : "Unloaded: " + holder;
             String id = "pcblock_" + i;
 
@@ -93,8 +134,9 @@ public final class PackBuilder {
         for (int i = 0; i < SlotRegistry.ITEM_CAP; i++) {
             Defs.ItemDef def = SlotRegistry.itemDef(i);
             String holder = SlotRegistry.holderForItem(i);
-            String projectId = holder.contains(":") ? holder.substring(0, holder.indexOf(':')) : "craftpy";
-            String texture = def != null && def.texture != null ? mapRef(def.texture, projectId, null) : UNLOADED_TEXTURE;
+            String projectId = ownerOf(holder);
+            String texture = def != null && def.texture != null
+                    ? texturePath(mapRef(def.texture, projectId, null), projectId, "item") : UNLOADED_TEXTURE;
             String name = def != null && def.name != null ? def.name : "Unloaded: " + holder;
             String id = "pcitem_" + i;
 
@@ -267,19 +309,22 @@ public final class PackBuilder {
     private static void writeBlockLootTables(Path data, String projectId,
             java.util.Map<String, JsonObject> declaredLoot) throws Exception {
         for (java.util.Map.Entry<String, SlotRegistry.SlotRef> entry : SlotRegistry.snapshotByHolder().entrySet()) {
-            if (entry.getValue().kind() != SlotRegistry.Kind.BLOCK
-                    || !entry.getKey().startsWith(projectId + ":")) {
+            // Keys are "BLOCK:<project>:<id>" (older saves: "<project>:<id>").
+            String key = entry.getKey().startsWith("BLOCK:") ? entry.getKey().substring("BLOCK:".length()) : entry.getKey();
+            if (entry.getValue().kind() != SlotRegistry.Kind.BLOCK || !key.startsWith(projectId + ":")) {
                 continue;
             }
-            String contentId = entry.getKey().substring(projectId.length() + 1);
+            String contentId = key.substring(projectId.length() + 1);
             String target = "blocks/pcblock_" + entry.getValue().index();
             JsonObject custom = declaredLoot.get(contentId);
-            if (custom != null && custom.has("entries") && custom.getAsJsonArray("entries").size() > 0) {
-                writeLootTable(data, projectId, custom, target);
-            } else {
-                writeJson(selfDropLoot("craftpy:pcblock_" + entry.getValue().index()),
-                        data.resolve("loot_table/" + target + ".json"));
+            // A declared table wins, even an empty one (drops=[] means "drops nothing").
+            JsonObject table = custom != null ? buildLootTable(projectId, custom, target)
+                    : selfDropLoot("craftpy:pcblock_" + entry.getValue().index());
+            Defs.BlockDef def = SlotRegistry.blockDef(entry.getValue().index());
+            if (def != null && def.needsTool) {
+                requireTool(table, def.tool);
             }
+            writeJson(table, data.resolve("loot_table/" + target + ".json"));
         }
     }
 
@@ -309,7 +354,10 @@ public final class PackBuilder {
             case "shaped" -> {
                 out.addProperty("type", "minecraft:crafting_shaped");
                 out.add("pattern", raw.getAsJsonArray("pattern"));
-                out.add("keys", rewriteKeys(raw.getAsJsonObject("keys"), projectId));
+                // 1.21 shaped recipes use "key"; scripts may send "keys" (older API) or "key".
+                JsonObject keys = raw.has("key") && raw.get("key").isJsonObject() ? raw.getAsJsonObject("key")
+                        : raw.has("keys") && raw.get("keys").isJsonObject() ? raw.getAsJsonObject("keys") : null;
+                out.add("key", rewriteKeys(keys, projectId));
                 out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stick"), projectId, SlotRegistry.Kind.ITEM),
                         jsonInt(raw, "count", 1)));
                 out.addProperty("category", jsonString(raw, "category", "misc"));
@@ -323,25 +371,25 @@ public final class PackBuilder {
                     default -> "minecraft:smelting";
                 };
                 out.addProperty("type", vanilla);
-                out.add("ingredient", ingredient(jsonString(raw, "ingredient", "minecraft:iron_ore"), projectId));
+                out.add("ingredient", ingredient(raw.get("ingredient"), "minecraft:iron_ore", projectId));
                 out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:iron_ingot"), projectId, SlotRegistry.Kind.ITEM),
                         jsonInt(raw, "count", 1)));
                 out.addProperty("experience", jsonFloat(raw, "xp", 0.0f));
                 out.addProperty("cookingtime", jsonInt(raw, "cook_time", 200));
-                fallback = jsonString(raw, "ingredient", "result");
+                fallback = refName(raw.get("ingredient"), "result");
             }
             case "stonecutting" -> {
                 out.addProperty("type", "minecraft:stonecutting");
-                out.add("ingredient", ingredient(jsonString(raw, "ingredient", "minecraft:stone"), projectId));
+                out.add("ingredient", ingredient(raw.get("ingredient"), "minecraft:stone", projectId));
                 out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:stone"), projectId, SlotRegistry.Kind.ITEM),
                         jsonInt(raw, "count", 1)));
                 fallback = jsonString(raw, "result", "result");
             }
             case "smithing" -> {
                 out.addProperty("type", "minecraft:smithing_transform");
-                out.add("template", ingredient(jsonString(raw, "template", "minecraft:netherite_upgrade_smithing_template"), projectId));
-                out.add("base", ingredient(jsonString(raw, "base", "minecraft:diamond_sword"), projectId));
-                out.add("addition", ingredient(jsonString(raw, "addition", "minecraft:netherite_ingot"), projectId));
+                out.add("template", ingredient(raw.get("template"), "minecraft:netherite_upgrade_smithing_template", projectId));
+                out.add("base", ingredient(raw.get("base"), "minecraft:diamond_sword", projectId));
+                out.add("addition", ingredient(raw.get("addition"), "minecraft:netherite_ingot", projectId));
                 out.add("result", resultObject(mapRef(jsonString(raw, "result", "minecraft:netherite_sword"), projectId, SlotRegistry.Kind.ITEM),
                         jsonInt(raw, "count", 1)));
                 fallback = jsonString(raw, "result", "result");
@@ -353,8 +401,10 @@ public final class PackBuilder {
                 out.addProperty("category", jsonString(raw, "category", "misc"));
                 JsonArray ingredients = new JsonArray();
                 JsonArray rawIngredients = raw.getAsJsonArray("ingredients");
-                for (var element : rawIngredients) {
-                    ingredients.add(ingredient(element.getAsString(), projectId));
+                if (rawIngredients != null) {
+                    for (var element : rawIngredients) {
+                        ingredients.add(ingredient(element, "minecraft:stick", projectId));
+                    }
                 }
                 out.add("ingredients", ingredients);
                 fallback = jsonString(raw, "result", "result");
@@ -362,6 +412,44 @@ public final class PackBuilder {
         }
         String name = fileName(jsonString(raw, "id", fallback));
         writeJson(out, data.resolve("recipe/" + name + ".json"));
+    }
+
+    /** A readable name for an ingredient value (string, {"item"} or {"tag"}), used for file names. */
+    static String refName(JsonElement value, String fallback) {
+        if (value == null || value.isJsonNull()) {
+            return fallback;
+        }
+        if (value.isJsonObject()) {
+            JsonObject object = value.getAsJsonObject();
+            for (String key : new String[] { "item", "tag" }) {
+                if (object.has(key) && object.get(key).isJsonPrimitive()) {
+                    return object.get(key).getAsString();
+                }
+            }
+            return fallback;
+        }
+        return value.isJsonPrimitive() ? value.getAsString() : fallback;
+    }
+
+    /** Ingredient from a script value: {@code "id"}, {@code "#tag"}, {@code {"item": ..}} or {@code {"tag": ..}}. */
+    static JsonObject ingredient(JsonElement value, String fallback, String projectId) {
+        if (value == null || value.isJsonNull()) {
+            return ingredient(fallback, projectId);
+        }
+        if (value.isJsonObject()) {
+            JsonObject object = value.getAsJsonObject();
+            if (object.has("tag")) {
+                JsonObject tag = new JsonObject();
+                String id = object.get("tag").getAsString();
+                tag.addProperty("tag", id.startsWith("#") ? id.substring(1) : id);
+                return tag;
+            }
+            if (object.has("item")) {
+                return ingredient(object.get("item").getAsString(), projectId);
+            }
+            return ingredient(fallback, projectId);
+        }
+        return ingredient(value.isJsonPrimitive() ? value.getAsString() : fallback, projectId);
     }
 
     /** Builds an ingredient object; a leading {@code #} denotes a tag reference. */
@@ -398,7 +486,12 @@ public final class PackBuilder {
             return out;
         }
         for (String key : keys.keySet()) {
-            JsonObject ingredient = keys.getAsJsonObject(key);
+            JsonElement value = keys.get(key);
+            if (!value.isJsonObject()) {
+                out.add(key, ingredient(value, "minecraft:stick", projectId));
+                continue;
+            }
+            JsonObject ingredient = value.getAsJsonObject();
             if (ingredient.has("item")) {
                 String ref = ingredient.get("item").getAsString();
                 if (ref.startsWith("#")) {
@@ -419,16 +512,57 @@ public final class PackBuilder {
 
     /** Writes a block-type loot table to {@code loot_table/<target>.json}. */
     static void writeLootTable(Path data, String projectId, JsonObject raw, String target) throws Exception {
+        writeJson(buildLootTable(projectId, raw, target), data.resolve("loot_table/" + target + ".json"));
+    }
+
+    /** needs_tool: every pool only drops when the block is mined with the declared tool (like vanilla ores). */
+    static void requireTool(JsonObject table, String tool) {
+        String tag = switch (tool == null ? "" : tool.toLowerCase(java.util.Locale.ROOT)) {
+            case "pickaxe" -> "#minecraft:pickaxes";
+            case "axe" -> "#minecraft:axes";
+            case "shovel" -> "#minecraft:shovels";
+            case "hoe" -> "#minecraft:hoes";
+            case "sword" -> "#minecraft:swords";
+            default -> null;
+        };
+        if (tag == null || !table.has("pools")) {
+            return;
+        }
+        JsonObject predicate = new JsonObject();
+        predicate.addProperty("items", tag);
+        JsonObject condition = new JsonObject();
+        condition.addProperty("condition", "minecraft:match_tool");
+        condition.add("predicate", predicate);
+        for (var pool : table.getAsJsonArray("pools")) {
+            JsonArray conditions = pool.getAsJsonObject().has("conditions")
+                    ? pool.getAsJsonObject().getAsJsonArray("conditions") : new JsonArray();
+            conditions.add(condition.deepCopy());
+            pool.getAsJsonObject().add("conditions", conditions);
+        }
+    }
+
+    static JsonObject buildLootTable(String projectId, JsonObject raw, String target) {
         JsonObject table = new JsonObject();
         table.addProperty("type", "minecraft:block");
         JsonArray pools = new JsonArray();
         JsonObject pool = new JsonObject();
         pool.addProperty("rolls", 1.0f);
         JsonArray entries = new JsonArray();
-        for (var element : raw.getAsJsonArray("entries")) {
+        // loot_self() / "self": the block drops itself. Block tables live at blocks/pcblock_<n>.
+        String selfRef = target.startsWith("blocks/") ? "craftpy:" + target.substring("blocks/".length()) : null;
+        JsonArray rawEntries = raw.has("entries") && raw.get("entries").isJsonArray()
+                ? raw.getAsJsonArray("entries") : new JsonArray();
+        for (var element : rawEntries) {
             JsonObject entry = new JsonObject();
             entry.addProperty("type", "minecraft:item");
-            if (element.isJsonObject() && element.getAsJsonObject().has("item")) {
+            boolean self = element.isJsonObject() && "self".equals(jsonString(element.getAsJsonObject(), "value", ""))
+                    || element.isJsonPrimitive() && "self".equals(element.getAsString());
+            if (self) {
+                if (selfRef == null) {
+                    continue;
+                }
+                entry.addProperty("name", selfRef);
+            } else if (element.isJsonObject() && element.getAsJsonObject().has("item")) {
                 JsonObject spec = element.getAsJsonObject();
                 entry.addProperty("name", mapRef(spec.get("item").getAsString(), projectId, SlotRegistry.Kind.ITEM));
                 if (spec.has("weight")) {
@@ -437,15 +571,17 @@ public final class PackBuilder {
                 if (spec.has("count")) {
                     entry.add("functions", countFunction(spec.get("count").getAsInt()));
                 }
-            } else {
+            } else if (element.isJsonPrimitive()) {
                 entry.addProperty("name", mapRef(element.getAsString(), projectId, SlotRegistry.Kind.ITEM));
+            } else {
+                continue;
             }
             entries.add(entry);
         }
         pool.add("entries", entries);
         pools.add(pool);
         table.add("pools", pools);
-        writeJson(table, data.resolve("loot_table/" + target + ".json"));
+        return table;
     }
 
     static void writeTag(Path data, String projectId, JsonObject raw) throws Exception {
@@ -572,6 +708,57 @@ public final class PackBuilder {
             }
         }
         return ref;
+    }
+
+    /** Project (or module) id of a slot holder key such as {@code BLOCK:ruby_rush:ruby_ore}. */
+    static String ownerOf(String holder) {
+        String rest = holder;
+        if (rest.startsWith("BLOCK:") || rest.startsWith("ITEM:")) {
+            rest = rest.substring(rest.indexOf(':') + 1);
+        }
+        int colon = rest.indexOf(':');
+        return colon > 0 ? rest.substring(0, colon) : "craftpy";
+    }
+
+    /**
+     * Turns what a script wrote into a texture id Minecraft resolves:
+     * {@code ruby.png} / {@code ruby} = the project's {@code assets/textures/ruby.png};
+     * {@code minecraft:dirt} = {@code minecraft:block/dirt} (or {@code item/...} for items, when that exists);
+     * anything with a folder ({@code minecraft:block/dirt}, {@code ruby_rush:items/gem}) is kept.
+     */
+    static String texturePath(String texture, String projectId, String kind) {
+        if (texture == null || texture.isBlank()) {
+            return UNLOADED_TEXTURE;
+        }
+        String value = texture.trim();
+        if (value.endsWith(".png")) {
+            value = value.substring(0, value.length() - 4);
+        }
+        if (value.startsWith("textures/")) {
+            value = value.substring("textures/".length());
+        }
+        int colon = value.indexOf(':');
+        if (colon < 0) {
+            return projectId + ":" + value;
+        }
+        String ns = value.substring(0, colon);
+        String path = value.substring(colon + 1);
+        if (path.contains("/") || !"minecraft".equals(ns)) {
+            return value;
+        }
+        // Vanilla shorthand: prefer the folder matching the content kind, fall back to the other one.
+        String other = "block".equals(kind) ? "item" : "block";
+        if (vanillaTextureExists(kind, path) || !vanillaTextureExists(other, path)) {
+            return "minecraft:" + kind + "/" + path;
+        }
+        return "minecraft:" + other + "/" + path;
+    }
+
+    /** Checks the vanilla jar when it is on the classpath (client/singleplayer); a dedicated server says no. */
+    private static boolean vanillaTextureExists(String folder, String path) {
+        // Class.getResource would only search this mod's module; the class loader sees the game layer too.
+        ClassLoader loader = PackBuilder.class.getClassLoader();
+        return loader != null && loader.getResource("assets/minecraft/textures/" + folder + "/" + path + ".png") != null;
     }
 
     private static String fileName(String rawId) {

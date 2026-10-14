@@ -31,26 +31,24 @@ Minecraft's registries are frozen after mod loading, so "add a block at runtime"
 
 The result is a tight authoring loop:
 
-1. Right-click the **CraftPy Computer** to open the IDE.
-2. Write or edit `code/main.py` (with completion, docs and snippets).
+1. Right-click the **CraftPy Computer** (or press `I` as an operator) to open CraftPy.
+2. Write or edit `code/main.py` in the Editor page.
 3. Press **Run** — the script executes on a sandboxed Python worker.
 4. Your blocks and items appear in-game immediately.
 
 ## Features
 
-### In-game IDE
-- **Project explorer** with create / rename / delete and an IntelliJ-style file flow: clicking an asset previews it, text files open in the editor.
-- **Tabbed editor** with per-tab close buttons, unsaved markers (`*`), and buffer preservation between tabs.
-- **Python editor**: syntax highlighting, line numbers, auto-indent, bracket matching, undo/redo, find, duplicate line, comment toggle, mouse selection.
-- **Go to definition** via shift-click, including cross-file lookup.
-- **Bottom panel**: console (with a Python REPL and commands), problems, asset overview, and an offline API reference.
-
-### Code completion
-- Context-aware suggestions for the CraftPy API, Python keywords, builtins and identifiers in your file.
-- **Documentation panel** on every suggestion — a signature plus a one-line description of what it does.
-- **Field completion inside declarations**: typing inside `@block(...)` / `@item(...)` offers exactly the fields that definition supports (with descriptions).
-- **Snippet templates**: accepting `block` or `item` at a statement start inserts the full declaration with its fields pre-filled (ghost previewed on screen; **Tab** applies it, typing continues normally).
-- The popup dismisses itself the moment your typing stops matching — never stale.
+### In-game UI (built on Modern UI)
+One screen with a navigation rail, styled like Modern UI's own settings center:
+- **Home**: create projects; open, run, stop, rename, duplicate or delete them; recent files.
+- **Modules**: every built `.cpm`, with search, enable/disable switches, Reload all, details and the rendered README.
+- **Editor**:
+  - explorer (preview on click, keep open on double click; right click for new / rename / delete), pinned and preview tabs, a tab overflow menu, quick open (`Ctrl+P`)
+  - code area with themes (Dark, Light, Monokai, Dracula, Solarized Dark, High Contrast), zoom, per-file word wrap, current-line and same-word highlight, a ruler, line numbers with bookmarks
+  - editing helpers: auto-closing brackets and quotes, surround selection, `else:`/`except:` dedent, smart Home, sort / dedupe / join / split lines, trim trailing whitespace on save
+  - find and replace with history and "in selection"; Console (Python REPL), Problems and Bookmarks panels; resizable explorer and bottom panel; zen mode
+  - toolbar: Edit, View, Save, Validate, Assets, Build, Stop, **Reload** (re-run the project and reload every module), Run
+- **Docs**: the offline API reference, rendered as Markdown.
 
 ### Asset management
 - **Click-to-view asset files** from the explorer: textures render on a checkerboard backdrop with zoom and a one-click jump into the built-in **pixel editor**; sounds resolve their sound event for playback.
@@ -75,6 +73,7 @@ The result is a tight authoring loop:
 | **Mod loader** | NeoForge 21.1.x |
 | **JDK** | 21 or newer |
 | **Python** | CPython **3.13+** on `PATH` (or set `pythonPath` in config; a runtime placed in `pyforge/runtime/` also works) |
+| **Modern UI** | 3.13+ for NeoForge 1.21.1, **client only** (servers do not need it) |
 
 ## Getting Started
 
@@ -87,104 +86,63 @@ The result is a tight authoring loop:
 
 On Windows use `gradlew.bat`. The dev instance lives in `run/`, and everything CraftPy stores is created under `run/pyforge/` on first launch.
 
+Modern UI is a compile-only dependency. Before `runClient`, put `ModernUI-NeoForge-1.21.1-3.13.0.1-universal.jar` (CurseForge/Modrinth) into `run/mods/`.
+
 ### In-game first steps
 
 1. Get a **CraftPy Computer** (creative tab *CraftPy*, or craft it — recipe included) and right-click it.
-2. Create a project in the project chooser, then open it in the IDE.
-3. Edit `code/main.py`, press **Run** (or `Ctrl+Shift+R`), and check the console output.
+2. Create a project on the **Home** page; it opens in the **Editor**.
+3. Edit `code/main.py`, press **Run** (or `Ctrl+R`), and check the console output.
 4. Get your content with `/craftpy give <you> <project>:<id> <block|item>` (Tab completes the content list).
 
-### Keyboard shortcuts
+### Keyboard shortcuts (code area)
+
+Press `F1` (or `Ctrl+/`) in the editor for the full list. The main ones:
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+S` | Save the active file |
-| `Ctrl+Enter` | Validate the project on the Python worker |
-| `Ctrl+Shift+R` | Save and run the project |
-| `Ctrl+F` | Find in file |
-| `Ctrl+W` | Close the active tab |
-| `Ctrl+Space` | Open the asset picker (on an asset reference) or completion |
-| `Ctrl+D` | Duplicate line / selection |
-| `Ctrl+/` | Toggle comment |
-| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
-| `Shift`+click | Go to definition |
-| `Tab` / `Shift+Tab` | Accept suggestion / (un)indent |
-| Right- or middle-click a tab | Close the tab |
+| `Ctrl+S` | Save (trims trailing whitespace if enabled) |
+| `Ctrl+R` / `F5` | Run the project / run it and reload every module |
+| `Ctrl+Enter` | Validate the file on the Python worker |
+| `Ctrl+F` / `Ctrl+H`, `F3` | Find / replace, next match |
+| `Ctrl+P` | Quick open |
+| `Ctrl+W` | Close tab |
+| `Ctrl+J`, `Ctrl+Shift+Enter` | Join lines, split line |
+| `Ctrl+F2`, `F2` / `Shift+F2` | Toggle bookmark, next / previous |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom (also `Ctrl` + mouse wheel) |
+| `F11` | Zen mode |
+| `Esc` | Close the screen (unsaved edits stay in memory until you save or close the tab) |
 
-### Console commands (bottom panel)
+### Console (bottom panel)
 
-| Command | Action |
-|---|---|
-| `help` | List console commands |
-| `run` | Save and run the project |
-| `validate` | Check the active file |
-| `open <file>` | Open a file in the editor |
-| `files` | List project files |
-| `api` | Show the API reference tab |
-| `debug` | Toggle debug tracing |
-| `clear` / `reset` | Clear console / reset console state |
-
-Anything else typed in the console is evaluated by the project's Python worker (persistent REPL — variables and imports survive between lines).
+Everything typed in the console is evaluated by the project's Python worker (persistent REPL: variables and imports survive between lines). `Up` / `Down` walk the input history. **Clear** empties the log.
 
 ## Writing Content in Python
 
 ```python
 from craftpy import *
 
-@block(
-    "ruby_block",
-    name="Ruby Block",
-    texture="my_project:ruby_block",  # <project_id>:<file> from assets/textures/
-    hardness=3.0,
-    resistance=15.0,
-    light=7,
-    tool="pickaxe",
-    sound="stone",
-    needs_tool=True,
-)
-class RubyBlock:
-    pass
+ruby = Item("ruby", texture="ruby.png")                      # assets/textures/ruby.png
+ruby_ore = Block("ruby_ore", texture="ruby_ore.png", hardness=3,
+                 tool="pickaxe", needs_tool=True, drops=(ruby, 2))
 
-@item(
-    "ruby_wand",
-    name="Ruby Wand",
-    texture="my_project:ruby_wand",
-    max_stack=1,
-    glow=True,
-    use_effect="speed:2:10",         # effect[:amplifier:seconds]
-)
-class RubyWand:
-    pass
+shaped(ruby, "DD", "DD", D="diamond")
+smelt(ruby_ore, ruby, xp=0.7)
 
-def main(ctx):
-    ctx.log("project loaded")
+
+@on.block_break(block=ruby_ore)
+def found_ruby(event):
+    event.player.say("You found rubies!")
+    event.player.effect("haste", seconds=10)
 ```
 
-> Replace `my_project` with your own project id — project assets are addressed as `<project_id>:<file name>`, e.g. `assets/textures/ruby_block.png` becomes `my_project:ruby_block`. After **Run**, get the content with `/craftpy give <you> my_project:ruby_block block`. A project block behaves like a normal block: it drops itself when mined, unless you declare `loot_table("ruby_block", entries=[...])` with the same id.
+After **Run**, get the content with `/craftpy give @s <project>:ruby_ore block`.
 
-### API reference
-
-| Construct | Purpose |
-|---|---|
-| `@block("id", **fields)` | Declare a block |
-| `@item("id", **fields)` | Declare an item |
-| `@entity("id", **fields)` | Declare a reskinned mob *(declared, not yet active)* |
-| `@effect("id", **fields)` | Declare a mob effect *(declared, not yet active)* |
-| `tex("ns:path")` / `snd(...)` / `mdl(...)` | Reference a texture / sound event / model |
-| `recipe_shaped(result, pattern, keys)` | Shaped crafting recipe |
-| `recipe_shapeless(result, ingredients)` | Shapeless crafting recipe |
-| `recipe_smelting(result, ingredient, xp, cook_time)` | Furnace recipe |
-| `loot_table("id", entries=[...])` | Custom drops (same id as a block → replaces its drop) |
-| `loot_self()` | Drop the block/item itself |
-| `tag("#id", values=[...])` | Add ids to a data pack tag |
-| `lang("key", "value")` | Add a translation entry |
-| `on("event", every=20)` | Event handler declaration |
-| `main(ctx)` | Optional entry point; `ctx.log()` writes to the console |
-
-**Block fields** — `name`, `texture`, `hardness`, `resistance`, `light` (0–15), `tool`, `sound`, `needs_tool`
-**Item fields** — `name`, `texture`, `max_stack`, `glow`, `food` (`{"hunger", "saturation", ...}`), `burn_time`, `use_effect`
-
-Tip: type `block` or `item` at the start of a line and press `Tab` — the editor inserts the full template with all fields, ready to fill in.
+The full reference (blocks, items, recipes, events, players, world, entities, timers, storage,
+commands and limits) is the **Docs** page in game, from
+[`api.md`](src/main/resources/assets/craftpy/docs/api.md). The older decorator style
+(`@block(...) class X: pass`, `recipe_shaped(...)`) still works.
+Two example projects live in [`examples/`](examples): `tutorial` (start here) and `ruby_rush`.
 
 ## The `/craftpy` Command
 
@@ -206,6 +164,8 @@ Examples:
 - **Tab completes** the full list of project content ids, and the `block`/`item` kinds — like vanilla item commands.
 - `<project>:<id>` is the id used in `@block`/`@item` (`project_`-prefixed aliases like `project_bb:ruby` for project `bb` are accepted).
 - `count` is optional (1–64).
+- Commands declared with `@command("name")` in a project become `/<project>:<name>` and tab-complete as soon as the project runs.
+- `/craftpy module enable|disable|info|reload <module>` complete every discovered module.
 
 ## Project Layout
 

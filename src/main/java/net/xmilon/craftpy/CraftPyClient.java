@@ -15,8 +15,8 @@ import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.xmilon.craftpy.client.assets.AssetIndex;
 import net.xmilon.craftpy.client.assets.AssetUploader;
-import net.xmilon.craftpy.client.screen.ComputerScreen;
-import net.xmilon.craftpy.client.screen.ProjectChooserScreen;
+import net.xmilon.craftpy.client.ClientProjectStore;
+import net.xmilon.craftpy.client.mui.CraftPyFragment;
 import net.xmilon.craftpy.registry.ModMenus;
 
 import org.lwjgl.glfw.GLFW;
@@ -45,8 +45,16 @@ public class CraftPyClient {
             long window = Minecraft.getInstance().getWindow().getWindow();
             GLFW.glfwSetDropCallback(window, (handle, count, names) -> {
                 java.util.List<java.nio.file.Path> paths = AssetUploader.fromDropArgs(count, names);
-                if (Minecraft.getInstance().screen instanceof ComputerScreen computer) {
-                    computer.handleDroppedAssets(paths);
+                // Files dropped on a CraftPy screen are uploaded to the open project.
+                if (Minecraft.getInstance().screen instanceof icyllis.modernui.mc.MuiScreen mui
+                        && mui.getFragment() instanceof CraftPyFragment) {
+                    ClientProjectStore store = ClientProjectStore.getInstance();
+                    String projectId = store.activeProjectId();
+                    if (projectId == null) {
+                        store.append("Open a project before dropping assets");
+                        return;
+                    }
+                    AssetUploader.uploadAll(projectId, paths, net.xmilon.craftpy.assets.AssetKind.TEXTURE);
                 }
             });
         });
@@ -61,8 +69,9 @@ public class CraftPyClient {
 
     @SubscribeEvent
     static void onRegisterMenuScreens(RegisterMenuScreensEvent event) {
-        // The computer opens its own dedicated project window; the IDE is a separate screen.
-        event.register(ModMenus.COMPUTER.get(), ProjectChooserScreen::new);
+        // The computer block opens the CraftPy home screen (Modern UI).
+        event.register(ModMenus.COMPUTER.get(),
+                icyllis.modernui.mc.neoforge.MenuScreenFactory.create(menu -> new CraftPyFragment()));
     }
 
     @SubscribeEvent
@@ -76,13 +85,8 @@ public class CraftPyClient {
         if (OPEN_IDE_KEY.consumeClick()) {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null && mc.player.hasPermissions(2)) { // Cheats/admin only
-                if (mc.screen == null || !(mc.screen instanceof ComputerScreen || mc.screen instanceof ProjectChooserScreen)) {
-                    mc.setScreen(new ProjectChooserScreen(
-                            mc.player.containerMenu instanceof net.xmilon.craftpy.menu.ComputerMenu
-                                    ? (net.xmilon.craftpy.menu.ComputerMenu) mc.player.containerMenu
-                                    : null,
-                            mc.player.getInventory(),
-                            net.minecraft.network.chat.Component.literal("CraftPy Projects")));
+                if (mc.screen == null) {
+                    mc.setScreen(CraftPyFragment.createScreen(CraftPyFragment.PAGE_HOME));
                 }
             }
         }

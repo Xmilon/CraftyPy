@@ -27,7 +27,18 @@ import net.xmilon.craftpy.client.ClientProjectStore;
  * project's {@code assets/textures/} folder.
  */
 public class TextureEditorScreen extends Screen {
-    private enum Tool {PENCIL, ERASER, FILL, EYEDROPPER}
+    private enum Tool {
+        PENCIL("Pencil", 'B'), ERASER("Eraser", 'E'), FILL("Fill", 'G'), EYEDROPPER("Picker", 'I'),
+        LINE("Line", 'L'), RECT("Rect", 'R');
+
+        final String label;
+        final char key;
+
+        Tool(String label, char key) {
+            this.label = label;
+            this.key = key;
+        }
+    }
 
     private static final int[] PALETTE = {
             0x00000000, 0xFF000000, 0xFFFFFFFF, 0xFF9E9E9E, 0xFF795548,
@@ -72,6 +83,18 @@ public class TextureEditorScreen extends Screen {
     private int lastPaintX = -1;
     private int lastPaintY = -1;
     private final java.util.List<int[]> paletteRects = new java.util.ArrayList<>();
+    /** Colors painted with most recently, newest first. */
+    private final java.util.List<Integer> recentColors = new java.util.ArrayList<>();
+    private EditBox hexBox;
+    private int shownHexColor = 1;
+    /** Line/rect tools: start pixel of the drag and the current end pixel. */
+    private int shapeStartX = -1;
+    private int shapeStartY = -1;
+    private int shapeEndX = -1;
+    private int shapeEndY = -1;
+    private int shapeButton;
+    private int hoverX = -1;
+    private int hoverY = -1;
 
     private TextureEditorScreen(Screen parent, String projectId, int w, int h, int[] initial, String name) {
         super(Component.literal("Texture editor"));
@@ -153,10 +176,11 @@ public class TextureEditorScreen extends Screen {
         int bx = 8;
         for (Tool t : Tool.values()) {
             Tool toolRef = t;
-            Button b = Button.builder(Component.literal(t.name().substring(0, 1) + t.name().substring(1).toLowerCase(Locale.ROOT)),
-                    x -> tool = toolRef).bounds(bx, top, 66, 16).build();
+            Button b = Button.builder(Component.literal(t.label), x -> tool = toolRef).bounds(bx, top, 50, 16)
+                    .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal(t.label + " (" + t.key + ")")))
+                    .build();
             addRenderableWidget(b);
-            bx += 68;
+            bx += 52;
         }
         bx += 8;
         addRenderableWidget(Button.builder(Component.literal("Undo"), b -> doUndo()).bounds(bx, top, 50, 16).build());
@@ -183,6 +207,12 @@ public class TextureEditorScreen extends Screen {
         nameBox.setMaxLength(48);
         nameBox.setHint(Component.literal("texture name"));
         addRenderableWidget(nameBox);
+        hexBox = new EditBox(font, svX(), 58 + SV_SIZE + 14, 70, 14, Component.literal("hex"));
+        hexBox.setMaxLength(9);
+        hexBox.setHint(Component.literal("#RRGGBB"));
+        hexBox.setResponder(this::onHexTyped);
+        addRenderableWidget(hexBox);
+        shownHexColor = color + 1;
         addRenderableWidget(Button.builder(Component.literal("Flip H"), b -> flipHorizontally())
                 .bounds(width - 340, bottom, 56, 16).build());
         addRenderableWidget(Button.builder(Component.literal("Flip V"), b -> flipVertically())
@@ -205,6 +235,42 @@ public class TextureEditorScreen extends Screen {
     // ------------------------------------------------------------------
     // Color helpers (HSV wheel + alpha, like a paint program)
     // ------------------------------------------------------------------
+
+    private int svX() {
+        return width - 154;
+    }
+
+    /** "#RRGGBB" or "#AARRGGBB" typed in the hex box. */
+    private void onHexTyped(String value) {
+        String hex = value.trim().startsWith("#") ? value.trim().substring(1) : value.trim();
+        if (!hex.matches("[0-9a-fA-F]{6}|[0-9a-fA-F]{8}")) {
+            return;
+        }
+        long parsed = Long.parseLong(hex, 16);
+        int argb = hex.length() == 6 ? 0xFF000000 | (int) parsed : (int) parsed;
+        setColorArgb(argb);
+        shownHexColor = argb;
+        if (tool == Tool.ERASER) {
+            tool = Tool.PENCIL;
+        }
+    }
+
+    private static String hex(int argb) {
+        int alpha = (argb >>> 24) & 0xFF;
+        return alpha == 0xFF ? String.format(Locale.ROOT, "#%06X", argb & 0xFFFFFF)
+                : String.format(Locale.ROOT, "#%08X", argb);
+    }
+
+    private void rememberColor(int argb) {
+        if (((argb >>> 24) & 0xFF) == 0) {
+            return;
+        }
+        recentColors.remove((Integer) argb);
+        recentColors.add(0, argb);
+        while (recentColors.size() > 10) {
+            recentColors.remove(recentColors.size() - 1);
+        }
+    }
 
     private void initWheelGeometry() {
         svX = width - 154;
@@ -348,8 +414,13 @@ public class TextureEditorScreen extends Screen {
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics, mouseX, mouseY, partialTick);
         super.render(graphics, mouseX, mouseY, partialTick);
-        graphics.drawString(font, "Texture editor  " + texWidth + "x" + texHeight + "  (" + (mirrorX ? "mirrorX " : "")
-                + (mirrorY ? "mirrorY" : "") + ")", 8, 10, 0x4FC3F7, false);
+        String cursor = hoverX >= 0 ? "   x" + hoverX + " y" + hoverY + "  " + hex(pixels[hoverY * texWidth + hoverX]) : "";
+        graphics.drawString(font, "Texture editor  " + texWidth + "x" + texHeight + "  " + tool.label
+                + (mirrorX ? "  mirrorX" : "") + (mirrorY ? "  mirrorY" : "") + cursor, 8, 10, 0x4FC3F7, false);
+        if (!hexBox.isFocused() && shownHexColor != color) {
+            shownHexColor = color;
+            hexBox.setValue(hex(color));
+        }
 
         centerCanvas();
         // checkerboard backdrop
@@ -390,9 +461,29 @@ public class TextureEditorScreen extends Screen {
         graphics.fill(px + 4, py, px + 22, py + 18, ((color >>> 24) & 0xFF) == 0 ? 0xFF888888 : color);
         graphics.drawString(font, "current", px + 28, py + 5, 0xD7E1EA, false);
         graphics.drawString(font, "A:" + ((color >>> 24) & 0xFF), px + 28, py + 17, 0xD7E1EA, false);
+        // recently used colors, under the palette
+        int rx = 8;
+        int ry = py - 14;
+        if (!recentColors.isEmpty()) {
+            graphics.drawString(font, "recent", rx, ry - 10, 0x8A97A4, false);
+        }
+        for (int c : recentColors) {
+            graphics.fill(rx, ry, rx + 12, ry + 12, c);
+            paletteRects.add(new int[] { rx, ry, 12, 12, c });
+            rx += 14;
+        }
+        if (shapeStartX >= 0 && shapeEndX >= 0) {
+            int previewColor = shapeButton == 1 || tool == Tool.ERASER ? 0x80FF00FF : color;
+            for (int[] point : shapePoints(shapeStartX, shapeStartY, shapeEndX, shapeEndY)) {
+                int sx = canvasX + point[0] * zoom;
+                int sy = canvasY + point[1] * zoom;
+                graphics.fill(sx, sy, sx + zoom, sy + zoom, previewColor);
+            }
+        }
 
         renderColorWheel(graphics);
         graphics.drawString(font, "S/V  Hue  Alpha", svX, svY + SV_SIZE + 2, 0xD7E1EA, false);
+        graphics.drawString(font, "B E G I L R tools, Ctrl+Z/Y, +/- zoom, H grid", 8, 48, 0x8A97A4, false);
 
         graphics.drawString(font, "Name:", 62, height - 22, 0xD7E1EA, false);
         if (!status.isEmpty()) {
@@ -418,7 +509,18 @@ public class TextureEditorScreen extends Screen {
             }
         }
         if (insideCanvas(mouseX, mouseY)) {
+            setFocused(null);
+            if (tool == Tool.LINE || tool == Tool.RECT) {
+                shapeStartX = shapeEndX = (int) ((mouseX - canvasX) / zoom);
+                shapeStartY = shapeEndY = (int) ((mouseY - canvasY) / zoom);
+                shapeButton = button;
+                return true;
+            }
             painting = true;
+            lastSnapshotPending = true;
+            if (tool == Tool.PENCIL && button == 0) {
+                rememberColor(color);
+            }
             paintAt(mouseX, mouseY, button);
             return true;
         }
@@ -431,6 +533,11 @@ public class TextureEditorScreen extends Screen {
             applyWheelAt(mouseX, mouseY);
             return true;
         }
+        if (shapeStartX >= 0) {
+            shapeEndX = Math.max(0, Math.min(texWidth - 1, (int) ((mouseX - canvasX) / zoom)));
+            shapeEndY = Math.max(0, Math.min(texHeight - 1, (int) ((mouseY - canvasY) / zoom)));
+            return true;
+        }
         if (painting && insideCanvas(mouseX, mouseY)) {
             paintAt(mouseX, mouseY, button);
             return true;
@@ -440,6 +547,20 @@ public class TextureEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (shapeStartX >= 0 && shapeEndX >= 0) {
+            pushUndo();
+            int c = shapeButton == 1 || tool == Tool.ERASER ? 0 : color;
+            if (c != 0) {
+                rememberColor(c);
+            }
+            for (int[] point : shapePoints(shapeStartX, shapeStartY, shapeEndX, shapeEndY)) {
+                plot(point[0], point[1], c);
+            }
+        }
+        shapeStartX = shapeStartY = shapeEndX = shapeEndY = -1;
+        prevStrokeX = prevStrokeY = -1;
+        // The next stroke gets its own undo step.
+        lastSnapshotPending = true;
         painting = false;
         colorDrag = false;
         lastPaintX = -1;
@@ -454,6 +575,95 @@ public class TextureEditorScreen extends Screen {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    @Override
+    public void mouseMoved(double mouseX, double mouseY) {
+        if (insideCanvas(mouseX, mouseY)) {
+            hoverX = (int) ((mouseX - canvasX) / zoom);
+            hoverY = (int) ((mouseY - canvasY) / zoom);
+        } else {
+            hoverX = hoverY = -1;
+        }
+        super.mouseMoved(mouseX, mouseY);
+    }
+
+    /** Pixels of a line (Bresenham) or a rectangle outline, depending on the tool. */
+    private java.util.List<int[]> shapePoints(int x0, int y0, int x1, int y1) {
+        java.util.List<int[]> points = new java.util.ArrayList<>();
+        if (tool == Tool.RECT) {
+            int left = Math.min(x0, x1), right = Math.max(x0, x1), top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+            for (int x = left; x <= right; x++) {
+                points.add(new int[] { x, top });
+                points.add(new int[] { x, bottom });
+            }
+            for (int y = top + 1; y < bottom; y++) {
+                points.add(new int[] { left, y });
+                points.add(new int[] { right, y });
+            }
+            return points;
+        }
+        int dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+        int dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+        int x = x0, y = y0;
+        while (true) {
+            points.add(new int[] { x, y });
+            if (x == x1 && y == y1) {
+                break;
+            }
+            int e2 = 2 * err;
+            if (e2 >= dy) {
+                err += dy;
+                x += sx;
+            }
+            if (e2 <= dx) {
+                err += dx;
+                y += sy;
+            }
+        }
+        return points;
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (getFocused() instanceof EditBox box && box.isFocused()) {
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+        boolean ctrl = Screen.hasControlDown();
+        if (ctrl && keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_Z) {
+            doUndo();
+            return true;
+        }
+        if (ctrl && keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_Y) {
+            doRedo();
+            return true;
+        }
+        if (!ctrl) {
+            for (Tool t : Tool.values()) {
+                if (keyCode == t.key) {
+                    tool = t;
+                    return true;
+                }
+            }
+            switch (keyCode) {
+                case org.lwjgl.glfw.GLFW.GLFW_KEY_H -> {
+                    grid = !grid;
+                    return true;
+                }
+                case org.lwjgl.glfw.GLFW.GLFW_KEY_EQUAL, org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ADD -> {
+                    zoom = Math.min(40, zoom + 2);
+                    return true;
+                }
+                case org.lwjgl.glfw.GLFW.GLFW_KEY_MINUS, org.lwjgl.glfw.GLFW.GLFW_KEY_KP_SUBTRACT -> {
+                    zoom = Math.max(2, zoom - 2);
+                    return true;
+                }
+                default -> {
+                }
+            }
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     private boolean insideCanvas(double mouseX, double mouseY) {
@@ -476,16 +686,30 @@ public class TextureEditorScreen extends Screen {
             case FILL -> floodFill(x, y, currentPaintColor(button));
             case EYEDROPPER -> setColorArgb(pixels[y * texWidth + x]);
             default -> {
-                if (undo.isEmpty() || lastSnapshotPending) {
+                if (lastSnapshotPending) {
                     pushUndo();
                     lastSnapshotPending = false;
                 }
-                plot(x, y, currentPaintColor(button));
+                int c = currentPaintColor(button);
+                if (prevStrokeX >= 0) {
+                    Tool shape = tool;
+                    tool = Tool.LINE;
+                    for (int[] point : shapePoints(prevStrokeX, prevStrokeY, x, y)) {
+                        plot(point[0], point[1], c);
+                    }
+                    tool = shape;
+                } else {
+                    plot(x, y, c);
+                }
+                prevStrokeX = x;
+                prevStrokeY = y;
             }
         }
     }
 
     private boolean lastSnapshotPending = true;
+    private int prevStrokeX = -1;
+    private int prevStrokeY = -1;
 
     private int currentPaintColor(int button) {
         if (tool == Tool.ERASER || button == 1) {

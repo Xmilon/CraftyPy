@@ -193,6 +193,7 @@ public final class ProjectController {
         }
         manager.markLoaded(projectId, false);
         SlotRegistry.releaseProject(projectId);
+        PyRuntime.get().unloadOwner(projectId, false);
         manager.setLastError(projectId, null);
         afterChange(server);
     }

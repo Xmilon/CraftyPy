@@ -36,6 +36,7 @@ import queue
 import time
 import math
 import random
+import inspect
 
 # ---------------------------------------------------------------------------
 # Import policy. This is a *denylist*: everything ships with the sandbox except
@@ -96,6 +97,18 @@ def _denied(*args, **kwargs):
     raise RuntimeError("I/O and process calls are blocked in the CraftPy sandbox")
 
 
+# While an event/timer runs, print() goes to that call's log (shown in the editor console),
+# not to the log of the Run that defined the function.
+_LOG_TARGET = [None]
+
+
+def _print_to(log):
+    def _print(*args, sep=" ", **_):
+        target = _LOG_TARGET[0] if _LOG_TARGET[0] is not None else log
+        target.append(sep.join(str(x) for x in args))
+    return _print
+
+
 def restricted_builtins(log):
     b = {
         "abs": abs, "all": all, "any": any, "ascii": ascii, "bin": bin, "bool": bool,
@@ -112,7 +125,7 @@ def restricted_builtins(log):
         "set": set, "setattr": setattr, "slice": slice, "sorted": sorted,
         "staticmethod": staticmethod, "str": str, "sum": sum, "super": super,
         "tuple": tuple, "type": type, "zip": zip,
-        "print": lambda *a, **k: log.append(" ".join(str(x) for x in a)),
+        "print": _print_to(log), "dir": dir, "vars": vars, "LookupError": LookupError,
         "Exception": Exception, "BaseException": BaseException,
         "ValueError": ValueError, "TypeError": TypeError,
         "RuntimeError": RuntimeError, "KeyError": KeyError, "IndexError": IndexError,
@@ -183,10 +196,25 @@ def _try_host(method, params=None, timeout=10.0, default=None):
 # ---------------------------------------------------------------------------
 
 _DECL_KEYS = ("blocks", "items", "entities", "effects", "handlers", "recipes",
-               "loot_tables", "tags", "lang", "commands", "advancements",
-               "sounds", "particles", "enchantments", "raw", "meta")
-_DECLS = {k: [] for k in _DECL_KEYS}
-_DECLS["lang"] = {}
+              "loot_tables", "tags", "lang", "commands", "advancements",
+              "sounds", "particles", "enchantments", "raw", "meta")
+
+
+def _new_decls():
+    decls = {k: [] for k in _DECL_KEYS}
+    decls["lang"] = {}
+    decls["meta"] = {}
+    return decls
+
+
+# ---------------------------------------------------------------------------
+# Owners. Every project and every module registers into its OWN declarations,
+# handlers and timers, so running one project never wipes another module's
+# event handlers. The owner is "<project id>" or "module:<module id>".
+# ---------------------------------------------------------------------------
+_OWNERS = {}
+_OWNER = ["__main__"]
+_DECLS = _new_decls()
 _HANDLERS = {}
 _WINDOWS = {}
 _SCHEDULE = []
@@ -196,8 +224,188 @@ _CAPABILITIES = {
     "content.block", "content.item", "content.effect", "content.entity",
     "recipe.all", "loot.table", "tags", "lang", "events", "commands",
     "ui.window", "storage.kv", "scheduler", "world.read", "world.write",
+    "world.fill", "world.explode", "player.effects", "player.inventory",
 }
 
+
+def _use_owner(owner):
+    """Makes ``owner`` the target of every registration (decorators, Block(), recipes...)."""
+    global _DECLS, _HANDLERS
+    state = _OWNERS.get(owner)
+    if state is None:
+        state = _OWNERS[owner] = {"decls": _new_decls(), "handlers": {}}
+    _OWNER[0] = owner
+    _DECLS = state["decls"]
+    _HANDLERS = state["handlers"]
+
+
+def _drop_owner(owner):
+    """Forgets everything ``owner`` registered: declarations, handlers and timers."""
+    _OWNERS.pop(owner, None)
+    _SCHEDULE[:] = [entry for entry in _SCHEDULE if entry["owner"] != owner]
+
+
+def _namespace():
+    owner = _OWNER[0]
+    return owner.split(":", 1)[1] if owner.startswith("module:") else owner
+
+
+# ---------------------------------------------------------------------------
+# Ids. Scripts may write "stick", "minecraft:stick", "#minecraft:logs", or use a
+# Block/Item object. A bare name that this project declared means the project's
+# content ("ruby" -> "ruby_rush:ruby"); any other bare name is vanilla.
+# ---------------------------------------------------------------------------
+
+class Content(str):
+    """A declared block or item. It *is* its full id string ("project:id")."""
+
+    def __new__(cls, full_id, kind, local_id, name):
+        obj = str.__new__(cls, full_id)
+        obj.kind = kind
+        obj.local_id = local_id
+        obj.name = name
+        return obj
+
+    @property
+    def id(self):
+        return str(self)
+
+    def __repr__(self):
+        return "%s(%r)" % (self.kind.capitalize(), str(self))
+
+
+def _declared(local_id):
+    for key in ("blocks", "items"):
+        for entry in _DECLS[key]:
+            if entry.get("id") == local_id:
+                return True
+    return False
+
+
+def _ref(value):
+    """Normalizes an item/block reference to a full id (or a #tag)."""
+    if isinstance(value, Content):
+        return str(value)
+    if isinstance(value, dict):
+        value = value.get("item") or value.get("id") or value.get("value") or ""
+    value = str(value).strip()
+    if not value or value.startswith("#") or ":" in value:
+        return value
+    if _declared(value):
+        return "%s:%s" % (_namespace(), value)
+    return "minecraft:" + value
+
+
+def _check_id(ident):
+    if not isinstance(ident, str) or not ident:
+        raise ValueError("ids must be non-empty strings, got %r" % (ident,))
+    for ch in ident:
+        if not (ch.islower() or ch.isdigit() or ch in "_./-"):
+            raise ValueError("id %r: use lowercase letters, digits and _ (e.g. 'ruby_ore')" % ident)
+
+
+def _pretty(ident):
+    return ident.replace("_", " ").title()
+
+
+def _texture(value):
+    """Texture argument: 'ruby.png' (project file), 'minecraft:dirt', or tex(...)."""
+    if isinstance(value, dict):
+        return value
+    return str(value)
+
+
+# ---------------------------------------------------------------------------
+# Content: the simple, Pythonic way
+#
+#   ruby_ore = Block("ruby_ore", texture="ruby_ore.png", hardness=3, tool="pickaxe", drops=ruby)
+#   ruby = Item("ruby", texture="ruby.png")
+# ---------------------------------------------------------------------------
+
+def Food(hunger=4, saturation=0.6, always_eat=False, fast=False):
+    """Food values for Item(food=...)."""
+    return {"hunger": int(hunger), "saturation": float(saturation),
+            "always_eat": bool(always_eat), "fast": bool(fast)}
+
+
+def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None,
+          needs_tool=False, sound=None, drops=None, **extra):
+    """Declares a block and returns it (usable anywhere an id is expected)."""
+    _check_id(id)
+    definition = dict(extra)
+    definition["name"] = name or _pretty(id)
+    if texture is not None:
+        definition["texture"] = _texture(texture)
+    definition["hardness"] = float(hardness)
+    if resistance is not None:
+        definition["resistance"] = float(resistance)
+    definition["light"] = int(light)
+    if tool:
+        definition["tool"] = tool
+    if needs_tool:
+        definition["needs_tool"] = True
+    if sound:
+        definition["sound"] = sound
+    _DECLS["blocks"].append({"id": id, "definition": definition})
+    block = Content("%s:%s" % (_namespace(), id), "block", id, definition["name"])
+    if drops is not None:
+        _block_drops(id, drops)
+    return block
+
+
+def _block_drops(block_id, drops):
+    """drops=ruby | [ruby, (coal, 2)] | (ruby, 2, weight) | [] (nothing). Default: the block itself."""
+    if isinstance(drops, (str, dict)) or (isinstance(drops, tuple) and drops and not isinstance(drops[0], tuple)):
+        drops = [drops]
+    entries = []
+    for drop in drops:
+        if isinstance(drop, tuple):
+            item, count, weight = (list(drop) + [1, 1])[:3]
+            entries.append(loot_entry(_ref(item), count=int(count), weight=int(weight)))
+        elif isinstance(drop, str) and drop == "self":
+            entries.append(loot_self())
+        else:
+            entries.append(loot_entry(_ref(drop)))
+    loot_table(block_id, entries)
+
+
+def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, **extra):
+    """Declares an item and returns it.
+
+    food=Food(...) or a number (hunger); fuel=burn seconds; effect="speed" or ("speed", level, seconds)
+    applied on right click.
+    """
+    _check_id(id)
+    definition = dict(extra)
+    definition["name"] = name or _pretty(id)
+    if texture is not None:
+        definition["texture"] = _texture(texture)
+    definition["max_stack"] = int(stack)
+    if glow:
+        definition["glow"] = True
+    if food is not None:
+        definition["food"] = Food(hunger=food) if isinstance(food, (int, float)) else dict(food)
+    if fuel:
+        definition["burn_time"] = int(fuel)
+    if effect:
+        definition["use_effect"] = _effect_spec(effect)
+    _DECLS["items"].append({"id": id, "definition": definition})
+    return Content("%s:%s" % (_namespace(), id), "item", id, definition["name"])
+
+
+def _effect_spec(effect):
+    if isinstance(effect, (tuple, list)):
+        name, level, seconds = (list(effect) + [1, 10])[:3]
+        return "%s:%d:%d" % (name, max(0, int(level) - 1), int(seconds))
+    return str(effect)
+
+
+# ---------------------------------------------------------------------------
+# Content: the original decorator style (still fully supported)
+#
+#   @block("ruby_ore", name="Ruby Ore", hardness=4)
+#   class RubyOre: pass
+# ---------------------------------------------------------------------------
 
 def _register(kind):
     def deco(ident, **kwargs):
@@ -280,7 +488,7 @@ def raw_json(path, data):
 
 
 def tag(ident, values, replace=False, type="item"):
-    _DECLS["tags"].append({"id": ident, "values": list(values),
+    _DECLS["tags"].append({"id": ident, "values": [_ref(v) for v in values],
                            "replace": replace, "type": type})
 
 
@@ -288,6 +496,45 @@ def tag(ident, values, replace=False, type="item"):
 
 def _recipe(kind, **payload):
     _DECLS["recipes"].append(dict(payload, type=kind))
+
+
+def shaped(result, *rows, count=1, **keys):
+    """shaped(sword, " R ", " R ", " S ", R=ruby, S="stick")"""
+    if len(rows) == 1 and isinstance(rows[0], (list, tuple)):
+        rows = tuple(rows[0])
+    if not rows:
+        raise ValueError("shaped() needs at least one pattern row, e.g. shaped(result, 'RR', R=ruby)")
+    used = {ch for row in rows for ch in row if ch != " "}
+    missing = used - set(keys)
+    if missing:
+        raise ValueError("shaped(): no ingredient given for %s" % ", ".join(sorted(missing)))
+    _recipe("shaped", result=_ref(result), count=int(count), pattern=list(rows),
+            key={k: _ref(v) for k, v in keys.items()}, category="misc",
+            id="%s_shaped" % _ref(result).split(":")[-1])
+
+
+def shapeless(result, *ingredients, count=1):
+    """shapeless(ruby, "diamond", "redstone")"""
+    if len(ingredients) == 1 and isinstance(ingredients[0], (list, tuple)):
+        ingredients = tuple(ingredients[0])
+    _recipe("shapeless", result=_ref(result), count=int(count),
+            ingredients=[_ref(i) for i in ingredients], category="misc",
+            id="%s_shapeless" % _ref(result).split(":")[-1])
+
+
+def smelt(ingredient, result, xp=0.1, seconds=10, using="furnace"):
+    """smelt(ruby_ore, ruby) - using: "furnace", "blast_furnace", "smoker" or "campfire"."""
+    kinds = {"furnace": "smelting", "blast_furnace": "blasting", "smoker": "smoking", "campfire": "campfire"}
+    if using not in kinds:
+        raise ValueError("smelt(using=...) must be one of %s" % ", ".join(kinds))
+    _recipe(kinds[using], result=_ref(result), ingredient=_ref(ingredient), xp=float(xp),
+            cook_time=max(1, int(seconds * 20)),
+            id="%s_from_%s" % (_ref(result).split(":")[-1], using))
+
+
+def stonecut(ingredient, result, count=1):
+    _recipe("stonecutting", result=_ref(result), ingredient=_ref(ingredient), count=int(count),
+            id="%s_stonecutting" % _ref(result).split(":")[-1])
 
 
 def recipe_shaped(result, pattern, keys, category="misc", **extra):
@@ -338,23 +585,88 @@ def loot_table(ident, entries, rolls=1, **extra):
 
 
 def loot_entry(item, count=1, weight=1, **kwargs):
-    return dict(kwargs, item=item, count=count, weight=weight)
+    return dict(kwargs, item=_ref(item) if isinstance(item, Content) else item, count=count, weight=weight)
 
 
 # -- events ------------------------------------------------------------------
 
-def on(event, every=None, priority="normal"):
-    def deco(fn):
-        _DECLS["handlers"].append({"event": event, "every": every, "priority": priority})
-        _HANDLERS.setdefault(event, []).append(fn)
-        return fn
-    return deco
+_FILTER_KEYS = ("block", "item", "entity")
 
 
-def command(name, **kwargs):
+class _On:
+    """``@on("block_break")``, ``@on("block_break", block=ruby_ore)`` or ``@on.block_break(block=ruby_ore)``."""
+
+    def __call__(self, event, every=None, priority="normal", **filters):
+        unknown = set(filters) - set(_FILTER_KEYS)
+        if unknown:
+            raise TypeError("@on(%r): unknown filter %s (use %s)"
+                            % (event, ", ".join(sorted(unknown)), ", ".join(_FILTER_KEYS)))
+        wanted = {key: _ref(value) for key, value in filters.items()}
+
+        def deco(fn):
+            _DECLS["handlers"].append({"event": event, "every": every, "priority": priority})
+            _HANDLERS.setdefault(event, []).append((fn, wanted))
+            return fn
+        return deco
+
+    def __getattr__(self, event):
+        if event.startswith("_"):
+            raise AttributeError(event)
+
+        def factory(fn=None, **filters):
+            if callable(fn):  # used bare: @on.player_join
+                return self(event)(fn)
+            return self(event, **filters)
+        return factory
+
+
+on = _On()
+
+
+def _matches(ctx, wanted):
+    for key, value in wanted.items():
+        actual = getattr(ctx, key, None)
+        actual_id = actual.get("id") if isinstance(actual, dict) else getattr(actual, "id", None)
+        if key == "entity" and actual is not None:
+            actual_id = getattr(actual, "type", None)
+        if actual_id != value:
+            return False
+    return True
+
+
+def command(name, **params):
+    """Registers ``/<project>:<name>``. Arguments come from the function signature:
+
+        @command("heal")
+        def heal(ctx, target: Player, amount: int): ...
+
+    Supported annotations: int, float, bool, str, Player. Explicit ``**params`` also work.
+    """
     def deco(fn):
-        _DECLS["commands"].append({"name": name, "params": kwargs})
-        _HANDLERS.setdefault("command_" + name, []).append(fn)
+        declared = dict(params)
+        converters = {}
+        if not declared:
+            signature = inspect.signature(fn)
+            for index, (pname, parameter) in enumerate(signature.parameters.items()):
+                if index == 0:
+                    continue  # ctx
+                annotation = parameter.annotation
+                declared[pname] = {int: "int", float: "float", bool: "bool", Player: "player"}.get(annotation, "str")
+                if annotation is Player:
+                    converters[pname] = Player.named
+        _DECLS["commands"].append({"name": name, "params": declared})
+        uses_signature = not params and len(inspect.signature(fn).parameters) > 1
+
+        def handler(ctx):
+            if not uses_signature:
+                return fn(ctx)
+            raw = getattr(ctx, "args", None)
+            args = dict(raw) if isinstance(raw, dict) else dict(getattr(raw, "__dict__", {}) or {})
+            for key, convert in converters.items():
+                if key in args:
+                    args[key] = convert(args[key])
+            return fn(ctx, **args)
+        _HANDLERS.setdefault("command_" + name, []).append((handler, {}))
         return fn
     return deco
 
@@ -366,18 +678,25 @@ def block_logic(ident):
     return deco
 
 
-def every(ticks):
-    """Decorator: run the handler every ``ticks`` server ticks."""
-    return on("tick", every=ticks)
+def every(ticks=None, seconds=None):
+    """``@every(seconds=5)`` / ``@every(100)`` - runs the function on a repeating timer."""
+    if callable(ticks):
+        raise TypeError("use @every(seconds=...) or @every(ticks), with parentheses")
+    interval = int(seconds * 20) if seconds is not None else int(ticks or 20)
+
+    def deco(fn):
+        _schedule(max(1, interval), fn, repeat=True)
+        return fn
+    return deco
 
 
 def on_load(fn):
-    _HANDLERS.setdefault("load", []).append(fn)
+    _HANDLERS.setdefault("load", []).append((fn, {}))
     return fn
 
 
 def on_unload(fn):
-    _HANDLERS.setdefault("unload", []).append(fn)
+    _HANDLERS.setdefault("unload", []).append((fn, {}))
     return fn
 
 
@@ -410,9 +729,16 @@ def run_next_tick(fn):
     return _schedule(1, fn, repeat=False)
 
 
+def after(seconds, fn=None):
+    """``after(3, fn)`` runs fn in 3 seconds; ``@after(3)`` works as a decorator too."""
+    if fn is not None:
+        return run_later(max(1, int(seconds * 20)), fn)
+    return lambda f: (run_later(max(1, int(seconds * 20)), f), f)[1]
+
+
 def _schedule(ticks, fn, repeat):
     task = Task(int(ticks), fn, repeat)
-    _SCHEDULE.append({"task": task, "next": _TICK[0] + max(1, int(ticks))})
+    _SCHEDULE.append({"task": task, "next": _TICK[0] + max(1, int(ticks)), "owner": _OWNER[0]})
     return task
 
 
@@ -422,30 +748,45 @@ def _on_tick(params):
     for entry in list(_SCHEDULE):
         task = entry["task"]
         if task.cancelled:
-            _SCHEDULE.remove(entry)
+            if entry in _SCHEDULE:
+                _SCHEDULE.remove(entry)
             continue
         if _TICK[0] >= entry["next"]:
+            _use_owner(entry["owner"])
+            _LOG_TARGET[0] = log
             try:
-                task.fn(_TickContext(_TICK[0]))
+                _call_flexible(task.fn, _TickContext(_TICK[0]))
             except Exception as exc:  # noqa: BLE001
-                log.append("scheduler error: %s" % exc)
+                log.append("[%s] timer error: %s: %s" % (entry["owner"], type(exc).__name__, exc))
+            finally:
+                _LOG_TARGET[0] = None
             if task.repeat and not task.cancelled:
                 entry["next"] = _TICK[0] + max(1, task.interval)
-            else:
+            elif entry in _SCHEDULE:
                 _SCHEDULE.remove(entry)
     return {"log": log, "scheduled": len(_SCHEDULE)}
+
+
+def _call_flexible(fn, ctx):
+    """Calls fn(ctx), or fn() when the function takes no arguments."""
+    try:
+        wants_arg = len(inspect.signature(fn).parameters) > 0
+    except (TypeError, ValueError):
+        wants_arg = True
+    return fn(ctx) if wants_arg else fn()
 
 
 class _TickContext:
     def __init__(self, tick):
         self.tick = tick
+        self.world = world
 
 
-# Global store fallback used when the host is unavailable.
+# Storage. NOTE: kept in memory by the host for the running game session.
 def storage_get(key, default=None, scope="world"):
     value = _STORAGE.get((scope, key))
     if value is None:
-        value = _try_host("storage.get", {"key": key, "scope": scope}, default=None)
+        value = (_try_host("storage.get", {"key": key, "scope": scope}, default=None) or {}).get("value")
     return default if value is None else value
 
 
@@ -465,56 +806,299 @@ def storage_clear(key=None, scope="world"):
 
 
 # ---------------------------------------------------------------------------
-# World / player / server facade (thin, host backed)
+# World / player / entity facade (host backed)
 # ---------------------------------------------------------------------------
 
+_OVERWORLD = "minecraft:overworld"
+
+
+class Pos(tuple):
+    """An (x, y, z) position. ``pos.x``, ``pos + (0, 1, 0)``, ``pos.up(2)``."""
+
+    def __new__(cls, x, y, z):
+        return tuple.__new__(cls, (x, y, z))
+
+    x = property(lambda self: self[0])
+    y = property(lambda self: self[1])
+    z = property(lambda self: self[2])
+
+    def __add__(self, other):
+        return Pos(self[0] + other[0], self[1] + other[1], self[2] + other[2])
+
+    def up(self, n=1):
+        return Pos(self[0], self[1] + n, self[2])
+
+    def down(self, n=1):
+        return Pos(self[0], self[1] - n, self[2])
+
+    def block(self):
+        """Integer block coordinates."""
+        return Pos(math.floor(self[0]), math.floor(self[1]), math.floor(self[2]))
+
+    def __repr__(self):
+        return "Pos(%s, %s, %s)" % self
+
+
+def _xyz(x, y=None, z=None):
+    if y is None and z is None and isinstance(x, (tuple, list)):
+        return x[0], x[1], x[2]
+    if y is None or z is None:
+        raise TypeError("give a position as x, y, z or as a Pos / (x, y, z) tuple")
+    return x, y, z
+
+
+def _ok(result):
+    """Host results are {"ok": bool, ...}; raise a readable error when a call failed."""
+    if isinstance(result, dict) and result.get("ok") is False:
+        raise RuntimeError(result.get("error") or result.get("reason") or "host call failed")
+    return result
+
+
 class _World:
-    def get_block(self, x, y, z, dimension="minecraft:overworld"):
+    """``world[x, y, z]`` reads a block id, ``world[x, y, z] = "stone"`` sets one."""
+
+    def __getitem__(self, pos):
+        x, y, z = _xyz(pos)
+        return (self.get_block(x, y, z) or {}).get("block")
+
+    def __setitem__(self, pos, block):
+        x, y, z = _xyz(pos)
+        self.set_block(x, y, z, block)
+
+    def get_block(self, x, y=None, z=None, dimension=_OVERWORLD):
+        x, y, z = _xyz(x, y, z)
         return _host_call("world.get_block", {"x": x, "y": y, "z": z, "dimension": dimension})
 
-    def set_block(self, x, y, z, block, dimension="minecraft:overworld", replace=True):
-        return _host_call("world.set_block", {"x": x, "y": y, "z": z, "block": block,
-                                              "dimension": dimension, "replace": replace})
+    def set_block(self, x, y, z=None, block=None, dimension=_OVERWORLD, replace=True):
+        if block is None and z is None and isinstance(x, (tuple, list)):
+            # set_block(pos, "stone")
+            block, (x, y, z) = y, _xyz(x)
+        if block is None:
+            raise TypeError("set_block(x, y, z, block) or set_block(pos, block)")
+        return _ok(_host_call("world.set_block", {"x": x, "y": y, "z": z, "block": _ref(block),
+                                                  "dimension": dimension, "replace": replace}))
 
-    def blocks_in_box(self, x, y, z, radius=0, dimension="minecraft:overworld"):
+    def fill(self, start, end, block, dimension=_OVERWORLD):
+        """Fills the box between two corners (max 32768 blocks)."""
+        (x1, y1, z1), (x2, y2, z2) = _xyz(start), _xyz(end)
+        return _ok(_host_call("world.fill", {"x1": x1, "y1": y1, "z1": z1, "x2": x2, "y2": y2, "z2": z2,
+                                             "block": _ref(block), "dimension": dimension})).get("count", 0)
+
+    def blocks_in_box(self, x, y, z, radius=0, dimension=_OVERWORLD):
         return _host_call("world.blocks_in_box", {"x": x, "y": y, "z": z, "radius": radius,
                                                   "dimension": dimension})
 
-    def get_block_entities(self, x, y, z, radius=0, dimension="minecraft:overworld"):
+    def get_block_entities(self, x, y, z, radius=0, dimension=_OVERWORLD):
         # Legacy alias kept for source compatibility.
         return self.blocks_in_box(x, y, z, radius=radius, dimension=dimension)
 
-    def spawn(self, entity, x, y, z, dimension="minecraft:overworld"):
-        return _host_call("world.spawn", {"entity": entity, "x": x, "y": y, "z": z,
-                                          "dimension": dimension})
+    def spawn(self, entity, x, y=None, z=None, dimension=_OVERWORLD):
+        """Spawns an entity ("zombie", "minecraft:pig") and returns it."""
+        x, y, z = _xyz(x, y, z)
+        result = _ok(_host_call("world.spawn", {"entity": _ref(entity), "x": x, "y": y, "z": z,
+                                                "dimension": dimension}))
+        uuid = result.get("uuid")
+        return Entity({"uuid": uuid, "type": _ref(entity), "x": x, "y": y, "z": z}) if uuid else result
 
-    def play_sound(self, sound, x, y, z, volume=1.0, pitch=1.0, dimension="minecraft:overworld"):
+    def explode(self, x, y=None, z=None, power=3, fire=False, break_blocks=True, dimension=_OVERWORLD):
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.explode", {"x": x, "y": y, "z": z, "power": power, "fire": fire,
+                                                "break_blocks": break_blocks, "dimension": dimension}))
+
+    def lightning(self, x, y=None, z=None, dimension=_OVERWORLD):
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.lightning", {"x": x, "y": y, "z": z, "dimension": dimension}))
+
+    def drop(self, item, x, y=None, z=None, count=1, dimension=_OVERWORLD):
+        """Drops an item stack on the ground."""
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.drop_item", {"item": _ref(item), "count": count, "x": x, "y": y, "z": z,
+                                                  "dimension": dimension}))
+
+    def play_sound(self, sound, x, y=None, z=None, volume=1.0, pitch=1.0, dimension=_OVERWORLD):
+        x, y, z = _xyz(x, y, z)
         return _host_call("world.play_sound", {"sound": sound, "x": x, "y": y, "z": z,
                                                "volume": volume, "pitch": pitch,
                                                "dimension": dimension})
 
-    def particle(self, particle, x, y, z, count=1, dimension="minecraft:overworld"):
+    def particle(self, particle, x, y=None, z=None, count=1, dimension=_OVERWORLD):
+        x, y, z = _xyz(x, y, z)
         return _host_call("world.particle", {"particle": particle, "x": x, "y": y, "z": z,
                                              "count": count, "dimension": dimension})
 
-    def time(self, dimension="minecraft:overworld"):
+    def info(self, x, y=None, z=None, dimension=_OVERWORLD):
+        """Biome, highest_y, light, is_day, raining, thundering and time at a position."""
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.info", {"x": x, "y": y, "z": z, "dimension": dimension}))
+
+    def biome(self, x, y=None, z=None, dimension=_OVERWORLD):
+        return self.info(x, y, z, dimension).get("biome")
+
+    def highest_y(self, x, z, dimension=_OVERWORLD):
+        return self.info(x, 64, z, dimension).get("highest_y")
+
+    def is_day(self, dimension=_OVERWORLD):
+        return bool(self.info(0, 64, 0, dimension).get("is_day"))
+
+    def time(self, dimension=_OVERWORLD):
         return _host_call("world.get_time", {"dimension": dimension})
 
-    def set_time(self, ticks, dimension="minecraft:overworld"):
-        return _host_call("world.set_time", {"time": ticks, "dimension": dimension})
+    def set_time(self, ticks, dimension=_OVERWORLD):
+        presets = {"day": 1000, "noon": 6000, "sunset": 12000, "night": 13000, "midnight": 18000, "sunrise": 23000}
+        ticks = presets.get(ticks, ticks)
+        return _host_call("world.set_time", {"time": int(ticks), "dimension": dimension})
 
-    def weather(self, weather="clear", duration=6000, dimension="minecraft:overworld"):
+    def weather(self, weather="clear", duration=6000, dimension=_OVERWORLD):
         return _host_call("world.set_weather", {"weather": weather, "duration": duration,
                                                 "dimension": dimension})
 
-    def entities_in_box(self, x, y, z, radius=8, dimension="minecraft:overworld"):
+    def entities_in_box(self, x, y, z, radius=8, dimension=_OVERWORLD):
         return _host_call("world.entities_in_box", {"x": x, "y": y, "z": z, "radius": radius,
                                                     "dimension": dimension})
+
+    def entities(self, x, y=None, z=None, radius=8, type=None, dimension=_OVERWORLD):
+        """Entities near a position, as Entity objects (optionally only one type)."""
+        x, y, z = _xyz(x, y, z)
+        found = (self.entities_in_box(x, y, z, radius=radius, dimension=dimension) or {}).get("entities", [])
+        wanted = _ref(type) if type else None
+        return [Entity(e) for e in found if wanted is None or e.get("type") == wanted]
+
+
+class _Thing:
+    """Shared attribute access for Player/Entity snapshots: missing data reads as None."""
+
+    def __init__(self, data):
+        for key, value in (data or {}).items():
+            object.__setattr__(self, key, _wrap_data(value))
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return None
+
+    @property
+    def pos(self):
+        return Pos(self.x or 0, self.y or 0, self.z or 0)
+
+
+class Player(_Thing):
+    """A player snapshot with actions. Data: name, uuid, x, y, z, pos, dimension, health,
+    max_health, food, level, gamemode, held_item."""
+
+    @staticmethod
+    def named(name):
+        """The online player with this name, or None."""
+        info = (_try_host("players.get", {"name": str(name)}, default={}) or {}).get("player")
+        return Player(info) if info else None
+
+    def _call(self, method, **params):
+        params["player"] = self.uuid or self.name
+        return _ok(_host_call(method, params))
+
+    def __repr__(self):
+        return "Player(%r)" % self.name
+
+    def say(self, *message):
+        """Sends a chat message to this player only."""
+        return self._call("player.send_message", message=" ".join(str(m) for m in message))
+
+    send_message = say
+
+    def give(self, item, count=1):
+        return self._call("player.give", item=_ref(item), count=int(count))
+
+    def take(self, item, count=1):
+        """Removes items from the inventory; returns how many were taken."""
+        return self._call("player.take_item", item=_ref(item), count=int(count)).get("taken", 0)
+
+    def count(self, item):
+        return self._call("player.count_item", item=_ref(item)).get("count", 0)
+
+    def has(self, item, count=1):
+        return self.count(item) >= count
+
+    def inventory(self):
+        return [_wrap_data(entry) for entry in self._call("player.inventory").get("items", [])]
+
+    def teleport(self, x, y=None, z=None, dimension=None):
+        x, y, z = _xyz(x, y, z)
+        return self._call("player.teleport", x=x, y=y, z=z, dimension=dimension or self.dimension or _OVERWORLD)
+
+    def heal(self, amount=None):
+        return self._call("player.heal", **({} if amount is None else {"amount": amount}))
+
+    def set_health(self, health):
+        return self._call("player.set_health", health=health)
+
+    def feed(self, food=20, saturation=1.0):
+        return self._call("player.feed", food=food, saturation=saturation)
+
+    def effect(self, name, seconds=10, level=1, particles=True):
+        """player.effect("speed", seconds=30, level=2)"""
+        return self._call("player.effect", effect=str(name), seconds=seconds, level=level, particles=particles)
+
+    def clear_effects(self):
+        return self._call("player.clear_effects")
+
+    def set_gamemode(self, mode):
+        return self._call("player.gamemode", mode=mode)
+
+    def add_xp(self, levels=0, points=0):
+        return self._call("player.add_xp", levels=levels, points=points)
+
+    def title(self, text, subtitle=None, seconds=3):
+        params = {"title": str(text), "stay": int(seconds * 20)}
+        if subtitle is not None:
+            params["subtitle"] = str(subtitle)
+        return self._call("player.title", **params)
+
+    def actionbar(self, text):
+        return self._call("player.actionbar", message=str(text))
+
+    def play_sound(self, sound, volume=1.0, pitch=1.0):
+        return self._call("player.sound", sound=sound, volume=volume, pitch=pitch)
+
+    def set_fire(self, seconds=3):
+        return self._call("player.set_fire", seconds=seconds)
+
+    def kill(self):
+        return self._call("player.kill")
+
+    def refresh(self):
+        """A fresh snapshot of this player (position, health...)."""
+        return Player.named(self.name)
+
+
+class Entity(_Thing):
+    """An entity snapshot: type, uuid, name, x, y, z, pos, health."""
+
+    def __repr__(self):
+        return "Entity(%r)" % (self.type,)
+
+    def kill(self):
+        return _ok(_host_call("entity.kill", {"uuid": self.uuid}))
+
+    def teleport(self, x, y=None, z=None):
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("entity.teleport", {"uuid": self.uuid, "x": x, "y": y, "z": z}))
+
+    def set_name(self, name):
+        return _ok(_host_call("entity.set_name", {"uuid": self.uuid, "name": str(name)}))
+
+    def refresh(self):
+        info = (_try_host("entity.get", {"uuid": self.uuid}, default={}) or {}).get("entity")
+        return Entity(info) if info else None
 
 
 class _Players:
     def all(self):
-        return _try_host("players.all", {}, default=[]) or []
+        """Names of every online player."""
+        result = _try_host("players.all", {}, default={}) or {}
+        return result.get("players", []) if isinstance(result, dict) else result
+
+    def online(self):
+        """Every online player as a Player object."""
+        return [p for p in (Player.named(name) for name in self.all()) if p is not None]
 
     def get(self, name):
         return _host_call("players.get", {"name": name})
@@ -522,12 +1106,12 @@ class _Players:
     def send_message(self, name, message):
         return _host_call("player.send_message", {"player": name, "message": str(message)})
 
-    def teleport(self, name, x, y, z, dimension="minecraft:overworld"):
+    def teleport(self, name, x, y, z, dimension=_OVERWORLD):
         return _host_call("player.teleport", {"player": name, "x": x, "y": y, "z": z,
                                               "dimension": dimension})
 
     def give(self, name, item, count=1):
-        return _host_call("player.give", {"player": name, "item": item, "count": count})
+        return _host_call("player.give", {"player": name, "item": _ref(item), "count": count})
 
 
 class _Server:
@@ -537,11 +1121,15 @@ class _Server:
     def run_command(self, command):
         return _host_call("server.command", {"command": str(command)})
 
+    command = run_command
+
     def log(self, message, level="info"):
         _try_host("server.log", {"message": str(message), "level": level}, default=None)
 
 
 class _Storage:
+    """``storage["key"] = value`` / ``storage.get("key", default)``."""
+
     def get(self, key, default=None, scope="world"):
         return storage_get(key, default, scope)
 
@@ -550,6 +1138,12 @@ class _Storage:
 
     def clear(self, key=None, scope="world"):
         return storage_clear(key, scope)
+
+    def __getitem__(self, key):
+        return storage_get(key)
+
+    def __setitem__(self, key, value):
+        storage_set(key, value)
 
 
 class _Scheduler:
@@ -574,6 +1168,22 @@ players = _Players()
 server = _Server()
 storage = _Storage()
 scheduler = _Scheduler()
+
+
+def player(name):
+    """The online player with this name, or None."""
+    return Player.named(name)
+
+
+def say(*message):
+    """Broadcasts a chat message to everyone."""
+    return server.broadcast(" ".join(str(m) for m in message))
+
+
+def run(command_text):
+    """Runs a Minecraft command as the server, e.g. run("time set day")."""
+    return server.run_command(command_text)
+
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +1369,7 @@ class _Context:
         self._log = log
         self.project = None
         self.global_state = {}
+        self.world = world
 
     def log(self, message):
         self._log.append(str(message))
@@ -772,17 +1383,32 @@ class _Context:
     def error(self, message):
         self._log.append("ERROR: %s" % message)
 
-    def world(self):
-        return world
-
     def broadcast(self, message):
         return server.broadcast(message)
 
 
 class _EventContext(_Context):
-    """Context handed to @on handlers. All event data is exposed as attributes."""
+    """What an @on handler receives. Event data are attributes:
 
-    pass
+    event.player (Player), event.block / event.item (.id, .name), event.entity (Entity),
+    event.pos (Pos), event.message (chat), event.killer / event.attacker ...
+    """
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return None
+
+    @property
+    def pos(self):
+        x = self.__dict__.get("x")
+        if x is None:
+            return self.player.pos if self.player is not None else None
+        return Pos(x, self.__dict__.get("y"), self.__dict__.get("z"))
+
+
+_PLAYER_KEYS = ("player", "killer", "attacker_player")
+_ENTITY_KEYS = ("entity", "attacker")
 
 
 def has(capability):
@@ -864,6 +1490,11 @@ def _api_names():
         "ProgressBar": ProgressBar, "Image": Image, "ItemIcon": ItemIcon,
         "VBox": VBox, "HBox": HBox, "Grid": Grid, "TabView": TabView, "ScrollView": ScrollView,
         "has": has, "core": core, "requires_restart": requires_restart,
+        # simple API
+        "Block": Block, "Item": Item, "Food": Food, "Content": Content,
+        "shaped": shaped, "shapeless": shapeless, "smelt": smelt, "stonecut": stonecut,
+        "after": after, "Pos": Pos, "Player": Player, "Entity": Entity,
+        "player": player, "say": say, "run": run,
     }
     return names
 
@@ -890,6 +1521,7 @@ def reset_repl(session_id=None):
 def _repl_eval(params):
     code = params.get("code", "")
     session_id = params.get("session", "default")
+    _use_owner(params.get("project") or "__console__")
     session = _get_session(session_id)
     ns = session["ns"]
     log = session["log"]
@@ -925,7 +1557,8 @@ def _repl_eval(params):
     finally:
         sys.settrace(None)
         sys.modules.pop("craftpy", None)
-    return {"output": list(log), "value": value, "error": error, "session": session_id}
+    return {"output": list(log), "value": value, "error": error, "session": session_id,
+            "scheduled": len(_SCHEDULE)}
 
 
 # ---------------------------------------------------------------------------
@@ -941,15 +1574,18 @@ def _load_module(params):
     if not os.path.exists(main_file):
         return {"error": "Main file not found: %s" % main_file}
 
-    with open(main_file, "r") as f:
+    with open(main_file, "r", encoding="utf-8") as f:
         code = f.read()
 
     # Modules are loaded into their own namespace and are NOT reset on run_main
     # They behave like permanent additions to the API/registry
-    return _run_code(code, main_file, "module_%s" % module_id, persistent=True)
+    owner = "module:%s" % module_id
+    _drop_owner(owner)
+    return _run_code(code, main_file, "module_%s" % module_id, persistent=True, owner=owner)
 
 
-def _run_code(code, filename, module_name, debug=False, persistent=False):
+def _run_code(code, filename, module_name, debug=False, persistent=False, owner="__main__"):
+    _use_owner(owner)
     log = []
     import types as _types
     sandbox_module = _types.ModuleType("craftpy_api")
@@ -1038,13 +1674,17 @@ def _handle(method, params):
     if method == "set_paths":
         _HOST_ENABLED[0] = True
         return {"ok": True}
+    if method == "unload_owner":
+        _drop_owner(params.get("owner", ""))
+        return {"ok": True, "scheduled": len(_SCHEDULE)}
     if method == "run_main":
         code = params.get("code", "")
         name = params.get("file", "main.py")
         debug = bool(params.get("debug", False))
+        owner = params.get("project") or "__main__"
         try:
-            reset()
-            result = _run_code(code, name, "__craftpy_main__", debug=debug)
+            _drop_owner(owner)
+            result = _run_code(code, name, "__craftpy_main__", debug=debug, owner=owner)
             return result
         except Exception as exc:  # noqa: BLE001
             line = 0
@@ -1060,44 +1700,57 @@ def _handle(method, params):
 
 
 def reset():
-    for key in _DECL_KEYS:
-        _DECLS[key] = {} if key == "lang" else []
-    _HANDLERS.clear()
+    """Forgets every project and module (used by tests / a full worker reset)."""
+    _OWNERS.clear()
     _SCHEDULE[:] = []
     _TICK[0] = 0
+    _use_owner("__main__")
 
 
 def _trigger_event(params):
     event_name = params.get("event")
-    ctx_data = params.get("context", {})
-    handlers = _HANDLERS.get(event_name, [])
+    ctx_data = params.get("context", {}) or {}
     log = []
     ctx = _EventContext(log)
     ctx.event = event_name
     for key, value in ctx_data.items():
-        setattr(ctx, key, _wrap_data(value))
-
-    # Special handling for state: if ctx has a state, we want to capture its mutations
-    has_state = hasattr(ctx, "state")
-    has_global = hasattr(ctx, "global_state")
+        if key in _PLAYER_KEYS and isinstance(value, dict):
+            setattr(ctx, key, Player(value))
+        elif key in _ENTITY_KEYS and isinstance(value, dict):
+            setattr(ctx, key, Entity(value))
+        else:
+            setattr(ctx, key, _wrap_data(value))
 
     results = []
-    for h in handlers:
-        try:
-            res = h(ctx)
-            results.append(res)
-        except Exception as exc:
-            log.append("ERROR in handler %s: %s" % (event_name, exc))
-            traceback.print_exc()
+    _LOG_TARGET[0] = log
+    try:
+        _dispatch_event(event_name, ctx, log, results)
+    finally:
+        _LOG_TARGET[0] = None
 
-    response = {"log": log, "results": results, "scheduled": len(_SCHEDULE)}
-    if has_state:
+    response = {"log": log, "results": [r for r in results if isinstance(r, (str, int, float, bool, type(None)))],
+                "scheduled": len(_SCHEDULE)}
+    if "state" in ctx.__dict__:
         response["state"] = _unwrap_data(ctx.state)
-    if has_global:
+    if "global_state" in ctx.__dict__:
         response["global_state"] = _unwrap_data(ctx.global_state)
-
     return response
 
+
+def _dispatch_event(event_name, ctx, log, results):
+    for owner, state in list(_OWNERS.items()):
+        for fn, wanted in list(state["handlers"].get(event_name, [])):
+            if wanted and not _matches(ctx, wanted):
+                continue
+            _use_owner(owner)
+            try:
+                results.append(_call_flexible(fn, ctx))
+            except Exception as exc:  # noqa: BLE001
+                tb = traceback.extract_tb(sys.exc_info()[2])
+                where = (" (line %d)" % tb[-1].lineno) if tb else ""
+                log.append("[%s] ERROR in %s handler %s%s: %s: %s"
+                           % (owner, event_name, getattr(fn, "__name__", "?"), where, type(exc).__name__, exc))
+                traceback.print_exc(file=sys.stderr)
 
 def _unwrap_data(data):
     if hasattr(data, "__dict__"):
@@ -1111,7 +1764,15 @@ def _wrap_data(data):
     if isinstance(data, dict):
         class DataObj:
             def __getattr__(self, name):
+                if name.startswith("__"):
+                    raise AttributeError(name)
                 return self.__dict__.get(name)
+
+            def get(self, name, default=None):
+                return self.__dict__.get(name, default)
+
+            def __getitem__(self, name):
+                return self.__dict__[name]
 
             def __repr__(self):
                 return "DataObj(%r)" % self.__dict__

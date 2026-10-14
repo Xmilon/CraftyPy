@@ -47,6 +47,8 @@ public final class ClientProjectStore {
     private boolean debugMode;
     private java.util.function.BiConsumer<String, Integer> definitionCallback;
     private String pendingIdeProject;
+    /** File to open once the selected project's file list arrives (instead of main.py). */
+    private String pendingOpenFile;
 
     private ClientProjectStore() {
     }
@@ -102,11 +104,29 @@ public final class ClientProjectStore {
         return selectedId;
     }
 
+    /** Selects a project and opens {@code file} once its files are listed. */
+    public void select(String id, String file) {
+        if (id != null && id.equals(activeProjectId) && files.contains(file)) {
+            openFile(file);
+            return;
+        }
+        select(id);
+        this.pendingOpenFile = file;
+    }
+
     public void select(String id) {
+        this.pendingOpenFile = null;
+        if (id == null || !id.equals(activeProjectId)) {
+            // Tabs belong to one project: a Save after switching would write them into the new one.
+            openFiles.clear();
+            dirty.clear();
+            virtualFiles.clear();
+            validationProblems.clear();
+            this.activeFile = null;
+        }
         this.selectedId = id;
         this.activeProjectId = id;
         this.files = new ArrayList<>();
-        this.activeFile = null;
         if (id == null) {
             notifyListener();
             return;
@@ -184,6 +204,11 @@ public final class ClientProjectStore {
 
     public boolean hasUnsaved(String path) {
         return dirty.contains(path);
+    }
+
+    /** True when any open tab has edits that were not saved. */
+    public boolean hasUnsavedChanges() {
+        return !dirty.isEmpty();
     }
 
     /** True when the file has local edits not yet written to the server. */
@@ -682,6 +707,15 @@ public final class ClientProjectStore {
     }
 
     private void autoOpen(List<String> projectFiles) {
+        String wanted = pendingOpenFile;
+        pendingOpenFile = null;
+        if (wanted != null && projectFiles.contains(wanted)) {
+            openFile(wanted);
+            return;
+        }
+        if (activeFile != null) {
+            return; // a refresh (new file, rename...) must not jump away from what is open
+        }
         // Prefer main.py, otherwise the first .py file.
         for (String preferred : new String[] { "code/main.py", "code/Main.py" }) {
             if (projectFiles.contains(preferred)) {

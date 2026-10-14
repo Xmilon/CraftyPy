@@ -86,4 +86,23 @@ class DeclarationsTest {
         result.add("log", new JsonArray());
         assertFalse(Declarations.parse(result, "main.py").failed());
     }
+
+    /** Regression: {@code @on("block_break")} sends "every": null, which used to fail the whole module. */
+    @Test
+    void handlerWithNullEveryLoads() {
+        JsonObject handler = new JsonObject();
+        handler.addProperty("event", "block_break");
+        handler.add("every", com.google.gson.JsonNull.INSTANCE);
+        JsonObject decl = new JsonObject();
+        decl.add("handlers", array(handler));
+        decl.add("blocks", array(content("ruby_block")));
+        JsonObject result = new JsonObject();
+        result.add("declarations", decl);
+
+        Declarations parsed = Declarations.parse(result, "main.py");
+        assertFalse(parsed.failed());
+        assertEquals(1, parsed.handlers().size());
+        assertEquals(null, parsed.handlers().get(0).every());
+        assertEquals(1, parsed.contents().size());
+    }
 }

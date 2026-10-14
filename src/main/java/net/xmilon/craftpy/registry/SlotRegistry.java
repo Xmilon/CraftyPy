@@ -295,6 +295,18 @@ public final class SlotRegistry {
         return PROJECT_DECLS.get(projectId);
     }
 
+    /** True when any loaded project or module has an {@code @on(event)} handler. */
+    public static boolean handlesEvent(String event) {
+        for (Declarations declarations : PROJECT_DECLS.values()) {
+            for (Declarations.Handler handler : declarations.handlers()) {
+                if (event.equals(handler.event())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static boolean isProjectActive(String projectId) {
         return Boolean.TRUE.equals(ACTIVE_PROJECTS.get(projectId));
     }

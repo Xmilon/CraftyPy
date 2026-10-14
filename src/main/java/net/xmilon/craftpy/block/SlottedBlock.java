@@ -131,19 +131,57 @@ public class SlottedBlock extends Block implements EntityBlock {
         return def != null ? def.light : 0;
     }
 
+    /**
+     * Slot blocks are in no vanilla "mineable" tag, so the tool comes from the definition:
+     * the matching tool mines at its tier speed; with needs_tool the wrong tool mines slowly
+     * (and the generated loot table drops nothing, like vanilla ores).
+     */
     @Override
     public float getDestroyProgress(BlockState state, Player player, BlockGetter level, BlockPos pos) {
         Defs.BlockDef def = definition();
-        float speed = def != null && def.hardness > 0 ? def.hardness : 2.0f;
-        if (def != null && def.needsTool && !player.hasCorrectToolForDrops(state)) {
-            return 0.0f;
+        float hardness = def != null && def.hardness > 0 ? def.hardness : 2.0f;
+        String tool = def == null ? "" : def.tool;
+        ItemStack held = player.getMainHandItem();
+        boolean correct = isCorrectTool(tool, held);
+        // getDestroySpeed already applies haste / mining fatigue / underwater to the base speed 1.
+        float speed = player.getDestroySpeed(state);
+        if (correct && !tool.isBlank()) {
+            speed *= Math.max(1.0f, held.getDestroySpeed(proxyFor(tool)));
         }
-        if (speed == -1.0F) {
-            return 0.0F;
+        boolean dropsOk = def == null || !def.needsTool || correct;
+        return speed / hardness / (dropsOk ? 30 : 100);
+    }
+
+    /** True when no tool is required, or the held item is in the matching vanilla tool tag. */
+    public static boolean isCorrectTool(String tool, ItemStack held) {
+        if (tool == null || tool.isBlank()) {
+            return true;
         }
-        int divisor = player.hasCorrectToolForDrops(state) ? 30 : 100;
-        float playerSpeed = player.getDestroySpeed(state);
-        return playerSpeed / speed / divisor;
+        var tag = toolTag(tool);
+        return tag != null && held.is(tag);
+    }
+
+    @Nullable
+    public static net.minecraft.tags.TagKey<Item> toolTag(String tool) {
+        return switch (tool.toLowerCase(Locale.ROOT)) {
+            case "pickaxe" -> net.minecraft.tags.ItemTags.PICKAXES;
+            case "axe" -> net.minecraft.tags.ItemTags.AXES;
+            case "shovel" -> net.minecraft.tags.ItemTags.SHOVELS;
+            case "hoe" -> net.minecraft.tags.ItemTags.HOES;
+            case "sword" -> net.minecraft.tags.ItemTags.SWORDS;
+            default -> null;
+        };
+    }
+
+    /** A vanilla block each tool is made for, used to read the tool's tier speed. */
+    private static BlockState proxyFor(String tool) {
+        return switch (tool.toLowerCase(Locale.ROOT)) {
+            case "axe" -> net.minecraft.world.level.block.Blocks.OAK_PLANKS.defaultBlockState();
+            case "shovel" -> net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState();
+            case "hoe" -> net.minecraft.world.level.block.Blocks.HAY_BLOCK.defaultBlockState();
+            case "sword" -> net.minecraft.world.level.block.Blocks.COBWEB.defaultBlockState();
+            default -> net.minecraft.world.level.block.Blocks.STONE.defaultBlockState();
+        };
     }
 
     @Override

@@ -63,4 +63,17 @@ class CraftPyCommandResolveTest {
         String result = CraftPyCommand.resolve(mapping(), "ruby", SlotRegistry.Kind.BLOCK);
         assertTrue(result.startsWith("ERROR:"), result);
     }
+
+    /** Live slot keys are kind-prefixed; the same id may exist as a block and an item, or in two projects. */
+    @Test
+    void resolvesKindPrefixedKeys() {
+        java.util.Map<String, SlotRegistry.SlotRef> map = new java.util.HashMap<>();
+        map.put("BLOCK:ruby_rush:ruby", new SlotRegistry.SlotRef(SlotRegistry.Kind.BLOCK, 2));
+        map.put("ITEM:ruby_rush:ruby", new SlotRegistry.SlotRef(SlotRegistry.Kind.ITEM, 5));
+        map.put("BLOCK:other:ruby", new SlotRegistry.SlotRef(SlotRegistry.Kind.BLOCK, 9));
+        assertEquals("BLOCK#2", CraftPyCommand.resolve(map, "ruby_rush:ruby", SlotRegistry.Kind.BLOCK));
+        assertEquals("ITEM#5", CraftPyCommand.resolve(map, "ruby_rush:ruby", SlotRegistry.Kind.ITEM));
+        assertEquals("BLOCK#9", CraftPyCommand.resolve(map, "project_other:ruby", SlotRegistry.Kind.BLOCK));
+        assertEquals("ruby_rush:ruby", CraftPyCommand.stripKind("ITEM:ruby_rush:ruby"));
+    }
 }

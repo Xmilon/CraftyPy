@@ -3,8 +3,8 @@
   "name": "Ruby Rush",
   "version": "1.0.0",
   "author": "CraftPy",
-  "description": "Complex mining minigame: ruby ore, events, storage, scheduler, loot, recipes, and particles.",
+  "description": "A small mining game: ore with drops, recipes, events, storage, timers and a command.",
   "mcVersion": "1.21.1",
-  "apiVersion": "1",
+  "apiVersion": "2",
   "requiresRestart": false
 }
