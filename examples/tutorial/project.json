@@ -1,9 +1,0 @@
-{
-  "id": "tutorial",
-  "name": "Tutorial Project",
-  "version": "1.0.0",
-  "author": "CraftPy",
-  "description": "Start here: a block, a food item and a wand, with recipes and events.",
-  "mcVersion": "1.21.1",
-  "apiVersion": "2"
-}

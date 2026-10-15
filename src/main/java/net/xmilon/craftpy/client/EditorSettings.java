@@ -27,6 +27,12 @@ public final class EditorSettings {
     public float fontSize = 13;
     public int ruler = 100;
     public boolean trimOnSave = true;
+    /** Pin the signatures of the scopes scrolled out of view at the top of the code area. */
+    public boolean stickyScroll = true;
+    /** The overview strip next to the code. */
+    public boolean minimap = true;
+    /** Dim everything except the function/class the cursor is in. */
+    public boolean focusMode = false;
     public int explorerWidth = 220;
     /** Share of the editor column the code area takes (the rest is the console/problems panel). */
     public float codeWeight = 0.67f;

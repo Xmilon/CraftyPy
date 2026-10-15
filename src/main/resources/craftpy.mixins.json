@@ -2,7 +2,10 @@
   "required": true,
   "package": "net.xmilon.craftpy.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
+  "mixins": [
+    "ItemSuggestionMixin",
+    "BlockSuggestionMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   },

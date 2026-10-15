@@ -21,7 +21,8 @@ public record ResponsePayload(ProjectAction action, boolean success, String mess
             RequestPayload.ACTION_CODEC, ResponsePayload::action,
             ByteBufCodecs.BOOL, ResponsePayload::success,
             ByteBufCodecs.STRING_UTF8, ResponsePayload::message,
-            ByteBufCodecs.STRING_UTF8, ResponsePayload::json,
+            // The default 32767 char limit would disconnect a client on a big file or the generated API stub.
+            ByteBufCodecs.stringUtf8(400_000), ResponsePayload::json,
             ResponsePayload::new);
 
     /**

@@ -23,7 +23,7 @@ import java.util.zip.ZipFile;
  * Modules are discovered anywhere under {@code pyforge/} (imports/, modules/,
  * the build output in exports/, or any user folder). Each module can be
  * enabled or disabled from the IDE's Modules page; that choice is persisted in
- * {@code pyforge/modules.json} so it survives restarts.
+ * {@code pyforge/system/modules.json} so it survives restarts.
  */
 public final class ModuleLoader {
     private static final Object LOCK = new Object();
@@ -36,14 +36,11 @@ public final class ModuleLoader {
     private static ModuleState state;
     private static boolean stateLoaded = false;
 
-    /** User preference persisted to {@code pyforge/modules.json}. */
+    /** User preference persisted to {@code pyforge/system/modules.json}. */
     public static class ModuleState {
         /** Ids the user turned off; everything else defaults to enabled. */
         public List<String> disabled = new ArrayList<>();
     }
-
-    /** Paths that never contain modules and are expensive to walk. */
-    private static final Set<String> PRUNED_DIRS = Set.of("runtime", "cache", "logs");
 
     public static void discoverAndLoad() {
         synchronized (LOCK) {
@@ -85,7 +82,7 @@ public final class ModuleLoader {
             MODULE_FILES.remove(id);
             PENDING_UNLOAD.remove(id);
             // Re-extract the code/assets into the cache dir so the worker runs the fresh copy.
-            Path cacheDir = PyForgePaths.root().resolve("cache").resolve(id);
+            Path cacheDir = PyForgePaths.cache().resolve(id);
             if (Files.isDirectory(cacheDir)) {
                 ProjectManager.deleteRecursively(cacheDir);
             }
@@ -185,7 +182,7 @@ public final class ModuleLoader {
     }
 
     /**
-     * Scans every .cpm under {@code pyforge/} and returns a description of each,
+     * Scans every .cpm under {@code pyforge/modules/} and returns a description of each,
      * including enable/load state and duplicate-id information.
      */
     public static List<ModuleInfo> list() {
@@ -242,7 +239,7 @@ public final class ModuleLoader {
                 }
 
                 // Extract code/assets/data to a persistent cache for the current session
-                Path cacheDir = PyForgePaths.root().resolve("cache").resolve(meta.id);
+                Path cacheDir = PyForgePaths.cache().resolve(meta.id);
                 extractZip(zip, cacheDir);
 
                 LOADED_MODULES.put(meta.id, meta);
@@ -290,18 +287,7 @@ public final class ModuleLoader {
     /** Applies a module's declarations to the slot registry (like a project). */
     private static void applyModuleDeclarations(String moduleId, Declarations declarations) {
         try {
-            for (Declarations.Content content : declarations.contents()) {
-                switch (content.kind()) {
-                    case "block" -> SlotRegistry.applyBlock(moduleId, content.id(), content.definition());
-                    case "item" -> SlotRegistry.applyItem(moduleId, content.id(), content.definition());
-                    case "effect", "entity" -> {
-                        // Not wired yet; will be in later milestones
-                    }
-                    default -> {}
-                }
-            }
-            SlotRegistry.flush();
-            SlotRegistry.storeDeclarations(moduleId, declarations);
+            SlotRegistry.applyAll(moduleId, declarations);
             try {
                 net.xmilon.craftpy.command.ProjectCommandRegistry.register(moduleId, declarations);
             } catch (Exception e) {
@@ -439,12 +425,39 @@ public final class ModuleLoader {
     // Scanning helpers
     // ------------------------------------------------------------------
 
-    /** All .cpm files under pyforge/, sorted by path for deterministic order. */
+    /**
+     * All .cpm files under pyforge/modules/, sorted by path for deterministic order. Files dropped in
+     * pyforge/imports/ are moved there first; exports/ and everything else is never a module source.
+     */
     public static List<Path> scanAll() {
+        collectImports();
         List<Path> out = new ArrayList<>();
-        walk(PyForgePaths.root(), out);
+        walk(PyForgePaths.modules(), out);
         out.sort(Comparator.comparing(Path::toString));
         return out;
+    }
+
+    /** Moves dropped .cpm files from imports/ into modules/; a name that already exists there stays put. */
+    private static void collectImports() {
+        Path imports = PyForgePaths.imports();
+        if (!Files.isDirectory(imports)) {
+            return;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(imports, "*.cpm")) {
+            Files.createDirectories(PyForgePaths.modules());
+            for (Path file : stream) {
+                Path target = PyForgePaths.modules().resolve(file.getFileName());
+                if (Files.exists(target)) {
+                    CraftPy.LOGGER.warn("imports/{} left in place: modules/ already has a file with that name",
+                            file.getFileName());
+                } else {
+                    Files.move(file, target);
+                    CraftPy.LOGGER.info("Installed module {} from imports/", file.getFileName());
+                }
+            }
+        } catch (IOException e) {
+            CraftPy.LOGGER.error("Error collecting dropped modules from {}", imports, e);
+        }
     }
 
     private static void walk(Path dir, List<Path> out) {
@@ -454,9 +467,6 @@ public final class ModuleLoader {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
             for (Path entry : stream) {
                 if (Files.isDirectory(entry)) {
-                    if (PRUNED_DIRS.contains(entry.getFileName().toString())) {
-                        continue;
-                    }
                     walk(entry, out);
                 } else if (entry.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".cpm")) {
                     out.add(entry);
@@ -540,7 +550,7 @@ public final class ModuleLoader {
     // ------------------------------------------------------------------
 
     private static Path stateFile() {
-        return PyForgePaths.root().resolve("modules.json");
+        return PyForgePaths.moduleStateFile();
     }
 
     private static void loadState() {

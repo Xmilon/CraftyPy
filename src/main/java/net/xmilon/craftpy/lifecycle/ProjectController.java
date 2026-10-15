@@ -32,7 +32,17 @@ import net.xmilon.craftpy.util.CraftPyExecutors;
 public final class ProjectController {
     private static final ProjectController INSTANCE = new ProjectController();
 
-    private final List<String> loading = new ArrayList<>();
+    /** Projects whose worker run is in flight; saves arriving meanwhile are folded into one more run. */
+    private final java.util.Set<String> loading = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Set<String> loadAgain = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<String, java.util.concurrent.ScheduledFuture<?>> pendingReloads =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ScheduledExecutorService debounce =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(task -> {
+                Thread thread = new Thread(task, "craftpy-hot-reload");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     private ProjectController() {
     }
@@ -46,7 +56,8 @@ public final class ProjectController {
     }
 
     public void load(String projectId, MinecraftServer server, boolean debug) {
-        if (loading.contains(projectId)) {
+        if (!loading.add(projectId)) {
+            loadAgain.add(projectId); // run once more when the current run is done
             return;
         }
         if (!Config.ENABLE_SCRIPTING.get()) {
@@ -61,7 +72,6 @@ public final class ProjectController {
         if (manager == null) {
             return;
         }
-        loading.add(projectId);
         manager.setLastError(projectId, null);
 
         manager.readFile(projectId, "code/main.py")
@@ -69,7 +79,8 @@ public final class ProjectController {
                     if (!read.success()) {
                         return CompletableFuture.completedFuture(Declarations.error(read.message()));
                     }
-                    return PyRuntime.get().runMain(projectId, read.content(), "code/main.py", debug);
+                    return manager.readSources(projectId).thenCompose(sources ->
+                            PyRuntime.get().runMain(projectId, read.content(), "code/main.py", debug, sources));
                 })
                 .thenAccept(declarations -> {
                     if (server != null) {
@@ -92,6 +103,13 @@ public final class ProjectController {
 
     /** Runs on the server thread. */
     private void finishLoad(String projectId, Declarations declarations, MinecraftServer server) {
+        loading.remove(projectId);
+        if (loadAgain.remove(projectId)) {
+            // Saved again while this run was going: this result is already stale.
+            PyRuntime.get().revert(projectId);
+            load(projectId, server);
+            return;
+        }
         try {
             ProjectManager manager = ProjectManager.get();
             if (declarations == null || declarations.failed()) {
@@ -117,36 +135,33 @@ public final class ProjectController {
             List<String> notes = new ArrayList<>();
             int blocks = 0;
             int items = 0;
+            for (Declarations.Content content : declarations.contents()) {
+                switch (content.kind()) {
+                    case "block" -> blocks++;
+                    case "item" -> items++;
+                    case "effect", "entity" -> notes.add(content.kind() + " '" + content.id()
+                            + "' declared, but that slot type is not wired yet (later milestone)");
+                    default -> {
+                    }
+                }
+            }
             try {
-                for (Declarations.Content content : declarations.contents()) {
-                    switch (content.kind()) {
-                        case "block" -> {
-                            SlotRegistry.applyBlock(projectId, content.id(), content.definition());
-                            blocks++;
-                        }
-                        case "item" -> {
-                            SlotRegistry.applyItem(projectId, content.id(), content.definition());
-                            items++;
-                        }
-                        case "effect", "entity" -> notes.add(content.kind() + " '" + content.id()
-                                + "' declared, but that slot type is not wired yet (later milestone)");
-                        default -> {
-                        }
-                    }
-                }
-                SlotRegistry.flush();
-                SlotRegistry.storeDeclarations(projectId, declarations);
+                SlotRegistry.applyAll(projectId, declarations);
             } catch (RuntimeException e) {
+                // Nothing was applied: the previous version keeps its content, and the worker puts back its handlers.
                 failed = true;
-                CraftPy.LOGGER.error("Slot allocation failed for {}", projectId, e);
-                manager.markLoaded(projectId, false);
-                manager.setLastError(projectId, e.getMessage());
-                for (String key : new ArrayList<>(SlotRegistry.snapshotByHolder().keySet())) {
-                    if (key.startsWith(projectId + ":")) {
-                        manager.setLastError(projectId, "Slot pool exhausted: " + e.getMessage());
-                        break;
-                    }
+                CraftPy.LOGGER.error("Applying content of {} failed, previous version kept", projectId, e);
+                PyRuntime.get().revert(projectId);
+                String message = (e.getMessage() == null ? e.toString() : e.getMessage());
+                if (SlotRegistry.declarations(projectId) != null) {
+                    manager.setLastError(projectId, "Reload failed - previous version kept: " + message);
+                } else {
+                    manager.markLoaded(projectId, false);
+                    manager.setLastError(projectId, message);
                 }
+                net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server,
+                        "[" + projectId + "] ERROR: " + message);
+                return;
             }
 
             if (!failed) {
@@ -178,6 +193,25 @@ public final class ProjectController {
         } catch (RuntimeException e) {
             CraftPy.LOGGER.error("Unexpected error while finishing load of {}", projectId, e);
             afterChange(server);
+        }
+    }
+
+    /**
+     * Debounced reload after a save (config {@code hotReloadOnSave}): a burst of saves makes one run, and only for
+     * projects that are loaded. Safe to call from any thread.
+     */
+    public void scheduleReload(String projectId, MinecraftServer server) {
+        ProjectManager manager = ProjectManager.get();
+        var project = manager == null ? null : manager.getProject(projectId);
+        if (project == null || !project.isLoaded() || server == null) {
+            return;
+        }
+        var previous = pendingReloads.put(projectId, debounce.schedule(() -> {
+            pendingReloads.remove(projectId);
+            server.execute(() -> load(projectId, server));
+        }, 700, java.util.concurrent.TimeUnit.MILLISECONDS));
+        if (previous != null) {
+            previous.cancel(false);
         }
     }
 

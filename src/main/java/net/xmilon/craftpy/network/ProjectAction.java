@@ -31,5 +31,11 @@ public enum ProjectAction {
     MODULE_SET_ENABLED,
     MODULE_SET_ALL,
     MODULE_RELOAD,
-    MODULE_DELETE
+    MODULE_DELETE,
+    /** Editor tools: symbols, usage, rename... (JSON request, JSON reply). */
+    TOOL,
+    /** An in-game window sent to the player (server to client). */
+    WINDOW,
+    /** A click or input in an in-game window (client to server). */
+    WINDOW_EVENT
 }

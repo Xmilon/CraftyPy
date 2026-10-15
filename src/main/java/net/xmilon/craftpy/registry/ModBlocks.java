@@ -31,13 +31,13 @@ public final class ModBlocks {
                     .strength(0.0F)));
 
     /**
-     * The generic block slot pool. {@code SlotRegistry.BLOCK_CAP} entries are
+     * The generic block slot pool. {@code SlotRegistry.blockSlotCount()} entries are
      * pre-registered at startup; behavior is assigned at load time. The config
      * {@code slotPool.blocks} value is clamped to this hard cap.
      */
     public static final List<DeferredBlock<SlottedBlock>> SLOT_BLOCKS = new ArrayList<>();
     static {
-        for (int i = 0; i < SlotRegistry.BLOCK_CAP; i++) {
+        for (int i = 0; i < SlotRegistry.blockSlotCount(); i++) {
             final int index = i;
             SLOT_BLOCKS.add(BLOCKS.register("pcblock_" + i, () -> {
                 SlottedBlock block = new SlottedBlock(index, BlockBehaviour.Properties.of());

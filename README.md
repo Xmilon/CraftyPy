@@ -207,11 +207,13 @@ Everything is stored as plain files, so projects can also be edited with any ext
 | `pythonPath` | `""` | Explicit Python executable; empty = auto-detect |
 | `autoDownloadPython` | `true` | Allow falling back to a runtime in `pyforge/runtime/` *(auto-download is not bundled in this build)* |
 | `debugDefault` | `false` | Start with debug tracing on |
-| `hotReloadOnSave` | `false` | Rebuild/reload the active project when files change |
+| `hotReloadOnSave` | `false` | Re-run a loaded project 0.7 s after a code/ui/asset file was saved (one run for a burst of saves) |
+| `javaBridge.mode` | `RESTRICTED` | `OFF`, `RESTRICTED` (Minecraft, NeoForge, Mojang libs, CraftPy + `javaBridge.extraPackages`) or `FULL` |
+| `javaBridge.extraPackages` | `[]` | Package prefixes of other mods Python may use in RESTRICTED mode |
 | `eventTimeoutMs` | `50` | Budget per Python event callback before cancellation |
 | `maxPacketSizeKb` | `32768` | Cap for project file packets |
 | `maxAssetSizeKb` | `8192` | Cap for imported asset files |
-| `slotPool.blocks` / `.items` | `256` | Pre-registered generic slots (hard cap 256 each) |
+| `slotPool.blocks` / `.items` | `256` | Deprecated, ignored. The pool size is `config/craftpy-slots.properties` (default 256, max 4096) |
 | `slotPool.entities` / `.effects` / `.sounds` | `64 / 32 / 32` | Reserved pools for later milestones |
 
 ## Security
@@ -223,7 +225,7 @@ Project Python runs in an external subprocess with a denylist of OS, filesystem,
 ## Known Limitations
 
 - **Entities and effects** can be declared but are not yet wired into the game (later milestone).
-- Slot pools are capped (256 blocks / 256 items); exceeding them requires a restart-based mode that is not implemented yet.
+- Slot pools are fixed at startup (default 256 blocks / 256 items, at most 4096 each via `config/craftpy-slots.properties`); more at the same time needs a restart.
 - Binary asset previews are capped at 24 KB per file (larger files open with a notice).
 - Only CPython 3.13+ is supported (no Jython/GraalPy).
 - Hot reload of behavior is per-run: reload a project to re-execute its scripts.

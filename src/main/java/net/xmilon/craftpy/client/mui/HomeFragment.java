@@ -26,6 +26,7 @@ import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.assets.AssetUploader;
 import net.xmilon.craftpy.network.ProjectAction;
 import net.xmilon.craftpy.project.ProjectSummary;
+import net.xmilon.craftpy.project.ProjectTemplates;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -37,6 +38,7 @@ public class HomeFragment extends Fragment {
     private LinearLayout projectList;
     private TextView status;
     private volatile boolean openAfterCreate;
+    private String template = ProjectTemplates.DEFAULT;
 
     /** Client thread: snapshot the store, render on the UI thread. */
     private final Runnable storeListener = () -> {
@@ -59,6 +61,56 @@ public class HomeFragment extends Fragment {
             });
         }
     };
+
+    /** CREATE request body: the project name and the starter script to write. */
+    private record CreateRequest(String name, String template) {
+    }
+
+    /** Chips for the starter templates (50) with the description of the selected one. */
+    private View templateGallery(Context context, View anchor) {
+        var column = new LinearLayout(context);
+        column.setOrientation(LinearLayout.VERTICAL);
+        var caption = label(context, "Start from", R.attr.textAppearanceLabelMedium);
+        caption.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        caption.setPadding(0, column.dp(10), 0, column.dp(4));
+        column.addView(caption);
+        var chips = row(context);
+        var description = label(context, "", R.attr.textAppearanceBodySmall);
+        description.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        description.setPadding(0, column.dp(6), 0, 0);
+        var scroll = new icyllis.modernui.widget.HorizontalScrollView(context);
+        scroll.addView(chips);
+        column.addView(scroll);
+        column.addView(description);
+        List<TextView> views = new java.util.ArrayList<>();
+        Runnable refresh = () -> {
+            for (int i = 0; i < views.size(); i++) {
+                ProjectTemplates.Template t = ProjectTemplates.ALL.get(i);
+                boolean selected = t.id().equals(template);
+                styleChip(views.get(i), selected);
+                views.get(i).setTextColor(color(context,
+                        selected ? R.attr.colorOnSecondaryContainer : R.attr.colorOnSurfaceVariant));
+                if (selected) {
+                    description.setText(t.description());
+                }
+            }
+        };
+        for (ProjectTemplates.Template t : ProjectTemplates.ALL) {
+            var chip = label(context, t.label(), R.attr.textAppearanceLabelLarge);
+            chip.setPadding(chip.dp(12), chip.dp(6), chip.dp(12), chip.dp(6));
+            chip.setClickable(true);
+            chip.setOnClickListener(v -> {
+                template = t.id();
+                refresh.run();
+            });
+            var lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+            lp.rightMargin = chip.dp(6);
+            chips.addView(chip, lp);
+            views.add(chip);
+        }
+        refresh.run();
+        return column;
+    }
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -92,7 +144,9 @@ public class HomeFragment extends Fragment {
                 }
                 name.setText("");
                 openAfterCreate = true;
-                store(s -> s.request(ProjectAction.CREATE, "", value));
+                String chosen = template;
+                store(s -> s.request(ProjectAction.CREATE, "",
+                        net.xmilon.craftpy.util.Json.COMPACT.toJson(new CreateRequest(value, chosen))));
             };
             name.setOnKeyListener((v, keyCode, event) -> {
                 if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEY_ENTER) {
@@ -105,6 +159,7 @@ public class HomeFragment extends Fragment {
             lp.leftMargin = row.dp(8);
             row.addView(button(context, "Create", R.attr.buttonStyle, v -> create.run()), lp);
             card.addView(row);
+            card.addView(templateGallery(context, card));
             page.addView(card, cardParams(page));
         }
 
@@ -213,6 +268,11 @@ public class HomeFragment extends Fragment {
                 + humanSize(project.sizeBytes), R.attr.textAppearanceBodySmall);
         meta.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         text.addView(meta);
+        if (project.description != null && !project.description.isBlank()) {
+            var description = label(context, project.description, R.attr.textAppearanceBodySmall);
+            description.setMaxLines(2);
+            text.addView(description);
+        }
         if (project.error != null && !project.error.isBlank()) {
             var error = label(context, project.error, R.attr.textAppearanceBodySmall);
             error.setTextColor(color(context, R.attr.colorError));

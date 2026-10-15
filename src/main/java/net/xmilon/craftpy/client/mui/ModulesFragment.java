@@ -24,6 +24,7 @@ import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.Switch;
 import icyllis.modernui.widget.TextView;
 import net.minecraft.Util;
+import net.xmilon.craftpy.analysis.ModuleGraph;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.project.ModuleInfo;
 import net.xmilon.craftpy.project.PyForgePaths;
@@ -58,6 +59,35 @@ public class ModulesFragment extends Fragment {
         }
     };
 
+    /** Module dependency tree (45): roots first, missing / disabled / circular dependencies marked. */
+    private void showDependencies(View anchor) {
+        List<ModuleGraph.Node> nodes = new java.util.ArrayList<>();
+        for (ModuleInfo module : modules) {
+            if (module.primary) {
+                nodes.add(new ModuleGraph.Node(module.id, module.enabled, module.loaded, module.dependencies));
+            }
+        }
+        var dialog = ListDialog.open(anchor, "Module dependencies", false, 520, 300);
+        if (nodes.isEmpty()) {
+            dialog.setMessage("No modules found.");
+            return;
+        }
+        List<ListDialog.Row> rows = new java.util.ArrayList<>();
+        for (ModuleGraph.Row row : ModuleGraph.tree(nodes)) {
+            String indent = row.depth() == 0 ? "" : "    ".repeat(row.depth() - 1) + "\u2514 ";
+            String attr = switch (row.status()) {
+                case OK -> R.attr.colorPrimary;
+                case DISABLED, REPEAT -> R.attr.colorOnSurfaceVariant;
+                case MISSING, CYCLE -> R.attr.colorError;
+            };
+            rows.add(ListDialog.Row.info(indent + row.id(), row.note()).colored(attr));
+        }
+        List<String> problems = ModuleGraph.problems(nodes);
+        dialog.setMessage(problems.isEmpty() ? "All dependencies are installed and enabled."
+                : problems.size() + " problem(s): " + String.join("; ", problems));
+        dialog.setRows(rows);
+    }
+
     @Override
     public void onCreate(@Nullable DataSet savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,14 +112,15 @@ public class ModulesFragment extends Fragment {
             header.addView(button(context, "Disable all", R.attr.borderlessButtonStyle,
                     v -> store(s -> s.setAllModulesEnabled(false))));
             header.addView(button(context, "Open folder", R.attr.borderlessButtonStyle,
-                    v -> openFolder(PyForgePaths.root().toString())));
+                    v -> openFolder(PyForgePaths.modules().toString())));
             header.addView(button(context, "Reload all", R.attr.borderlessButtonStyle,
                     v -> store(s -> s.reloadModule("*"))));
+            header.addView(button(context, "Dependencies", R.attr.borderlessButtonStyle, this::showDependencies));
             header.addView(button(context, "Refresh", R.attr.buttonTonalStyle,
                     v -> store(ClientProjectStore::refreshModules)));
             page.addView(header);
         }
-        var subtitle = label(context, "Built modules (.cpm) found under pyforge/. Toggle to enable or disable them.",
+        var subtitle = label(context, "Installed modules (.cpm) in pyforge/modules/ (drop new ones in pyforge/imports/). Toggle to enable or disable them.",
                 R.attr.textAppearanceBodyMedium);
         subtitle.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         page.addView(subtitle);

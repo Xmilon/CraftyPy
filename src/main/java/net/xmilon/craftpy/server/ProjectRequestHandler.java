@@ -24,7 +24,37 @@ public final class ProjectRequestHandler {
     private ProjectRequestHandler() {
     }
 
+    /**
+     * Forwards a click / value change to the worker as the internal {@code ui_event}. The worker only
+     * accepts tokens that belong to a window it opened for exactly this player.
+     */
+    private static void windowEvent(ServerPlayer player, String data) {
+        try {
+            com.google.gson.JsonObject event = com.google.gson.JsonParser.parseString(data).getAsJsonObject();
+            com.google.gson.JsonObject context = new com.google.gson.JsonObject();
+            context.add("player", net.xmilon.craftpy.lifecycle.EventBridge.wrapPlayer(player));
+            for (String key : new String[] { "window", "token", "value", "values" }) {
+                if (event.has(key)) {
+                    context.add(key, event.get(key));
+                }
+            }
+            net.xmilon.craftpy.python.PyRuntime.get().triggerEvent("ui_event", context).thenAccept(result -> {
+                if (result != null && result.has("log") && result.get("log").isJsonArray()) {
+                    result.getAsJsonArray("log").forEach(line -> net.xmilon.craftpy.network.CraftPyNetwork
+                            .broadcastConsole(player.server, "[window] " + line.getAsString()));
+                }
+            });
+        } catch (RuntimeException e) {
+            net.xmilon.craftpy.CraftPy.LOGGER.warn("Bad window event from {}: {}", player.getName().getString(), e.toString());
+        }
+    }
+
     public static CompletableFuture<ResponsePayload> handle(ServerPlayer player, RequestPayload request) {
+        if (request.action() == ProjectAction.WINDOW_EVENT) {
+            // Windows belong to the player who sees them, not to the IDE: no IDE permission needed.
+            windowEvent(player, request.data());
+            return CompletableFuture.completedFuture(null);
+        }
         ProjectManager manager = ProjectManager.get();
         if (manager == null) {
             return CompletableFuture.completedFuture(fail(request.action(), "Project manager not ready"));
@@ -44,7 +74,8 @@ public final class ProjectRequestHandler {
                 return manager.listProjects().thenApply(list -> new ResponsePayload(ProjectAction.LIST, true, "",
                         Json.COMPACT.toJson(list)));
             case CREATE:
-                return manager.createProject(request.data()).thenApply(result -> fromResult(ProjectAction.CREATE, result));
+                return createFromRequest(manager, request.data())
+                        .thenApply(result -> fromResult(ProjectAction.CREATE, result));
             case DELETE:
                 return manager.deleteProject(id).thenApply(result -> fromResult(ProjectAction.DELETE, result));
             case RENAME:
@@ -94,7 +125,13 @@ public final class ProjectRequestHandler {
                     return CompletableFuture.completedFuture(fail(action, "Malformed write request"));
                 }
                 return manager.writeFile(id, file.path, file.content == null ? "" : file.content)
-                        .thenApply(result -> fromResult(ProjectAction.WRITE_FILE, result));
+                        .thenApply(result -> {
+                            if (result.success() && Config.HOT_RELOAD_ON_SAVE.get() && Config.ENABLE_SCRIPTING.get()
+                                    && isReloadTrigger(file.path)) {
+                                net.xmilon.craftpy.lifecycle.ProjectController.get().scheduleReload(id, player.getServer());
+                            }
+                            return fromResult(ProjectAction.WRITE_FILE, result);
+                        });
             }
             case VALIDATE:
                 if (!Config.ENABLE_SCRIPTING.get()) {
@@ -200,6 +237,8 @@ public final class ProjectRequestHandler {
                 }
                 return manager.renameEntry(id, op.from, op.to).thenApply(result -> fromResult(action, result));
             }
+            case TOOL:
+                return ProjectTools.handle(manager, id, request.data());
             case INTERRUPT: {
                 return PyRuntime.get().interrupt().thenApply(v -> new ResponsePayload(action, true, "Interrupted", ""));
             }
@@ -211,14 +250,27 @@ public final class ProjectRequestHandler {
                 if (!ProjectManager.isValidId(id)) {
                     return CompletableFuture.completedFuture(fail(action, "Invalid project id"));
                 }
-                String version = request.data() == null ? "" : request.data().trim();
-                java.io.File target = net.xmilon.craftpy.project.PyForgePaths.exports()
-                        .resolve(id + (version.isEmpty() ? "" : "-" + version) + ".cpm").toFile();
+                final net.xmilon.craftpy.project.ModuleBuilder.Request build;
+                try {
+                    build = net.xmilon.craftpy.project.ModuleBuilder.Request.parse(request.data());
+                } catch (RuntimeException e) {
+                    return CompletableFuture.completedFuture(fail(action, "Malformed build request"));
+                }
                 return CraftPyExecutors.supplyAsync(() -> {
                     try {
-                        net.xmilon.craftpy.project.ModuleBuilder.build(id, version.isEmpty() ? null : version);
-                        return new ResponsePayload(ProjectAction.BUILD, true, "Built project '" + id + "' to "
-                                + target.getAbsolutePath(), "");
+                        var result = net.xmilon.craftpy.project.ModuleBuilder.build(id, build);
+                        String message = "Built module '" + result.moduleId() + "' " + result.version() + " to "
+                                + result.export().toAbsolutePath();
+                        if (result.installed() != null) {
+                            if (result.replaced()) {
+                                net.xmilon.craftpy.project.ModuleLoader.reload(result.moduleId());
+                                message += " - replaced the installed module";
+                            } else {
+                                net.xmilon.craftpy.project.ModuleLoader.loadModule(result.installed());
+                                message += " - installed as a new module";
+                            }
+                        }
+                        return new ResponsePayload(ProjectAction.BUILD, true, message, result.moduleId());
                     } catch (java.io.IOException e) {
                         return fail(ProjectAction.BUILD, "Build failed: " + e.getMessage());
                     }
@@ -317,6 +369,21 @@ public final class ProjectRequestHandler {
             out.add("error", com.google.gson.JsonNull.INSTANCE);
         }
         return new ResponsePayload(ProjectAction.EVAL, true, "", Json.COMPACT.toJson(out));
+    }
+
+    /** CREATE data is a plain project name, or {@code {"name": ..., "template": ...}} from the gallery. */
+    private static CompletableFuture<ProjectManager.OpResult> createFromRequest(ProjectManager manager, String data) {
+        if (data != null && data.startsWith("{")) {
+            try {
+                com.google.gson.JsonObject object = com.google.gson.JsonParser.parseString(data).getAsJsonObject();
+                String name = object.has("name") ? object.get("name").getAsString() : "";
+                String template = object.has("template") ? object.get("template").getAsString() : "";
+                return manager.createProject(name, template);
+            } catch (RuntimeException ignored) {
+                // not JSON after all: treat the whole text as a name
+            }
+        }
+        return manager.createProject(data);
     }
 
     private static boolean loadDebug(String data) {
@@ -419,6 +486,14 @@ public final class ProjectRequestHandler {
             return true;
         }
         return player.hasPermissions(Config.PERMISSION_LEVEL.get());
+    }
+
+    /** Files whose change needs a run: code, windows drawn in the designer, and assets. */
+    static boolean isReloadTrigger(String path) {
+        String lower = path.replace('\\', '/').toLowerCase(java.util.Locale.ROOT);
+        return (lower.startsWith("code/") && lower.endsWith(".py"))
+                || (lower.startsWith("ui/") && lower.endsWith(".json"))
+                || lower.startsWith("assets/");
     }
 
     private static ResponsePayload fromResult(ProjectAction action, ProjectManager.OpResult result) {

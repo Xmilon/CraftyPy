@@ -1,0 +1,9 @@
+{
+  "id": "welcome",
+  "name": "Welcome",
+  "version": "1.0.0",
+  "author": "CraftPy",
+  "description": "Start here: items, blocks, recipes, events, timers, commands, two windows and a self test. Every section of code/main.py is commented.",
+  "mcVersion": "1.21.1",
+  "apiVersion": "2"
+}

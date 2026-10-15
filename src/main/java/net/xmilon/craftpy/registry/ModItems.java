@@ -28,7 +28,7 @@ public final class ModItems {
         for (var block : ModBlocks.SLOT_BLOCKS) {
             SLOT_BLOCK_ITEMS.add(ITEMS.registerSimpleBlockItem(block));
         }
-        for (int i = 0; i < SlotRegistry.ITEM_CAP; i++) {
+        for (int i = 0; i < SlotRegistry.itemSlotCount(); i++) {
             final int index = i;
             SLOT_ITEMS.add(ITEMS.register("pcitem_" + i, () -> {
                 SlottedItem item = new SlottedItem(index, new Item.Properties());

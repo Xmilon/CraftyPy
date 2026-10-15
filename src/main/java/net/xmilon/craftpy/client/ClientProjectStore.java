@@ -157,6 +157,22 @@ public final class ClientProjectStore {
         request(ProjectAction.READ_FILE, activeProjectId, path);
     }
 
+    /**
+     * Drops every open file tab after the project's files changed on disk (rename everywhere) and reopens
+     * {@code reopen} once the file list is back. Callers make sure nothing unsaved is open.
+     */
+    public void reloadAfterDiskChange(String reopen) {
+        openFiles.keySet().removeIf(path -> !virtualFiles.contains(path));
+        dirty.clear();
+        activeFile = null;
+        if (activeProjectId == null) {
+            notifyListener();
+            return;
+        }
+        pendingOpenFile = reopen;
+        request(ProjectAction.LIST_FILES, activeProjectId, "");
+    }
+
     /** Opens a read-only, project-independent buffer (e.g. the built-in API doc). */
     public void openVirtualFile(String path, String content) {
         if (path == null || content == null) {
@@ -407,6 +423,25 @@ public final class ClientProjectStore {
         return null;
     }
 
+    /**
+     * Runs a server-side editor tool ({@code symbols}, {@code usage}, {@code rename}, {@code explain},
+     * {@code decls}, {@code profile}, {@code trace}). The callback gets the reply object on the client thread;
+     * on failure it carries an {@code error} string. One request per op is in flight at a time.
+     */
+    public void tool(String op, JsonObject args, java.util.function.Consumer<JsonObject> callback) {
+        boolean global = op.equals("trace") || op.equals("profile");
+        if (activeProjectId == null && !global) {
+            append("Open a project first");
+            notifyListener();
+            return;
+        }
+        args.addProperty("op", op);
+        toolCallbacks.put(op, callback);
+        request(ProjectAction.TOOL, activeProjectId == null ? "" : activeProjectId, Json.COMPACT.toJson(args));
+    }
+
+    private final Map<String, java.util.function.Consumer<JsonObject>> toolCallbacks = new java.util.HashMap<>();
+
     /** Asks the server to re-scan every .cpm under pyforge/. */
     public void refreshModules() {
         request(ProjectAction.MODULES_LIST, null, "");
@@ -576,6 +611,7 @@ public final class ClientProjectStore {
                     append(validationProblems.size() + " Python problem(s) reported.");
                 }
             }
+            case WINDOW -> net.xmilon.craftpy.client.mui.WindowFragment.apply(payload.message(), payload.json());
             case SET_ACTIVE -> {
                 List<String> parsed = tryParse(payload.action(), payload.json(),
                         new com.google.gson.reflect.TypeToken<List<String>>() {
@@ -650,6 +686,26 @@ public final class ClientProjectStore {
                     callback.accept(new AssetBytes(path, data, ""));
                 } catch (Exception e) {
                     callback.accept(new AssetBytes("", new byte[0], "Bad asset payload: " + e.getMessage()));
+                }
+                return;
+            }
+            case TOOL -> {
+                JsonObject body = tryParse(payload.action(), payload.json(), JsonObject.class);
+                String op = body != null && body.has("op") ? body.get("op").getAsString() : "";
+                if (body == null) {
+                    body = new JsonObject();
+                }
+                if (!payload.success()) {
+                    body.addProperty("error", payload.message().isEmpty() ? "Tool failed" : payload.message());
+                }
+                // Editor assists fire on every keystroke: several replies are in flight, so their callback stays.
+                boolean assist = op.equals("complete") || op.equals("hover");
+                java.util.function.Consumer<JsonObject> callback = assist ? toolCallbacks.get(op) : toolCallbacks.remove(op);
+                if (callback != null) {
+                    callback.accept(body);
+                } else if (!payload.success() && !assist) {
+                    append(payload.message());
+                    notifyListener();
                 }
                 return;
             }

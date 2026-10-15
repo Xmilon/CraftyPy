@@ -27,7 +27,7 @@ import net.xmilon.craftpy.util.Json;
 /**
  * The slot-pool registry. Pre-registered generic blocks/items are assigned to
  * project content at load time. The mapping is persisted to
- * {@code pyforge/slots.json} so placed blocks keep working across reloads and
+ * {@code pyforge/system/slots.json} so placed blocks keep working across reloads and
  * restarts; only the live definition is detached on unload (inert placeholder).
  *
  * All mutation happens on the server thread or from the async load pipeline via
@@ -42,10 +42,15 @@ public final class SlotRegistry {
     public record SlotRef(Kind kind, int index) {
     }
 
-    /** Hard cap on pre-registered generic blocks; config {@code slotPool.blocks} is clamped to this. */
-    public static final int BLOCK_CAP = 256;
-    /** Hard cap on pre-registered generic items; config {@code slotPool.items} is clamped to this. */
-    public static final int ITEM_CAP = 256;
+    /** Generic blocks registered at startup ({@code config/craftpy-slots.properties}, default 256, at most 4096). */
+    public static int blockSlotCount() {
+        return SlotCounts.blocks();
+    }
+
+    /** Generic items registered at startup ({@code config/craftpy-slots.properties}, default 256, at most 4096). */
+    public static int itemSlotCount() {
+        return SlotCounts.items();
+    }
 
     private static final Map<String, SlotRef> MAPPING = new ConcurrentHashMap<>();
     private static final Map<String, Defs.BlockDef> BLOCK_DEFS = new ConcurrentHashMap<>();
@@ -62,6 +67,15 @@ public final class SlotRegistry {
     private static final List<String> EVENT_HANDLER_PROJECTS = new ArrayList<>();
 
     private static boolean loaded = false;
+
+    /** True for the generic {@code craftpy:pcblock_N} / {@code pcitem_N} pool entries (hidden from vanilla tab completion). */
+    public static boolean isPlaceholder(net.minecraft.resources.ResourceLocation id) {
+        if (!CraftPy.MODID.equals(id.getNamespace())) {
+            return false;
+        }
+        String path = id.getPath();
+        return path.startsWith("pcblock_") || path.startsWith("pcitem_");
+    }
 
     private SlotRegistry() {
     }
@@ -198,7 +212,7 @@ public final class SlotRegistry {
     }
 
     private static Path slotsFile() {
-        return PyForgePaths.root().resolve("slots.json");
+        return PyForgePaths.slotsFile();
     }
 
     // ------------------------------------------------------------------
@@ -242,12 +256,12 @@ public final class SlotRegistry {
     }
 
     private static int poolSize(Kind kind, int configured) {
-        int registered = switch (kind) {
-            case BLOCK -> SLOT_BLOCKS.size() == 0 ? BLOCK_CAP : SLOT_BLOCKS.size();
-            case ITEM -> SLOT_ITEMS.size() == 0 ? ITEM_CAP : SLOT_ITEMS.size();
+        // The pool is whatever was registered at startup; the old slotPool.* config values only ever lowered it.
+        return switch (kind) {
+            case BLOCK -> SLOT_BLOCKS.isEmpty() ? blockSlotCount() : SLOT_BLOCKS.size();
+            case ITEM -> SLOT_ITEMS.isEmpty() ? itemSlotCount() : SLOT_ITEMS.size();
             default -> configured;
         };
-        return Math.min(configured, registered);
     }
 
     /** Persists the current mapping. Call once after a batch of apply/release ops. */
@@ -273,15 +287,70 @@ public final class SlotRegistry {
 
     /** Detaches the live definitions of one project; mapping stays so old grids remain stable. */
     public static synchronized void releaseProject(String projectId) {
-        for (String contentKey : new ArrayList<>(MAPPING.keySet())) {
-            if (contentKey.contains(":" + projectId + ":")) {
-                SlotRef ref = MAPPING.get(contentKey);
-                BLOCK_DEFS.remove(key(Kind.BLOCK, ref.index()));
-                ITEM_DEFS.remove(key(Kind.ITEM, ref.index()));
-            }
+        for (String contentKey : SlotPlan.keysOf(MAPPING, projectId)) {
+            detach(MAPPING.get(contentKey));
         }
         ACTIVE_PROJECTS.remove(projectId);
         PROJECT_DECLS.remove(projectId);
+        save();
+    }
+
+    /** Removes the live definition of one slot. Blocks and items have separate pools, so only its own kind is touched. */
+    private static void detach(SlotRef ref) {
+        if (ref == null) {
+            return;
+        }
+        switch (ref.kind()) {
+            case BLOCK -> BLOCK_DEFS.remove(key(Kind.BLOCK, ref.index()));
+            case ITEM -> ITEM_DEFS.remove(key(Kind.ITEM, ref.index()));
+            default -> {
+            }
+        }
+    }
+
+    /**
+     * Applies all blocks and items of one project (or module) as ONE step: every definition is parsed and every
+     * slot is found first; only then the registry changes. A bad definition or a full pool throws before anything
+     * was touched, so the previous version of the project keeps running. Content the project no longer declares
+     * is detached (its slot stays reserved, so blocks already placed in the world keep their identity).
+     *
+     * @throws RuntimeException when nothing could be applied; the registry is unchanged
+     */
+    public static synchronized void applyAll(String projectId, Declarations declarations) {
+        Map<String, Defs.BlockDef> blocks = new LinkedHashMap<>();
+        Map<String, Defs.ItemDef> items = new LinkedHashMap<>();
+        for (Declarations.Content content : declarations.contents()) {
+            switch (content.kind()) {
+                case "block" -> blocks.put(content.id(), Defs.BlockDef.from(content.definition()));
+                case "item" -> items.put(content.id(), Defs.ItemDef.from(content.definition()));
+                default -> {
+                }
+            }
+        }
+        int blockCap = 256;
+        int itemCap = 256;
+        try {
+            blockCap = Config.BLOCK_SLOTS.get();
+            itemCap = Config.ITEM_SLOTS.get();
+        } catch (Throwable ignored) {
+        }
+        Map<String, SlotRef> next = SlotPlan.allocate(MAPPING, projectId, blocks.keySet(), items.keySet(),
+                poolSize(Kind.BLOCK, blockCap), poolSize(Kind.ITEM, itemCap));
+
+        // Commit: nothing below can fail for lack of room.
+        java.util.Set<String> declared = new java.util.HashSet<>();
+        blocks.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.BLOCK, projectId, id)));
+        items.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.ITEM, projectId, id)));
+        for (String contentKey : SlotPlan.keysOf(MAPPING, projectId)) {
+            if (!declared.contains(contentKey)) {
+                detach(MAPPING.get(contentKey));
+            }
+        }
+        MAPPING.putAll(next);
+        blocks.forEach((id, def) -> BLOCK_DEFS.put(key(Kind.BLOCK, next.get(SlotPlan.key(Kind.BLOCK, projectId, id)).index()), def));
+        items.forEach((id, def) -> ITEM_DEFS.put(key(Kind.ITEM, next.get(SlotPlan.key(Kind.ITEM, projectId, id)).index()), def));
+        ACTIVE_PROJECTS.put(projectId, Boolean.TRUE);
+        PROJECT_DECLS.put(projectId, declarations);
         save();
     }
 

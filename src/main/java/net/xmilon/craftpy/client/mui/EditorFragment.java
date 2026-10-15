@@ -1,9 +1,13 @@
 package net.xmilon.craftpy.client.mui;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeSet;
 
 import icyllis.modernui.R;
@@ -34,7 +38,6 @@ import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.HorizontalScrollView;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.PopupMenu;
-import icyllis.modernui.widget.PopupWindow;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
 import icyllis.modernui.widget.Toast;
@@ -44,10 +47,9 @@ import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.CodeProblems;
 import net.xmilon.craftpy.client.EditorSettings;
 import net.xmilon.craftpy.client.EditorTheme;
+import net.xmilon.craftpy.client.FileTree;
 import net.xmilon.craftpy.client.Syntax;
 import net.xmilon.craftpy.client.TextOps;
-import net.xmilon.craftpy.client.screen.AssetFileScreen;
-import net.xmilon.craftpy.client.screen.AssetPickerScreen;
 import net.xmilon.craftpy.network.ProjectAction;
 import net.xmilon.craftpy.project.ProjectSummary;
 import net.xmilon.craftpy.python.ValidationProblem;
@@ -69,13 +71,14 @@ public class EditorFragment extends Fragment {
     private static final int PANEL_CONSOLE = 0;
     private static final int PANEL_PROBLEMS = 1;
     private static final int PANEL_BOOKMARKS = 2;
+    private static final int PANEL_EVENTS = 3;
 
     /** Immutable copy of the store state, taken on the client thread. */
     private record State(@Nullable String projectId, String projectName, String projectVersion,
                          List<String> files, List<String> tabs,
                          List<String> dirtyTabs, @Nullable String active, @Nullable String activeContent,
                          boolean activeVirtual, List<String> log, List<ValidationProblem> problems,
-                         List<CodeProblems.Problem> localProblems) {
+                         List<CodeProblems.Problem> localProblems, java.util.Map<String, String> dirtyContents) {
     }
 
     private final EditorSettings settings = EditorSettings.get();
@@ -105,8 +108,92 @@ public class EditorFragment extends Fragment {
     private ScrollView consoleScroll;
     private LinearLayout problems;
     private LinearLayout bookmarkList;
-    private final TextView[] panelTabs = new TextView[3];
-    private final View[] panelPanes = new View[3];
+    private final TextView[] panelTabs = new TextView[4];
+    private final View[] panelPanes = new View[4];
+    private TextView breadcrumb;
+    private TextView sticky;
+    private View statusBar;
+    private TextView statusPosition;
+    private TextView statusEnding;
+    private TextView statusEncoding;
+    private int textVersion;
+    private final EditorTools tools = new EditorTools(new EditorTools.Host() {
+        @Override
+        public View anchor() {
+            return code;
+        }
+
+        @Override
+        public void openLibrary(String path, String text, int line) {
+            if (path.equals(shownPath)) {
+                goToLine(line);
+                return;
+            }
+            pendingGotoPath = path;
+            pendingGotoLine = line;
+            store(s -> s.openVirtualFile(path, text));
+        }
+
+        @Override
+        public String projectId() {
+            return EditorFragment.this.projectId();
+        }
+
+        @Override
+        public String activePath() {
+            return shownPath;
+        }
+
+        @Override
+        public String text() {
+            return code.getText().toString();
+        }
+
+        @Override
+        public int caret() {
+            return Math.max(0, code.getSelectionStart());
+        }
+
+        @Override
+        public int selectionStart() {
+            return Math.max(0, code.getSelectionStart());
+        }
+
+        @Override
+        public int selectionEnd() {
+            return Math.max(0, code.getSelectionEnd());
+        }
+
+        @Override
+        public int textVersion() {
+            return textVersion;
+        }
+
+        @Override
+        public void replace(int start, int end, String text, int cursorStart, int cursorEnd) {
+            applyEdit(new TextOps.Edit(start, end, text, cursorStart, cursorEnd));
+        }
+
+        @Override
+        public void openAt(String path, int line) {
+            EditorFragment.this.openAt(path, line);
+        }
+
+        @Override
+        public void goToLine(int line) {
+            EditorFragment.this.goToLine(line);
+        }
+
+        @Override
+        public void toast(String text) {
+            EditorFragment.this.toast(text);
+        }
+
+        @Override
+        public java.util.Map<String, String> dirtyTexts() {
+            return EditorFragment.this.dirtyTexts();
+        }
+    });
 
     private State state;
     private List<String> shownFiles = List.of();
@@ -143,6 +230,33 @@ public class EditorFragment extends Fragment {
     private final Runnable onEdited = this::afterEdit;
     private final Runnable rebuildGutter = this::updateGutter;
 
+    /** Client thread: the text of every unsaved open file. */
+    private static java.util.Map<String, String> dirtyContents(ClientProjectStore store, List<String> dirtyTabs) {
+        java.util.Map<String, String> out = new java.util.LinkedHashMap<>();
+        for (String path : dirtyTabs) {
+            String content = store.fileContent(path);
+            if (content != null && !store.isVirtual(path)) {
+                out.put(path, content);
+            }
+        }
+        return out;
+    }
+
+    /** UI thread: unsaved files, with the live editor text for the active one. */
+    private java.util.Map<String, String> dirtyTexts() {
+        java.util.Map<String, String> out = new java.util.LinkedHashMap<>();
+        if (state != null) {
+            out.putAll(state.dirtyContents());
+        }
+        if (shownPath != null && state != null && !state.activeVirtual() && code != null) {
+            String live = code.getText().toString();
+            if (!live.equals(synced) || out.containsKey(shownPath)) {
+                out.put(shownPath, live);
+            }
+        }
+        return out;
+    }
+
     /** Client thread: snapshot the store, render on the UI thread. */
     private final Runnable storeListener = () -> {
         ClientProjectStore store = ClientProjectStore.getInstance();
@@ -154,7 +268,8 @@ public class EditorFragment extends Fragment {
         State snapshot = new State(id, summary == null ? Objects.requireNonNullElse(id, "") : summary.name,
                 summary == null ? "" : summary.version, List.copyOf(store.files()), List.copyOf(openTabs), dirtyTabs,
                 active, active == null ? null : store.fileContent(active), store.isVirtual(active),
-                List.copyOf(store.log()), List.copyOf(store.validationProblems()), CodeProblems.snapshot());
+                List.copyOf(store.log()), List.copyOf(store.validationProblems()), CodeProblems.snapshot(),
+                dirtyContents(store, dirtyTabs));
         View view = code;
         if (view != null) {
             view.post(() -> render(snapshot));
@@ -182,6 +297,15 @@ public class EditorFragment extends Fragment {
         center.setOrientation(LinearLayout.VERTICAL);
         tabBar = createTabBar(context);
         center.addView(tabBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        breadcrumb = label(context, "", R.attr.textAppearanceLabelMedium);
+        breadcrumb.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        breadcrumb.setSingleLine();
+        breadcrumb.setPadding(center.dp(12), center.dp(3), center.dp(12), center.dp(3));
+        breadcrumb.setClickable(true);
+        breadcrumb.setTooltipText("Where the cursor is. Click for the outline of this file");
+        hoverBackground(breadcrumb);
+        breadcrumb.setOnClickListener(hidingTooltip(breadcrumb.getTooltipText(), tools::showOutline));
+        center.addView(breadcrumb, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         findBar = createFindBar(context);
         center.addView(findBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         codeArea = createCodeArea(context);
@@ -190,6 +314,8 @@ public class EditorFragment extends Fragment {
         center.addView(bottomSplitter, new LinearLayout.LayoutParams(MATCH_PARENT, center.dp(6)));
         bottomPanel = createBottomPanel(context);
         center.addView(bottomPanel, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1 - settings.codeWeight));
+        statusBar = createStatusBar(context);
+        center.addView(statusBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         body.addView(center, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
 
         var divider = new View(context);
@@ -201,23 +327,64 @@ public class EditorFragment extends Fragment {
         applyFontSize();
         findBar.setVisibility(View.GONE);
         render(new State(null, "", "", List.of(), List.of(), List.of(), null, null, false,
-                List.of(), List.of(), List.of()));
+                List.of(), List.of(), List.of(), java.util.Map.of()));
         store(s -> {
             s.setListener(storeListener);
             s.refresh();
             storeListener.run();
         });
+        // The overlay host is only above the page once the view is attached.
+        page.post(() -> removeBack = Overlays.onBack(page, this::onBack));
         return page;
+    }
+
+    private Runnable removeBack = () -> { };
+
+    /**
+     * Esc, after dialogs: closes the completion list or hint, the find bar, the tree selection, a text selection,
+     * zen mode - one thing per press, the way an IDE does. False lets the screen go back.
+     */
+    private boolean onBack() {
+        if (code == null) {
+            return false;
+        }
+        if (assist != null && assist.dismissTransient()) {
+            return true;
+        }
+        if (findBar.getVisibility() == View.VISIBLE) {
+            closeFind();
+            return true;
+        }
+        if (selectedPath != null) {
+            selectedPath = null;
+            highlightExplorer();
+            code.requestFocus();
+            return true;
+        }
+        if (code.hasFocus() && code.getSelectionStart() != code.getSelectionEnd()) {
+            code.setSelection(code.getSelectionEnd());
+            return true;
+        }
+        if (zen) {
+            toggleZen();
+            return true;
+        }
+        return false;
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        removeBack.run();
         flush();
         if (zen) {
             CraftPyFragment.setNavVisible(this, true);
         }
         store(s -> s.clearListener(storeListener));
+        if (assist != null) {
+            assist.hideAll();
+            assist = null;
+        }
         code = null;
     }
 
@@ -234,6 +401,10 @@ public class EditorFragment extends Fragment {
                 this::showEditMenu));
         bar.addView(toolButton(context, "View", "Word wrap, zoom, theme, zen mode", R.attr.borderlessButtonStyle,
                 this::showViewMenu));
+        bar.addView(toolButton(context, "Tools", "Symbols, rename everywhere, previews, profiler, event tracer",
+                R.attr.borderlessButtonStyle, this::showToolsMenu));
+        bar.addView(toolButton(context, "Help", "How the IDE works, the Python API and the Java bridge (F1)",
+                R.attr.borderlessButtonStyle, v -> HelpPanel.open(code)));
         bar.addView(toolButton(context, "Save", "Write the file to the project (Ctrl+S)", R.attr.borderlessButtonStyle,
                 v -> save()));
         bar.addView(toolButton(context, "Validate", "Check the file on the Python worker (Ctrl+Enter)",
@@ -250,9 +421,18 @@ public class EditorFragment extends Fragment {
         return bar;
     }
 
+    /** A tooltip stays on screen while a popup opened by the same click is up; hide it on click. */
+    static View.OnClickListener hidingTooltip(CharSequence tooltip, View.OnClickListener onClick) {
+        return v -> {
+            v.setTooltipText(null);
+            onClick.onClick(v);
+            v.postDelayed(() -> v.setTooltipText(tooltip), 400);
+        };
+    }
+
     private static View toolButton(Context context, String text, String tooltip, icyllis.modernui.resources.ResourceId style,
                                    View.OnClickListener onClick) {
-        var button = button(context, text, style, onClick);
+        var button = button(context, text, style, hidingTooltip(tooltip, onClick));
         button.setTooltipText(tooltip);
         var lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
         lp.leftMargin = button.dp(4);
@@ -269,12 +449,18 @@ public class EditorFragment extends Fragment {
         var label = label(context, "Files", R.attr.textAppearanceLabelLarge);
         label.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         header.addView(label, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-        header.addView(button(context, "New", R.attr.borderlessButtonStyle, v -> showNewMenu(v, "code/")));
+        header.addView(smallButton(context, "+", "New file or folder (in the selected folder)",
+                v -> showNewMenu(v, newEntryFolder())));
+        header.addView(smallButton(context, "⊟", "Collapse all folders", v -> collapseAll()));
+        header.addView(smallButton(context, "⊞", "Expand all folders", v -> expandAll()));
         column.addView(header);
 
         explorer = new LinearLayout(context);
         explorer.setOrientation(LinearLayout.VERTICAL);
         explorer.setPadding(column.dp(6), 0, column.dp(6), column.dp(6));
+        explorer.setFocusableInTouchMode(true);
+        explorer.setOnKeyListener((v, keyCode, event) -> event.getAction() == KeyEvent.ACTION_DOWN
+                && onExplorerKey(keyCode, event));
         var scroll = new ScrollView(context);
         scroll.addView(explorer, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         column.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
@@ -293,7 +479,7 @@ public class EditorFragment extends Fragment {
         all.setClickable(true);
         all.setTooltipText("All open tabs");
         hoverBackground(all);
-        all.setOnClickListener(this::showTabMenu);
+        all.setOnClickListener(hidingTooltip("All open tabs", this::showTabMenu));
         bar.addView(all);
         return bar;
     }
@@ -351,6 +537,8 @@ public class EditorFragment extends Fragment {
         replace.addView(replaceInput, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         replace.addView(smallButton(context, "Replace", "Replace this match and go to the next", v -> replaceOne()));
         replace.addView(smallButton(context, "Replace all", "Replace every match", v -> replaceAll()));
+        replace.addView(smallButton(context, "Preview", "Review every match and accept or skip it",
+                v -> tools.replacePreview(matches, replaceInput.getText().toString())));
         var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         lp.topMargin = dp4;
         bar.addView(replace, lp);
@@ -367,7 +555,7 @@ public class EditorFragment extends Fragment {
         view.setClickable(true);
         view.setTooltipText(tooltip);
         hoverBackground(view);
-        view.setOnClickListener(onClick);
+        view.setOnClickListener(hidingTooltip(tooltip, onClick));
         var lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
         lp.leftMargin = view.dp(4);
         view.setLayoutParams(lp);
@@ -382,19 +570,21 @@ public class EditorFragment extends Fragment {
         int dp8 = row.dp(8);
 
         gutter = new TextView(context);
-        gutter.setTypeface(Typeface.MONOSPACED);
+        gutter.setTypeface(EditorFont.get());
         gutter.setGravity(Gravity.END | Gravity.TOP);
         gutter.setPadding(dp8, dp8, dp8, dp8);
         row.addView(gutter, new LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT));
 
         code = new CodeView(context);
-        code.setTypeface(Typeface.MONOSPACED);
+        code.setTypeface(EditorFont.get());
         code.setGravity(Gravity.START | Gravity.TOP);
         code.setHorizontallyScrolling(true);
         code.setBackground(null);
         code.setPadding(dp8, dp8, dp8, dp8);
         code.setHint("Open a file from the explorer (Ctrl+P: quick open)");
         code.setOnZoom(this::zoom);
+        code.setOnCtrlClick(tools::goToDefinition);
+        code.setOnCaret(offset -> updateBreadcrumb());
         code.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -409,19 +599,41 @@ public class EditorFragment extends Fragment {
 
             @Override
             public void afterTextChanged(Editable s) {
+                textVersion++;
                 if (loading) {
                     return;
                 }
                 shiftBookmarks(s);
                 if (!internalEdit) {
                     afterTyped(s);
+                    assist.onEdited(s, changeStart, changeAdded);
                 }
                 code.removeCallbacks(onEdited);
                 code.postDelayed(onEdited, EDIT_DELAY_MS);
             }
         });
+        assist = new CodeAssist(code, (op, args) -> {
+            if (projectId() == null) {
+                return;
+            }
+            store(s -> s.tool(op, args, reply -> code.post(() -> {
+                if (assist == null) {
+                    return;
+                }
+                if (op.equals("complete")) {
+                    assist.onComplete(reply);
+                } else {
+                    assist.onHoverReply(reply);
+                }
+            })));
+        }, this::problemMessageAt);
         code.setOnKeyListener((v, keyCode, event) -> event.getAction() == KeyEvent.ACTION_DOWN
-                && onCodeKey(keyCode, event));
+                && (assist.onKey(keyCode, event) || onCodeKey(keyCode, event)));
+        code.setOnFocusChangeListener((v, focused) -> {
+            if (!focused) {
+                assist.hideList();
+            }
+        });
         code.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (r - l != or - ol) {
                 gutter.removeCallbacks(rebuildGutter);
@@ -431,7 +643,131 @@ public class EditorFragment extends Fragment {
         row.addView(code, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
 
         codeScroll.addView(row, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        return codeScroll;
+        codeScroll.setOnScrollChangeListener((v, x, y, oldX, oldY) -> {
+            updateSticky();
+            minimap.invalidate();
+        });
+
+        sticky = new TextView(context);
+        sticky.setTypeface(EditorFont.get());
+        sticky.setSingleLine(false);
+        sticky.setVisibility(View.GONE);
+        sticky.setPadding(dp8, dp8 / 2, dp8, dp8 / 2);
+        var frame = new icyllis.modernui.widget.FrameLayout(context);
+        frame.addView(codeScroll, new icyllis.modernui.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        frame.addView(sticky, new icyllis.modernui.widget.FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP));
+        minimap = new MiniMap(context, codeScroll);
+        var outer = row(context);
+        outer.addView(frame, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
+        outer.addView(minimap, new LinearLayout.LayoutParams(outer.dp(70), MATCH_PARENT));
+        return outer;
+    }
+
+    /** 11 / 12: cursor position, line ending (click to convert), encoding facts (click for options). */
+    private View createStatusBar(Context context) {
+        var bar = row(context);
+        bar.setPadding(bar.dp(12), bar.dp(1), bar.dp(12), bar.dp(1));
+        bar.setBackground(new ColorDrawable(color(context, R.attr.colorSurfaceContainerLow)));
+        statusPosition = label(context, "", R.attr.textAppearanceLabelSmall);
+        statusPosition.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        bar.addView(statusPosition, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        statusEnding = smallButton(context, "LF", "Line endings of this file - click to convert", this::showEndingMenu);
+        bar.addView(statusEnding);
+        statusEncoding = smallButton(context, "UTF-8", "Files are read and saved as UTF-8", this::showEncodingMenu);
+        bar.addView(statusEncoding);
+        return bar;
+    }
+
+    private void showEndingMenu(View anchor) {
+        if (shownPath == null) {
+            return;
+        }
+        var menu = new PopupMenu(anchor.getContext(), anchor);
+        menu.getMenu().add("Convert to LF (\\n)").setOnMenuItemClickListener(i -> run(() -> convertEndings(false)));
+        menu.getMenu().add("Convert to CRLF (\\r\\n)").setOnMenuItemClickListener(i -> run(() -> convertEndings(true)));
+        menu.show();
+    }
+
+    private void convertEndings(boolean crlf) {
+        String all = code.getText().toString();
+        String converted = net.xmilon.craftpy.client.TextFormat.convert(all, crlf);
+        if (converted.equals(all)) {
+            toast("Already " + (crlf ? "CRLF" : "LF"));
+            return;
+        }
+        applyEdit(new TextOps.Edit(0, all.length(), converted, Math.min(code.getSelectionStart(), converted.length())));
+        toast("Converted to " + (crlf ? "CRLF" : "LF") + " - save to keep it");
+    }
+
+    private void showEncodingMenu(View anchor) {
+        if (shownPath == null) {
+            return;
+        }
+        String all = code.getText().toString();
+        var menu = new PopupMenu(anchor.getContext(), anchor);
+        menu.getMenu().add("CraftPy reads and saves UTF-8 only").setEnabled(false);
+        if (net.xmilon.craftpy.client.TextFormat.hasBom(all)) {
+            menu.getMenu().add("Remove the byte order mark (BOM)").setOnMenuItemClickListener(i -> run(() ->
+                    applyEdit(new TextOps.Edit(0, 1, "", 0))));
+        }
+        int bad = net.xmilon.craftpy.client.TextFormat.invalidChars(all);
+        if (bad > 0) {
+            menu.getMenu().add(bad + " invalid byte(s) shown as \uFFFD - fix or delete them").setEnabled(false);
+        }
+        menu.show();
+    }
+
+    private void updateStatus() {
+        if (statusPosition == null || code == null) {
+            return;
+        }
+        String all = code.getText().toString();
+        int caret = Math.max(0, Math.min(code.getSelectionStart(), all.length()));
+        int line = TextOps.lineOf(all, caret);
+        int column = caret - TextOps.lineStart(all, caret);
+        int selected = Math.abs(code.getSelectionEnd() - code.getSelectionStart());
+        statusPosition.setText(shownPath == null ? "" : "Ln " + (line + 1) + ", Col " + (column + 1)
+                + (selected > 0 ? "   (" + selected + " selected)" : "") + "   " + Syntax.language(shownPath));
+        statusEnding.setText(shownPath == null ? "" : net.xmilon.craftpy.client.TextFormat.detect(all).label);
+        statusEncoding.setText(shownPath == null ? "" : net.xmilon.craftpy.client.TextFormat.encodingLabel(all));
+    }
+
+    /** 1: show the headers of the scopes scrolled out of view. */
+    private void updateSticky() {
+        if (sticky == null || code == null) {
+            return;
+        }
+        var layout = code.getLayout();
+        if (!settings.stickyScroll || layout == null || shownPath == null || !"py".equals(Syntax.language(shownPath))
+                || codeScroll.getScrollY() <= 0) {
+            sticky.setVisibility(View.GONE);
+            return;
+        }
+        int visual = layout.getLineForVertical(Math.max(0, codeScroll.getScrollY() - code.getExtendedPaddingTop()));
+        int firstLine = TextOps.lineOf(code.getText().toString(), layout.getLineStart(visual));
+        List<String> headers = tools.stickyHeaders(firstLine);
+        if (headers.isEmpty()) {
+            sticky.setVisibility(View.GONE);
+            return;
+        }
+        EditorTheme theme = settings.theme();
+        sticky.setBackground(new ColorDrawable(theme.gutterBg));
+        sticky.setTextColor(theme.text);
+        sticky.setTextSize(settings.fontSize);
+        sticky.setText(String.join("\n", headers));
+        sticky.setVisibility(View.VISIBLE);
+    }
+
+    private void updateFocus() {
+        if (code == null) {
+            return;
+        }
+        int[] range = settings.focusMode ? tools.focusRange() : null;
+        if (range == null) {
+            code.setFocusRange(-1, -1);
+        } else {
+            code.setFocusRange(range[0], range[1]);
+        }
     }
 
     private View createBottomPanel(Context context) {
@@ -440,13 +776,14 @@ public class EditorFragment extends Fragment {
 
         var header = row(context);
         header.setPadding(header.dp(8), header.dp(2), header.dp(8), header.dp(2));
-        String[] names = { "Console", "Problems", "Bookmarks" };
+        String[] names = { "Console", "Problems", "Bookmarks", "Events" };
         for (int i = 0; i < names.length; i++) {
             final int index = i;
             panelTabs[i] = panelTab(context, names[i], v -> showPanel(index));
             header.addView(panelTabs[i]);
         }
         header.addView(new View(context), new LinearLayout.LayoutParams(0, 1, 1));
+        header.addView(button(context, "Copy", R.attr.borderlessButtonStyle, v -> copyPanel()));
         header.addView(button(context, "Clear", R.attr.borderlessButtonStyle,
                 v -> store(ClientProjectStore::clearLog)));
         panelView.addView(header);
@@ -454,7 +791,7 @@ public class EditorFragment extends Fragment {
         var consoleColumn = new LinearLayout(context);
         consoleColumn.setOrientation(LinearLayout.VERTICAL);
         console = new TextView(context);
-        console.setTypeface(Typeface.MONOSPACED);
+        console.setTypeface(EditorFont.get());
         console.setTextSize(12);
         console.setTextColor(CONSOLE_TEXT);
         console.setTextIsSelectable(true);
@@ -466,7 +803,7 @@ public class EditorFragment extends Fragment {
 
         var input = new EditText(context, null, R.attr.editTextOutlinedStyle);
         input.setSingleLine();
-        input.setTypeface(Typeface.MONOSPACED);
+        input.setTypeface(EditorFont.get());
         input.setTextSize(12);
         input.setHint(">>> Python, runs in the project's worker (Up/Down = history)");
         input.setOnKeyListener((v, keyCode, event) -> {
@@ -524,6 +861,9 @@ public class EditorFragment extends Fragment {
         panelPanes[PANEL_BOOKMARKS] = bookmarkScroll;
         panelView.addView(bookmarkScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
 
+        panelPanes[PANEL_EVENTS] = tools.createEventsPane(context);
+        panelView.addView(panelPanes[PANEL_EVENTS], new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+
         showPanel(PANEL_CONSOLE);
         return panelView;
     }
@@ -549,18 +889,44 @@ public class EditorFragment extends Fragment {
         if (index == PANEL_BOOKMARKS) {
             renderBookmarks();
         }
+        if (index == PANEL_EVENTS) {
+            tools.eventsPanelShown();
+        } else {
+            tools.eventsPanelHidden();
+        }
     }
 
-    /** Rounded pill background for the selected tab/chip; hover highlight otherwise. */
-    private static void styleChip(View view, boolean selected) {
-        if (selected) {
-            var bg = new ShapeDrawable();
-            bg.setCornerRadius(view.dp(8));
-            bg.setColor(color(view.getContext(), R.attr.colorSecondaryContainer));
-            view.setBackground(bg);
+    /** 53: copies what the visible panel shows (problems as file:line:col lines) to the clipboard. */
+    private void copyPanel() {
+        String text;
+        if (panel == PANEL_PROBLEMS && state != null) {
+            StringBuilder out = new StringBuilder();
+            for (ValidationProblem p : state.problems()) {
+                String file = p.file().isEmpty() ? String.valueOf(shownPath) : p.file();
+                out.append(file).append(':').append(p.line() + 1).append(':').append(p.column()).append(": ")
+                        .append(p.isError() ? "error" : "warning").append(": ").append(p.message()).append('\n');
+            }
+            for (CodeProblems.Problem p : state.localProblems()) {
+                out.append(shownPath).append(':').append(p.line() + 1).append(':').append(p.column()).append(": ")
+                        .append(p.severity().name().toLowerCase(Locale.ROOT)).append(": ").append(p.message()).append('\n');
+            }
+            text = out.length() == 0 ? "No problems." : out.toString();
+        } else if (panel == PANEL_CONSOLE && state != null) {
+            text = String.join("\n", state.log());
+        } else if (panel == PANEL_BOOKMARKS) {
+            StringBuilder out = new StringBuilder();
+            for (int i = 0; i < bookmarkList.getChildCount(); i++) {
+                if (bookmarkList.getChildAt(i) instanceof TextView tv) {
+                    out.append(tv.getText()).append('\n');
+                }
+            }
+            text = out.toString();
         } else {
-            hoverBackground(view);
+            toast("Nothing to copy here");
+            return;
         }
+        EditorTools.copyToClipboard(text);
+        toast("Copied to the clipboard");
     }
 
     // ------------------------------------------------------------------
@@ -572,6 +938,7 @@ public class EditorFragment extends Fragment {
         code.setTheme(theme);
         code.setRulerColumn(settings.ruler);
         codeScroll.setBackground(new ColorDrawable(theme.bg));
+        updateMinimap();
         gutter.setBackground(new ColorDrawable(theme.gutterBg));
         gutter.setTextColor(theme.gutterText);
         consoleScroll.setBackground(new ColorDrawable(theme.bg));
@@ -654,6 +1021,7 @@ public class EditorFragment extends Fragment {
         tabBar.setVisibility(visibility);
         bottomSplitter.setVisibility(visibility);
         bottomPanel.setVisibility(visibility);
+        statusBar.setVisibility(visibility);
         CraftPyFragment.setNavVisible(this, !zen);
         if (zen) {
             toast("Zen mode - F11 to leave");
@@ -672,11 +1040,16 @@ public class EditorFragment extends Fragment {
         state = next;
         title.setText(next.projectId() == null ? "No project open - pick one on the Home page" : next.projectName());
 
+        boolean activeChanged = !java.util.Objects.equals(next.active(), revealed);
+        revealed = next.active();
         if (!next.files().equals(shownFiles)) {
             shownFiles = next.files();
             renderExplorer();
         } else {
             highlightExplorer();
+        }
+        if (activeChanged) {
+            revealInTree(next.active());
         }
         if (previewPath != null && !next.tabs().contains(previewPath)) {
             previewPath = null;
@@ -715,6 +1088,16 @@ public class EditorFragment extends Fragment {
             pendingGotoPath = null;
             goToLine(pendingGotoLine);
         }
+        updateBreadcrumb();
+    }
+
+    private void updateBreadcrumb() {
+        if (code != null && breadcrumb != null) {
+            breadcrumb.setText(tools.breadcrumb());
+            updateStatus();
+            updateSticky();
+            updateFocus();
+        }
     }
 
     private void setEditorText(@Nullable String path, String content) {
@@ -728,8 +1111,10 @@ public class EditorFragment extends Fragment {
             loading = false;
         }
         autoCloserAt = -1;
+        assist.hideAll();
         applyWrap();
         highlight();
+        updateMinimap();
         if (findBar.getVisibility() == View.VISIBLE) {
             inSelection = false;
             styleChip(selectionToggle, false);
@@ -737,9 +1122,18 @@ public class EditorFragment extends Fragment {
         }
     }
 
+    /** Folders that are open in the tree, per project; survives page switches. */
+    private static final Map<String, Set<String>> EXPANDED = new HashMap<>();
+    private List<FileTree.Row> treeRows = List.of();
+
+    private Set<String> expandedSet() {
+        return EXPANDED.computeIfAbsent(projectId() == null ? "" : projectId(), k -> new HashSet<>(List.of("code")));
+    }
+
     private void renderExplorer() {
         explorer.removeAllViews();
         Context context = explorer.getContext();
+        treeRows = List.of();
         if (shownFiles.isEmpty()) {
             var empty = label(context, state.projectId() == null ? "No project open." : "No files.",
                     R.attr.textAppearanceBodySmall);
@@ -748,64 +1142,228 @@ public class EditorFragment extends Fragment {
             explorer.addView(empty);
             return;
         }
-        List<String> sorted = new ArrayList<>(shownFiles);
-        sorted.sort(String.CASE_INSENSITIVE_ORDER);
-        String folder = null;
-        for (String path : sorted) {
-            int slash = path.lastIndexOf('/');
-            String dir = slash < 0 ? "" : path.substring(0, slash);
-            if (!dir.equals(folder)) {
-                folder = dir;
-                var header = label(context, dir.isEmpty() ? "/" : dir + "/", R.attr.textAppearanceLabelMedium);
-                header.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
-                header.setPadding(header.dp(6), header.dp(8), 0, header.dp(2));
-                final String newIn = dir.isEmpty() ? "" : dir + "/";
-                header.setOnCreateContextMenuListener((menu, v, info) -> addNewItems(menu, newIn));
-                explorer.addView(header);
-            }
-            explorer.addView(fileRow(context, path, slash < 0 ? path : path.substring(slash + 1)));
+        treeRows = FileTree.visible(shownFiles, expandedSet());
+        for (FileTree.Row row : treeRows) {
+            explorer.addView(treeRow(context, row));
         }
         highlightExplorer();
     }
 
-    private View fileRow(Context context, String path, String name) {
-        var row = label(context, name, R.attr.textAppearanceBodyMedium);
+    private static String badge(FileTree.Row row) {
+        if (row.folder()) {
+            return "▭";
+        }
+        String lower = row.name().toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".py")) {
+            return "Py";
+        } else if (lower.endsWith(".json") || lower.endsWith(".mcmeta")) {
+            return "{}";
+        } else if (lower.endsWith(".png") || lower.endsWith(".jpg")) {
+            return "▨";
+        } else if (lower.endsWith(".ogg") || lower.endsWith(".wav") || lower.endsWith(".mp3")) {
+            return "♪";
+        } else if (lower.endsWith(".md") || lower.endsWith(".txt")) {
+            return "≡";
+        }
+        return "·";
+    }
+
+    private View treeRow(Context context, FileTree.Row entry) {
+        String path = entry.path();
+        var row = row(context);
         row.setTag(path);
-        row.setSingleLine();
-        row.setPadding(row.dp(14), row.dp(4), row.dp(6), row.dp(4));
         row.setClickable(true);
-        row.setTooltipText(path + "  (click: preview, double click: keep open)");
+        row.setPadding(row.dp(2 + entry.depth() * 12), row.dp(3), row.dp(6), row.dp(3));
+        int muted = color(context, R.attr.colorOnSurfaceVariant);
+        var chevron = label(context, entry.folder() ? (entry.expanded() ? "▾" : "▸") : "",
+                R.attr.textAppearanceBodyMedium);
+        chevron.setTextColor(muted);
+        chevron.setGravity(Gravity.CENTER);
+        row.addView(chevron, new LinearLayout.LayoutParams(row.dp(14), WRAP_CONTENT));
+        var badge = label(context, badge(entry), R.attr.textAppearanceLabelSmall);
+        badge.setTextColor(entry.folder() ? muted : color(context, path.endsWith(".py") ? R.attr.colorPrimary
+                : isAsset(path) ? R.attr.colorTertiary : R.attr.colorOnSurfaceVariant));
+        badge.setGravity(Gravity.CENTER);
+        row.addView(badge, new LinearLayout.LayoutParams(row.dp(22), WRAP_CONTENT));
+        var name = label(context, entry.name(), R.attr.textAppearanceBodyMedium);
+        name.setSingleLine();
+        row.addView(name, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        row.setTooltipText(entry.folder() ? path + "/  (click: open or close, right click: more)"
+                : isAsset(path) ? path + "  (click: select, double click: open)"
+                : path + "  (click: preview, double click: keep open)");
         hoverBackground(row);
-        row.setOnClickListener(v -> openFromExplorer(path));
-        row.setOnCreateContextMenuListener((menu, v, info) -> {
+        row.setOnClickListener(v -> treeClick(entry));
+        row.setOnCreateContextMenuListener((menu, v, info) -> treeMenu(menu, entry));
+        return row;
+    }
+
+    private void treeClick(FileTree.Row entry) {
+        explorer.requestFocus();
+        if (entry.folder()) {
+            selectedPath = entry.path();
+            toggleFolder(entry.path());
+        } else {
+            openFromExplorer(entry.path());
+        }
+    }
+
+    private void toggleFolder(String folder) {
+        Set<String> open = expandedSet();
+        if (!open.remove(folder)) {
+            open.add(folder);
+        }
+        renderExplorer();
+    }
+
+    private void collapseAll() {
+        expandedSet().clear();
+        renderExplorer();
+    }
+
+    private void expandAll() {
+        expandedSet().addAll(FileTree.folders(shownFiles));
+        renderExplorer();
+    }
+
+    /** Opens the folders above the active file so it is visible in the tree (auto reveal). */
+    private void revealInTree(@Nullable String path) {
+        if (path != null && expandedSet().addAll(FileTree.ancestors(path))) {
+            renderExplorer();
+        }
+    }
+
+    /** Folder a new file goes into: the selected folder, the folder of the selected file, else code/. */
+    private String newEntryFolder() {
+        if (selectedPath != null) {
+            for (FileTree.Row row : treeRows) {
+                if (row.path().equals(selectedPath)) {
+                    return row.prefix();
+                }
+            }
+        }
+        return "code/";
+    }
+
+    private void treeMenu(Menu menu, FileTree.Row entry) {
+        String path = entry.path();
+        if (entry.folder()) {
+            menu.add(entry.expanded() ? "Collapse" : "Expand").setOnMenuItemClickListener(item -> {
+                toggleFolder(path);
+                return true;
+            });
+        } else {
             menu.add("Open").setOnMenuItemClickListener(item -> {
                 openEntry(path, false);
                 return true;
             });
-            menu.add("Rename...").setOnMenuItemClickListener(item -> {
-                prompt(v, "Rename " + name, path, "Rename", to -> store(s -> s.renameEntry(path, to)));
-                return true;
-            });
-            menu.add("Delete...").setOnMenuItemClickListener(item -> {
-                prompt(v, "Delete " + path + "?", null, "Delete", ignored -> store(s -> {
-                    s.closeFile(path);
-                    s.deleteEntry(path);
-                }));
-                return true;
-            });
-            int slash = path.lastIndexOf('/');
-            addNewItems(menu, slash < 0 ? "" : path.substring(0, slash + 1));
+        }
+        addNewItems(menu, entry.prefix());
+        menu.add("Rename...").setOnMenuItemClickListener(item -> {
+            renameEntry(entry);
+            return true;
         });
-        return row;
+        menu.add("Delete...").setOnMenuItemClickListener(item -> {
+            deleteEntry(entry);
+            return true;
+        });
+        menu.add("Copy path").setOnMenuItemClickListener(item -> {
+            Minecraft.getInstance().keyboardHandler.setClipboard(path);
+            toast("Copied " + path);
+            return true;
+        });
     }
 
+    private void renameEntry(FileTree.Row entry) {
+        prompt(explorer, "Rename " + entry.name(), entry.path(), "Rename",
+                to -> store(s -> s.renameEntry(entry.path(), to)));
+    }
+
+    private void deleteEntry(FileTree.Row entry) {
+        String path = entry.path();
+        prompt(explorer, "Delete " + path + (entry.folder() ? "/ and everything in it?" : "?"), null, "Delete",
+                ignored -> store(s -> {
+                    if (!entry.folder()) {
+                        s.closeFile(path);
+                    }
+                    s.deleteEntry(path);
+                }));
+    }
+
+    /** Keyboard in the tree: arrows move/open/close, Enter opens, F2 renames, Delete deletes. */
+    private boolean onExplorerKey(int keyCode, KeyEvent event) {
+        int at = -1;
+        for (int i = 0; i < treeRows.size(); i++) {
+            if (treeRows.get(i).path().equals(selectedPath)) {
+                at = i;
+            }
+        }
+        FileTree.Row current = at < 0 ? null : treeRows.get(at);
+        switch (keyCode) {
+            case KeyEvent.KEY_DOWN, KeyEvent.KEY_UP -> {
+                if (treeRows.isEmpty()) {
+                    return true;
+                }
+                int next = Math.clamp(at < 0 ? 0 : at + (keyCode == KeyEvent.KEY_DOWN ? 1 : -1), 0, treeRows.size() - 1);
+                selectedPath = treeRows.get(next).path();
+                highlightExplorer();
+            }
+            case KeyEvent.KEY_RIGHT -> {
+                if (current != null && current.folder()) {
+                    if (!current.expanded()) {
+                        toggleFolder(current.path());
+                    } else if (at + 1 < treeRows.size()) {
+                        selectedPath = treeRows.get(at + 1).path();
+                        highlightExplorer();
+                    }
+                }
+            }
+            case KeyEvent.KEY_LEFT -> {
+                if (current != null && current.folder() && current.expanded()) {
+                    toggleFolder(current.path());
+                } else if (current != null) {
+                    int slash = current.path().lastIndexOf('/');
+                    if (slash > 0) {
+                        selectedPath = current.path().substring(0, slash);
+                        highlightExplorer();
+                    }
+                }
+            }
+            case KeyEvent.KEY_ENTER, KeyEvent.KEY_KP_ENTER -> {
+                if (current != null) {
+                    if (current.folder()) {
+                        toggleFolder(current.path());
+                    } else {
+                        openEntry(current.path(), false);
+                    }
+                }
+            }
+            case KeyEvent.KEY_F2 -> {
+                if (current != null) {
+                    renameEntry(current);
+                }
+            }
+            case KeyEvent.KEY_DELETE -> {
+                if (current != null) {
+                    deleteEntry(current);
+                }
+            }
+            default -> {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Selected row in a pill; the open file in the accent colour. */
     private void highlightExplorer() {
         String active = state == null ? null : state.active();
         Context context = explorer.getContext();
         for (int i = 0; i < explorer.getChildCount(); i++) {
             View child = explorer.getChildAt(i);
-            if (child instanceof TextView tv && child.getTag() instanceof String path) {
-                tv.setTextColor(color(context, path.equals(active) ? R.attr.colorPrimary : R.attr.colorOnSurface));
+            if (child instanceof LinearLayout rowView && rowView.getTag() instanceof String path
+                    && rowView.getChildCount() == 3 && rowView.getChildAt(2) instanceof TextView name) {
+                styleChip(rowView, path.equals(selectedPath));
+                name.setTextColor(color(context, path.equals(active) ? R.attr.colorPrimary : R.attr.colorOnSurface));
             }
         }
     }
@@ -826,10 +1384,52 @@ public class EditorFragment extends Fragment {
         return ordered;
     }
 
+    private String tabsSignature = "";
+    private CodeAssist assist;
+    private MiniMap minimap;
+
+    private void updateMinimap() {
+        if (minimap == null || code == null) {
+            return;
+        }
+        minimap.setVisibility(settings.minimap && shownPath != null ? View.VISIBLE : View.GONE);
+        minimap.setTheme(settings.theme());
+        minimap.setText(code.getText().toString());
+    }
+
+    /** The first problem message on a 0-based line of the shown file, or null. */
+    private String problemMessageAt(int line) {
+        if (state == null) {
+            return null;
+        }
+        for (CodeProblems.Problem p : state.localProblems()) {
+            if (p.line() == line) {
+                return p.message();
+            }
+        }
+        for (ValidationProblem p : state.problems()) {
+            if (p.line() == line && (p.file().isEmpty() || p.file().equals(shownPath))) {
+                return p.message();
+            }
+        }
+        return null;
+    }
+
     private void renderTabs() {
+        List<String> ordered = orderedTabs();
+        StringBuilder sig = new StringBuilder(String.valueOf(state.active())).append('|').append(previewPath);
+        for (String path : ordered) {
+            sig.append('|').append(path).append(state.dirtyTabs().contains(path) ? '*' : '-')
+                    .append(isPinned(path) ? 'p' : '-');
+        }
+        // Rebuilding on every snapshot dropped clicks that were in progress and left hover tooltips on dead views.
+        if (sig.toString().equals(tabsSignature)) {
+            return;
+        }
+        tabsSignature = sig.toString();
         tabs.removeAllViews();
         Context context = tabs.getContext();
-        for (String path : orderedTabs()) {
+        for (String path : ordered) {
             boolean active = path.equals(state.active());
             boolean dirty = state.dirtyTabs().contains(path);
             boolean pinned = isPinned(path);
@@ -943,14 +1543,28 @@ public class EditorFragment extends Fragment {
     }
 
     private void renderConsole(List<String> log) {
+        String joined = String.join("\n", log);
+        if (joined.equals(consoleText)) {
+            return; // same text: keep the user's selection and scroll position
+        }
+        consoleText = joined;
         boolean atBottom = !consoleScroll.canScrollVertically(1);
-        console.setText(String.join("\n", log));
+        console.setText(joined);
         if (atBottom) {
             consoleScroll.post(() -> consoleScroll.fullScroll(View.FOCUS_DOWN));
         }
     }
 
+    private String consoleText = "";
+    private String problemsSignature;
+
     private void renderProblems(State next) {
+        // Rebuilt rows would swallow clicks in progress, so only rebuild when the problems changed.
+        String signature = shownPath + "|" + next.problems() + "|" + next.localProblems();
+        if (signature.equals(problemsSignature)) {
+            return;
+        }
+        problemsSignature = signature;
         problems.removeAllViews();
         Context context = problems.getContext();
         int count = 0;
@@ -985,7 +1599,10 @@ public class EditorFragment extends Fragment {
         row.setPadding(row.dp(6), row.dp(3), row.dp(6), row.dp(3));
         row.setClickable(true);
         hoverBackground(row);
-        row.setOnClickListener(v -> openAt(file, line));
+        row.setOnClickListener(v -> {
+            tools.recordJump();
+            openAt(file, line);
+        });
         return row;
     }
 
@@ -1011,7 +1628,10 @@ public class EditorFragment extends Fragment {
                 row.setPadding(row.dp(6), row.dp(3), row.dp(6), row.dp(3));
                 row.setClickable(true);
                 hoverBackground(row);
-                row.setOnClickListener(v -> openAt(path, line));
+                row.setOnClickListener(v -> {
+                    tools.recordJump();
+                    openAt(path, line);
+                });
                 row.setOnCreateContextMenuListener((menu, v, info) -> menu.add("Remove bookmark").setOnMenuItemClickListener(i -> {
                     settings.bookmarks(project, path).remove(line);
                     settings.save();
@@ -1043,6 +1663,8 @@ public class EditorFragment extends Fragment {
         }
         flush();
         highlight();
+        updateMinimap();
+        updateBreadcrumb();
         if (findBar.getVisibility() == View.VISIBLE) {
             updateMatches(false);
         }
@@ -1197,8 +1819,43 @@ public class EditorFragment extends Fragment {
     private boolean onCodeKey(int keyCode, KeyEvent event) {
         boolean ctrl = event.isCtrlPressed();
         boolean shift = event.isShiftPressed();
+        if (keyCode == KeyEvent.KEY_F12 || (ctrl && !shift && !event.isAltPressed() && keyCode == KeyEvent.KEY_B)) {
+            tools.goToDefinition(code.getSelectionStart());
+            return true;
+        }
+        if (event.isAltPressed() && !ctrl) {
+            if (keyCode == KeyEvent.KEY_LEFT) {
+                tools.back();
+                return true;
+            }
+            if (keyCode == KeyEvent.KEY_RIGHT) {
+                tools.forward();
+                return true;
+            }
+        }
+        if (ctrl && event.isAltPressed()) {
+            switch (keyCode) {
+                case KeyEvent.KEY_O -> tools.organiseImports();
+                case KeyEvent.KEY_I -> tools.addMissingImports();
+                case KeyEvent.KEY_V -> tools.extractVariable();
+                case KeyEvent.KEY_M -> tools.extractFunction();
+                default -> {
+                    return false;
+                }
+            }
+            return true;
+        }
         if (ctrl) {
             switch (keyCode) {
+                case KeyEvent.KEY_T -> tools.symbolSearch();
+                case KeyEvent.KEY_E -> tools.showRecentLocations();
+                case KeyEvent.KEY_D -> {
+                    if (shift) {
+                        tools.generateDocstring();
+                    } else {
+                        return false;
+                    }
+                }
                 case KeyEvent.KEY_S -> save();
                 case KeyEvent.KEY_R -> run();
                 case KeyEvent.KEY_ENTER, KeyEvent.KEY_KP_ENTER -> {
@@ -1386,6 +2043,7 @@ public class EditorFragment extends Fragment {
         if (target == null) {
             target = direction > 0 ? marks.first() : marks.last();
         }
+        tools.recordJump();
         goToLine(target);
     }
 
@@ -1586,6 +2244,32 @@ public class EditorFragment extends Fragment {
         m.add("Find...   Ctrl+F").setOnMenuItemClickListener(i -> run(() -> openFind(false)));
         m.add("Replace...   Ctrl+H").setOnMenuItemClickListener(i -> run(() -> openFind(true)));
         m.add("Quick open...   Ctrl+P").setOnMenuItemClickListener(i -> run(this::quickOpen));
+        m.add("New UI window...").setOnMenuItemClickListener(i -> run(tools::newWindow));
+        m.add("UI designer (ui/*.json)...").setOnMenuItemClickListener(i -> run(tools::uiDesigner));
+        for (int size : new int[]{16, 32, 64}) {
+            m.add("New texture " + size + "x" + size + "...").setOnMenuItemClickListener(i -> run(() -> {
+                String id = projectId();
+                if (id == null) {
+                    toast("Open a project first");
+                } else {
+                    AssetViewer.newTexture(code, id, size);
+                }
+            }));
+        }
+        m.add("Change log...").setOnMenuItemClickListener(i -> run(tools::changeLog));
+        m.add("Go to symbol...   Ctrl+T").setOnMenuItemClickListener(i -> run(tools::symbolSearch));
+        m.add("Back   Alt+Left").setOnMenuItemClickListener(i -> run(tools::back));
+        m.add("Forward   Alt+Right").setOnMenuItemClickListener(i -> run(tools::forward));
+        m.add("Recent locations...   Ctrl+E").setOnMenuItemClickListener(i -> run(tools::showRecentLocations));
+        m.add("Replace with preview...").setOnMenuItemClickListener(i -> run(() -> {
+            openFind(true);
+            toast("Type what to find and the replacement, then press Preview");
+        }));
+        m.add("Organise imports   Ctrl+Alt+O").setOnMenuItemClickListener(i -> run(tools::organiseImports));
+        m.add("Add missing imports   Ctrl+Alt+I").setOnMenuItemClickListener(i -> run(tools::addMissingImports));
+        m.add("Generate docstring   Ctrl+Shift+D").setOnMenuItemClickListener(i -> run(tools::generateDocstring));
+        m.add("Extract variable...   Ctrl+Alt+V").setOnMenuItemClickListener(i -> run(tools::extractVariable));
+        m.add("Extract function...   Ctrl+Alt+M").setOnMenuItemClickListener(i -> run(tools::extractFunction));
         m.add("Sort lines").setOnMenuItemClickListener(i -> run(() -> lineCommand(TextOps.sortLines(
                 code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd()))));
         m.add("Remove duplicate lines").setOnMenuItemClickListener(i -> run(() -> lineCommand(TextOps.removeDuplicateLines(
@@ -1599,12 +2283,45 @@ public class EditorFragment extends Fragment {
         menu.show();
     }
 
+    private void showToolsMenu(View anchor) {
+        var menu = new PopupMenu(anchor.getContext(), anchor);
+        Menu m = menu.getMenu();
+        m.add("Go to symbol...   Ctrl+T").setOnMenuItemClickListener(i -> run(tools::symbolSearch));
+        m.add("Rename block / item id everywhere...").setOnMenuItemClickListener(i -> run(tools::renameId));
+        m.add("Asset usage report...").setOnMenuItemClickListener(i -> run(tools::assetUsage));
+        m.add("Why isn't my block showing?...").setOnMenuItemClickListener(i -> run(tools::explain));
+        m.add("Preview block / item (3D)...").setOnMenuItemClickListener(i -> run(tools::previewContent));
+        m.add("Recipes...").setOnMenuItemClickListener(i -> run(tools::recipes));
+        m.add("Loot tables...").setOnMenuItemClickListener(i -> run(tools::loot));
+        m.add("Handler profiler...").setOnMenuItemClickListener(i -> run(tools::profiler));
+        m.add("Event tracer").setOnMenuItemClickListener(i -> run(() -> showPanel(PANEL_EVENTS)));
+        menu.show();
+    }
+
     private void showViewMenu(View anchor) {
         var menu = new PopupMenu(anchor.getContext(), anchor);
         Menu m = menu.getMenu();
         m.add("Word wrap (this file)").setCheckable(true).setChecked(isWrapped())
                 .setOnMenuItemClickListener(i -> run(this::toggleWrap));
         m.add("Zen mode   F11").setCheckable(true).setChecked(zen).setOnMenuItemClickListener(i -> run(this::toggleZen));
+        m.add("Focus mode (dim all but this function)").setCheckable(true).setChecked(settings.focusMode)
+                .setOnMenuItemClickListener(i -> run(() -> {
+                    settings.focusMode = !settings.focusMode;
+                    settings.save();
+                    updateFocus();
+                }));
+        m.add("Sticky scroll (pin scrolled-out headers)").setCheckable(true).setChecked(settings.stickyScroll)
+                .setOnMenuItemClickListener(i -> run(() -> {
+                    settings.stickyScroll = !settings.stickyScroll;
+                    settings.save();
+                    updateSticky();
+                }));
+        m.add("Minimap").setCheckable(true).setChecked(settings.minimap)
+                .setOnMenuItemClickListener(i -> run(() -> {
+                    settings.minimap = !settings.minimap;
+                    settings.save();
+                    updateMinimap();
+                }));
         m.add("Zoom in   Ctrl+=").setOnMenuItemClickListener(i -> run(() -> zoom(1)));
         m.add("Zoom out   Ctrl+-").setOnMenuItemClickListener(i -> run(() -> zoom(-1)));
         m.add("Reset zoom   Ctrl+0").setOnMenuItemClickListener(i -> run(() -> zoom(0)));
@@ -1632,7 +2349,7 @@ public class EditorFragment extends Fragment {
                     settings.trimOnSave = !settings.trimOnSave;
                     settings.save();
                 }));
-        m.add("Keyboard shortcuts   F1").setOnMenuItemClickListener(i -> run(this::showShortcuts));
+        m.add("Help and keyboard shortcuts   F1").setOnMenuItemClickListener(i -> run(this::showShortcuts));
         menu.show();
     }
 
@@ -1647,11 +2364,8 @@ public class EditorFragment extends Fragment {
             return;
         }
         Context context = code.getContext();
-        var content = card(context);
-        var bg = new ShapeDrawable();
-        bg.setCornerRadius(content.dp(12));
-        bg.setColor(color(context, R.attr.colorSurfaceContainerHigh));
-        content.setBackground(bg);
+        var popup = Overlays.dialog(code, "Go to file", 460, 80);
+        var content = popup.body;
         var input = new EditText(context, null, R.attr.editTextOutlinedStyle);
         input.setSingleLine();
         input.setHint("Type part of a file name");
@@ -1661,9 +2375,6 @@ public class EditorFragment extends Fragment {
         var scroll = new ScrollView(context);
         scroll.addView(results, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         content.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, content.dp(260)));
-        var popup = new PopupWindow(content, content.dp(460), WRAP_CONTENT, true);
-        popup.setOutsideTouchable(true);
-        popup.setElevation(content.dp(8));
         List<String> shown = new ArrayList<>();
         Runnable refresh = () -> {
             results.removeAllViews();
@@ -1693,7 +2404,7 @@ public class EditorFragment extends Fragment {
             return false;
         });
         refresh.run();
-        popup.showAtLocation(code, Gravity.TOP | Gravity.CENTER_HORIZONTAL, 0, code.dp(80));
+        popup.show();
         input.requestFocus();
     }
 
@@ -1705,7 +2416,7 @@ public class EditorFragment extends Fragment {
         for (String key : settings.recent) {
             if (key.startsWith(prefix)) {
                 String path = key.substring(prefix.length());
-                if (state.files().contains(path) && fuzzy(path, q)) {
+                if (state.files().contains(path) && !path.endsWith("/") && fuzzy(path, q)) {
                     out.add(path);
                 }
             }
@@ -1736,46 +2447,9 @@ public class EditorFragment extends Fragment {
         return true;
     }
 
+    /** F1 / Ctrl+/ / Help menu: the IDE guide (its last section lists every shortcut). */
     private void showShortcuts() {
-        Context context = code.getContext();
-        var content = card(context);
-        var bg = new ShapeDrawable();
-        bg.setCornerRadius(content.dp(12));
-        bg.setColor(color(context, R.attr.colorSurfaceContainerHigh));
-        content.setBackground(bg);
-        content.addView(label(context, "Keyboard shortcuts", R.attr.textAppearanceTitleMedium));
-        String[][] rows = {
-                { "Ctrl+S", "Save (trims trailing spaces if enabled)" },
-                { "Ctrl+R / F5", "Run / reload project and modules" },
-                { "Ctrl+Enter", "Validate" },
-                { "Ctrl+F / Ctrl+H", "Find / replace" },
-                { "F3 / Shift+F3", "Next / previous match" },
-                { "Ctrl+P", "Quick open" },
-                { "Ctrl+W", "Close tab" },
-                { "Ctrl+J", "Join lines" },
-                { "Ctrl+Shift+Enter", "Split line at the cursor" },
-                { "Ctrl+F2", "Toggle bookmark" },
-                { "F2 / Shift+F2", "Next / previous bookmark" },
-                { "Home", "First non-blank character, then column 0" },
-                { "Tab / Shift+Tab", "Indent / unindent (lines when several are selected)" },
-                { "Ctrl+= / Ctrl+- / Ctrl+0", "Zoom in / out / reset (also Ctrl + mouse wheel)" },
-                { "F11", "Zen mode" },
-                { "Ctrl+Z / Ctrl+Y", "Undo / redo" },
-                { "F1 or Ctrl+/", "This list" },
-        };
-        for (String[] row : rows) {
-            var line = row(context);
-            var key = label(context, row[0], R.attr.textAppearanceLabelLarge);
-            key.setTextColor(color(context, R.attr.colorPrimary));
-            line.addView(key, new LinearLayout.LayoutParams(content.dp(170), WRAP_CONTENT));
-            line.addView(label(context, row[1], R.attr.textAppearanceBodyMedium), new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-            line.setPadding(0, content.dp(3), 0, content.dp(3));
-            content.addView(line);
-        }
-        var popup = new PopupWindow(content, content.dp(520), WRAP_CONTENT, true);
-        popup.setOutsideTouchable(true);
-        popup.setElevation(content.dp(8));
-        popup.showAtLocation(code, Gravity.CENTER, 0, 0);
+        HelpPanel.open(code);
     }
 
     // ------------------------------------------------------------------
@@ -1834,9 +2508,22 @@ public class EditorFragment extends Fragment {
 
     private void build(View anchor) {
         flush();
-        String version = state == null || state.projectVersion().isBlank() ? "1.0.0" : state.projectVersion();
-        prompt(anchor, "Build module - version", version, "Build", v -> store(s -> s.buildProject(v)));
-        showPanel(PANEL_CONSOLE);
+        if (state == null || state.projectId() == null) {
+            toast("Open a project first");
+            return;
+        }
+        final String id = state.projectId();
+        final String name = state.projectName();
+        final String version = state.projectVersion().isBlank() ? "1.0.0" : state.projectVersion();
+        final View host = code;
+        store(s -> {
+            List<net.xmilon.craftpy.project.ModuleInfo> installed = new ArrayList<>(s.modules());
+            s.refreshModules(); // fresher next time
+            host.post(() -> BuildDialog.open(host, id, name, version, installed, request -> {
+                store(st -> st.buildProject(request));
+                showPanel(PANEL_CONSOLE);
+            }));
+        });
     }
 
     private void addNewItems(Menu menu, String folder) {
@@ -1856,17 +2543,14 @@ public class EditorFragment extends Fragment {
         menu.show();
     }
 
-    /** Opens the asset bank; the picked {@code tex("...")} reference goes to the clipboard for pasting. */
+    /** Opens the asset bank; the picked id goes to the clipboard (as a quoted string) for pasting. */
     private void openAssetPicker() {
         flush();
-        store(s -> {
-            Minecraft mc = Minecraft.getInstance();
-            mc.setScreen(new AssetPickerScreen(CraftPyFragment.createScreen(PAGE_EDITOR), AssetKind.TEXTURE, id -> {
-                String reference = "\"" + id + "\"";
-                mc.keyboardHandler.setClipboard(reference);
-                s.append("Copied " + reference + " - paste it as texture=... with Ctrl+V.");
-            }, s.activeProjectId()));
-        });
+        AssetPicker.open(code, AssetKind.TEXTURE, id -> store(s -> {
+            String reference = "\"" + id + "\"";
+            Minecraft.getInstance().keyboardHandler.setClipboard(reference);
+            s.append("Copied " + reference + " - paste it as texture=... with Ctrl+V.");
+        }));
     }
 
     /** Single click: preview tab (replaced by the next preview). Double click: a normal tab. */
@@ -1875,24 +2559,46 @@ public class EditorFragment extends Fragment {
         boolean doubleClick = path.equals(lastClickPath) && now - lastClickTime < DOUBLE_CLICK_MS;
         lastClickPath = path;
         lastClickTime = now;
+        if (isAsset(path) && !doubleClick) {
+            selectInExplorer(path);
+            return;
+        }
+        selectInExplorer(null);
         openEntry(path, !doubleClick);
     }
 
+    private static boolean isAsset(String path) {
+        String lower = path.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".ogg") || lower.endsWith(".wav") || lower.endsWith(".mp3");
+    }
+
+    /** Assets are only selected by one click (double click opens the viewer). */
+    private void selectInExplorer(@Nullable String path) {
+        selectedPath = path;
+        highlightExplorer();
+        if (path != null && isAsset(path)) {
+            breadcrumb.setText(path + "   (double click to open)");
+        }
+    }
+
+    private String selectedPath;
+    @Nullable
+    private String revealed;
+
     /** Text files open as tabs; textures and sounds open the asset viewer. */
     private void openEntry(String path, boolean preview) {
-        String lower = path.toLowerCase(Locale.ROOT);
-        boolean asset = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
-                || lower.endsWith(".ogg") || lower.endsWith(".wav") || lower.endsWith(".mp3");
+        boolean asset = isAsset(path);
         flush();
         if (asset) {
+            final View host = code;
             store(s -> {
                 String projectId = s.activeProjectId();
                 if (projectId == null) {
                     return;
                 }
-                // The viewer is a separate screen; it returns to a fresh Editor page when closed.
-                s.requestAsset(projectId, path, data -> Minecraft.getInstance().setScreen(new AssetFileScreen(
-                        CraftPyFragment.createScreen(PAGE_EDITOR), projectId, path, data.data(), data.error())));
+                s.requestAsset(projectId, path, data -> host.post(() ->
+                        AssetViewer.open(host, projectId, path, data.data(), data.error())));
             });
             return;
         }

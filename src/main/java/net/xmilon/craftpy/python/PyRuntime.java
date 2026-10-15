@@ -113,6 +113,68 @@ public final class PyRuntime {
         }, CraftPyExecutors.rpc());
     }
 
+    /** Calls a Python function the script handed to Java (see the Java bridge). Completes with {value} or {error}. */
+    public CompletableFuture<JsonObject> callFunction(int functionId, com.google.gson.JsonArray args) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            JsonObject params = new JsonObject();
+            params.addProperty("id", functionId);
+            params.add("args", args);
+            try {
+                return client().call("call_fn", params, 5000);
+            } catch (Exception e) {
+                JsonObject failure = new JsonObject();
+                failure.addProperty("error", String.valueOf(e.getMessage()));
+                return failure;
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
+    /** Puts back what the project registered before its last run (the host could not apply the new version). */
+    public CompletableFuture<Void> revert(String projectId) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("owner", projectId);
+                client().call("revert_owner", params, DEFAULT_TIMEOUT_MS);
+            } catch (Exception e) {
+                CraftPy.LOGGER.warn("Failed to revert Python owner {}: {}", projectId, e.toString());
+            }
+            return null;
+        }, CraftPyExecutors.rpc());
+    }
+
+    /** Editor assist: runs a read-only worker query ("complete" or "hover") with a short timeout. */
+    public CompletableFuture<JsonObject> assist(String method, String code, int line, int column) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("code", code);
+                params.addProperty("line", line);
+                params.addProperty("column", column);
+                return client().call(method, params, 2000);
+            } catch (Exception e) {
+                return new JsonObject();
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
+    /** Handler profiler data (call counts and timings per handler / timer); {@code reset} clears it afterwards. */
+    public CompletableFuture<JsonObject> profile(boolean reset) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            try {
+                JsonObject result = client().call("profile", new JsonObject(), DEFAULT_TIMEOUT_MS);
+                if (reset) {
+                    client().call("profile_reset", new JsonObject(), DEFAULT_TIMEOUT_MS);
+                }
+                return result;
+            } catch (Exception e) {
+                JsonObject failure = new JsonObject();
+                failure.addProperty("error", String.valueOf(e.getMessage()));
+                return failure;
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
     /** Triggers a registered Python event handler. */
     public CompletableFuture<JsonObject> triggerEvent(String eventName, JsonObject context) {
         return net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(() -> {
@@ -261,11 +323,21 @@ public final class PyRuntime {
 
     /** Runs main.py on the worker and collects declarations; debug adds a trace. */
     public CompletableFuture<Declarations> runMain(String projectId, String code, String fileName, boolean debug) {
+        return runMain(projectId, code, fileName, debug, java.util.Map.of());
+    }
+
+    /** As above, with the project's other code files so main.py can import them. */
+    public CompletableFuture<Declarations> runMain(String projectId, String code, String fileName, boolean debug,
+                                                   java.util.Map<String, String> sources) {
         return CraftPyExecutors.supplyAsync(() -> {
             JsonObject params = new JsonObject();
+            JsonObject files = new JsonObject();
+            sources.forEach(files::addProperty);
+            params.add("sources", files);
             params.addProperty("file", fileName);
             params.addProperty("code", code == null ? "" : code);
             params.addProperty("project", projectId);
+            params.addProperty("dir", projectId == null ? "" : PyForgePaths.projects().resolve(projectId).toString());
             params.addProperty("debug", debug);
             try {
                 JsonObject result = client().call("run_main", params, DEFAULT_TIMEOUT_MS);

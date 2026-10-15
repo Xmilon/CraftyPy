@@ -324,4 +324,34 @@ public final class TextOps {
         }
         return out;
     }
+
+    /** One match in the replace preview: its line (0-based) and the line before/after the replacement. */
+    public record ReplaceRow(int index, int line, String before, String after) {
+    }
+
+    public static List<ReplaceRow> previewReplace(String text, List<int[]> matches, String replacement) {
+        List<ReplaceRow> rows = new ArrayList<>();
+        for (int i = 0; i < matches.size(); i++) {
+            int[] m = matches.get(i);
+            int start = lineStart(text, m[0]);
+            int end = lineEnd(text, m[1]);
+            String before = text.substring(start, end);
+            String after = text.substring(start, m[0]) + replacement + text.substring(m[1], end);
+            rows.add(new ReplaceRow(i, lineOf(text, m[0]), before.strip(), after.strip()));
+        }
+        return rows;
+    }
+
+    /** Applies the replacement only to the matches whose {@code accept} flag is set. */
+    public static String replaceMatches(String text, List<int[]> matches, boolean[] accept, String replacement) {
+        StringBuilder out = new StringBuilder(text.length());
+        int last = 0;
+        for (int i = 0; i < matches.size(); i++) {
+            if (i < accept.length && accept[i]) {
+                out.append(text, last, matches.get(i)[0]).append(replacement);
+                last = matches.get(i)[1];
+            }
+        }
+        return out.append(text.substring(last)).toString();
+    }
 }

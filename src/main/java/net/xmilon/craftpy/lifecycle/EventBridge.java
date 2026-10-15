@@ -16,6 +16,8 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.ServerChatEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
+import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.event.entity.player.ItemEntityPickupEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
@@ -66,7 +68,21 @@ public class EventBridge {
         context.add("player", wrapPlayer(event.getPlayer()));
         context.add("block", wrapBlock(event.getState()));
         addPosition(context, event.getPos(), level);
-        fire("block_break", level, context);
+        JsonObject answer = ask("block_break", level, context);
+        if (answer != null && answer.has("cancel")) {
+            event.setCanceled(true);
+            return;
+        }
+        // The same break seen from the tool in the player's hand (Extension.on_mine).
+        ItemStack held = event.getPlayer().getMainHandItem();
+        if (!held.isEmpty()) {
+            JsonObject mine = context.deepCopy();
+            mine.add("item", wrapItem(held));
+            answer = ask("item_mine", level, mine);
+            if (answer != null && answer.has("cancel")) {
+                event.setCanceled(true);
+            }
+        }
     }
 
     @SubscribeEvent
@@ -89,7 +105,50 @@ public class EventBridge {
         // Older handlers read ctx.item_id.
         context.addProperty("item_id", itemId(event.getItemStack()));
         context.addProperty("hand", event.getHand().name());
-        fire("item_use", event.getLevel(), context);
+        JsonObject answer = ask("item_use", event.getLevel(), context);
+        if (answer != null && answer.has("cancel")) {
+            event.setCanceled(true);
+        }
+    }
+
+    /** A player hits something: Extension.on_hit. The handler may change the damage or cancel the hit. */
+    @SubscribeEvent
+    public static void onItemHit(LivingIncomingDamageEvent event) {
+        if (!(event.getSource().getEntity() instanceof Player player) || player.level().isClientSide()) {
+            return;
+        }
+        ItemStack held = player.getMainHandItem();
+        if (held.isEmpty()) {
+            return;
+        }
+        JsonObject context = new JsonObject();
+        context.add("player", wrapPlayer(player));
+        context.add("entity", wrapEntity(event.getEntity()));
+        context.add("item", wrapItem(held));
+        context.addProperty("damage", event.getAmount());
+        JsonObject answer = ask("item_hit", player.level(), context);
+        if (answer == null) {
+            return;
+        }
+        if (answer.has("cancel")) {
+            event.setCanceled(true);
+        } else if (answer.has("damage")) {
+            event.setAmount(Math.max(0f, answer.get("damage").getAsFloat()));
+        }
+    }
+
+    /** Once a second for every player holding something: Extension.on_hold_tick. */
+    @SubscribeEvent
+    public static void onHoldTick(PlayerTickEvent.Post event) {
+        Player player = event.getEntity();
+        if (player.level().isClientSide() || player.tickCount % 20 != 0 || player.getMainHandItem().isEmpty()
+                || !SlotRegistry.handlesEvent("item_hold_tick")) {
+            return;
+        }
+        JsonObject context = new JsonObject();
+        context.add("player", wrapPlayer(player));
+        context.add("item", wrapItem(player.getMainHandItem()));
+        fire("item_hold_tick", player.level(), context);
     }
 
     @SubscribeEvent
@@ -176,9 +235,53 @@ public class EventBridge {
         fire(name, player.level(), context);
     }
 
+    /**
+     * Like {@link #fire} for events a handler may cancel or change: the server thread waits for Python (still serving
+     * its host calls) for at most the configured event budget. Returns the worker's answer ({@code cancel}, {@code damage}),
+     * or null when nobody handles the event, Python is too slow, or it failed - then the game carries on unchanged.
+     */
+    static JsonObject ask(String event, Level level, JsonObject context) {
+        if (!(level instanceof ServerLevel serverLevel) || !SlotRegistry.handlesEvent(event)) {
+            return null;
+        }
+        long trace = EventTrace.begin(event, context, true);
+        var future = PyRuntime.get().triggerEvent(event, context);
+        long budgetMs = 50;
+        try {
+            budgetMs = Math.max(50, net.xmilon.craftpy.Config.EVENT_TIMEOUT_MS.get());
+        } catch (RuntimeException ignored) {
+            // config not loaded: default budget
+        }
+        long deadline = System.nanoTime() + budgetMs * 1_000_000L;
+        var server = serverLevel.getServer();
+        if (server.isSameThread()) {
+            server.managedBlock(() -> future.isDone() || System.nanoTime() > deadline);
+        }
+        JsonObject result = future.getNow(null);
+        if (result == null) {
+            EventTrace.finish(trace, 0, 0);
+            CraftPy.LOGGER.warn("Python did not answer {} within {} ms; the game event carries on", event, budgetMs);
+            return null;
+        }
+        EventTrace.finish(trace, result.has("handlers") ? result.get("handlers").getAsInt() : 0,
+                result.has("ms") ? result.get("ms").getAsDouble() : 0);
+        if (result.has("log") && result.get("log").isJsonArray()) {
+            result.getAsJsonArray("log").forEach(line -> {
+                CraftPy.LOGGER.info("[Python {}] {}", event, line.getAsString());
+                net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[" + event + "] " + line.getAsString());
+            });
+        }
+        return result;
+    }
+
     /** Sends one event to the worker and applies the shared global_state it returns. */
     private static void fire(String event, Level level, JsonObject context) {
-        if (level == null || level.isClientSide() || !SlotRegistry.handlesEvent(event)) {
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+        boolean handled = SlotRegistry.handlesEvent(event);
+        long trace = EventTrace.begin(event, context, handled);
+        if (!handled) {
             return;
         }
         if (level instanceof ServerLevel serverLevel) {
@@ -186,8 +289,11 @@ public class EventBridge {
         }
         PyRuntime.get().triggerEvent(event, context).thenAccept(result -> {
             if (result == null) {
+                EventTrace.finish(trace, 0, 0);
                 return;
             }
+            EventTrace.finish(trace, result.has("handlers") ? result.get("handlers").getAsInt() : 0,
+                    result.has("ms") ? result.get("ms").getAsDouble() : 0);
             if (level instanceof ServerLevel serverLevel && result.has("global_state")
                     && result.get("global_state").isJsonObject()) {
                 serverLevel.getServer().execute(() -> GlobalState.get(serverLevel).setData(

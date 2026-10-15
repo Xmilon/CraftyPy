@@ -41,8 +41,52 @@ public final class ProjectManager {
 
     public static ProjectManager init() {
         ProjectManager manager = new ProjectManager(PyForgePaths.projects());
+        seedDefaultProject(manager.projectsDir);
         instance = manager;
         return manager;
+    }
+
+    /**
+     * Installs the bundled {@code welcome} project once per instance (files listed in
+     * {@code /craftpy_default/files.txt}). A marker in system/ keeps it from coming back after the user deletes it.
+     */
+    static void seedDefaultProject(Path projectsDir) {
+        Path marker = PyForgePaths.system().resolve("default_project_installed");
+        if (Files.exists(marker)) {
+            return;
+        }
+        try {
+            Path target = projectsDir.resolve("welcome");
+            if (!Files.exists(target)) {
+                String manifest;
+                try (var in = ProjectManager.class.getResourceAsStream("/craftpy_default/files.txt")) {
+                    if (in == null) {
+                        return;
+                    }
+                    manifest = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                }
+                createDirectories(target);
+                for (String line : manifest.split("\\R")) {
+                    String rel = line.trim();
+                    if (rel.isEmpty() || rel.contains("..")) {
+                        continue;
+                    }
+                    try (var in = ProjectManager.class.getResourceAsStream("/craftpy_default/" + rel)) {
+                        if (in == null) {
+                            continue;
+                        }
+                        Path file = projectsDir.resolve(rel);
+                        Files.createDirectories(file.getParent());
+                        Files.copy(in, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+                CraftPy.LOGGER.info("Installed the default project 'welcome'");
+            }
+            Files.createDirectories(marker.getParent());
+            Files.writeString(marker, "The default project was installed once; delete this file to install it again.\n");
+        } catch (IOException e) {
+            CraftPy.LOGGER.warn("Could not install the default project: {}", e.toString());
+        }
     }
 
     public static ProjectManager get() {
@@ -157,6 +201,11 @@ public final class ProjectManager {
     // ------------------------------------------------------------------
 
     public CompletableFuture<OpResult> createProject(String rawName) {
+        return createProject(rawName, ProjectTemplates.DEFAULT);
+    }
+
+    /** @param template one of {@link ProjectTemplates#ALL} (unknown ids fall back to the default). */
+    public CompletableFuture<OpResult> createProject(String rawName, String template) {
         return CraftPyExecutors.supplyAsync(() -> {
             String id = sanitizeId(rawName);
             if (id.isEmpty()) {
@@ -170,7 +219,7 @@ public final class ProjectManager {
                 createDirectories(dir);
                 ProjectMetadata metadata = new ProjectMetadata(id, rawName == null || rawName.isBlank() ? id : rawName.trim());
                 Json.write(dir.resolve("project.json"), metadata);
-                Json.writeString(dir.resolve("code").resolve("main.py"), templateMainPy(id));
+                Json.writeString(dir.resolve("code").resolve("main.py"), ProjectTemplates.source(template, id));
                 Json.writeString(dir.resolve("README.md"), templateReadme(id, metadata.name));
                 return OpResult.ok(id, "Created project " + id);
             } catch (IOException e) {
@@ -315,15 +364,62 @@ public final class ProjectManager {
             }
             List<String> files = new ArrayList<>();
             try (Stream<Path> stream = Files.walk(dir)) {
-                stream.filter(Files::isRegularFile)
-                        .filter(path -> !path.startsWith(dir.resolve("build")))
-                        .forEach(path -> files.add(dir.relativize(path).toString().replace('\\', '/')));
+                stream.filter(path -> !path.startsWith(dir.resolve("build")))
+                        .forEach(path -> {
+                            String relative = dir.relativize(path).toString().replace('\\', '/');
+                            if (Files.isRegularFile(path)) {
+                                files.add(relative);
+                            } else if (!relative.isEmpty() && isEmptyDirectory(path)) {
+                                files.add(relative + "/"); // empty folders show up in the explorer too
+                            }
+                        });
             } catch (IOException e) {
                 CraftPy.LOGGER.error("Failed to list files of {}", id, e);
             }
             files.sort(String::compareTo);
             return files;
         }, CraftPyExecutors.forProject(id));
+    }
+
+    /**
+     * Every {@code code/**.py} except {@code code/main.py} (relative path to text): the files main.py can import.
+     * Capped so a runaway folder cannot flood the worker.
+     */
+    public CompletableFuture<Map<String, String>> readSources(String id) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            Map<String, String> sources = new java.util.TreeMap<>();
+            Path dir = projectsDir.resolve(id);
+            Path code = dir.resolve("code");
+            if (!Files.isDirectory(code)) {
+                return sources;
+            }
+            long budget = 4L * 1024 * 1024;
+            try (Stream<Path> stream = Files.walk(code)) {
+                for (Path file : stream.filter(Files::isRegularFile).filter(p -> p.toString().endsWith(".py")).sorted().toList()) {
+                    String relative = dir.relativize(file).toString().replace('\\', '/');
+                    long size = Files.size(file);
+                    if (relative.equals("code/main.py") || sources.size() >= 400 || size > budget) {
+                        continue;
+                    }
+                    budget -= size;
+                    sources.put(relative, Files.readString(file, StandardCharsets.UTF_8));
+                }
+            } catch (IOException e) {
+                CraftPy.LOGGER.warn("Failed to read sources of {}: {}", id, e.getMessage());
+            }
+            return sources;
+        }, CraftPyExecutors.forProject(id));
+    }
+
+    private static boolean isEmptyDirectory(Path path) {
+        if (!Files.isDirectory(path)) {
+            return false;
+        }
+        try (Stream<Path> children = Files.list(path)) {
+            return children.findAny().isEmpty();
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /** Reads a file inside the project, verifying the path cannot escape. */
@@ -356,6 +452,7 @@ public final class ProjectManager {
             try {
                 Files.createDirectories(file.getParent());
                 Files.writeString(file, content, StandardCharsets.UTF_8);
+                ChangeLog.record(id, "Saved " + path);
                 return OpResult.ok(id, "Saved " + path);
             } catch (IOException e) {
                 return OpResult.fail("Failed to save " + path + ": " + e.getMessage());
@@ -374,6 +471,7 @@ public final class ProjectManager {
             try {
                 Files.createDirectories(file.getParent());
                 Files.write(file, content);
+                ChangeLog.record(id, "Wrote " + path + " (" + content.length + " bytes)");
                 return OpResult.ok(id, "Wrote " + path + " (" + content.length + " bytes)");
             } catch (IOException e) {
                 return OpResult.fail("Failed to write " + path + ": " + e.getMessage());
@@ -431,12 +529,14 @@ public final class ProjectManager {
                 }
                 if ("dir".equalsIgnoreCase(type)) {
                     Files.createDirectories(target);
+                    ChangeLog.record(id, "Created folder " + path);
                     return OpResult.ok(id, "Created folder " + path);
                 }
                 Files.createDirectories(target.getParent());
                 String content = path.toLowerCase(Locale.ROOT).endsWith(".py")
                         ? "# " + target.getFileName() + "\n" : "";
                 Files.writeString(target, content, StandardCharsets.UTF_8);
+                ChangeLog.record(id, "Created " + path);
                 return OpResult.ok(id, "Created " + path);
             } catch (IOException e) {
                 return OpResult.fail("Failed to create " + path + ": " + e.getMessage());
@@ -466,6 +566,7 @@ public final class ProjectManager {
                 } else {
                     return OpResult.fail("Not found: " + path);
                 }
+                ChangeLog.record(id, "Deleted " + path);
                 return OpResult.ok(id, "Deleted " + path);
             } catch (IOException e) {
                 return OpResult.fail("Failed to delete " + path + ": " + e.getMessage());
@@ -494,9 +595,78 @@ public final class ProjectManager {
             try {
                 Files.createDirectories(target.getParent());
                 Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+                ChangeLog.record(id, "Renamed " + from + " -> " + to);
                 return OpResult.ok(id, "Renamed " + from + " -> " + to);
             } catch (IOException e) {
                 return OpResult.fail("Failed to rename: " + e.getMessage());
+            }
+        }, CraftPyExecutors.forProject(id));
+    }
+
+    /** Every file path of a project plus the text of its text files (for project-wide analysis). */
+    public record Snapshot(List<String> paths, java.util.Map<String, String> texts) {
+    }
+
+    private static final long SNAPSHOT_FILE_LIMIT = 256 * 1024;
+    private static final long SNAPSHOT_TOTAL_LIMIT = 6L * 1024 * 1024;
+
+    public CompletableFuture<Snapshot> snapshot(String id) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            Path dir = projectsDir.resolve(id);
+            List<String> paths = new ArrayList<>();
+            java.util.Map<String, String> texts = new java.util.TreeMap<>();
+            if (!Files.isDirectory(dir)) {
+                return new Snapshot(paths, texts);
+            }
+            long total = 0;
+            try (Stream<Path> stream = Files.walk(dir)) {
+                List<Path> files = stream.filter(Files::isRegularFile)
+                        .filter(path -> !path.startsWith(dir.resolve("build")))
+                        .sorted().toList();
+                for (Path file : files) {
+                    String rel = dir.relativize(file).toString().replace('\\', '/');
+                    paths.add(rel);
+                    String lower = rel.toLowerCase(java.util.Locale.ROOT);
+                    boolean text = lower.endsWith(".py") || lower.endsWith(".json") || lower.endsWith(".mcfunction")
+                            || lower.endsWith(".md") || lower.endsWith(".txt");
+                    if (text && Files.size(file) <= SNAPSHOT_FILE_LIMIT && total < SNAPSHOT_TOTAL_LIMIT) {
+                        String content = Files.readString(file, StandardCharsets.UTF_8);
+                        total += content.length();
+                        texts.put(rel, content);
+                    }
+                }
+            } catch (IOException e) {
+                CraftPy.LOGGER.warn("snapshot failed for {}: {}", id, e.getMessage());
+            }
+            return new Snapshot(paths, texts);
+        }, CraftPyExecutors.forProject(id));
+    }
+
+    /** Writes the changed texts, then moves the renamed asset files (a plan from {@code ProjectScan.renameId}). */
+    public CompletableFuture<OpResult> applyRename(String id, net.xmilon.craftpy.analysis.ProjectScan.RenamePlan plan) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            Path dir = projectsDir.resolve(id);
+            try {
+                for (var entry : plan.newTexts().entrySet()) {
+                    Path file = resolveSafe(dir, entry.getKey());
+                    if (file == null) {
+                        return OpResult.fail("Illegal path: " + entry.getKey());
+                    }
+                    Files.writeString(file, entry.getValue(), StandardCharsets.UTF_8);
+                }
+                for (var move : plan.moves()) {
+                    Path from = resolveSafe(dir, move.from());
+                    Path to = resolveSafe(dir, move.to());
+                    if (from == null || to == null) {
+                        return OpResult.fail("Illegal path: " + move.from());
+                    }
+                    Files.createDirectories(to.getParent());
+                    Files.move(from, to);
+                }
+                return OpResult.ok(id, "Renamed: " + plan.newTexts().size() + " file(s) edited, " + plan.moves().size()
+                        + " moved");
+            } catch (IOException e) {
+                return OpResult.fail("Rename failed half way: " + e.getMessage());
             }
         }, CraftPyExecutors.forProject(id));
     }
@@ -591,35 +761,9 @@ public final class ProjectManager {
 
     private static void createDirectories(Path dir) throws IOException {
         for (String sub : new String[] { "code", "assets/textures", "assets/models", "assets/sounds", "assets/lang",
-                "assets/animations", "assets/other", "data", "build" }) {
+                "assets/animations", "assets/other", "data", "ui", "build" }) {
             Files.createDirectories(dir.resolve(sub));
         }
-    }
-
-    private static String templateMainPy(String id) {
-        return """
-                # %s - a CraftPy project. Press Run to load it into the game.
-                # Full reference: the Docs page. Textures go in assets/textures/ (16x16 PNG).
-                from craftpy import *
-
-                # A block that uses a vanilla texture. Get it with: /craftpy give @s %s:shiny_stone block
-                shiny_stone = Block("shiny_stone", texture="minecraft:amethyst_block", hardness=1.5, light=8)
-
-                # An item, and a recipe for it: 4 amethyst shards in a square.
-                gem = Item("gem", texture="minecraft:amethyst_shard", glow=True)
-                shaped(gem, "AA", "AA", A="amethyst_shard")
-
-
-                @on.block_break(block=shiny_stone)
-                def broke_shiny_stone(event):
-                    event.player.say("You broke the shiny stone!")
-                    event.player.give(gem)
-
-
-                @on.player_join
-                def welcome(event):
-                    event.player.title("Welcome!", subtitle="%s is running")
-                """.formatted(id, id, id);
     }
 
     private static String templateReadme(String id, String name) {

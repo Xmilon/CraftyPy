@@ -31,11 +31,11 @@ public final class PackBuilder {
     }
 
     public static Path resourcePackRoot() {
-        return PyForgePaths.root().resolve("build").resolve("resourcepack").resolve(DIR_NAME);
+        return PyForgePaths.build().resolve("resourcepack").resolve(DIR_NAME);
     }
 
     public static Path dataPackRoot() {
-        return PyForgePaths.root().resolve("build").resolve("datapack").resolve(DIR_NAME);
+        return PyForgePaths.build().resolve("datapack").resolve(DIR_NAME);
     }
 
     /** Rebuilds both packs from the current SlotRegistry state. IO on worker thread. */
@@ -46,7 +46,7 @@ public final class PackBuilder {
      */
     public static synchronized void rebuild() {
         try {
-            Path staging = PyForgePaths.root().resolve("build").resolve("staging");
+            Path staging = PyForgePaths.build().resolve("staging");
             Path resources = staging.resolve("resourcepack");
             Path data = staging.resolve("datapack");
             writeResourcePack(resources);
@@ -98,7 +98,7 @@ public final class PackBuilder {
 
         // Emit an asset for every registered slot so generic blocks/items always
         // resolve to a valid (placeholder when unloaded) model.
-        for (int i = 0; i < SlotRegistry.BLOCK_CAP; i++) {
+        for (int i = 0; i < SlotRegistry.blockSlotCount(); i++) {
             Defs.BlockDef def = SlotRegistry.blockDef(i);
             String holder = SlotRegistry.holderForBlock(i);
             String projectId = ownerOf(holder);
@@ -131,7 +131,7 @@ public final class PackBuilder {
             lang.addProperty("block.craftpy." + id, name);
         }
 
-        for (int i = 0; i < SlotRegistry.ITEM_CAP; i++) {
+        for (int i = 0; i < SlotRegistry.itemSlotCount(); i++) {
             Defs.ItemDef def = SlotRegistry.itemDef(i);
             String holder = SlotRegistry.holderForItem(i);
             String projectId = ownerOf(holder);
@@ -141,7 +141,9 @@ public final class PackBuilder {
             String id = "pcitem_" + i;
 
             JsonObject itemModel = new JsonObject();
-            itemModel.addProperty("parent", "minecraft:item/generated");
+            // tools and weapons are held like vanilla ones (handheld); everything else is a flat sprite
+            itemModel.addProperty("parent", def != null && (def.tool != null || def.weapon != null)
+                    ? "minecraft:item/handheld" : "minecraft:item/generated");
             JsonObject textures = new JsonObject();
             textures.addProperty("layer0", texture);
             itemModel.add("textures", textures);
@@ -223,12 +225,45 @@ public final class PackBuilder {
             if (!Files.isDirectory(source)) {
                 continue;
             }
-            try {
-                copyTree(source, root.resolve("assets").resolve(projectId));
+            try (java.util.stream.Stream<Path> children = Files.list(source)) {
+                for (Path child : (Iterable<Path>) children::iterator) {
+                    String name = child.getFileName().toString();
+                    String namespace = assetNamespace(projectId, name, Files.isDirectory(child));
+                    if (namespace == null) {
+                        CraftPy.LOGGER.warn("Project {}: ignoring assets/{} (not a valid namespace folder)", projectId, name);
+                        continue;
+                    }
+                    Path target = root.resolve("assets").resolve(namespace);
+                    if (Files.isDirectory(child)) {
+                        // a namespace folder is the namespace itself; a resource folder goes inside the project's namespace
+                        copyTree(child, RESOURCE_FOLDERS.contains(name) ? target.resolve(name) : target);
+                    } else {
+                        Files.createDirectories(target);
+                        Files.copy(child, target.resolve(name), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
             } catch (Exception e) {
                 CraftPy.LOGGER.warn("Failed to copy assets of project {}", projectId, e);
             }
         }
+    }
+
+    /** Folders of a resource pack namespace; directly under {@code assets/} they belong to the project's own namespace. */
+    private static final java.util.Set<String> RESOURCE_FOLDERS = java.util.Set.of(
+            "textures", "models", "blockstates", "sounds", "lang", "font", "particles", "atlases", "shaders", "texts",
+            "items", "equipment", "post_effect", "gpu_warnlist", "regional_compliancies");
+
+    /**
+     * Where an entry directly under a project's {@code assets/} goes. {@code textures/}, {@code models/}, {@code lang/}...
+     * and loose files such as {@code sounds.json} belong to the project's namespace (the simple way); any other folder is a
+     * namespace of its own, like in a mod or resource pack: {@code assets/minecraft/textures/block/stone.png} retextures
+     * vanilla. Null for a folder name that cannot be a namespace.
+     */
+    static String assetNamespace(String projectId, String entryName, boolean directory) {
+        if (!directory || RESOURCE_FOLDERS.contains(entryName)) {
+            return projectId;
+        }
+        return entryName.matches("[a-z0-9_.-]+") ? entryName : null;
     }
 
     private static void copyTree(Path source, Path target) throws Exception {
@@ -252,6 +287,7 @@ public final class PackBuilder {
     private static void writeDataPack(Path root) throws Exception {
         deleteRecursively(root);
         writeMcmeta(root, DATA_FORMAT, "CraftPy project data");
+        writeToolTags(root);
 
         for (String projectId : SlotRegistry.activeProjectIds()) {
             Path data = root.resolve("data").resolve(projectId);
@@ -322,7 +358,7 @@ public final class PackBuilder {
                     : selfDropLoot("craftpy:pcblock_" + entry.getValue().index());
             Defs.BlockDef def = SlotRegistry.blockDef(entry.getValue().index());
             if (def != null && def.needsTool) {
-                requireTool(table, def.tool);
+                requireTool(table, def.tool, def.minLevel);
             }
             writeJson(table, data.resolve("loot_table/" + target + ".json"));
         }
@@ -515,9 +551,61 @@ public final class PackBuilder {
         writeJson(buildLootTable(projectId, raw, target), data.resolve("loot_table/" + target + ".json"));
     }
 
+    private static final String[] TOOL_KINDS = {"pickaxe", "axe", "shovel", "hoe", "sword"};
+    /** Vanilla tiers by mining level 1-4; wood and gold are level 0 and never needed for a minimum level. */
+    private static final String[][] VANILLA_BY_LEVEL = {
+            {"stone", "iron", "diamond", "netherite"}, {"iron", "diamond", "netherite"}, {"diamond", "netherite"},
+            {"netherite"}};
+
+    /**
+     * Tool tags with the items that have a Tool extension: {@code minecraft:pickaxes} (and axes, shovels, hoes, swords)
+     * so vanilla rules see them as tools, and {@code craftpy:level/<kind>/<1-4>} (tools of at least that mining level)
+     * that the loot tables of blocks with a minimum tier ask for.
+     */
+    static void writeToolTags(Path root) throws Exception {
+        for (String kind : TOOL_KINDS) {
+            JsonArray any = new JsonArray();
+            for (int i = 0; i < SlotRegistry.itemSlotCount(); i++) {
+                Defs.ItemDef def = SlotRegistry.itemDef(i);
+                if (def != null && def.tool != null && def.tool.kind().equals(kind)) {
+                    any.add("craftpy:pcitem_" + i);
+                }
+            }
+            if (!any.isEmpty()) {
+                writeTag(root.resolve("data/minecraft/tags/item/" + kind + "s.json"), any);
+            }
+            for (int level = 1; level <= 4; level++) {
+                JsonArray values = new JsonArray();
+                for (String tier : VANILLA_BY_LEVEL[level - 1]) {
+                    values.add("minecraft:" + tier + "_" + kind);
+                }
+                for (int i = 0; i < SlotRegistry.itemSlotCount(); i++) {
+                    Defs.ItemDef def = SlotRegistry.itemDef(i);
+                    if (def != null && def.tool != null && def.tool.kind().equals(kind) && def.tool.level() >= level) {
+                        values.add("craftpy:pcitem_" + i);
+                    }
+                }
+                writeTag(root.resolve("data/craftpy/tags/item/level/" + kind + "/" + level + ".json"), values);
+            }
+        }
+    }
+
+    private static void writeTag(Path file, JsonArray values) throws Exception {
+        JsonObject tag = new JsonObject();
+        tag.addProperty("replace", false);
+        tag.add("values", values);
+        writeJson(tag, file);
+    }
+
     /** needs_tool: every pool only drops when the block is mined with the declared tool (like vanilla ores). */
     static void requireTool(JsonObject table, String tool) {
-        String tag = switch (tool == null ? "" : tool.toLowerCase(java.util.Locale.ROOT)) {
+        requireTool(table, tool, 0);
+    }
+
+    /** As above; {@code minLevel > 0} also asks for that mining level (tags from {@link #writeToolTags}). */
+    static void requireTool(JsonObject table, String tool, int minLevel) {
+        String kind = tool == null ? "" : tool.toLowerCase(java.util.Locale.ROOT);
+        String tag = switch (kind) {
             case "pickaxe" -> "#minecraft:pickaxes";
             case "axe" -> "#minecraft:axes";
             case "shovel" -> "#minecraft:shovels";
@@ -525,6 +613,9 @@ public final class PackBuilder {
             case "sword" -> "#minecraft:swords";
             default -> null;
         };
+        if (tag != null && minLevel > 0) {
+            tag = "#craftpy:level/" + kind + "/" + Math.min(4, minLevel);
+        }
         if (tag == null || !table.has("pools")) {
             return;
         }

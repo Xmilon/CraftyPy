@@ -42,6 +42,10 @@ public final class HostBridge {
     }
 
     public static JsonObject handle(String method, JsonObject params) {
+        if (method.startsWith("java.")) {
+            // the generic Java bridge: Minecraft/NeoForge/mod classes by name (see bridge.JavaBridge)
+            return onServer(server -> net.xmilon.craftpy.bridge.JavaBridge.handle(method.substring(5), params));
+        }
         try {
             return switch (method) {
                 case "world.get_block" -> onServer(server -> getBlock(server, params));
@@ -123,7 +127,8 @@ public final class HostBridge {
                     yield ok();
                 }
                 case "capabilities" -> ok();
-                case "ui.open", "ui.close" -> unsupported("ui (server-described windows are not wired yet)");
+                case "ui.open" -> onServer(server -> uiSend(server, params, "open"));
+                case "ui.close" -> onServer(server -> uiSend(server, params, "close"));
                 default -> unsupported(method);
             };
         } catch (Exception e) {
@@ -326,6 +331,18 @@ public final class HostBridge {
             result.add("player", playerInfo(player));
         }
         return result;
+    }
+
+    /** Sends a window tree (open / update) or a close request to one player. */
+    private static JsonObject uiSend(MinecraftServer server, JsonObject p, String mode) {
+        ServerPlayer player = findPlayer(server, string(p, "player", ""));
+        if (player == null) {
+            return error("player not found");
+        }
+        String json = "open".equals(mode) ? p.getAsJsonObject("window").toString() : string(p, "id", "");
+        net.xmilon.craftpy.network.CraftPyNetwork.sendTo(player, net.xmilon.craftpy.network.ProjectAction.WINDOW,
+                true, mode, json);
+        return ok(true);
     }
 
     private static JsonObject sendMessage(MinecraftServer server, JsonObject p) {

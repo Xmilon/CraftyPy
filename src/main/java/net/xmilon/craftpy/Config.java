@@ -22,6 +22,17 @@ public final class Config {
             .comment("Automatically rebuild and reload the active project when its files change.")
             .define("hotReloadOnSave", false);
 
+    public static final ModConfigSpec.EnumValue<net.xmilon.craftpy.bridge.JavaAccess.Mode> JAVA_BRIDGE_MODE = BUILDER
+            .comment("What Python may reach through the Java bridge (java.cls / java.new / java.on): OFF, RESTRICTED"
+                    + " (Minecraft, NeoForge, Mojang libraries and the packages below) or FULL (any class that is not"
+                    + " on the built-in deny list: processes, files, network, reflection, class loading).")
+            .defineEnum("javaBridge.mode", net.xmilon.craftpy.bridge.JavaAccess.Mode.RESTRICTED);
+
+    public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> JAVA_BRIDGE_PACKAGES = BUILDER
+            .comment("Extra package prefixes the Java bridge may use in RESTRICTED mode, e.g. \"com.example.mymod.\""
+                    + " to script another mod.")
+            .defineListAllowEmpty("javaBridge.extraPackages", java.util.List.of(), () -> "", o -> o instanceof String);
+
     public static final ModConfigSpec.ConfigValue<String> PYTHON_PATH = BUILDER
             .comment("Path to a Python executable. Leave empty to use the bundled/auto-downloaded runtime.")
             .define("pythonPath", "");
@@ -43,11 +54,11 @@ public final class Config {
             .defineInRange("maxAssetSizeKb", 8192, 1, 1048576);
 
     public static final ModConfigSpec.IntValue BLOCK_SLOTS = BUILDER
-            .comment("Number of generic block slots pre-registered at startup.")
+            .comment("Deprecated and ignored: set the number of block slots in config/craftpy-slots.properties (restart needed).")
             .defineInRange("slotPool.blocks", 256, 0, 4096);
 
     public static final ModConfigSpec.IntValue ITEM_SLOTS = BUILDER
-            .comment("Number of generic item slots pre-registered at startup.")
+            .comment("Deprecated and ignored: set the number of item slots in config/craftpy-slots.properties (restart needed).")
             .defineInRange("slotPool.items", 256, 0, 4096);
 
     public static final ModConfigSpec.IntValue ENTITY_SLOTS = BUILDER

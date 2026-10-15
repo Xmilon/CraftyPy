@@ -5,6 +5,7 @@ import java.util.Locale;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.world.InteractionResult;
@@ -22,6 +23,9 @@ import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.material.PushReaction;
+import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.phys.BlockHitResult;
@@ -142,7 +146,7 @@ public class SlottedBlock extends Block implements EntityBlock {
         float hardness = def != null && def.hardness > 0 ? def.hardness : 2.0f;
         String tool = def == null ? "" : def.tool;
         ItemStack held = player.getMainHandItem();
-        boolean correct = isCorrectTool(tool, held);
+        boolean correct = isCorrectTool(tool, held, def == null ? 0 : def.minLevel);
         // getDestroySpeed already applies haste / mining fatigue / underwater to the base speed 1.
         float speed = player.getDestroySpeed(state);
         if (correct && !tool.isBlank()) {
@@ -154,11 +158,33 @@ public class SlottedBlock extends Block implements EntityBlock {
 
     /** True when no tool is required, or the held item is in the matching vanilla tool tag. */
     public static boolean isCorrectTool(String tool, ItemStack held) {
+        return isCorrectTool(tool, held, 0);
+    }
+
+    /**
+     * The held item is a tool of this kind (a vanilla tool, or an item with a Tool extension) of at least this mining
+     * level (0 wood/gold, 1 stone, 2 iron, 3 diamond, 4 netherite). The level only matters for pickaxe-style blocks
+     * when a vanilla tool is held; custom tools carry their own level for every kind.
+     */
+    public static boolean isCorrectTool(String tool, ItemStack held, int minLevel) {
         if (tool == null || tool.isBlank()) {
             return true;
         }
+        String kind = tool.toLowerCase(Locale.ROOT);
+        if (held.getItem() instanceof SlottedItem custom) {
+            return custom.toolKind().equals(kind) && custom.toolLevel() >= minLevel;
+        }
         var tag = toolTag(tool);
-        return tag != null && held.is(tag);
+        if (tag == null || !held.is(tag)) {
+            return false;
+        }
+        if (minLevel <= 0 || !kind.equals("pickaxe")) {
+            return true;
+        }
+        var proxy = minLevel == 1 ? net.minecraft.world.level.block.Blocks.IRON_ORE
+                : minLevel == 2 ? net.minecraft.world.level.block.Blocks.DIAMOND_ORE
+                : net.minecraft.world.level.block.Blocks.OBSIDIAN;
+        return held.isCorrectToolForDrops(proxy.defaultBlockState());
     }
 
     @Nullable
@@ -181,6 +207,57 @@ public class SlottedBlock extends Block implements EntityBlock {
             case "hoe" -> net.minecraft.world.level.block.Blocks.HAY_BLOCK.defaultBlockState();
             case "sword" -> net.minecraft.world.level.block.Blocks.COBWEB.defaultBlockState();
             default -> net.minecraft.world.level.block.Blocks.STONE.defaultBlockState();
+        };
+    }
+
+
+    // ------------------------------------------------------------------
+    // Extensions (Defs.BlockDef): redstone, fire, friction, pistons
+    // ------------------------------------------------------------------
+
+    @Override
+    protected boolean isSignalSource(BlockState state) {
+        Defs.BlockDef def = definition();
+        return def != null && def.redstone > 0;
+    }
+
+    @Override
+    protected int getSignal(BlockState state, BlockGetter level, BlockPos pos, Direction direction) {
+        Defs.BlockDef def = definition();
+        return def == null ? 0 : def.redstone;
+    }
+
+    @Override
+    public int getFlammability(BlockState state, BlockGetter level, BlockPos pos, Direction face) {
+        Defs.BlockDef def = definition();
+        return def != null && def.burnChance >= 0 ? def.burnChance : super.getFlammability(state, level, pos, face);
+    }
+
+    @Override
+    public int getFireSpreadSpeed(BlockState state, BlockGetter level, BlockPos pos, Direction face) {
+        Defs.BlockDef def = definition();
+        return def != null && def.burnChance >= 0 ? def.burnSpread : super.getFireSpreadSpeed(state, level, pos, face);
+    }
+
+    @Override
+    public float getFriction(BlockState state, LevelReader level, BlockPos pos, @Nullable Entity entity) {
+        Defs.BlockDef def = definition();
+        return def != null && def.friction >= 0 ? def.friction : super.getFriction(state, level, pos, entity);
+    }
+
+    @Override
+    public PushReaction getPistonPushReaction(BlockState state) {
+        Defs.BlockDef def = definition();
+        if (def == null) {
+            return super.getPistonPushReaction(state);
+        }
+        return switch (def.push) {
+            case "destroy" -> PushReaction.DESTROY;
+            case "block" -> PushReaction.BLOCK;
+            case "ignore" -> PushReaction.IGNORE;
+            case "push_only" -> PushReaction.PUSH_ONLY;
+            case "normal" -> PushReaction.NORMAL;
+            default -> super.getPistonPushReaction(state);
         };
     }
 

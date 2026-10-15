@@ -28,7 +28,6 @@ import icyllis.modernui.widget.Button;
 import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.FrameLayout;
 import icyllis.modernui.widget.LinearLayout;
-import icyllis.modernui.widget.PopupWindow;
 import icyllis.modernui.widget.RadioButton;
 import icyllis.modernui.widget.RadioGroup;
 import icyllis.modernui.widget.TextView;
@@ -140,9 +139,12 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         pages.setId(ID_CONTAINER);
         base.addView(pages, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
 
-        base.setLayoutParams(new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        // Dialogs and floating hints are stacked on the page inside this host (see Overlays).
+        var host = new Overlays.Host(context);
+        host.addView(base, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        host.setLayoutParams(new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
         store(s -> s.setListener(pendingProjectListener));
-        return base;
+        return host;
     }
 
     @Override
@@ -186,6 +188,8 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         var button = new RadioButton(context, null, null, null);
         button.setId(id);
         button.setText(text);
+        button.setClickable(true);
+        button.setOnClickListener(v -> navigate(id));
         button.setTextSize(13);
         button.setGravity(Gravity.CENTER);
         button.setTextColor(new ColorStateList(
@@ -277,6 +281,18 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
                 null, mask));
     }
 
+    /** Rounded pill background for the selected tab/chip; hover highlight otherwise. */
+    static void styleChip(View view, boolean selected) {
+        if (selected) {
+            var bg = new ShapeDrawable();
+            bg.setCornerRadius(view.dp(8));
+            bg.setColor(color(view.getContext(), R.attr.colorSecondaryContainer));
+            view.setBackground(bg);
+        } else {
+            hoverBackground(view);
+        }
+    }
+
     static LinearLayout row(Context context) {
         var row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -291,9 +307,7 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
     static void prompt(View anchor, String title, @Nullable String initial, String confirm,
                        Consumer<String> onConfirm) {
         Context context = anchor.getContext();
-        var content = card(context);
-        content.setBackground(filledBackground(content));
-        content.addView(label(context, title, R.attr.textAppearanceTitleSmall));
+        var dialog = Overlays.dialog(anchor, title, 320, -1);
         EditText input = null;
         if (initial != null) {
             input = new EditText(context, null, R.attr.editTextOutlinedStyle);
@@ -301,28 +315,24 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
             input.setText(initial);
             input.selectAll();
             var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-            lp.topMargin = content.dp(8);
-            content.addView(input, lp);
+            lp.topMargin = dialog.card.dp(8);
+            dialog.body.addView(input, lp);
         }
-        var buttons = row(context);
-        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        var popup = new PopupWindow(content, content.dp(280), WRAP_CONTENT, true);
-        popup.setOutsideTouchable(true);
-        popup.setElevation(content.dp(6));
         final EditText field = input;
         Runnable accept = () -> {
             String value = field == null ? "" : field.getText().toString().trim();
             if (field != null && value.isEmpty()) {
                 return;
             }
-            popup.dismiss();
+            dialog.dismiss();
             onConfirm.accept(value);
         };
-        buttons.addView(button(context, "Cancel", R.attr.borderlessButtonStyle, v -> popup.dismiss()));
+        var buttons = row(context);
+        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         buttons.addView(button(context, confirm, R.attr.buttonTonalStyle, v -> accept.run()));
         var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-        lp.topMargin = content.dp(8);
-        content.addView(buttons, lp);
+        lp.topMargin = dialog.card.dp(8);
+        dialog.body.addView(buttons, lp);
         if (field != null) {
             field.setOnKeyListener((v, keyCode, event) -> {
                 if (event.getAction() == KeyEvent.ACTION_DOWN
@@ -333,7 +343,7 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
                 return false;
             });
         }
-        popup.showAsDropDown(anchor);
+        dialog.show();
         if (field != null) {
             field.requestFocus();
         }

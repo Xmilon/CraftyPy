@@ -1,0 +1,872 @@
+=====================================================================
+CRAFTPY - PROMPT v2 FOR ANOTHER AI
+Modules, version-independent Python API, in-game windows,
+real console, admin commands, professional IDE
+Minecraft 1.21.1 / NeoForge / Java 21 / Python
+Repository: https://github.com/Xmilon/CraftyPy  (package net.xmilon.craftpy)
+=====================================================================
+
+---------------------------------------------------------------------
+PROMPT START
+---------------------------------------------------------------------
+
+ROLE:
+You are a senior Minecraft mod engineer (NeoForge 1.21.1, Java 21), a
+language-runtime/tooling engineer and a UI/UX engineer. You are taking
+over an EXISTING mod ("CraftPy", repo name "CraftyPy") and must evolve it.
+Work in milestones. After each milestone: build, run, verify, then stop
+and report. Never claim something works unless you actually ran it. Where
+something is impossible or only partly possible, say so in the report
+instead of faking it. Prefer a smaller feature that is stable over a
+bigger one that is half-working.
+
+LANGUAGE: code, identifiers, comments and in-game docs in English. The
+IDE and module screens must be localizable (lang files); ship en_us and
+it_it.
+
+
+=====================================================================
+0. WHAT ALREADY EXISTS (verify it, do not trust this list blindly)
+=====================================================================
+
+The mod already has (names as seen in the code so far):
+
+  - A computer block that opens a custom full-screen IDE:
+    client.screen.ComputerScreen (MenuAccess<ComputerMenu>), with menu
+    bar (File/Edit/Run/Assets/Help), project explorer, editor tabs, a
+    code editor (client.screen.CodeEditor), bottom panel (Console /
+    Problems / Assets / API), search box, Run + Assets buttons, modal
+    prompt + confirm dialogs, explorer right-click menu.
+  - Project store on the client: client.ClientProjectStore (files(),
+    activeFile(), openFile(), markDirty(), saveActiveFile(),
+    validateActiveFile(), request(ProjectAction, projectId, payload),
+    log()/append(), debugMode(), findDefinition(), ...) and the packet
+    action enum network.ProjectAction (LOAD, ...).
+  - Asset system: assets.AssetKind (TEXTURE, ITEM, BLOCK, MODEL, SOUND),
+    assets.AssetReference(s) parser for tex()/snd()/mdl(), client asset
+    index client.assets.AssetIndex, asset picker screen
+    (AssetPickerScreen), drag-and-drop upload (AssetUploader).
+  - Python side: declarative API (@block, @item, @entity, @effect, @on,
+    tex/snd/mdl, loot_self, recipe_shaped/shapeless/smelting, loot_table,
+    tag, lang) and validation problems (python.ValidationProblem).
+  - util.CraftPyExecutors: a shared fixed pool of 4 daemon threads.
+  - Gradle MDK build, GitHub workflow, instructions.txt (the v1 prompt).
+
+KNOWN PROBLEMS (fix in Phase 0; some were found by reading the code):
+
+  P1  The pasted ComputerScreen referenced many methods that did not
+      exist (tabIndexAt, openContextMenu, closePrompt, submitPrompt,
+      confirmYesAt/No, submitConsole, autocompleteConsole, historyPrev/
+      Next ...). If the repo head still has this, the project does not
+      compile. First action: get a green build.
+  P2  ComputerScreen.init() recreates the CodeEditor on every call
+      (window resize, GUI scale change, coming back from the asset
+      picker) but never reloads the file into it, so the editor can come
+      back empty. It also runs again after the picker closes, and the
+      picker callback captured the OLD editor instance.
+  P3  Click boxes did not match what was drawn (bottom panel tabs were
+      shifted by the panel padding, tab bar 1px off, explorer rows wider
+      than drawn, rows not clipped). All hit-testing must use the same
+      geometry helpers as rendering.
+  P4  The "console" is a single EditBox with a fixed list of commands
+      (clear, help, run, validate, open, files, api, debug, reset). It is
+      not a console.
+  P5  Editor tabs cannot be closed; the tab list is simply every project
+      file. Assets in the explorer are not clickable/viewable.
+  P6  Code suggestions: the popup stays on screen after typing something
+      else, shows no description, and cannot pre-fill fields.
+  P7  /give can hand out pooled slot objects (project content). Project
+      content must be reachable ONLY through a dedicated command
+      (/craftpy give <targets> <project:content> <block|item> [count]).
+  P8  CraftPyExecutors: exceptions inside CompletableFuture tasks are
+      swallowed (the UncaughtExceptionHandler never fires), shutdown()
+      makes the pool unusable for the next world in the same JVM session,
+      Python RPC and file IO share 4 threads (starvation), the queue is
+      unbounded (hot reload spam), and nothing serializes work per
+      project.
+  P9  Repo hygiene: logs/ and a stray net/minecraft/world/ folder are
+      committed; README.md is still the MDK template; instructions.txt
+      (the v1 prompt) lives in the repo root; the name is inconsistent
+      (CraftPy / CraftyPy / "PyForge" in IDE strings and the Python
+      module name). Pick ONE public name and one Python module name and
+      rename everywhere (keep a "pyforge" import alias only if needed for
+      backwards compatibility).
+  P10 Only 2 commits and no tests. Add tests (see section 13).
+
+
+=====================================================================
+1. PHASE 0 - AUDIT AND STABILIZE (mandatory, do this first)
+=====================================================================
+
+1. Clone the repo, run ./gradlew build and ./gradlew runClient. Fix
+   everything until both work on a clean checkout.
+2. Read every source file. Write docs/AUDIT.md with:
+   - package/class map and data-flow diagram (client <-> server <->
+     Python worker),
+   - what is implemented, partly implemented, stubbed, missing,
+   - every bug/risk found (file:line, severity, fix),
+   - threading review (what runs on which thread),
+   - security review of the Python runtime and the packets,
+   - a gap list against this document (sections 2-12).
+3. Fix P1-P10 above. Clean the repo (.gitignore for logs/, build/,
+   run/, .gradle/, .idea/, *.iml; delete the stray folders; real
+   README.md; move prompts to docs/prompts/).
+4. Do not start section 2+ before the build is green and AUDIT.md exists.
+
+
+=====================================================================
+2. ARCHITECTURE (target)
+=====================================================================
+
+Keep the code layered so versions and features can be added later:
+
+  core-api      version-NEUTRAL Java interfaces and data models: Module,
+                ModuleManifest, ContentDefinition, EventBus abstraction,
+                capability flags, UI widget tree model, permission model.
+                No net.minecraft imports.
+  runtime       Python worker management, JSON-RPC, sandbox, scheduler,
+                module loader, dependency resolver, hot reload.
+  adapter-1.21.1 (NeoForge) the ONLY place that touches net.minecraft /
+                NeoForge. Implements core-api. Slot pool, dynamic packs,
+                events, commands, networking, rendering of UI trees.
+  ui-toolkit    retained-mode widget library + theme engine (client).
+                Used by BOTH the IDE and Python-created windows.
+  ide           the IDE screens built on ui-toolkit.
+  tools         module builder (CLI + in-game), stub/doc generator.
+
+If a multi-project Gradle build is too heavy for the first milestones,
+use packages with the same boundaries and enforce them with a test (for
+example an ArchUnit-style check that core-api never imports
+net.minecraft). Document the decision.
+
+Single source of truth for the Python API: describe every function,
+class, event, parameter, default, docstring and "since/deprecated"
+version in ONE declarative file set (for example api/*.yaml or Java
+annotations). GENERATE from it: Java bindings/dispatch tables, .pyi
+stubs, in-game docs pages, autocomplete data and the coverage matrix.
+Hand-written duplicates are forbidden (they drift).
+
+
+=====================================================================
+3. MODULES (build, store, enable, plugin-style)
+=====================================================================
+
+3.1 What a module is
+  A "module" is a project built into ONE readable file: a standard ZIP
+  with the extension .cpm (CraftPy Module). No obfuscation, no custom
+  binary format: anyone can open it with a normal zip tool. Layout:
+
+    module.json            manifest (see 3.2)
+    code/                  .py sources (plain text, included always)
+    assets/<ns>/...        textures, models, sounds, lang, fonts
+    data/<ns>/...          recipes, loot tables, tags, advancements,
+                           worldgen JSON (version-neutral source, see 5)
+    docs/                  optional markdown shown in the Modules screen
+    LICENSE, README.md     optional
+    checksums.json         sha256 of every file (+ manifest hash)
+
+  Building is deterministic (sorted entries, fixed timestamps) so the
+  same project always produces the same hash.
+
+3.2 module.json (schema version 1; validate it with a JSON schema)
+  {
+    "schema": 1,
+    "id": "ruby_pack",                // [a-z][a-z0-9_]{1,31}
+    "name": "Ruby Pack",
+    "version": "1.2.0",               // semver
+    "author": "Xmilon",
+    "description": "...",
+    "api_version": "1.0",             // CraftPy Python API level it was written for
+    "mc_versions": ["1.21.1"],        // versions it is declared to work on
+    "side": "server",                 // server | client | both
+    "entry": ["code/main.py"],
+    "dependencies": [ {"id": "core_lib", "version": ">=1.0 <2.0", "optional": false} ],
+    "conflicts": [ "old_ruby_pack" ],
+    "capabilities": ["ui", "commands", "worldgen"],   // features it needs (checked at load)
+    "permissions": ["storage", "network_message"],    // dangerous things it asks for (user must approve)
+    "startup": false,                 // a hint only; real startup = the startup/ folder
+    "requires_restart": false,
+    "slots": { "blocks": 3, "items": 5, "entities": 1, "effects": 0 }
+  }
+
+3.3 Folder layout (inside the game instance, next to the existing
+    pyforge/ data):
+
+    <instance>/pyforge/modules/
+        startup/        MANDATORY modules: everything in here loads
+                        automatically at game launch (client resources at
+                        client startup, server data when the server
+                        starts), before modules.json modules, in
+                        dependency order. They cannot be disabled from
+                        the UI (shown with a lock icon); remove the file
+                        to remove the module.
+        modules.json    the config file: which OTHER modules are
+                        enabled, their order and per-module settings.
+        library/        every saved/built/imported module (.cpm). This is
+                        the pool modules.json refers to. Dev projects can
+                        also appear here as unpacked folders.
+
+    modules.json (schema 1), written ATOMICALLY (temp file + rename),
+    watched for external edits (reload on change, with a debounce):
+    {
+      "schema": 1,
+      "enabled": [
+        { "id": "ruby_pack", "version": "1.2.0", "file": "library/ruby_pack-1.2.0.cpm",
+          "order": 10, "settings": { "difficulty": "hard" } }
+      ],
+      "disabled": ["old_pack"],
+      "approved_permissions": { "ruby_pack": ["storage"] },
+      "safe_mode": false
+    }
+
+3.4 Plugin-style behaviour (no package swapping)
+  Modules are SERVER-AUTHORITATIVE, like datapacks/plugins: players do
+  NOT install or exchange modules. The server owns the module files; on
+  join it sends the client a manifest (id, version, hash) and any
+  resources the client is missing (compressed chunks over NeoForge
+  networking, cached under pyforge/cache/<hash>/, bandwidth-capped,
+  resumable). Clients only need the CraftPy mod itself (the slot pool is
+  registered by the mod). If a client has an older mod/API level, refuse
+  the join with a clear message. In singleplayer the integrated server
+  does the same without copying.
+  Client-only modules (side="client") are allowed but restricted
+  (no server-side effects) and never auto-downloaded.
+
+3.5 Lifecycle for a module
+  validate -> resolve dependencies -> allocate slots (persisted mapping)
+  -> run Python -> build resource+data packs -> apply on the correct
+  thread -> resource/data reload -> sync to clients.
+  Disable/unload: remove packs, release behaviour, slot objects revert
+  to the harmless "unloaded" state (placeholder, no behaviour, name
+  "Unloaded: module:id") so worlds are never corrupted. Re-enabling
+  restores them. Handle: dependency cycles, missing dependencies,
+  version conflicts, two modules defining the same id (always namespaced
+  by module id), a module deleted while enabled, crash loops (after N
+  crashes auto-disable the module and offer SAFE MODE), startup module
+  failing (game still starts, error shown), requires_restart modules.
+
+3.6 Build from the IDE and commands
+  - IDE: Run > Build Module (Ctrl+Shift+B) with a dialog: version bump,
+    changelog text, include sources (default yes), validate first.
+    Output goes to library/. The Problems panel shows build errors.
+  - Command line / Gradle task: ./gradlew buildModule -Pproject=<id>
+    (headless, for CI), and /craftpy module build <project>.
+  - Import: file dialog (LWJGL TinyFD) + drag-and-drop of .cpm onto the
+    Modules screen; verify checksums, show manifest + requested
+    permissions and a warning for unknown sources BEFORE enabling.
+  - Export: any library module can be exported/copied.
+
+3.7 The Modules screen (SEPARATE screen, not inside the IDE)
+  Opened by: /craftpy module (opens the screen for admins), a keybind,
+  the IDE menu (Modules > Manage...), and the computer block.
+  Contents:
+    - Left: searchable/filterable list of startup + library modules with
+      status badges (Enabled, Disabled, Loaded, Error, Needs restart,
+      Locked/startup, Update available (newer version in library)).
+    - Per-row toggle (enable/disable) for non-startup modules. Toggling
+      updates modules.json immediately and shows a pending-changes bar:
+      [Apply] [Revert]. Apply runs the lifecycle for the changes only.
+    - Right: details panel (manifest, description/docs markdown,
+      dependencies with their state, conflicts, requested permissions
+      with approve/revoke, size, hash, content counts, slot usage, load
+      time, per-module log tail, per-module settings generated from the
+      module's declared config schema).
+    - Load order control (up/down or drag), dependency auto-ordering,
+      "enable with dependencies" and "disable dependents" prompts.
+    - Buttons: Build from project, Import, Export, Delete (confirm),
+      Open folder, Reload module, Reload all, Safe mode toggle.
+    - Works on dedicated servers for admins through packets with
+      permission checks; the screen shows the SERVER's modules.
+  Everything here must use the ui-toolkit and the active theme.
+
+
+=====================================================================
+4. THE PYTHON API: ONE SYNTAX, MANY GAME VERSIONS
+=====================================================================
+
+GOAL: a module written once keeps working across Minecraft versions, so
+end users can keep using old code. Be honest about the limit: the Java
+mod itself is built per Minecraft version/loader (today NeoForge 1.21.1);
+what is portable is the PYTHON code and the DATA it declares.
+
+4.1 Principles
+  - Scripts NEVER import or name anything version-specific (no
+    net.minecraft class names, no raw NBT/component layouts, no JSON
+    formats of a given version). They use the CraftPy API only.
+  - The API is versioned with semver (api_version). A module declares the
+    api_version it was written for; the runtime executes it with THAT
+    version's semantics (compat layer) as long as it is within the
+    supported window. Breaking changes only on major versions; old
+    behaviour stays available through compat shims for at least two
+    majors, with deprecation warnings in the Problems panel and the
+    console (never silent breakage).
+  - Per-version adapters in Java translate neutral definitions into what
+    each Minecraft version needs (recipe/loot/advancement JSON formats,
+    item components vs NBT, registry differences, event names, rendering
+    differences). Declarative content (blocks, items, recipes, loot,
+    tags, effects, entities) is ALWAYS translated by the adapter. A
+    clearly marked escape hatch raw_json(...) exists and is flagged
+    "version-specific" by the linter.
+  - Capability flags: features that do not exist everywhere are queried,
+    not assumed: if cp.has("worldgen.biome_modifiers"): ... and the
+    manifest "capabilities" list makes unsupported modules fail EARLY
+    with a clear message instead of crashing at runtime.
+  - Decorators @since("1.0"), @deprecated("1.4", use="...") in the API
+    description, surfaced in autocomplete/docs/linter.
+  - A migration assistant ("Upgrade module to API 2.0") that applies
+    safe automatic rewrites (codemods) and lists manual changes.
+  - Test matrix: an "old modules" corpus under tests/legacy/ (modules
+    written for api 1.0) that must keep passing in CI against every new
+    API version.
+
+4.2 Coverage: convert the NeoForge/Minecraft surface into Python
+  Produce docs/API_COVERAGE.md (generated) listing for every area:
+  Implemented / Partial / Not possible (and why) / Planned. Implement in
+  tiers; finish Tier 1 and Tier 2, start Tier 3:
+
+  TIER 1 (declarative content - must be complete)
+    blocks (properties, block states with typed properties, shapes,
+      light, sounds, tool/needs_tool, friction, random ticks, redstone
+      power in/out, waterlogging, drops, creative-tab membership,
+      interactions: right/left click, step on, neighbor change, placed,
+      broken, entity inside, projectile hit), block entities with
+      persistent data (no custom rendering)
+    items (stack size, durability, tools, armor, weapons, food and
+      effects, fuel, use actions, cooldowns, components/data, attribute
+      modifiers, enchantability, tooltips, interactions: use, use on
+      block, use on entity, inventory tick)
+    entities (base types + attributes + data-driven behaviour presets,
+      spawn rules, drops, sounds, textures/models from the resource
+      pack, riding, taming-lite), mob effects, potions + brewing recipes,
+      enchantments (data-driven), damage types, attributes, game rules
+    recipes (every vanilla recipe type: shaped, shapeless, smelting,
+      blasting, smoking, campfire, stonecutting, smithing, plus custom
+      "transmute"-style helpers), loot tables (all pools/conditions/
+      functions), tags (all registries), advancements, lang/translations,
+      sounds.json, particles, fonts
+  TIER 2 (logic)
+    events: map EVERY commonly used NeoForge event to a stable Python
+      event name with a typed context object (player join/leave/respawn/
+      death/chat/command, block break/place/interact, entity spawn/
+      damage/death/tame, item use/craft/smelt/pickup/drop/toss, world/
+      level tick/load/save, server start/stop/tick, container open/
+      close, explosion, projectile, effect added/removed, fluid/redstone
+      where exposed). Cancellable events expose .cancel(). Ordering and
+      priorities available (@on("block_break", priority="high")).
+    world/player/inventory helpers (get/set block, blocks in area,
+      raycast, entities in box, spawn/kill, teleport, effects, attributes,
+      inventory/ender chest access, XP, hunger, gamemode, advancements,
+      scoreboards, teams, boss bars, titles/action bar, particles,
+      sounds, weather/time, game rules, structure placement)
+    scheduler (run_later, run_every, run_next_tick; cancellable handles)
+    per-module persistent storage (key-value; per world, per player,
+      per chunk-lite) with versioned migration hooks (on_upgrade)
+    typed per-module config (schema -> auto settings UI)
+    commands (Brigadier wrapper, typed arguments, suggestions,
+      permissions, sub-commands)
+    networking between module server code and its client UI (see 5)
+  TIER 3 (advanced / stretch, document limits honestly)
+    worldgen through datapack features and NeoForge biome modifiers
+      (ores, trees, structures-lite), dimensions via datapack, fluids,
+      simple custom GUIs with real item slots (container menus),
+      HUD overlays, key mappings (client modules), capabilities-like
+      item/fluid handlers, advancements triggers, loot modifiers
+  EXPLICITLY NOT POSSIBLE / OUT OF SCOPE (state it in the docs table):
+      arbitrary Java access, custom rendering code/shaders, new complex
+      entity AI beyond presets, true runtime registry additions
+      (handled by the slot pool), other loaders (Fabric/Forge) for now.
+
+4.3 Documentation of the API in-game: searchable pages generated from
+  the API description, with examples, "since/deprecated" badges, the
+  coverage table and a "which Minecraft versions support this" column.
+
+
+=====================================================================
+5. WINDOWS INSIDE MINECRAFT (desktop-app style, written in Python)
+=====================================================================
+
+Goal: with Python you can build "desktop applications" that run inside
+Minecraft: windows with buttons, text fields, lists, tabs, dialogs, etc.
+
+5.1 Model (decide and document; recommended):
+  - Python (server worker) DESCRIBES the UI as a widget tree and handles
+    events. The Java client RENDERS it with the ui-toolkit and sends
+    user events back. The client never executes module code. The server
+    sends tree diffs (not full trees every frame), with size, rate and
+    depth limits. Purely client-side modules (side="client") may run a
+    separate restricted client worker.
+  - The same ui-toolkit renders the IDE and the Modules screen, so every
+    window gets the active theme, scaling and keybinds for free.
+
+5.2 Python API sketch (keep it close to Tkinter/Qt so it feels familiar):
+
+    from pyforge.ui import window, Window, VBox, HBox, Label, Button, TextInput, Slider
+
+    @window("counter", title="Counter", size=(220, 140), resizable=True)
+    class Counter(Window):
+        def build(self, ctx):
+            self.count = self.state(0)                  # observable state
+            self.root = VBox(padding=6, gap=4, children=[
+                Label(bind=lambda: f"Clicks: {self.count.value}"),
+                Button("Click me", on_click=self.bump),
+            ])
+        def bump(self, event):
+            self.count.value += 1
+
+    # open it: from code, from a command, from a block/item click, from a keybind
+    ui.open(player, "counter")
+    # /craftpy window open ruby_pack:counter [player]
+
+5.3 Widgets and features
+  Window (title bar, close/minimize/maximize, drag, resize, z-order,
+  focus, modal and non-modal, multiple windows per player, optional
+  taskbar), Frame/Panel, VBox/HBox/Grid/Anchor/Flex layouts, Label,
+  Button, IconButton, TextInput, TextArea, PasswordInput-lite, Checkbox,
+  RadioGroup, Switch, Slider, Spinner, Dropdown/ComboBox, ListView,
+  TreeView, Table (sortable columns), TabView, ScrollView, ProgressBar,
+  Image (project textures), ItemIcon/BlockIcon, EntityPreview (stretch),
+  Tooltip, MenuBar, ContextMenu, Toast/Notification, Dialogs (message,
+  confirm, input, color picker, asset/file picker limited to the
+  module's assets), ItemSlot grid (REAL server-side container menu so
+  items can be moved safely), HUD overlays (non-interactive, anchored),
+  world-space screens on a block entity (like the computer block), simple
+  animations/transitions, drag and drop between widgets, keyboard focus
+  and navigation, accessibility labels.
+  Styling: themes + per-widget style classes (like CSS classes), no
+  hard-coded colors in module code unless explicitly overridden.
+  State: observable values with bindings; batched updates per tick.
+
+5.4 Limits to document: latency (round-trip to the server), bandwidth
+  budget per player, max widgets per window, update rate, text input
+  goes through the server (IME/clipboard handled client-side and sent as
+  text), no custom rendering code, textures only from the module's
+  resource pack.
+
+
+=====================================================================
+6. A REAL CONSOLE (not a textbox with canned commands)
+=====================================================================
+
+Replace the current console with a real interactive Python terminal.
+
+6.1 Behaviour
+  - A true REPL attached to a persistent interpreter (per project and per
+    module; use code.InteractiveConsole semantics or equivalent) running
+    in the Python worker: variables persist between lines, imports work
+    (within the sandbox allowlist), functions and classes can be defined,
+    the CraftPy API is pre-imported (cp, world, players, ui ...).
+  - Multi-line input with continuation prompt ("..."), correct handling
+    of blocks, auto-indent, paste of multi-line code.
+  - stdout and stderr are streamed live and drawn in different colors;
+    tracebacks are mapped to project file/line and are CLICKABLE (jump
+    to the line in the editor); print() inside event handlers goes to
+    the console of the owning module.
+  - Prompt line with history (Up/Down, Ctrl+R reverse search, persisted
+    across sessions in pyforge/history), Tab completion (identifiers,
+    attributes, CraftPy API with docs, registry ids, file names), syntax
+    highlighting while typing, bracket matching.
+  - Ctrl+C interrupts the running statement (KeyboardInterrupt in the
+    worker); Ctrl+L clears; Ctrl+D / exit() closes the session; input()
+    works; long-running code never freezes the game.
+  - Scrollback buffer (configurable size), text selection, copy/paste,
+    search (Ctrl+F in the console), filter by level/module, word wrap
+    toggle, timestamps toggle, save log to file.
+  - Several consoles as tabs: "Python (project)", "Python (module X)",
+    "Server log", "Game log". The server log tab is admin-only on
+    dedicated servers.
+  - Meta commands use a distinct prefix (":help", ":clear", ":run",
+    ":modules", ":reload", ":debug") so they never collide with Python
+    names. Minecraft commands are available through cp.command("...")
+    and a ":mc <command>" shortcut.
+6.2 Safety: REPL execution requires admin permission and the config
+  switch scripting.console.enabled; every executed line is logged with
+  the player name; a per-line timeout is OFF by default but an interrupt
+  always works; the REPL runs with the same sandbox as modules unless the
+  admin enables "unsafe console" in the server config.
+6.3 Threading: input/output pipes are async; the render thread only
+  copies from a thread-safe ring buffer; apply results to game state
+  back on the main thread.
+
+
+=====================================================================
+7. COMMANDS AND PERMISSIONS (cheat-class = admin only)
+=====================================================================
+
+Use Brigadier. Root literal: /craftpy. EVERY CraftPy command requires an
+operator by default (permission level 2 minimum; dangerous ones 3-4),
+works only when cheats are enabled in singleplayer, and permission levels
+are configurable in the server config. Also register NeoForge
+PermissionAPI nodes (craftpy.command.<name>) so permission mods can
+override them. Provide full tab-completion and clear error messages.
+
+  /craftpy ide [open|close] [player]        open/close the IDE for a player
+                                              (no block needed; keybind too)
+  /craftpy ide project <id>                 open the IDE on a project
+  /craftpy module                            open the Modules screen
+  /craftpy module list|info <id>
+  /craftpy module enable|disable <id>        updates modules.json
+  /craftpy module reload [<id>|all]
+  /craftpy module build <project> [version]
+  /craftpy module import <file>|export <id>
+  /craftpy module unload <id>
+  /craftpy module purge <id>                 remove its content from the
+                                              world (level 4, confirmation)
+  /craftpy module trust <id> <permission>    approve a dangerous permission
+  /craftpy safemode [on|off]
+  /craftpy project new|list|delete|run|stop <id>
+  /craftpy give <targets> <project:content> <block|item> [count]
+      Example: /craftpy give Dev project_bb:ruby block
+      The content kind is part of the command so a block and an item
+      with the same id never collide. Project content is NOT looked up in
+      the item registry. Block vanilla commands (/give, /setblock, /fill,
+      /clear, execute ... run give) from using pooled slot objects
+      (cancel the command via NeoForge CommandEvent with a message that
+      points to /craftpy give). Keep slot objects out of creative tabs
+      and use neutral registry ids (craftpy:slot_17). Document the limit:
+      vanilla tab-completion reads the registry and cannot be filtered
+      without replacing the vanilla argument types.
+  /craftpy setblock|fill|summon <project:content> ...   place/spawn project content
+  /craftpy py <code>                         run one line of Python (level 3)
+  /craftpy exec <module>:<file>              run a script file (level 3)
+  /craftpy window open|close <module:window> [player]
+  /craftpy storage get|set|clear <module> <key> [scope]
+  /craftpy debug reload|unload|list|slots|dump <id>|profile|trace|worker restart|rpc
+  /craftpy config get|set <key>              server config values
+  /craftpy test run <module>                 run the module's tests
+
+Modules can register their own commands through the Python API
+(@command(...)). Their default permission is admin; a module may ask for
+a lower level but the server config can cap it
+(module_commands.max_player_level, default: none allowed for players).
+
+Cheat-class gameplay helpers shipped by the mod itself (all admin only,
+all implemented on top of the public API so they double as examples):
+give/summon/setblock/fill of project content, heal/feed/god-lite via
+effects and attributes, time/weather presets, clear-and-reset content in
+an area, and a "creative content browser" screen (admin only) that lists
+loaded project content to take from.
+
+
+=====================================================================
+8. THE IDE - PROFESSIONAL, THEMED, KEYBOUND
+=====================================================================
+
+Rebuild the IDE UI on the ui-toolkit with a real design system.
+
+8.1 Design system
+  - Design tokens in JSON: colors (bg0-bg3, surface, border, text,
+    text-muted, accent, success, warning, error, selection, focus ring,
+    syntax colors), spacing scale (4px grid), radii, font sizes, icon
+    size, animation durations. Every widget reads tokens, never raw
+    colors.
+  - Built-in themes: Dark (default), Light, High Contrast, Solarized
+    Dark, Monokai-like, Dracula-like, Colorblind-safe. User themes are
+    JSON files in pyforge/themes/*.json, hot-reloaded, with a live preview
+    in Settings. Modules can ship themes too. Run an automated WCAG AA
+    contrast check on built-in themes.
+  - Fonts: Minecraft font OR a bundled monospace TrueType font (use
+    Minecraft's ttf font provider; choose an OFL-licensed font such as
+    JetBrains Mono, include the license), size 8-24, line height,
+    optional ligatures.
+  - Icon set: a pixel-art icon atlas for file types, toolbar actions,
+    problem severities, run/debug states (original art, no copyrighted
+    assets).
+  - UI scale 50-300% independent of Minecraft's GUI scale, reduce-motion
+    option, high-contrast option, narrator labels on interactive widgets.
+  - Subtle animations (hover, panel open/close, toasts) that can be
+    turned off.
+
+8.2 Layout
+  - Dockable, resizable panels with draggable splitters; layout saved
+    and restored (pyforge/layouts/*.json); presets (Default, Focus,
+    Debug). Tabs: closable (x button + middle click + Ctrl+W), reorder by
+    drag, pinned tabs, preview (italic) tabs, overflow menu, split editor
+    (horizontal/vertical), breadcrumbs, status bar with clickable items
+    (Python version, API version, MC version, module state, theme, line/
+    column, encoding, line endings).
+  - Explorer: project tree with folders, file-type icons, and an ASSETS
+    section listing the project's textures/sounds/models; clicking an
+    asset opens a VIEWER tab (texture preview with zoom and pixel info,
+    sound player with waveform + play/stop/loop/volume, model viewer) and
+    right-click offers Copy ID, Copy tex("..."), Insert at cursor, Edit,
+    Replace, Delete. Drag an asset into the code to insert a reference.
+  - Welcome screen: recent projects, templates (block, item, mob, window
+    app, command, HUD), docs links, news from the changelog.
+  - Settings screen: searchable categories (Appearance, Editor, Keymap,
+    Python, Modules, Debug, Security), backed by JSON, import/export.
+  - Command palette (Ctrl+Shift+P): fuzzy search of every action with its
+    shortcut. Quick open (Ctrl+P) for files/assets/symbols. Global
+    search and replace (Ctrl+Shift+F) with regex, scope and preview.
+
+8.3 Keybinds
+  - A central action registry; every action has an id, label, default
+    shortcut per keymap, and a context (editor, console, explorer,
+    global). Rebindable in a Keymap editor with conflict detection, search
+    by action or by pressed keys, reset per action/all, import/export.
+  - Keymap presets: Default, IntelliJ-like, VS Code-like (Vim-lite as a
+    stretch). Chords supported (Ctrl+K Ctrl+C). Stored in
+    pyforge/keymaps/*.json.
+  - Minecraft keybinds must never fire while typing; the IDE captures
+    keys in text contexts. Shortcut hints appear in menus and tooltips.
+  - Global shortcut to open the IDE without the block (configurable,
+    admin only, default unbound) and one for the Modules screen.
+
+8.4 Editor
+  - Syntax highlighting (Python + JSON + markdown), line numbers, indent
+    guides, code folding, bracket matching + colorization, current-line
+    highlight, whitespace toggle, minimap (stretch), word wrap, sticky
+    scroll (stretch).
+  - Editing: undo/redo history, multi-cursor (Ctrl+click, Ctrl+D), column
+    selection, move/duplicate/delete line, toggle comment, indent/
+    unindent, smart auto-indent, auto-close brackets/quotes, surround
+    selection, rename symbol (project-wide), format document (bundled
+    formatter such as ruff/black run in the worker, optional), format on
+    save.
+  - Intelligence: diagnostics (Python compile + linter + CraftPy API
+    validation) with inline squiggles, gutter markers, quick fixes
+    (lightbulb), hover documentation from the API description, signature
+    help with parameter hints, go to definition (Shift-click and F12),
+    find usages, outline/structure view, snippets.
+  - Completion (replaces the current popup; fixes P6): a suggestion
+    popup that is recomputed from the live cursor on every change, so it
+    can NEVER stay on screen after you type something unrelated;
+    ranked results with icon, signature and a SHORT DESCRIPTION of the
+    selected entry; Esc dismisses until the token changes; Tab accepts;
+    Up/Down choose; Ctrl+Space forces. Context aware: inside a @block
+    class it offers block fields (minus those already written), after "="
+    it offers value helpers, inside @on("...") event names, after "ctx."
+    members, inside quoted enumerated fields (tool, base) their values.
+    SMART FILL ("fill in the block"): when a declaration line such as
+    @block("ruby_block") is complete, show the generated class body as
+    GHOST TEXT (grey preview in the editor) with the fields that block
+    normally needs; Tab inserts it, any other typing dismisses it. Do
+    this for block/item/entity/effect. Inserting it must be one undo
+    step and must keep the cursor/undo history.
+  - Assets inline: thumbnails/swatches in the gutter next to tex()/snd()/
+    mdl(), hover preview, click opens the picker/viewer, missing assets
+    flagged in Problems.
+  - Local history: snapshot on every save, timeline + diff viewer (compare
+    with last saved / last built / any snapshot). Auto-save and crash
+    recovery. External-edit detection with reload prompt.
+  - Run/Debug toolbar: Run, Stop, Reload, Validate, Build Module, with
+    progress and cancel. Breakpoints and a variable inspector are a
+    stretch goal (document the design if not done).
+
+8.5 Performance targets for the UI: 60 fps on a 10,000-line file;
+  virtualized lists/trees; cached text layout; no per-frame allocation
+  in hot paths; hit-testing always uses the same geometry as rendering
+  (see P3); redraw only what changed where practical.
+
+
+=====================================================================
+9. SECURITY AND ROBUSTNESS (modules are code)
+=====================================================================
+
+  - Capabilities/permissions per module (storage, network_message, file
+    access limited to the module folder, scheduler, commands, ui,
+    worldgen...). Dangerous ones need explicit admin approval stored in
+    modules.json ("approved_permissions"). A consent dialog shows what a
+    module asks for BEFORE it is enabled the first time.
+  - Sandbox (best-effort, say so): import allowlist, blocked os/
+    subprocess/socket/ctypes/importlib tricks, open() only inside the
+    module folder, resource limits (call time budget, memory cap where
+    the OS allows, message rate, output size), watchdog that kills and
+    restarts a stuck worker. Isolation level configurable: shared worker
+    with per-module namespaces (default) or one process per module.
+  - A crash/timeout in one module never takes down others. Crash loops
+    auto-disable the module; SAFE MODE starts the game with all non-
+    startup modules off (also via a launch flag or a file marker).
+  - Optional integrity: sha256 pinning in modules.json, optional signing
+    with a "trusted publishers" list (stretch).
+  - All packets validated: sizes, rates, permission, project/module
+    existence, path traversal checks on every file path.
+  - Config switch to disable scripting completely.
+
+
+=====================================================================
+10. MORE FEATURES THE AI SHOULD ADD (ones that matter)
+=====================================================================
+
+  - Update/lockfile: pyforge/modules/modules.lock for reproducible server
+    setups; "export server setup" bundle; semantic versions with
+    compatibility ranges; changelog shown in the Modules screen.
+  - Per-module typed config schema -> auto-generated settings UI and
+    pyforge/modules/config/<id>.json.
+  - Hot reload that keeps module state when the module implements
+    save_state()/restore_state(); automatic rollback on failure.
+  - Storage migrations (on_upgrade(old_version)).
+  - Module test framework (pyforge.test) with a fake world/player;
+    /craftpy test run; headless ./gradlew runModuleTests for CI.
+  - Diagnostics tools: "Why isn't my block showing?" explainer (slot
+    mapping, pack contents, missing assets, namespace problems), event
+    tracer, RPC inspector, profiler (per handler calls/avg/max/timeouts),
+    slot usage viewer, pack contents viewer, content dump.
+  - Template/example gallery shipped as a bundled library (block, item,
+    mob, window app, command, HUD, recipe pack), each with tests.
+  - Localization of module text (lang files + tr()).
+  - Content id stability and orphan handling: placed blocks/items keep
+    working across unload/reload/restart; a "Find orphaned content" tool.
+  - Multiplayer: who can open the IDE (permission), per-player IDE
+    sessions, edit locks per file so two admins cannot overwrite each
+    other, project change log.
+  - In-game documentation, offline, searchable, generated (see 2 and 4.3),
+    with "Insert example" buttons and a Limits & Possibilities table.
+  - Logging: pyforge/logs with rotation, per-module logs, log levels,
+    export bundle for bug reports ("Copy diagnostics").
+  - Optional, off by default: update check for the mod itself. No
+    telemetry.
+
+
+=====================================================================
+11. THREADING AND PERFORMANCE
+=====================================================================
+
+  - The Minecraft main threads (server tick, client render) must never
+    run: Python compile/validate, module build/zip, file IO, asset
+    indexing, thumbnail/texture decoding, checksum, network chunk
+    assembly, file watching or JSON-RPC waits.
+  - Rework util.CraftPyExecutors (fixes P8): separate pools for (a) file
+    IO/builds, (b) Python RPC, (c) background UI tasks; bounded queues
+    with a policy that drops/coalesces stale work (hot reload spam);
+    per-project and per-module SERIAL executors so one project never
+    builds twice in parallel; every task wrapped so exceptions are
+    always logged; lazy pool (re)creation so a second world in the same
+    JVM works; cancellation tokens; a timeout fails the future AND sends
+    a cancel to the worker.
+  - Apply results to game state only on the correct main thread
+    (server.execute(...) / Minecraft.getInstance().execute(...)); copy
+    data into immutable snapshots before handing it to other threads.
+  - Budgets: document and measure the per-tick overhead with N modules;
+    expose it in the profiler.
+
+
+=====================================================================
+12. COMPATIBILITY
+=====================================================================
+
+  - Dedicated server must start with no client classes loaded (Dist.CLIENT
+    isolation) and be tested: singleplayer, LAN, dedicated.
+  - Must not crash when other mods are present; asset pools include
+    vanilla and every loaded mod.
+  - Mod and module formats are versioned (schema fields) and migrated.
+
+
+=====================================================================
+13. QUALITY, TESTS, DOCS
+=====================================================================
+
+  - Unit tests: asset-reference parser, completion engine (stateless
+    function from text+cursor to suggestions: test it heavily, including
+    "nothing stays on screen" cases), module manifest validation,
+    dependency resolver (cycles, ranges, conflicts), modules.json
+    read/write/atomicity, .cpm builder determinism, slot allocator, RPC
+    protocol, permission checks, command argument parsing, theme/contrast
+    checks, UI layout engine, keymap conflict detection.
+  - Integration/example modules under examples/ (block with dirt texture,
+    item with custom uploaded texture and sound, recipe, loot table,
+    effect, simple mob, event handler, command, window app, startup
+    module) used by automated tests where possible.
+  - Game tests (NeoForge GameTest) for the main flows: enable/disable a
+    module, unload leaves placeholders, /craftpy give works, vanilla
+    /give of a slot object is blocked.
+  - README.md (what it is, screenshots, quick start, module format,
+    commands, building), CONTRIBUTING.md, docs/ for in-game docs,
+    CHANGELOG.md, LICENSE chosen deliberately (not the MDK template one).
+  - CI: GitHub workflow that builds, runs tests and builds the example
+    modules.
+
+
+=====================================================================
+14. MILESTONES (stop, build, verify and report after each one)
+=====================================================================
+
+  M0   Audit + green build + repo cleanup + AUDIT.md          (Phase 0) [✓]
+  M1   Threading fixes (CraftPyExecutors) + stability + tests harness [✓]
+  M2   ui-toolkit core (widgets, layout, theme engine, input, hit-test [✓]
+       geometry) + port the IDE shell to it
+  M3   Tabs (close/reorder), explorer with assets + viewers, status bar,
+       command palette, quick open, keymap system + settings screen
+  M4   Editor features + new completion engine + ghost-text smart fill
+  M5   Real console (REPL in the worker, streaming, history, completion,
+       interrupt, multiple consoles)
+  M6   Module format (.cpm), builder, module.json schema, modules.json,
+       startup/library folders, loader + dependency resolver
+  M7   Modules screen + server-authoritative sync to clients
+  M8   Permissions, sandbox hardening, safe mode, crash isolation
+  M9   Commands: /craftpy tree, PermissionAPI nodes, vanilla-command
+       guard, /craftpy give, ide/module/window commands
+  M10  Version-neutral API: single API description + generators (.pyi,
+       docs, bindings), api_version negotiation, compat layer, capability
+       flags, legacy test corpus
+  M11  API coverage Tier 1 (declarative content complete)
+  M12  API coverage Tier 2 (events, world/player helpers, scheduler,
+       storage, config, commands, networking)
+  M13  Python window toolkit (server-described UI tree, diffs, events,
+       dialogs, container menus, HUD)
+  M14  Tier 3 items that are feasible + polish, performance pass, docs,
+       final hardening
+
+For every milestone: list what you changed, how you verified it, what is
+not finished.
+
+
+=====================================================================
+15. DELIVERABLES AND RULES
+=====================================================================
+
+  1. Full source, example modules, tests, docs/ (in-game docs source),
+     generated stubs (.pyi) and API_COVERAGE.md.
+  2. docs/AUDIT.md (Phase 0) and REPORT.md (final, and updated per
+     milestone) containing: what was implemented; what works and how it
+     was verified; what is partial (exact limits); what is broken or
+     untested; what is not implemented and why; known bugs; design
+     decisions and trade-offs (slot pool, process model, UI protocol,
+     compat layer); security caveats; performance observations;
+     compatibility notes; prioritized roadmap; manual test steps.
+  3. A "Limits & possibilities" table (also in the in-game docs).
+
+RULES:
+  - If a requirement is infeasible, do not silently drop or fake it:
+    implement the closest honest alternative and record it in REPORT.md.
+  - Ask me questions only for decisions that truly block progress;
+    otherwise choose a sensible default, document it, and continue.
+  - Keep each milestone small enough to review. Keep the build green at
+    every commit. Commit with clear messages.
+  - Never reduce existing working behaviour without saying so.
+
+=====================================================================
+16. NEW TASKS - OCTOBER 2026
+=====================================================================
+
+[✓] Standalone checklist file: docs/REPORT.md tracking every requested item, status, files changed, purpose
+[✓] File/folder creation inside the IDE (explorer context menu, modal prompts, server action, ProjectManager)
+[✓] Fix generated item texture rendering (created items show their texture in-world)
+[✓] Add .md support inside the IDE (open/edit/preview rendered markdown)
+[✓] Add .json support inside the IDE (view/edit/format)
+[✓] API tab: render a full Markdown doc with examples, definitions, tips, limits
+[✓] Event system scaffolding (Python API + worker + Java wiring)
+[✓] Item crafting + loot drops: verify existing datagen, add coverage/tests, wire missing pieces
+
+---------------------------------------------------------------------
+PROMPT END
+---------------------------------------------------------------------
+
+
+=====================================================================
+NOTES (not part of the prompt)
+=====================================================================
+
+- "One syntax for all versions" is possible for the Python code and the
+  data it declares, thanks to the adapter + versioned API design above.
+  The Java mod still has to be built once per Minecraft version/loader.
+  Start with 1.21.1 NeoForge and add adapters later.
+
+- Players do not need to exchange modules, but they DO need the CraftPy
+  mod itself (it registers the slot objects). Modules live on the server
+  and are streamed to clients, like a datapack/plugin.
+
+- This is a very large project: run it milestone by milestone and paste
+  REPORT.md back at the start of each new session.
+
+- The audit in Phase 0 is based on what could be read from the repo; the
+  AI must verify every item in section 0 against the real code.

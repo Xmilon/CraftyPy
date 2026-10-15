@@ -82,7 +82,7 @@ public final class CraftPyCommand {
     }
 
     // ------------------------------------------------------------------
-    // /craftpy give <player> <project:content> <block|item> [count]
+    // /craftpy give <player> <project:content> [count]   (block/item is detected; "block" / "item" still force a kind)
     // ------------------------------------------------------------------
 
     private static LiteralArgumentBuilder<CommandSourceStack> give() {
@@ -91,6 +91,9 @@ public final class CraftPyCommand {
                 .then(Commands.argument("target", EntityArgument.player())
                         .then(Commands.argument("id", ResourceLocationArgument.id())
                                 .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(contentIds(), builder))
+                                .executes(ctx -> give(ctx, null, 1))
+                                .then(Commands.argument("amount", IntegerArgumentType.integer(1, 64))
+                                        .executes(ctx -> give(ctx, null, IntegerArgumentType.getInteger(ctx, "amount"))))
                                 .then(Commands.literal("block")
                                         .executes(ctx -> give(ctx, SlotRegistry.Kind.BLOCK, 1))
                                         .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
@@ -134,11 +137,25 @@ public final class CraftPyCommand {
         ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
         ResourceLocation id = ResourceLocationArgument.getId(ctx, "id");
 
-        String resolution = resolve(id, kind);
+        String resolution;
+        if (kind == null) {
+            kind = SlotRegistry.Kind.BLOCK;
+            resolution = resolve(id, kind);
+            if (resolution.startsWith("ERROR:")) {
+                String asItem = resolve(id, SlotRegistry.Kind.ITEM);
+                if (!asItem.startsWith("ERROR:")) {
+                    kind = SlotRegistry.Kind.ITEM;
+                    resolution = asItem;
+                }
+            }
+        } else {
+            resolution = resolve(id, kind);
+        }
         if (resolution.startsWith("ERROR:")) {
             ctx.getSource().sendFailure(Component.literal(resolution.substring("ERROR:".length())));
             return 0;
         }
+        final SlotRegistry.Kind given = kind;
 
         int index = Integer.parseInt(resolution.substring(resolution.indexOf('#') + 1));
         Item item = kind == SlotRegistry.Kind.BLOCK
@@ -152,12 +169,12 @@ public final class CraftPyCommand {
         }
 
         String holder = SlotRegistry.snapshotByHolder().entrySet().stream()
-                .filter(entry -> entry.getValue().kind() == kind && entry.getValue().index() == index)
+                .filter(entry -> entry.getValue().kind() == given && entry.getValue().index() == index)
                 .map(java.util.Map.Entry::getKey)
                 .findFirst()
                 .orElse(id.toString());
         ctx.getSource().sendSuccess(() -> Component.literal("Gave " + stack.getCount() + " [" + holder + " ("
-                + kind.name().toLowerCase(java.util.Locale.ROOT) + ")] to " + target.getName().getString()), true);
+                + given.name().toLowerCase(java.util.Locale.ROOT) + ")] to " + target.getName().getString()), true);
         return 1;
     }
 

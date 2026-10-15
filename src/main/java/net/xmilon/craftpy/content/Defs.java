@@ -1,5 +1,9 @@
 package net.xmilon.craftpy.content;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
@@ -60,6 +64,21 @@ public final class Defs {
         return element.getAsBoolean();
     }
 
+    /** The data of the {@code extensions} the Python side attached ({@code definition.ext}). */
+    static List<JsonObject> extensions(JsonObject json) {
+        List<JsonObject> out = new ArrayList<>();
+        JsonElement element = json.get("ext");
+        if (element != null && element.isJsonArray()) {
+            JsonArray array = element.getAsJsonArray();
+            for (JsonElement entry : array) {
+                if (entry.isJsonObject()) {
+                    out.add(entry.getAsJsonObject());
+                }
+            }
+        }
+        return out;
+    }
+
     public static final class BlockDef {
         public String name;
         public String texture;
@@ -69,6 +88,17 @@ public final class Defs {
         public float hardness;
         public float resistance;
         public int light;
+        /** Lowest tool mining level that mines this block (MineableBy tier); 0 = any. */
+        public int minLevel;
+        /** Redstone signal strength emitted, 0 = none. */
+        public int redstone;
+        /** Fire: chance to catch fire / spread speed; chance &lt; 0 = not flammable. */
+        public int burnChance = -1;
+        public int burnSpread;
+        /** Slipperiness; negative = vanilla default. */
+        public float friction = -1f;
+        /** "normal", "destroy", "block", "ignore", "push_only" or "" for the default. */
+        public String push = "";
 
         public static BlockDef from(JsonObject json) {
             BlockDef def = new BlockDef();
@@ -80,6 +110,20 @@ public final class Defs {
             def.hardness = f(json, "hardness", 2.0f);
             def.resistance = f(json, "resistance", 6.0f);
             def.light = Math.max(0, Math.min(15, i(json, "light", 0)));
+            for (JsonObject ext : extensions(json)) {
+                switch (s(ext, "type", "")) {
+                    case "mineable" -> def.minLevel = Math.max(0, Math.min(4, i(ext, "level", 0)));
+                    case "redstone" -> def.redstone = Math.max(0, Math.min(15, i(ext, "power", 0)));
+                    case "flammable" -> {
+                        def.burnChance = Math.max(0, Math.min(300, i(ext, "chance", 5)));
+                        def.burnSpread = Math.max(0, Math.min(300, i(ext, "spread", 20)));
+                    }
+                    case "friction" -> def.friction = Math.max(0.1f, Math.min(1.0f, f(ext, "value", 0.6f)));
+                    case "piston" -> def.push = s(ext, "reaction", "");
+                    default -> {
+                    }
+                }
+            }
             return def;
         }
     }
@@ -95,6 +139,18 @@ public final class Defs {
         public int burnTime;
         /** "effect[:amplifier:seconds]" applied on use, can be namespaced. */
         public String useEffect;
+        public ToolSpec tool;
+        public WeaponSpec weapon;
+        public ArmorSpec armor;
+        /** Uses before the item breaks; 0 = no durability. */
+        public int maxDamage;
+        /** Item id that repairs it in an anvil, "" = none. */
+        public String repairWith = "";
+        /** Enchantment value, negative = default. */
+        public int enchantValue = -1;
+        public float cooldownSeconds;
+        public final List<String> tooltip = new ArrayList<>();
+        public String tooltipColor = "gray";
 
         public static ItemDef from(JsonObject json) {
             ItemDef def = new ItemDef();
@@ -105,7 +161,46 @@ public final class Defs {
             def.food = foodFrom(json);
             def.burnTime = Math.max(0, i(json, "burn_time", 0));
             def.useEffect = effectFrom(json);
+            for (JsonObject ext : extensions(json)) {
+                switch (s(ext, "type", "")) {
+                    case "tool" -> def.tool = new ToolSpec(s(ext, "kind", "pickaxe"), i(ext, "level", 0),
+                            f(ext, "speed", 1f), f(ext, "damage", 1f), f(ext, "attack_speed", 1.6f));
+                    case "weapon" -> def.weapon = new WeaponSpec(f(ext, "damage", 1f), f(ext, "attack_speed", 4f),
+                            f(ext, "knockback", 0f));
+                    case "armor" -> def.armor = new ArmorSpec(s(ext, "slot", "chest"), f(ext, "defense", 0f),
+                            f(ext, "toughness", 0f), f(ext, "knockback_resistance", 0f));
+                    case "durability" -> {
+                        def.maxDamage = Math.max(0, Math.min(32767, i(ext, "uses", 0)));
+                        def.repairWith = s(ext, "repair_with", "");
+                    }
+                    case "enchantable" -> def.enchantValue = Math.max(0, Math.min(50, i(ext, "value", 0)));
+                    case "cooldown" -> def.cooldownSeconds = Math.max(0f, f(ext, "seconds", 0f));
+                    case "tooltip" -> {
+                        def.tooltipColor = s(ext, "color", "gray");
+                        JsonElement lines = ext.get("lines");
+                        if (lines != null && lines.isJsonArray()) {
+                            for (JsonElement line : lines.getAsJsonArray()) {
+                                if (line.isJsonPrimitive() && def.tooltip.size() < 10) {
+                                    def.tooltip.add(line.getAsString());
+                                }
+                            }
+                        }
+                    }
+                    default -> {
+                    }
+                }
+            }
             return def;
+        }
+
+        /** Mining and fighting values of a tool; level 0-4 (wood/gold, stone, iron, diamond, netherite). */
+        public record ToolSpec(String kind, int level, float speed, float damage, float attackSpeed) {
+        }
+
+        public record WeaponSpec(float damage, float attackSpeed, float knockback) {
+        }
+
+        public record ArmorSpec(String slot, float defense, float toughness, float knockbackResistance) {
         }
 
         private static net.minecraft.world.food.FoodProperties foodFrom(JsonObject json) {

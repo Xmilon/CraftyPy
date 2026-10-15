@@ -52,7 +52,14 @@ public final class Declarations {
         }
         if (result.has("error")) {
             JsonElement raw = result.get("error");
-            String message = raw.isJsonPrimitive() ? raw.getAsString() : "execution failed";
+            String message = result.has("message") && result.get("message").isJsonPrimitive()
+                    ? result.get("message").getAsString()
+                    : raw.isJsonPrimitive() ? raw.getAsString() : "execution failed";
+            // An error inside an imported file names that file (the line number belongs to it).
+            if (result.has("file") && result.get("file").isJsonPrimitive()
+                    && !result.get("file").getAsString().equals(fileName)) {
+                message = result.get("file").getAsString() + ": " + message;
+            }
             int line = result.get("line") == null ? -1 : result.get("line").getAsInt();
             return new Declarations(message, line);
         }

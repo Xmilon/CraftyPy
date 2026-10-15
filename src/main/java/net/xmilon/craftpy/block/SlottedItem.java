@@ -3,6 +3,7 @@ package net.xmilon.craftpy.block;
 import java.util.List;
 
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -11,13 +12,19 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.item.Equipable;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.UseAnim;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.item.crafting.RecipeType;
 import net.xmilon.craftpy.content.Defs;
 import net.xmilon.craftpy.registry.SlotRegistry;
 
@@ -74,6 +81,10 @@ public class SlottedItem extends Item {
             if (def.useEffect != null) {
                 lines.add(Component.literal("Right-click: applies " + def.useEffect).withStyle(ChatFormatting.GRAY));
             }
+            ChatFormatting color = ChatFormatting.getByName(def.tooltipColor);
+            for (String line : def.tooltip) {
+                lines.add(Component.literal(line).withStyle(color == null ? ChatFormatting.GRAY : color));
+            }
         }
         super.appendHoverText(stack, context, lines, flags);
     }
@@ -94,6 +105,14 @@ public class SlottedItem extends Item {
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand usedHand) {
         ItemStack stack = player.getItemInHand(usedHand);
         Defs.ItemDef def = definition();
+        if (def != null && def.armor != null && def.food == null) {
+            EquipmentSlot slot = getEquipmentSlot(stack);
+            Equipable worn = () -> slot; // not implemented by the class: only armor items may answer to Equipable
+            return worn.swapWithEquipmentSlot(this, level, player, usedHand);
+        }
+        if (def != null && def.cooldownSeconds > 0 && !level.isClientSide) {
+            player.getCooldowns().addCooldown(this, Math.round(def.cooldownSeconds * 20f));
+        }
         if (def != null && def.food != null) {
             if (player.canEat(def.food.canAlwaysEat())) {
                 player.startUsingItem(usedHand);
@@ -130,6 +149,133 @@ public class SlottedItem extends Item {
             return entity.eat(level, stack, def.food);
         }
         return super.finishUsingItem(stack, level, entity);
+    }
+
+
+    // ------------------------------------------------------------------
+    // Extensions: tools, durability, weapons, armor, fuel (data from Defs.ItemDef)
+    // ------------------------------------------------------------------
+
+    /** Tool kind of this item ("pickaxe"...), or "" when it is not a tool. */
+    public String toolKind() {
+        Defs.ItemDef def = definition();
+        return def == null || def.tool == null ? "" : def.tool.kind();
+    }
+
+    /** Mining level of this item as a tool (0 wood/gold ... 4 netherite), -1 when it is not a tool. */
+    public int toolLevel() {
+        Defs.ItemDef def = definition();
+        return def == null || def.tool == null ? -1 : def.tool.level();
+    }
+
+    private static boolean suits(String kind, BlockState state) {
+        return switch (kind) {
+            case "pickaxe" -> state.is(BlockTags.MINEABLE_WITH_PICKAXE);
+            case "axe" -> state.is(BlockTags.MINEABLE_WITH_AXE);
+            case "shovel" -> state.is(BlockTags.MINEABLE_WITH_SHOVEL);
+            case "hoe" -> state.is(BlockTags.MINEABLE_WITH_HOE);
+            case "sword" -> state.is(Blocks.COBWEB) || state.is(BlockTags.SWORD_EFFICIENT);
+            default -> false;
+        };
+    }
+
+    /** The mining level a block asks for, from the vanilla needs_*_tool tags. */
+    private static int requiredLevel(BlockState state) {
+        if (state.is(BlockTags.NEEDS_DIAMOND_TOOL)) {
+            return 3;
+        }
+        if (state.is(BlockTags.NEEDS_IRON_TOOL)) {
+            return 2;
+        }
+        return state.is(BlockTags.NEEDS_STONE_TOOL) ? 1 : 0;
+    }
+
+    @Override
+    public float getDestroySpeed(ItemStack stack, BlockState state) {
+        Defs.ItemDef def = definition();
+        if (def == null || def.tool == null || !suits(def.tool.kind(), state)) {
+            return super.getDestroySpeed(stack, state);
+        }
+        if (def.tool.kind().equals("sword")) {
+            return state.is(Blocks.COBWEB) ? Math.max(15.0f, def.tool.speed()) : 1.5f;
+        }
+        return def.tool.speed();
+    }
+
+    @Override
+    public boolean isCorrectToolForDrops(ItemStack stack, BlockState state) {
+        Defs.ItemDef def = definition();
+        if (def == null || def.tool == null) {
+            return super.isCorrectToolForDrops(stack, state);
+        }
+        return suits(def.tool.kind(), state) && def.tool.level() >= requiredLevel(state);
+    }
+
+    @Override
+    public int getMaxDamage(ItemStack stack) {
+        Defs.ItemDef def = definition();
+        return def == null ? 0 : def.maxDamage;
+    }
+
+    @Override
+    public boolean isDamageable(ItemStack stack) {
+        return getMaxDamage(stack) > 0;
+    }
+
+    @Override
+    public boolean isValidRepairItem(ItemStack stack, ItemStack repairCandidate) {
+        Defs.ItemDef def = definition();
+        if (def == null || def.repairWith.isBlank()) {
+            return false;
+        }
+        return BuiltInRegistries.ITEM.getKey(repairCandidate.getItem()).toString().equals(
+                def.repairWith.contains(":") ? def.repairWith : "minecraft:" + def.repairWith);
+    }
+
+    @Override
+    public boolean hurtEnemy(ItemStack stack, LivingEntity target, LivingEntity attacker) {
+        Defs.ItemDef def = definition();
+        if (def != null && (def.tool != null || def.weapon != null) && getMaxDamage(stack) > 0) {
+            stack.hurtAndBreak(1, attacker, EquipmentSlot.MAINHAND);
+            return true;
+        }
+        return super.hurtEnemy(stack, target, attacker);
+    }
+
+    @Override
+    public boolean mineBlock(ItemStack stack, Level level, BlockState state, BlockPos pos, LivingEntity miner) {
+        Defs.ItemDef def = definition();
+        if (def != null && def.tool != null && getMaxDamage(stack) > 0 && state.getDestroySpeed(level, pos) != 0.0F) {
+            stack.hurtAndBreak(1, miner, EquipmentSlot.MAINHAND);
+            return true;
+        }
+        return super.mineBlock(stack, level, state, pos, miner);
+    }
+
+    @Override
+    public int getBurnTime(ItemStack stack, RecipeType<?> recipeType) {
+        Defs.ItemDef def = definition();
+        return def != null && def.burnTime > 0 ? def.burnTime * 20 : -1;
+    }
+
+    @Override
+    public int getEnchantmentValue(ItemStack stack) {
+        Defs.ItemDef def = definition();
+        return def != null && def.enchantValue >= 0 ? def.enchantValue : super.getEnchantmentValue(stack);
+    }
+
+    @Override
+    public EquipmentSlot getEquipmentSlot(ItemStack stack) {
+        Defs.ItemDef def = definition();
+        if (def == null || def.armor == null) {
+            return null;
+        }
+        return switch (def.armor.slot()) {
+            case "head" -> EquipmentSlot.HEAD;
+            case "legs" -> EquipmentSlot.LEGS;
+            case "feet" -> EquipmentSlot.FEET;
+            default -> EquipmentSlot.CHEST;
+        };
     }
 
     /** Parses "effect[:amplifier:seconds]" (id may be namespaced). Returns null on error. */
