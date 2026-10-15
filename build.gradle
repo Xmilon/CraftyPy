@@ -24,6 +24,7 @@ sourceSets.main.resources {
     // Exclude common development only resources from finalized outputs
     exclude("**/*.bbmodel") // BlockBench project files
     exclude("src/generated/**/.cache") // datagen cache files
+    exclude("**/__pycache__/**") // written when the Python tests import the worker
 }
 
 repositories {
@@ -249,4 +250,36 @@ tasks.register('installerJar', Jar) {
 
 dependencies {
     testImplementation sourceSets.installer.output
+}
+
+// ---- Standalone IDE (M18): the editor in its own window, no game. The game's own classes stay on the classpath but are
+// never bootstrapped; Modern UI is a compile-only mod dependency, so its jars are added here.
+configurations {
+    ideRuntime
+}
+dependencies {
+    ideRuntime("icyllis.modernui:ModernUI-NeoForge:1.21.1-3.13.0.1") { transitive = false }
+    ideRuntime("dev.icyllis:modernui-core:3.13.0") { transitive = false }
+    for (String part : ['core', 'sketch', 'compiler', 'engine', 'granite', 'opengl', 'vulkan']) {
+        ideRuntime("dev.icyllis:arc3d-${part}:2026.2.0") { transitive = false }
+    }
+    ideRuntime("icyllis.modernui:ModernUI-Markflow:3.12.0") { transitive = false }
+    ideRuntime("org.commonmark:commonmark:0.25.0") { transitive = false }
+}
+tasks.register('runIde', JavaExec) {
+    group = 'craftpy'
+    description = 'Opens the CraftPy IDE without Minecraft, on the run/ folder (or -PcraftpyHome=<game folder>).'
+    classpath = sourceSets.main.runtimeClasspath + configurations.ideRuntime
+    mainClass = 'net.xmilon.craftpy.ide.IdeMain'
+    def home = project.hasProperty('craftpyHome') ? project.property('craftpyHome') : file('run').absolutePath
+    systemProperty 'craftpy.home', home
+    jvmArgs '-Xmx1G'
+}
+tasks.register('ideSmokeTest', JavaExec) {
+    group = 'verification'
+    description = 'Starts the standalone IDE without its window (it exits 0 once "CraftPy IDE ready" is printed).'
+    classpath = sourceSets.main.runtimeClasspath + configurations.ideRuntime
+    mainClass = 'net.xmilon.craftpy.ide.IdeMain'
+    systemProperty 'craftpy.home', layout.buildDirectory.dir('ide-smoke').get().asFile.absolutePath
+    systemProperty 'craftpy.ide.smoke', 'true'
 }

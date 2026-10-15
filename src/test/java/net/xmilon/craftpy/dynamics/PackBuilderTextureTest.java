@@ -38,6 +38,27 @@ class PackBuilderTextureTest {
     }
 
     @Test
+    void projectTexturesOutsideBlockAndItemFoldersJoinTheBlockAtlas(@org.junit.jupiter.api.io.TempDir java.nio.file.Path root)
+            throws Exception {
+        java.nio.file.Path textures = root.resolve("assets/welcome/textures");
+        java.nio.file.Files.createDirectories(textures.resolve("block"));
+        java.nio.file.Files.write(textures.resolve("gem.png"), new byte[] {1});
+        java.nio.file.Files.write(textures.resolve("block/ore.png"), new byte[] {1});
+        java.nio.file.Files.createDirectories(root.resolve("assets/minecraft/textures/entity"));
+        java.nio.file.Files.write(root.resolve("assets/minecraft/textures/entity/pig.png"), new byte[] {1});
+
+        var atlas = PackBuilder.blockAtlas(root, java.util.Set.of("welcome:gem", "other:things/x", "minecraft:block/dirt"));
+        java.util.List<String> sprites = new java.util.ArrayList<>();
+        atlas.getAsJsonArray("sources").forEach(s -> {
+            assertEquals("single", s.getAsJsonObject().get("type").getAsString());
+            sprites.add(s.getAsJsonObject().get("resource").getAsString());
+        });
+        // block/ and item/ are stitched by vanilla; retextured vanilla files are left to their own atlases
+        assertEquals(java.util.List.of("other:things/x", "welcome:gem"), sprites);
+        assertEquals(true, PackBuilder.blockAtlas(root.resolve("none"), java.util.Set.of()).entrySet().isEmpty());
+    }
+
+    @Test
     void needsToolAddsAMatchToolCondition() {
         com.google.gson.JsonObject table = PackBuilder.selfDropLoot("craftpy:pcblock_1");
         PackBuilder.requireTool(table, "pickaxe");

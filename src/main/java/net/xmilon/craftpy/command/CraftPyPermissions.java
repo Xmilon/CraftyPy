@@ -35,7 +35,7 @@ public final class CraftPyPermissions {
         // permission is actually queried (and so the node can be built in tests).
         return new PermissionNode<>(CraftPyLog.MODID, "command." + path, PermissionTypes.BOOLEAN,
                 (player, uuid, context) -> {
-                    int required = Math.max(fallbackLevel, Config.PERMISSION_LEVEL.get());
+                    int required = Math.max(fallbackLevel, Config.get(Config.PERMISSION_LEVEL));
                     return player == null ? required <= 2 : player.hasPermissions(required);
                 })
                 .setInformation(Component.literal("CraftPy /craftpy " + path),

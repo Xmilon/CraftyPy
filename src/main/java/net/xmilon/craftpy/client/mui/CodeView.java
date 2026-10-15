@@ -62,6 +62,35 @@ public class CodeView extends EditText {
         });
     }
 
+    /** Syntax colors for the text of {@code path} (spans replaced on every call). Shared by the main and split editors. */
+    static void colorize(icyllis.modernui.text.Editable text, @icyllis.modernui.annotation.Nullable String path, EditorTheme theme) {
+        for (var span : text.getSpans(0, text.length(), icyllis.modernui.text.style.ForegroundColorSpan.class)) {
+            text.removeSpan(span);
+        }
+        String language = net.xmilon.craftpy.client.Syntax.language(path);
+        String all = text.toString();
+        int lineStart = 0;
+        while (lineStart <= all.length()) {
+            int lineEnd = all.indexOf('\n', lineStart);
+            if (lineEnd < 0) {
+                lineEnd = all.length();
+            }
+            int pos = lineStart;
+            for (var token : net.xmilon.craftpy.client.Syntax.tokenize(all.substring(lineStart, lineEnd), language)) {
+                int end = pos + token.text().length();
+                if (token.kind() != net.xmilon.craftpy.client.Syntax.Kind.TEXT && end > pos) {
+                    text.setSpan(new icyllis.modernui.text.style.ForegroundColorSpan(theme.color(token.kind())), pos, end,
+                            icyllis.modernui.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
+                pos = end;
+            }
+            if (lineEnd == all.length()) {
+                break;
+            }
+            lineStart = lineEnd + 1;
+        }
+    }
+
     public void setTheme(EditorTheme theme) {
         this.theme = theme;
         setTextColor(theme.text);

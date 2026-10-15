@@ -410,7 +410,7 @@ final class UiDesigner {
         var name = label(context, key, R.attr.textAppearanceLabelMedium);
         name.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         column.addView(name);
-        var input = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        var input = CraftPyFragment.field(context);
         input.setSingleLine();
         input.setText(value);
         input.addTextChangedListener(new TextWatcher() {

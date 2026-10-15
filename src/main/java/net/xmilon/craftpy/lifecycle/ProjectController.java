@@ -60,7 +60,7 @@ public final class ProjectController {
             loadAgain.add(projectId); // run once more when the current run is done
             return;
         }
-        if (!Config.ENABLE_SCRIPTING.get()) {
+        if (!Config.get(Config.ENABLE_SCRIPTING)) {
             CraftPyLog.LOGGER.warn("CraftPy load blocked: scripting disabled in config");
             return;
         }

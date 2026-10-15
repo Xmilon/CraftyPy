@@ -120,7 +120,7 @@ final class BuildDialog {
     }
 
     private static EditText field(Context context, String hint) {
-        var field = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        var field = CraftPyFragment.field(context);
         field.setSingleLine();
         field.setHint(hint);
         return field;

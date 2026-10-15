@@ -17,14 +17,11 @@ import icyllis.modernui.annotation.Nullable;
 import icyllis.modernui.core.Context;
 import icyllis.modernui.fragment.Fragment;
 import icyllis.modernui.graphics.drawable.ColorDrawable;
-import icyllis.modernui.graphics.drawable.ShapeDrawable;
-import icyllis.modernui.mc.ui.ThemeControl;
 import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.SpannableString;
 import icyllis.modernui.text.Spanned;
 import icyllis.modernui.text.TextPaint;
 import icyllis.modernui.text.TextWatcher;
-import icyllis.modernui.text.Typeface;
 import icyllis.modernui.text.style.ForegroundColorSpan;
 import icyllis.modernui.text.style.StyleSpan;
 import icyllis.modernui.util.DataSet;
@@ -117,6 +114,12 @@ public class EditorFragment extends Fragment {
     private TextView breadcrumb;
     private TextView sticky;
     private View statusBar;
+    private ToolStripe leftStripe;
+    private ToolStripe rightStripe;
+    private TextView avatar;
+    private SplitEditor split;
+    private View splitSplitter;
+    private View mainEditor;
     private TextView statusPosition;
     private TextView statusEnding;
     private TextView statusEncoding;
@@ -290,21 +293,26 @@ public class EditorFragment extends Fragment {
         page.setOrientation(LinearLayout.VERTICAL);
 
         toolbar = createToolbar(context);
-        page.addView(toolbar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        page.addView(toolbar, new LinearLayout.LayoutParams(MATCH_PARENT, page.dp(40)));
+        page.addView(separator(context, false), new LinearLayout.LayoutParams(MATCH_PARENT, page.dp(1)));
 
         var body = row(context);
         body.setBaselineAligned(false);
+        leftStripe = createLeftStripe(context);
+        body.addView(leftStripe, new LinearLayout.LayoutParams(body.dp(40), MATCH_PARENT));
+        body.addView(separator(context, true), new LinearLayout.LayoutParams(body.dp(1), MATCH_PARENT));
         explorerColumn = createExplorer(context);
         body.addView(explorerColumn, new LinearLayout.LayoutParams(body.dp(settings.explorerWidth), MATCH_PARENT));
         explorerSplitter = new Splitter(context, true, this::dragExplorer, this::saveLayout);
-        body.addView(explorerSplitter, new LinearLayout.LayoutParams(body.dp(6), MATCH_PARENT));
+        body.addView(explorerSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
 
         center = new LinearLayout(context);
         center.setOrientation(LinearLayout.VERTICAL);
+        center.setBackground(new ColorDrawable(IdeColors.EDITOR));
         tabBar = createTabBar(context);
         center.addView(tabBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         breadcrumb = label(context, "", R.attr.textAppearanceLabelMedium);
-        breadcrumb.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        breadcrumb.setTextColor(IdeColors.TEXT_SECONDARY);
         breadcrumb.setSingleLine();
         breadcrumb.setPadding(center.dp(12), center.dp(3), center.dp(12), center.dp(3));
         breadcrumb.setClickable(true);
@@ -314,30 +322,49 @@ public class EditorFragment extends Fragment {
         center.addView(breadcrumb, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         findBar = createFindBar(context);
         center.addView(findBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        codeArea = createCodeArea(context);
+        // the editor row: main editor, and while split a resizable second editor to its right
+        var editors = row(context);
+        editors.setBaselineAligned(false);
+        mainEditor = createCodeArea(context);
+        editors.addView(mainEditor, new LinearLayout.LayoutParams(0, MATCH_PARENT, settings.splitWeight));
+        splitSplitter = new Splitter(context, true, this::dragSplit, this::saveLayout);
+        splitSplitter.setVisibility(View.GONE);
+        editors.addView(splitSplitter, new LinearLayout.LayoutParams(editors.dp(5), MATCH_PARENT));
+        split = new SplitEditor(context, splitHost());
+        split.view().setVisibility(View.GONE);
+        editors.addView(split.view(), new LinearLayout.LayoutParams(0, MATCH_PARENT, 1 - settings.splitWeight));
+        codeArea = editors;
         center.addView(codeArea, new LinearLayout.LayoutParams(MATCH_PARENT, 0, settings.codeWeight));
         bottomSplitter = new Splitter(context, false, this::dragBottom, this::saveLayout);
-        center.addView(bottomSplitter, new LinearLayout.LayoutParams(MATCH_PARENT, center.dp(6)));
+        center.addView(bottomSplitter, new LinearLayout.LayoutParams(MATCH_PARENT, center.dp(5)));
         bottomPanel = createBottomPanel(context);
         center.addView(bottomPanel, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1 - settings.codeWeight));
-        statusBar = createStatusBar(context);
-        center.addView(statusBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         body.addView(center, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
         dock = new AssetDock(context, this::projectId, () -> shownFiles, this::toast, () -> store(ClientProjectStore::refresh),
                 visible -> {
                     if (dockSplitter != null) {
                         dockSplitter.setVisibility(visible && !zen ? View.VISIBLE : View.GONE);
                     }
+                    if (rightStripe != null) {
+                        rightStripe.refresh();
+                    }
                 }, this::dropAsset);
         dockSplitter = new Splitter(context, true, this::dragDock, this::saveLayout);
         dockSplitter.setVisibility(View.GONE);
-        body.addView(dockSplitter, new LinearLayout.LayoutParams(body.dp(6), MATCH_PARENT));
+        body.addView(dockSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
         body.addView(dock.view(), new LinearLayout.LayoutParams(body.dp(settings.dockWidth), MATCH_PARENT));
-
-        var divider = new View(context);
-        divider.setBackground(ThemeControl.makeDivider(page));
-        page.addView(divider, new LinearLayout.LayoutParams(MATCH_PARENT, page.dp(1)));
+        body.addView(separator(context, true), new LinearLayout.LayoutParams(body.dp(1), MATCH_PARENT));
+        rightStripe = createRightStripe(context);
+        body.addView(rightStripe, new LinearLayout.LayoutParams(body.dp(40), MATCH_PARENT));
         page.addView(body, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+        body.setLayoutTransition(toolWindowTransition());
+        center.setLayoutTransition(toolWindowTransition());
+        page.addView(separator(context, false), new LinearLayout.LayoutParams(MATCH_PARENT, page.dp(1)));
+        statusBar = createStatusBar(context);
+        page.addView(statusBar, new LinearLayout.LayoutParams(MATCH_PARENT, page.dp(26)));
+        applyToolWindows();
+        var mainLp = (LinearLayout.LayoutParams) mainEditor.getLayoutParams();
+        mainLp.weight = 1;
 
         applyTheme();
         applyFontSize();
@@ -437,36 +464,337 @@ public class EditorFragment extends Fragment {
     // Layout
     // ------------------------------------------------------------------
 
+    /**
+     * IntelliJ's main toolbar: the project widget (colored initials, name, menu), the menus, Search Everywhere in the
+     * middle and the run widget on the right. Every action keeps its keyboard shortcut in the tooltip.
+     */
     private View createToolbar(Context context) {
         var bar = row(context);
-        bar.setPadding(bar.dp(16), bar.dp(6), bar.dp(12), bar.dp(6));
-        title = label(context, "", R.attr.textAppearanceTitleMedium);
-        bar.addView(title, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-        bar.addView(toolButton(context, "Edit", "Find, replace, line tools, bookmarks", R.attr.borderlessButtonStyle,
-                this::showEditMenu));
-        bar.addView(toolButton(context, "View", "Word wrap, zoom, theme, zen mode", R.attr.borderlessButtonStyle,
-                this::showViewMenu));
-        bar.addView(toolButton(context, "Tools", "Symbols, rename everywhere, previews, profiler, event tracer",
-                R.attr.borderlessButtonStyle, this::showToolsMenu));
-        bar.addView(toolButton(context, "Help", "How the IDE works, the Python API and the Java bridge (F1)",
-                R.attr.borderlessButtonStyle, v -> HelpPanel.open(code)));
-        bar.addView(toolButton(context, "Save", "Write the file to the project (Ctrl+S)", R.attr.borderlessButtonStyle,
-                v -> save()));
-        bar.addView(toolButton(context, "Validate", "Check the file on the Python worker (Ctrl+Enter)",
-                R.attr.borderlessButtonStyle, v -> validate()));
-        bar.addView(toolButton(context, "Assets", "Every texture, model and sound of the game: click to open, drag into the code or a folder",
-                R.attr.borderlessButtonStyle, v -> {
-                    dock.show(AssetDock.ASSETS);
-                    dock.focusSearch();
-                }));
-        bar.addView(toolButton(context, "Build", "Pack the project into a .cpm module", R.attr.borderlessButtonStyle,
-                this::build));
-        bar.addView(toolButton(context, "Stop", "Interrupt the running Python code", R.attr.buttonOutlinedStyle,
-                v -> store(ClientProjectStore::interrupt)));
-        bar.addView(toolButton(context, "Reload", "Save, re-run this project and reload every loaded module (F5)",
-                R.attr.buttonOutlinedStyle, v -> reloadAll()));
-        bar.addView(toolButton(context, "Run", "Save and run the project (Ctrl+R)", R.attr.buttonStyle, v -> run()));
+        bar.setBackground(new ColorDrawable(IdeColors.PANEL));
+        bar.setPadding(bar.dp(6), 0, bar.dp(8), 0);
+
+        var project = row(context);
+        project.setPadding(project.dp(6), project.dp(4), project.dp(8), project.dp(4));
+        project.setClickable(true);
+        project.setTooltipText("Project: switch, build, reload");
+        hoverBackground(project);
+        avatar = label(context, "", R.attr.textAppearanceLabelMedium);
+        avatar.setGravity(Gravity.CENTER);
+        avatar.setTextColor(0xFFFFFFFF);
+        project.addView(avatar, new LinearLayout.LayoutParams(project.dp(22), project.dp(22)));
+        title = label(context, "", R.attr.textAppearanceLabelLarge);
+        title.setTextColor(IdeColors.TEXT);
+        title.setSingleLine();
+        title.setPadding(project.dp(8), 0, project.dp(4), 0);
+        project.addView(title);
+        project.addView(new IdeIcon(context, IdeIcon.Glyph.CHEVRON_DOWN));
+        project.setOnClickListener(hidingTooltip(project.getTooltipText(), this::showProjectMenu));
+        bar.addView(project, new LinearLayout.LayoutParams(WRAP_CONTENT, bar.dp(30)));
+
+        bar.addView(menuButton(context, "Edit", "Find, replace, line tools, bookmarks", this::showEditMenu));
+        bar.addView(menuButton(context, "View", "Tool windows, word wrap, zoom, theme, zen mode", this::showViewMenu));
+        bar.addView(menuButton(context, "Tools", "Symbols, rename everywhere, previews, profiler, event tracer",
+                this::showToolsMenu));
+        bar.addView(menuButton(context, "Help", "How the IDE works, the Python API and the Java bridge (F1)",
+                v -> HelpPanel.open(code)));
+
+        bar.addView(new View(context), new LinearLayout.LayoutParams(0, 1, 1));
+        var search = row(context);
+        var searchBg = new icyllis.modernui.graphics.drawable.ShapeDrawable();
+        searchBg.setCornerRadius(search.dp(6));
+        searchBg.setColor(IdeColors.EDITOR);
+        searchBg.setStroke(Math.max(1, search.dp(1)), IdeColors.HOVER);
+        search.setBackground(searchBg);
+        search.setPadding(search.dp(8), 0, search.dp(10), 0);
+        search.setClickable(true);
+        search.setTooltipText("Search Everywhere: files of the project (Ctrl+P), symbols (Ctrl+T)");
+        search.addView(new IdeIcon(context, IdeIcon.Glyph.SEARCH));
+        var hint = label(context, "Search files and symbols", R.attr.textAppearanceLabelLarge);
+        hint.setTextColor(IdeColors.TEXT_DISABLED);
+        hint.setPadding(search.dp(8), 0, 0, 0);
+        search.addView(hint, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        var keys = label(context, "Ctrl+P", R.attr.textAppearanceLabelSmall);
+        keys.setTextColor(IdeColors.TEXT_DISABLED);
+        search.addView(keys);
+        search.setOnClickListener(hidingTooltip(search.getTooltipText(), v -> quickOpen()));
+        bar.addView(search, new LinearLayout.LayoutParams(bar.dp(300), bar.dp(28)));
+        bar.addView(new View(context), new LinearLayout.LayoutParams(0, 1, 1));
+
+        bar.addView(action(context, IdeIcon.Glyph.SAVE, "Save (Ctrl+S)", v -> save()));
+        bar.addView(action(context, IdeIcon.Glyph.CHECK, "Validate on the Python worker (Ctrl+Enter)", v -> validate()));
+        bar.addView(action(context, IdeIcon.Glyph.HAMMER, "Build: pack the project into a .cpm module", this::build));
+        bar.addView(separator(context, true), toolbarSeparator(bar));
+        var runWidget = row(context);
+        runWidget.setPadding(runWidget.dp(8), 0, runWidget.dp(10), 0);
+        runWidget.setClickable(true);
+        runWidget.setTooltipText("Save and run the project in the world (Ctrl+R)");
+        hoverBackground(runWidget);
+        runWidget.addView(new IdeIcon(context, IdeIcon.Glyph.PLAY));
+        var runLabel = label(context, "Run", R.attr.textAppearanceLabelLarge);
+        runLabel.setTextColor(IdeColors.TEXT);
+        runLabel.setPadding(runWidget.dp(6), 0, 0, 0);
+        runWidget.addView(runLabel);
+        runWidget.setOnClickListener(hidingTooltip(runWidget.getTooltipText(), v -> run()));
+        bar.addView(runWidget, new LinearLayout.LayoutParams(WRAP_CONTENT, bar.dp(30)));
+        bar.addView(action(context, IdeIcon.Glyph.RELOAD, "Reload: save, re-run this project and every loaded module (F5)",
+                v -> reloadAll()));
+        bar.addView(action(context, IdeIcon.Glyph.STOP, "Stop the running Python code", v -> store(ClientProjectStore::interrupt)));
         return bar;
+    }
+
+    private static TextView menuButton(Context context, String text, String tooltip, View.OnClickListener onClick) {
+        var view = label(context, text, R.attr.textAppearanceLabelLarge);
+        view.setTextColor(IdeColors.TEXT);
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(view.dp(9), 0, view.dp(9), 0);
+        view.setClickable(true);
+        view.setTooltipText(tooltip);
+        hoverBackground(view);
+        view.setOnClickListener(hidingTooltip(tooltip, onClick));
+        var lp = new LinearLayout.LayoutParams(WRAP_CONTENT, view.dp(28));
+        lp.leftMargin = view.dp(2);
+        view.setLayoutParams(lp);
+        return view;
+    }
+
+    /** A toolbar action: an icon with a hover square and a tooltip. */
+    static IdeIcon action(Context context, IdeIcon.Glyph glyph, String tooltip, View.OnClickListener onClick) {
+        var icon = new IdeIcon(context, glyph);
+        int pad = icon.dp(6);
+        icon.setPadding(pad, pad, pad, pad);
+        icon.setClickable(true);
+        icon.setTooltipText(tooltip);
+        hoverBackground(icon);
+        icon.setOnClickListener(hidingTooltip(tooltip, onClick));
+        var lp = new LinearLayout.LayoutParams(icon.dp(30), icon.dp(30));
+        lp.leftMargin = icon.dp(2);
+        icon.setLayoutParams(lp);
+        return icon;
+    }
+
+    private static LinearLayout.LayoutParams toolbarSeparator(View bar) {
+        var lp = new LinearLayout.LayoutParams(Math.max(1, bar.dp(1)), bar.dp(20));
+        lp.leftMargin = bar.dp(8);
+        lp.rightMargin = bar.dp(6);
+        return lp;
+    }
+
+    /** A 1dp line in the separator color. */
+    static View separator(Context context, boolean vertical) {
+        var line = new View(context);
+        line.setBackground(new ColorDrawable(vertical ? IdeColors.SEPARATOR : IdeColors.SEPARATOR));
+        return line;
+    }
+
+    /** Colored initials of the project, like IntelliJ's project icons: the color follows the name. */
+    private void updateAvatar(@Nullable String name) {
+        String clean = name == null ? "" : name.replaceAll("[^A-Za-z0-9 _-]", "").trim();
+        String[] words = clean.split("[ _-]+");
+        String initials = words.length > 1 && !words[1].isEmpty()
+                ? ("" + words[0].charAt(0) + words[1].charAt(0))
+                : clean.length() >= 2 ? clean.substring(0, 2) : clean.isEmpty() ? "?" : clean;
+        avatar.setText(initials.toUpperCase(Locale.ROOT));
+        int[] colors = {0xFF3D8B62, 0xFF4A6FBF, 0xFF9C5DC9, 0xFFB5733C, 0xFF3C8E9E, 0xFFB0485E, 0xFF6B8E2F};
+        var bg = new icyllis.modernui.graphics.drawable.ShapeDrawable();
+        bg.setCornerRadius(avatar.dp(5));
+        bg.setColor(colors[Math.floorMod(clean.hashCode(), colors.length)]);
+        avatar.setBackground(bg);
+    }
+
+    private void showProjectMenu(View anchor) {
+        var menu = Overlays.menu(anchor);
+        Menu m = menu.getMenu();
+        m.add("Open another project...").setOnMenuItemClickListener(i -> run(() -> CraftPyFragment.navigate(this, CraftPyFragment.PAGE_HOME)));
+        m.add("Run   Ctrl+R").setOnMenuItemClickListener(i -> run(this::run));
+        m.add("Reload project and modules   F5").setOnMenuItemClickListener(i -> run(this::reloadAll));
+        m.add("Build module...").setOnMenuItemClickListener(i -> run(() -> build(anchor)));
+        m.add("Installed modules").setOnMenuItemClickListener(i -> run(() -> CraftPyFragment.navigate(this, CraftPyFragment.PAGE_MODULES)));
+        menu.show();
+    }
+
+    // ---- tool windows (IntelliJ): stripes on both edges open and close them
+
+    private ToolStripe createLeftStripe(Context context) {
+        var stripe = new ToolStripe(context);
+        stripe.add(IdeIcon.Glyph.FOLDER, "Project (Alt+1)", () -> settings.explorerVisible, v -> toggleExplorer());
+        stripe.add(IdeIcon.Glyph.STRUCTURE, "Structure: the outline of this file (Alt+7)", () -> false, tools::showOutline);
+        stripe.add(IdeIcon.Glyph.BOOKMARK, "Bookmarks (Alt+2)", () -> bottomShows(PANEL_BOOKMARKS), v -> toggleBottom(PANEL_BOOKMARKS));
+        stripe.addSpacer();
+        stripe.add(IdeIcon.Glyph.TERMINAL, "Python console (Alt+4)", () -> bottomShows(PANEL_CONSOLE), v -> toggleBottom(PANEL_CONSOLE));
+        stripe.add(IdeIcon.Glyph.WARNING, "Problems (Alt+6)", () -> bottomShows(PANEL_PROBLEMS), v -> toggleBottom(PANEL_PROBLEMS));
+        stripe.add(IdeIcon.Glyph.PULSE, "Event tracer", () -> bottomShows(PANEL_EVENTS), v -> toggleBottom(PANEL_EVENTS));
+        return stripe;
+    }
+
+    private ToolStripe createRightStripe(Context context) {
+        var stripe = new ToolStripe(context);
+        stripe.add(IdeIcon.Glyph.IMAGE, "Assets: every texture, model and sound (Alt+9)", () -> dockShows(AssetDock.ASSETS),
+                v -> toggleDock(AssetDock.ASSETS));
+        stripe.add(IdeIcon.Glyph.EYE, "Preview: models and textures", () -> dockShows(AssetDock.PREVIEW),
+                v -> toggleDock(AssetDock.PREVIEW));
+        stripe.add(IdeIcon.Glyph.BRUSH, "Texture editor", () -> dockShows(AssetDock.TEXTURE), v -> toggleDock(AssetDock.TEXTURE));
+        stripe.add(IdeIcon.Glyph.SOUND, "Sound editor", () -> dockShows(AssetDock.SOUND), v -> toggleDock(AssetDock.SOUND));
+        return stripe;
+    }
+
+    /** Shows a bottom tool window, opening the panel when it was closed (results of Run and Validate land there). */
+    private void openPanel(int index) {
+        showPanel(index);
+        if (!settings.bottomVisible) {
+            settings.bottomVisible = true;
+            settings.save();
+            applyToolWindows();
+        }
+    }
+
+    /** Opening and closing a tool window animates the neighbours into place (only visibility changes, not dragging). */
+    private static icyllis.modernui.animation.LayoutTransition toolWindowTransition() {
+        var transition = new icyllis.modernui.animation.LayoutTransition();
+        transition.setDuration(160);
+        return transition;
+    }
+
+    // ---- split editor (IntelliJ "Split Right")
+
+    private SplitEditor.Host splitHost() {
+        return new SplitEditor.Host() {
+            @Override
+            public void read(String path, java.util.function.Consumer<String> content) {
+                View view = code;
+                store(s -> {
+                    String text = s.fileContent(path);
+                    if (view != null) {
+                        view.post(() -> content.accept(text));
+                    }
+                });
+            }
+
+            @Override
+            public void edited(String path, String text) {
+                store(s -> s.markDirty(path, text));
+            }
+
+            @Override
+            public void save(String path) {
+                store(s -> s.saveFile(path));
+            }
+
+            @Override
+            public List<String> openTabs() {
+                return state == null ? List.of() : state.tabs();
+            }
+
+            @Override
+            public String mainPath() {
+                return shownPath;
+            }
+
+            @Override
+            public void close() {
+                closeSplit();
+            }
+        };
+    }
+
+    /** Opens the split with {@code path}; when that is the main editor's file, another open file is shown instead. */
+    private void openSplit(@Nullable String path) {
+        if (state == null || state.tabs().isEmpty()) {
+            toast("Open a file first");
+            return;
+        }
+        String file = path;
+        if (file == null || file.equals(shownPath)) {
+            file = state.tabs().stream().filter(tab -> !tab.equals(shownPath)).reduce((a, b) -> b).orElse(shownPath);
+        }
+        flush();
+        split.view().setVisibility(View.VISIBLE);
+        splitSplitter.setVisibility(View.VISIBLE);
+        var lp = (LinearLayout.LayoutParams) mainEditor.getLayoutParams();
+        lp.weight = settings.splitWeight;
+        mainEditor.setLayoutParams(lp);
+        split.applySettings();
+        split.show(file);
+    }
+
+    private void closeSplit() {
+        split.view().setVisibility(View.GONE);
+        splitSplitter.setVisibility(View.GONE);
+        var lp = (LinearLayout.LayoutParams) mainEditor.getLayoutParams();
+        lp.weight = 1;
+        mainEditor.setLayoutParams(lp);
+        code.requestFocus();
+    }
+
+    private boolean splitOpen() {
+        return split != null && split.view().getVisibility() == View.VISIBLE;
+    }
+
+    private void dragSplit(int dx) {
+        int total = mainEditor.getWidth() + split.view().getWidth();
+        if (total <= 0) {
+            return;
+        }
+        float weight = Math.clamp((mainEditor.getWidth() + dx) / (float) total, 0.15f, 0.85f);
+        var mainLp = (LinearLayout.LayoutParams) mainEditor.getLayoutParams();
+        var splitLp = (LinearLayout.LayoutParams) split.view().getLayoutParams();
+        mainLp.weight = weight;
+        splitLp.weight = 1 - weight;
+        mainEditor.setLayoutParams(mainLp);
+        split.view().setLayoutParams(splitLp);
+        settings.splitWeight = weight;
+    }
+
+    private boolean bottomShows(int index) {
+        return settings.bottomVisible && panel == index;
+    }
+
+    private boolean dockShows(int tab) {
+        return dock != null && dock.visible() && dock.tab() == tab;
+    }
+
+    /** Opens the tool window, or closes it when it is already the one showing. */
+    private void toggleBottom(int index) {
+        if (bottomShows(index)) {
+            settings.bottomVisible = false;
+        } else {
+            settings.bottomVisible = true;
+            showPanel(index);
+        }
+        settings.save();
+        applyToolWindows();
+    }
+
+    private void toggleExplorer() {
+        settings.explorerVisible = !settings.explorerVisible;
+        settings.save();
+        applyToolWindows();
+    }
+
+    private void toggleDock(int tab) {
+        if (dockShows(tab)) {
+            dock.setVisible(false);
+        } else {
+            dock.show(tab);
+            if (tab == AssetDock.ASSETS) {
+                dock.focusSearch();
+            }
+        }
+        rightStripe.refresh();
+    }
+
+    /** Shows the tool windows the settings say are open (zen mode hides everything). */
+    private void applyToolWindows() {
+        int explorer = settings.explorerVisible && !zen ? View.VISIBLE : View.GONE;
+        explorerColumn.setVisibility(explorer);
+        explorerSplitter.setVisibility(explorer);
+        int bottom = settings.bottomVisible && !zen ? View.VISIBLE : View.GONE;
+        bottomPanel.setVisibility(bottom);
+        bottomSplitter.setVisibility(bottom);
+        var codeLp = (LinearLayout.LayoutParams) codeArea.getLayoutParams();
+        codeLp.weight = bottom == View.VISIBLE ? settings.codeWeight : 1;
+        codeArea.setLayoutParams(codeLp);
+        leftStripe.refresh();
+        rightStripe.refresh();
     }
 
     /** A tooltip stays on screen while a popup opened by the same click is up; hide it on click. */
@@ -478,30 +806,21 @@ public class EditorFragment extends Fragment {
         };
     }
 
-    private static View toolButton(Context context, String text, String tooltip, icyllis.modernui.resources.ResourceId style,
-                                   View.OnClickListener onClick) {
-        var button = button(context, text, style, hidingTooltip(tooltip, onClick));
-        button.setTooltipText(tooltip);
-        var lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        lp.leftMargin = button.dp(4);
-        button.setLayoutParams(lp);
-        return button;
-    }
-
     private View createExplorer(Context context) {
         var column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
-        column.setBackground(new ColorDrawable(color(context, R.attr.colorSurfaceContainerLow)));
+        column.setBackground(new ColorDrawable(IdeColors.PANEL));
         var header = row(context);
-        header.setPadding(header.dp(12), header.dp(4), header.dp(4), header.dp(4));
-        var label = label(context, "Files", R.attr.textAppearanceLabelLarge);
-        label.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        header.setPadding(header.dp(12), header.dp(2), header.dp(4), header.dp(2));
+        var label = label(context, "Project", R.attr.textAppearanceLabelLarge);
+        label.setTextColor(IdeColors.TEXT);
         header.addView(label, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-        header.addView(smallButton(context, "+", "New file or folder (in the selected folder)",
+        header.addView(action(context, IdeIcon.Glyph.PLUS, "New file or folder (in the selected folder)",
                 v -> showNewMenu(v, newEntryFolder())));
         header.addView(smallButton(context, "⊟", "Collapse all folders", v -> collapseAll()));
         header.addView(smallButton(context, "⊞", "Expand all folders", v -> expandAll()));
-        column.addView(header);
+        header.addView(action(context, IdeIcon.Glyph.MINUS, "Hide (Alt+1)", v -> toggleExplorer()));
+        column.addView(header, new LinearLayout.LayoutParams(MATCH_PARENT, header.dp(36)));
 
         explorer = new LinearLayout(context);
         explorer.setOrientation(LinearLayout.VERTICAL);
@@ -517,9 +836,9 @@ public class EditorFragment extends Fragment {
 
     private View createTabBar(Context context) {
         var bar = row(context);
+        bar.setBackground(new ColorDrawable(IdeColors.EDITOR));
         var tabScroll = new HorizontalScrollView(context);
         tabs = row(context);
-        tabs.setPadding(bar.dp(6), bar.dp(4), bar.dp(6), bar.dp(4));
         tabScroll.addView(tabs);
         bar.addView(tabScroll, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         var all = label(context, "▾", R.attr.textAppearanceTitleSmall);
@@ -540,7 +859,7 @@ public class EditorFragment extends Fragment {
         bar.setPadding(bar.dp(8), dp4, bar.dp(8), dp4);
 
         var findRow = row(context);
-        findInput = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        findInput = CraftPyFragment.field(context);
         findInput.setSingleLine();
         findInput.setHint("Find (Enter = next, Up/Down = history)");
         findInput.addTextChangedListener(simpleWatcher(() -> {
@@ -579,7 +898,7 @@ public class EditorFragment extends Fragment {
         bar.addView(findRow);
 
         var replace = row(context);
-        replaceInput = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        replaceInput = CraftPyFragment.field(context);
         replaceInput.setSingleLine();
         replaceInput.setHint("Replace with");
         replace.addView(replaceInput, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
@@ -714,10 +1033,10 @@ public class EditorFragment extends Fragment {
     /** 11 / 12: cursor position, line ending (click to convert), encoding facts (click for options). */
     private View createStatusBar(Context context) {
         var bar = row(context);
-        bar.setPadding(bar.dp(12), bar.dp(1), bar.dp(12), bar.dp(1));
-        bar.setBackground(new ColorDrawable(color(context, R.attr.colorSurfaceContainerLow)));
-        statusPosition = label(context, "", R.attr.textAppearanceLabelSmall);
-        statusPosition.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        bar.setPadding(bar.dp(10), 0, bar.dp(10), 0);
+        bar.setBackground(new ColorDrawable(IdeColors.PANEL));
+        statusPosition = label(context, "", R.attr.textAppearanceLabelMedium);
+        statusPosition.setTextColor(IdeColors.TEXT_SECONDARY);
         bar.addView(statusPosition, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         statusEnding = smallButton(context, "LF", "Line endings of this file - click to convert", this::showEndingMenu);
         bar.addView(statusEnding);
@@ -834,22 +1153,36 @@ public class EditorFragment extends Fragment {
         header.addView(button(context, "Copy", R.attr.borderlessButtonStyle, v -> copyPanel()));
         header.addView(button(context, "Clear", R.attr.borderlessButtonStyle,
                 v -> store(ClientProjectStore::clearLog)));
-        panelView.addView(header);
+        header.addView(action(context, IdeIcon.Glyph.MINUS, "Hide", v -> {
+            settings.bottomVisible = false;
+            settings.save();
+            applyToolWindows();
+        }));
+        panelView.setBackground(new ColorDrawable(IdeColors.PANEL));
+        panelView.addView(header, new LinearLayout.LayoutParams(MATCH_PARENT, header.dp(34)));
 
         var consoleColumn = new LinearLayout(context);
         consoleColumn.setOrientation(LinearLayout.VERTICAL);
-        console = new TextView(context);
+        // A read-only editor view: long lines scroll sideways instead of wrapping, and selecting with the mouse behaves
+        // like in the code (a selectable TextView inside the ScrollView jumped while dragging).
+        var consoleView = new CodeView(context);
+        consoleView.setFilters((source, start, end, dest, dstart, dend) ->
+                consoleWriting ? null : dest.subSequence(dstart, dend));
+        consoleView.setCursorVisible(false);
+        consoleView.setHorizontallyScrolling(true);
+        consoleView.setBackground(null);
+        consoleView.setGravity(Gravity.START | Gravity.TOP);
+        console = consoleView;
         console.setTypeface(EditorFont.get());
         console.setTextSize(12);
         console.setTextColor(CONSOLE_TEXT);
-        console.setTextIsSelectable(true);
         int dp8 = panelView.dp(8);
         console.setPadding(dp8, dp8 / 2, dp8, dp8 / 2);
         consoleScroll = new ScrollView(context);
         consoleScroll.addView(console, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         consoleColumn.addView(consoleScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
 
-        var input = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        var input = CraftPyFragment.field(context);
         input.setSingleLine();
         input.setTypeface(EditorFont.get());
         input.setTextSize(12);
@@ -917,7 +1250,10 @@ public class EditorFragment extends Fragment {
     }
 
     private static TextView panelTab(Context context, String text, View.OnClickListener onClick) {
-        var tab = label(context, text, R.attr.textAppearanceLabelLarge);
+        var tab = new UnderlinedTab(context);
+        tab.setText(text);
+        tab.setTextAppearance(R.attr.textAppearanceLabelLarge);
+        hoverBackground(tab);
         int dp6 = tab.dp(6);
         tab.setPadding(tab.dp(12), dp6, tab.dp(12), dp6);
         tab.setClickable(true);
@@ -927,15 +1263,18 @@ public class EditorFragment extends Fragment {
 
     private void showPanel(int index) {
         panel = index;
-        Context context = panelTabs[0].getContext();
         for (int i = 0; i < panelTabs.length; i++) {
             boolean selected = i == index;
             panelPanes[i].setVisibility(selected ? View.VISIBLE : View.GONE);
-            styleChip(panelTabs[i], selected);
-            panelTabs[i].setTextColor(color(context, selected ? R.attr.colorOnSecondaryContainer : R.attr.colorOnSurfaceVariant));
+            panelTabs[i].setSelected(selected);
+            panelTabs[i].invalidate();
+            panelTabs[i].setTextColor(selected ? IdeColors.TEXT : IdeColors.TEXT_SECONDARY);
         }
         if (index == PANEL_BOOKMARKS) {
             renderBookmarks();
+        }
+        if (leftStripe != null) {
+            leftStripe.refresh();
         }
         if (index == PANEL_EVENTS) {
             tools.eventsPanelShown();
@@ -1073,8 +1412,8 @@ public class EditorFragment extends Fragment {
         zen = !zen;
         int visibility = zen ? View.GONE : View.VISIBLE;
         toolbar.setVisibility(visibility);
-        explorerColumn.setVisibility(visibility);
-        explorerSplitter.setVisibility(visibility);
+        leftStripe.setVisibility(visibility);
+        rightStripe.setVisibility(visibility);
         if (zen) {
             dockBeforeZen = dock.visible();
             dock.setVisible(false); // also stops a playing sound
@@ -1083,9 +1422,8 @@ public class EditorFragment extends Fragment {
             dock.setVisible(true);
         }
         tabBar.setVisibility(visibility);
-        bottomSplitter.setVisibility(visibility);
-        bottomPanel.setVisibility(visibility);
         statusBar.setVisibility(visibility);
+        applyToolWindows();
         CraftPyFragment.setNavVisible(this, !zen);
         if (zen) {
             toast("Zen mode - F11 to leave");
@@ -1102,8 +1440,12 @@ public class EditorFragment extends Fragment {
             return;
         }
         state = next;
-        title.setText(next.projectId() == null ? "No project open - pick one on the Home page" : next.projectName());
+        title.setText(next.projectId() == null ? "No project" : next.projectName());
+        updateAvatar(next.projectId() == null ? null : next.projectName());
 
+        if (splitOpen()) {
+            split.refresh();
+        }
         boolean activeChanged = !java.util.Objects.equals(next.active(), revealed);
         revealed = next.active();
         if (!next.files().equals(shownFiles)) {
@@ -1517,12 +1859,17 @@ public class EditorFragment extends Fragment {
             boolean active = path.equals(state.active());
             boolean dirty = state.dirtyTabs().contains(path);
             boolean pinned = isPinned(path);
-            var chip = row(context);
-            chip.setPadding(chip.dp(10), chip.dp(2), chip.dp(4), chip.dp(2));
-            styleChip(chip, active);
+            var chip = new UnderlinedTab.Row(context);
+            chip.setPadding(chip.dp(10), 0, chip.dp(4), 0);
+            chip.setSelected(active);
+            IdeColors.hoverBackground(chip, 0);
+            var fileIcon = new IdeIcon(context, fileGlyph(path));
+            fileIcon.setTint(path.endsWith(".py") ? 0xFF6C9BD2 : IdeColors.TEXT_SECONDARY);
+            chip.addView(fileIcon);
             chip.setTooltipText(path + (pinned ? " (pinned)" : path.equals(previewPath) ? " (preview)" : ""));
-            String text = (pinned ? "📌 " : "") + (dirty ? "● " : "") + path.substring(path.lastIndexOf('/') + 1);
+            String text = path.substring(path.lastIndexOf('/') + 1);
             var name = label(context, "", R.attr.textAppearanceLabelLarge);
+            name.setPadding(name.dp(6), 0, 0, 0);
             if (path.equals(previewPath)) {
                 var italic = new SpannableString(text);
                 italic.setSpan(new StyleSpan(TextPaint.ITALIC), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1530,17 +1877,29 @@ public class EditorFragment extends Fragment {
             } else {
                 name.setText(text);
             }
-            name.setTextColor(color(context, active ? R.attr.colorOnSecondaryContainer : R.attr.colorOnSurfaceVariant));
+            name.setTextColor(active ? IdeColors.TEXT : IdeColors.TEXT_SECONDARY);
             chip.addView(name);
-            if (!pinned) {
-                var close = label(context, "×", R.attr.textAppearanceTitleSmall);
-                close.setPadding(close.dp(8), 0, close.dp(6), 0);
+            if (dirty) { // VS Code: a dot where the close button is while the file has unsaved changes
+                var dot = label(context, "●", R.attr.textAppearanceLabelMedium);
+                dot.setTextColor(IdeColors.ACCENT);
+                dot.setPadding(dot.dp(8), 0, dot.dp(6), 0);
+                dot.setTooltipText("Unsaved changes (Ctrl+S)");
+                chip.addView(dot);
+            } else if (!pinned) {
+                var close = new IdeIcon(context, IdeIcon.Glyph.CLOSE);
+                close.setPadding(close.dp(3), close.dp(3), close.dp(3), close.dp(3));
                 close.setClickable(true);
                 close.setTooltipText("Close (Ctrl+W)");
+                IdeColors.hoverBackground(close, 4);
                 close.setOnClickListener(v -> closeTab(v, path));
-                chip.addView(close);
+                var closeLp = new LinearLayout.LayoutParams(chip.dp(18), chip.dp(18));
+                closeLp.leftMargin = chip.dp(6);
+                closeLp.rightMargin = chip.dp(2);
+                chip.addView(close, closeLp);
             } else {
-                chip.addView(new View(context), new LinearLayout.LayoutParams(chip.dp(6), 1));
+                var pin = label(context, "📌", R.attr.textAppearanceLabelSmall);
+                pin.setPadding(pin.dp(6), 0, pin.dp(4), 0);
+                chip.addView(pin);
             }
             chip.setClickable(true);
             chip.setOnClickListener(v -> {
@@ -1559,6 +1918,10 @@ public class EditorFragment extends Fragment {
                         return true;
                     });
                 }
+                menu.add("Split right   Ctrl+\\").setOnMenuItemClickListener(item -> {
+                    openSplit(path);
+                    return true;
+                });
                 menu.add("Close others").setOnMenuItemClickListener(item -> {
                     for (String other : state.tabs()) {
                         if (!other.equals(path) && !isPinned(other) && !state.dirtyTabs().contains(other)) {
@@ -1568,10 +1931,25 @@ public class EditorFragment extends Fragment {
                     return true;
                 });
             });
-            var lp = new LinearLayout.LayoutParams(WRAP_CONTENT, chip.dp(30));
-            lp.rightMargin = chip.dp(4);
-            tabs.addView(chip, lp);
+            tabs.addView(chip, new LinearLayout.LayoutParams(WRAP_CONTENT, chip.dp(34)));
         }
+    }
+
+    static IdeIcon.Glyph fileGlyph(String path) {
+        String lower = path.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".py")) {
+            return IdeIcon.Glyph.PYTHON;
+        }
+        if (lower.endsWith(".md") || lower.endsWith(".txt")) {
+            return IdeIcon.Glyph.BOOK;
+        }
+        if (lower.endsWith(".png")) {
+            return IdeIcon.Glyph.IMAGE;
+        }
+        if (lower.endsWith(".ogg") || lower.endsWith(".wav")) {
+            return IdeIcon.Glyph.SOUND;
+        }
+        return IdeIcon.Glyph.CODE;
     }
 
     private void showTabMenu(View anchor) {
@@ -1633,13 +2011,44 @@ public class EditorFragment extends Fragment {
         }
         consoleText = joined;
         boolean atBottom = !consoleScroll.canScrollVertically(1);
-        console.setText(joined);
+        consoleWriting = true;
+        try {
+            console.setText(consoleColors(joined));
+        } finally {
+            consoleWriting = false;
+        }
         if (atBottom) {
             consoleScroll.post(() -> consoleScroll.fullScroll(View.FOCUS_DOWN));
         }
     }
 
     private String consoleText = "";
+    private boolean consoleWriting;
+
+    /** Errors red, warnings yellow, typed input in the accent color, results dimmer: the console reads at a glance. */
+    private static CharSequence consoleColors(String text) {
+        var out = new SpannableString(text);
+        int start = 0;
+        while (start <= text.length()) {
+            int end = text.indexOf('\n', start);
+            if (end < 0) {
+                end = text.length();
+            }
+            String line = text.substring(start, end);
+            int color = line.startsWith("ERROR") || line.contains("Traceback") || line.startsWith("  File ") ? IdeColors.ERROR
+                    : line.startsWith("WARN") ? IdeColors.WARNING
+                    : line.startsWith(">>> ") ? IdeColors.ACCENT
+                    : line.startsWith("=> ") ? IdeColors.TEXT_SECONDARY : 0;
+            if (color != 0 && end > start) {
+                out.setSpan(new ForegroundColorSpan(color), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            if (end == text.length()) {
+                break;
+            }
+            start = end + 1;
+        }
+        return out;
+    }
     private String problemsSignature;
 
     private void renderProblems(State next) {
@@ -1773,32 +2182,7 @@ public class EditorFragment extends Fragment {
     }
 
     private void highlight() {
-        Editable text = code.getText();
-        for (ForegroundColorSpan span : text.getSpans(0, text.length(), ForegroundColorSpan.class)) {
-            text.removeSpan(span);
-        }
-        EditorTheme theme = settings.theme();
-        String language = Syntax.language(shownPath);
-        String all = text.toString();
-        int lineStart = 0;
-        while (lineStart <= all.length()) {
-            int lineEnd = all.indexOf('\n', lineStart);
-            if (lineEnd < 0) {
-                lineEnd = all.length();
-            }
-            int pos = lineStart;
-            for (Syntax.Token token : Syntax.tokenize(all.substring(lineStart, lineEnd), language)) {
-                int end = pos + token.text().length();
-                if (token.kind() != Syntax.Kind.TEXT && end > pos) {
-                    text.setSpan(new ForegroundColorSpan(theme.color(token.kind())), pos, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                }
-                pos = end;
-            }
-            if (lineEnd == all.length()) {
-                break;
-            }
-            lineStart = lineEnd + 1;
-        }
+        CodeView.colorize(code.getText(), shownPath, settings.theme());
         gutter.removeCallbacks(rebuildGutter);
         gutter.post(rebuildGutter);
     }
@@ -1909,6 +2293,34 @@ public class EditorFragment extends Fragment {
             return true;
         }
         if (event.isAltPressed() && !ctrl) {
+            switch (keyCode) {
+                case KeyEvent.KEY_1 -> {
+                    toggleExplorer();
+                    return true;
+                }
+                case KeyEvent.KEY_2 -> {
+                    toggleBottom(PANEL_BOOKMARKS);
+                    return true;
+                }
+                case KeyEvent.KEY_4 -> {
+                    toggleBottom(PANEL_CONSOLE);
+                    return true;
+                }
+                case KeyEvent.KEY_6 -> {
+                    toggleBottom(PANEL_PROBLEMS);
+                    return true;
+                }
+                case KeyEvent.KEY_7 -> {
+                    tools.showOutline(breadcrumb);
+                    return true;
+                }
+                case KeyEvent.KEY_9 -> {
+                    toggleDock(AssetDock.ASSETS);
+                    return true;
+                }
+                default -> {
+                }
+            }
             if (keyCode == KeyEvent.KEY_LEFT) {
                 tools.back();
                 return true;
@@ -1963,6 +2375,13 @@ public class EditorFragment extends Fragment {
                 case KeyEvent.KEY_MINUS, KeyEvent.KEY_KP_SUBTRACT -> zoom(-1);
                 case KeyEvent.KEY_0 -> zoom(0);
                 case KeyEvent.KEY_SLASH -> showShortcuts();
+                case KeyEvent.KEY_BACKSLASH -> {
+                    if (splitOpen()) {
+                        closeSplit();
+                    } else {
+                        openSplit(null);
+                    }
+                }
                 case KeyEvent.KEY_F2 -> toggleBookmark();
                 default -> {
                     return false;
@@ -2379,13 +2798,25 @@ public class EditorFragment extends Fragment {
         m.add("Recipes...").setOnMenuItemClickListener(i -> run(tools::recipes));
         m.add("Loot tables...").setOnMenuItemClickListener(i -> run(tools::loot));
         m.add("Handler profiler...").setOnMenuItemClickListener(i -> run(tools::profiler));
-        m.add("Event tracer").setOnMenuItemClickListener(i -> run(() -> showPanel(PANEL_EVENTS)));
+        m.add("Event tracer").setOnMenuItemClickListener(i -> run(() -> openPanel(PANEL_EVENTS)));
         menu.show();
     }
 
     private void showViewMenu(View anchor) {
         var menu = Overlays.menu(anchor);
         Menu m = menu.getMenu();
+        m.add("Project   Alt+1").setCheckable(true).setChecked(settings.explorerVisible)
+                .setOnMenuItemClickListener(i -> run(this::toggleExplorer));
+        m.add("Bottom panel").setCheckable(true).setChecked(settings.bottomVisible)
+                .setOnMenuItemClickListener(i -> run(() -> toggleBottom(settings.bottomVisible ? panel : PANEL_CONSOLE)));
+        m.add("Split editor right   Ctrl+\\").setCheckable(true).setChecked(splitOpen())
+                .setOnMenuItemClickListener(i -> run(() -> {
+                    if (splitOpen()) {
+                        closeSplit();
+                    } else {
+                        openSplit(null);
+                    }
+                }));
         m.add("Word wrap (this file)").setCheckable(true).setChecked(isWrapped())
                 .setOnMenuItemClickListener(i -> run(this::toggleWrap));
         m.add("Zen mode   F11").setCheckable(true).setChecked(zen).setOnMenuItemClickListener(i -> run(this::toggleZen));
@@ -2460,7 +2891,7 @@ public class EditorFragment extends Fragment {
         Context context = code.getContext();
         var popup = Overlays.dialog(code, "Go to file", 460, 80);
         var content = popup.body;
-        var input = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        var input = CraftPyFragment.field(context);
         input.setSingleLine();
         input.setHint("Type part of a file name");
         content.addView(input, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
@@ -2573,7 +3004,7 @@ public class EditorFragment extends Fragment {
     private void validate() {
         flush();
         store(ClientProjectStore::validateActiveFile);
-        showPanel(PANEL_PROBLEMS);
+        openPanel(PANEL_PROBLEMS);
     }
 
     private void run() {
@@ -2588,7 +3019,7 @@ public class EditorFragment extends Fragment {
             s.request(ProjectAction.LOAD, id, s.debugMode() ? "{\"debug\":true}" : "");
             s.append("Running '" + id + "' ...");
         });
-        showPanel(PANEL_CONSOLE);
+        openPanel(PANEL_CONSOLE);
     }
 
     /** Run + reload all modules, so new content and handlers are live immediately. */
@@ -2615,7 +3046,7 @@ public class EditorFragment extends Fragment {
             s.refreshModules(); // fresher next time
             host.post(() -> BuildDialog.open(host, id, name, version, installed, request -> {
                 store(st -> st.buildProject(request));
-                showPanel(PANEL_CONSOLE);
+                openPanel(PANEL_CONSOLE);
             }));
         });
     }

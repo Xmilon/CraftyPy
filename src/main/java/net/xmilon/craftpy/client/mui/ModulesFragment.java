@@ -11,7 +11,6 @@ import icyllis.modernui.annotation.Nullable;
 import icyllis.modernui.core.Context;
 import icyllis.modernui.fragment.Fragment;
 import icyllis.modernui.markflow.Markflow;
-import icyllis.modernui.mc.ui.ThemeControl;
 import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.TextWatcher;
 import icyllis.modernui.util.DataSet;
@@ -130,7 +129,7 @@ public class ModulesFragment extends Fragment {
         {
             var left = new LinearLayout(context);
             left.setOrientation(LinearLayout.VERTICAL);
-            var search = new EditText(context, null, R.attr.editTextOutlinedStyle);
+            var search = CraftPyFragment.field(context);
             search.setSingleLine();
             search.setHint("Search modules");
             search.addTextChangedListener(new TextWatcher() {
@@ -153,7 +152,7 @@ public class ModulesFragment extends Fragment {
             list = card(context);
             list.setPadding(0, page.dp(6), 0, page.dp(6));
             list.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-            list.setDividerDrawable(ThemeControl.makeDivider(list));
+            list.setDividerDrawable(IdeColors.divider(list, false));
             var scroll = new ScrollView(context);
             scroll.addView(list, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
             var lp = new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1);

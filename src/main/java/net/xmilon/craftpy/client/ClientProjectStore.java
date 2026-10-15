@@ -38,6 +38,8 @@ public final class ClientProjectStore {
     private List<ValidationProblem> validationProblems = new ArrayList<>();
     private final List<String> activeProjects = new ArrayList<>();
     private final List<String> dirty = new ArrayList<>();
+    /** What was sent by the last save of each file: edits typed while the save travels keep the file unsaved. */
+    private final Map<String, String> saving = new java.util.HashMap<>();
     private final List<ModuleInfo> modules = new ArrayList<>();
     private final java.util.Map<String, java.util.function.Consumer<String>> readmeCallbacks = new java.util.HashMap<>();
     private final java.util.Set<String> virtualFiles = new java.util.HashSet<>();
@@ -384,19 +386,25 @@ public final class ClientProjectStore {
     }
 
     public void saveActiveFile() {
-        if (activeProjectId == null || activeFile == null) {
+        saveFile(activeFile);
+    }
+
+    /** Writes one open file to the project (the split editor saves a file that is not the active one). */
+    public void saveFile(String path) {
+        if (activeProjectId == null || path == null) {
             append("Nothing to save");
             return;
         }
-        if (virtualFiles.contains(activeFile)) {
-            append("'" + activeFile + "' is a built-in reference - it cannot be saved.");
+        if (virtualFiles.contains(path)) {
+            append("'" + path + "' is a built-in reference - it cannot be saved.");
             return;
         }
-        String content = openFiles.get(activeFile);
+        String content = openFiles.get(path);
         if (content == null) {
             return;
         }
-        FileWrite write = new FileWrite(activeFile, content);
+        saving.put(path, content);
+        FileWrite write = new FileWrite(path, content);
         request(ProjectAction.WRITE_FILE, activeProjectId, Json.COMPACT.toJson(write));
     }
 
@@ -652,8 +660,12 @@ public final class ClientProjectStore {
                 return;
             }
             case WRITE_FILE -> {
-                if (payload.success() && activeFile != null) {
-                    dirty.remove(activeFile);
+                String path = payload.json() == null || payload.json().isBlank() ? activeFile : payload.json();
+                if (payload.success() && path != null) {
+                    String sent = saving.remove(path);
+                    if (sent == null || sent.equals(openFiles.get(path))) {
+                        dirty.remove(path);
+                    }
                 }
                 if (payload.message() != null && !payload.message().isBlank()) {
                     append(payload.message());

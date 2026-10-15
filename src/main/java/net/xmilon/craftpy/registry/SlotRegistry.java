@@ -229,7 +229,7 @@ public final class SlotRegistry {
         SlotRef ref = MAPPING.get(contentKey);
         if (ref == null) {
             int cap = 256;
-            try { cap = Config.BLOCK_SLOTS.get(); } catch (Throwable ignored) {}
+            try { cap = Config.get(Config.BLOCK_SLOTS); } catch (Throwable ignored) {}
             int index = allocateFree(Kind.BLOCK, poolSize(Kind.BLOCK, cap));
             ref = new SlotRef(Kind.BLOCK, index);
             MAPPING.put(contentKey, ref);
@@ -245,7 +245,7 @@ public final class SlotRegistry {
         SlotRef ref = MAPPING.get(contentKey);
         if (ref == null) {
             int cap = 256;
-            try { cap = Config.ITEM_SLOTS.get(); } catch (Throwable ignored) {}
+            try { cap = Config.get(Config.ITEM_SLOTS); } catch (Throwable ignored) {}
             int index = allocateFree(Kind.ITEM, poolSize(Kind.ITEM, cap));
             ref = new SlotRef(Kind.ITEM, index);
             MAPPING.put(contentKey, ref);
@@ -330,8 +330,8 @@ public final class SlotRegistry {
         int blockCap = 256;
         int itemCap = 256;
         try {
-            blockCap = Config.BLOCK_SLOTS.get();
-            itemCap = Config.ITEM_SLOTS.get();
+            blockCap = Config.get(Config.BLOCK_SLOTS);
+            itemCap = Config.get(Config.ITEM_SLOTS);
         } catch (Throwable ignored) {
         }
         Map<String, SlotRef> next = SlotPlan.allocate(MAPPING, projectId, blocks.keySet(), items.keySet(),

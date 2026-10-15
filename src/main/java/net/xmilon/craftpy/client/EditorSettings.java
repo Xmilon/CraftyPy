@@ -37,6 +37,11 @@ public final class EditorSettings {
     public int dockWidth = 460;
     /** Share of the editor column the code area takes (the rest is the console/problems panel). */
     public float codeWeight = 0.67f;
+    /** IntelliJ-style tool windows: the Project tree on the left and the bottom panel can be closed from their stripes. */
+    public boolean explorerVisible = true;
+    public boolean bottomVisible = true;
+    /** Share of the width the main editor keeps while the editor is split. */
+    public float splitWeight = 0.5f;
     public Set<String> wrapped = new TreeSet<>();
     public Set<String> pinned = new LinkedHashSet<>();
     public Map<String, TreeSet<Integer>> bookmarks = new LinkedHashMap<>();

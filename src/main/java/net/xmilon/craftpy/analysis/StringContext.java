@@ -114,40 +114,6 @@ public final class StringContext {
         return Optional.empty();
     }
 
-    /**
-     * The call a cursor outside any string is typing an argument of: right after {@code (} or {@code ,} with a part of a name
-     * typed (a keyword being written), or empty. {@code typed} is that part of the name.
-     */
-    public static Optional<Call> callAt(String code, int offset) {
-        if (offset < 0 || offset > code.length()) {
-            return Optional.empty();
-        }
-        for (PyLex.Span span : PyLex.spans(code)) {
-            if (span.kind() != PyLex.Kind.CODE && offset > span.start() && offset <= span.end()) {
-                return Optional.empty();
-            }
-        }
-        String masked = PyLex.maskNonCode(code.substring(0, offset));
-        int start = masked.length();
-        while (start > 0 && (Character.isLetterOrDigit(masked.charAt(start - 1)) || masked.charAt(start - 1) == '_')) {
-            start--;
-        }
-        int before = start;
-        while (before > 0 && masked.charAt(before - 1) == ' ') {
-            before--;
-        }
-        if (before == 0 || "(,".indexOf(masked.charAt(before - 1)) < 0) {
-            return Optional.empty(); // after a dot, an operator or at the start of a statement
-        }
-        Walker walker = new Walker(masked);
-        walker.advanceTo(start);
-        if (walker.stack.isEmpty() || walker.stack.peek().opener != '(') {
-            return Optional.empty();
-        }
-        Call call = walker.call(masked.substring(start));
-        return call.chain().isEmpty() ? Optional.empty() : Optional.of(call);
-    }
-
     /** Every plain string of the code with its call, in one pass. */
     public static List<Located> all(String code) {
         List<Located> out = new ArrayList<>();

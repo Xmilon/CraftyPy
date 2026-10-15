@@ -49,20 +49,44 @@ public final class ProjectRequestHandler {
         }
     }
 
+    /**
+     * Who sends a request: a player in the game, or the standalone IDE ({@link #LOCAL}: no server, so nothing that needs the
+     * running game - loading into the world, modules, pack reloads - is done). {@code key} keeps uploads apart.
+     */
+    public record Caller(String key, MinecraftServer server, boolean allowed) {
+        public static final Caller LOCAL = new Caller("ide", null, true);
+
+        public static Caller of(ServerPlayer player) {
+            return new Caller(player.getUUID().toString(), player.getServer(), isAllowed(player));
+        }
+    }
+
+    static final String NEEDS_GAME = "Needs the game: open this project in Minecraft to run it in a world";
+
     public static CompletableFuture<ResponsePayload> handle(ServerPlayer player, RequestPayload request) {
         if (request.action() == ProjectAction.WINDOW_EVENT) {
             // Windows belong to the player who sees them, not to the IDE: no IDE permission needed.
             windowEvent(player, request.data());
             return CompletableFuture.completedFuture(null);
         }
+        return handle(Caller.of(player), request);
+    }
+
+    public static CompletableFuture<ResponsePayload> handle(Caller caller, RequestPayload request) {
+        if (request.action() == ProjectAction.WINDOW_EVENT) {
+            return CompletableFuture.completedFuture(null);
+        }
         ProjectManager manager = ProjectManager.get();
         if (manager == null) {
             return CompletableFuture.completedFuture(fail(request.action(), "Project manager not ready"));
         }
-        if (!isAllowed(player)) {
+        if (caller.server() == null && NEEDS_SERVER.contains(request.action())) {
+            return CompletableFuture.completedFuture(fail(request.action(), NEEDS_GAME));
+        }
+        if (!caller.allowed()) {
             return CompletableFuture.completedFuture(fail(request.action(),
                     "You do not have permission to use CraftPy (requires permission level "
-                            + Config.PERMISSION_LEVEL.get() + ")"));
+                            + Config.get(Config.PERMISSION_LEVEL) + ")"));
         }
 
         ProjectAction action = request.action();
@@ -83,20 +107,20 @@ public final class ProjectRequestHandler {
             case DUPLICATE:
                 return manager.duplicateProject(id).thenApply(result -> fromResult(ProjectAction.DUPLICATE, result));
             case LOAD:
-                if (!Config.ENABLE_SCRIPTING.get()) {
+                if (!Config.get(Config.ENABLE_SCRIPTING)) {
                     return CompletableFuture.completedFuture(fail(action, "Scripting is disabled in the config"));
                 }
                 if (!ProjectManager.isValidId(id)) {
                     return CompletableFuture.completedFuture(fail(action, "Invalid project id"));
                 }
-                net.xmilon.craftpy.lifecycle.ProjectController.get().load(id, player.getServer(), loadDebug(request.data()));
+                net.xmilon.craftpy.lifecycle.ProjectController.get().load(id, caller.server(), loadDebug(request.data()));
                 return CompletableFuture.completedFuture(ResponsePayload.success(ProjectAction.LOAD,
                         "Loading " + id + " ...", id));
             case UNLOAD:
                 if (!ProjectManager.isValidId(id)) {
                     return CompletableFuture.completedFuture(fail(action, "Invalid project id"));
                 }
-                net.xmilon.craftpy.lifecycle.ProjectController.get().unload(id, player.getServer());
+                net.xmilon.craftpy.lifecycle.ProjectController.get().unload(id, caller.server());
                 return CompletableFuture.completedFuture(ResponsePayload.success(ProjectAction.UNLOAD,
                         "Unloaded " + id, id));
             case LIST_FILES:
@@ -126,15 +150,18 @@ public final class ProjectRequestHandler {
                 }
                 return manager.writeFile(id, file.path, file.content == null ? "" : file.content)
                         .thenApply(result -> {
-                            if (result.success() && Config.HOT_RELOAD_ON_SAVE.get() && Config.ENABLE_SCRIPTING.get()
-                                    && isReloadTrigger(file.path)) {
-                                net.xmilon.craftpy.lifecycle.ProjectController.get().scheduleReload(id, player.getServer());
+                            if (result.success() && caller.server() != null && Config.get(Config.HOT_RELOAD_ON_SAVE)
+                                    && Config.get(Config.ENABLE_SCRIPTING) && isReloadTrigger(file.path)) {
+                                net.xmilon.craftpy.lifecycle.ProjectController.get().scheduleReload(id, caller.server());
                             }
-                            return fromResult(ProjectAction.WRITE_FILE, result);
+                            // the path goes back so the client clears the unsaved mark of this file, not of the active one
+                            return result.success()
+                                    ? new ResponsePayload(ProjectAction.WRITE_FILE, true, result.message(), file.path)
+                                    : fail(ProjectAction.WRITE_FILE, result.message());
                         });
             }
             case VALIDATE:
-                if (!Config.ENABLE_SCRIPTING.get()) {
+                if (!Config.get(Config.ENABLE_SCRIPTING)) {
                     return CompletableFuture.completedFuture(fail(action, "Scripting is disabled in the config"));
                 }
                 if (!ProjectManager.isValidId(id)) {
@@ -149,14 +176,14 @@ public final class ProjectRequestHandler {
                 if (upload == null || upload.data == null) {
                     return CompletableFuture.completedFuture(uploadReply(false, "Malformed upload request", ""));
                 }
-                long max = (long) Math.min(Config.MAX_ASSET_SIZE_KB.get(), Config.MAX_PACKET_SIZE_KB.get()) * 1024;
+                long max = (long) Math.min(Config.get(Config.MAX_ASSET_SIZE_KB), Config.get(Config.MAX_PACKET_SIZE_KB)) * 1024;
                 String refused = UploadRules.check(upload.path, upload.chunk, upload.total, max);
                 if (refused != null) {
                     return CompletableFuture.completedFuture(uploadReply(false, refused, String.valueOf(upload.path)));
                 }
                 long now = System.currentTimeMillis();
                 PENDING_UPLOADS.values().removeIf(old -> now - old.created > PENDING_UPLOAD_MS);
-                String key = player.getUUID() + "|" + id + "|" + upload.path;
+                String key = caller.key() + "|" + id + "|" + upload.path;
                 PendingUpload pending = PENDING_UPLOADS.compute(key,
                         (k, existing) -> existing == null || existing.parts.length != upload.total ? new PendingUpload(upload.total)
                                 : existing);
@@ -190,14 +217,15 @@ public final class ProjectRequestHandler {
                 }
                 return manager.writeBinary(id, upload.path, bytes)
                         .thenApply(result -> {
-                            if (result.success() && net.xmilon.craftpy.registry.SlotRegistry.isProjectActive(id)) {
-                                refreshPacksAfterAssetChange(player.getServer());
+                            if (result.success() && caller.server() != null
+                                    && net.xmilon.craftpy.registry.SlotRegistry.isProjectActive(id)) {
+                                refreshPacksAfterAssetChange(caller.server());
                             }
                             return uploadReply(result.success(), result.message(), upload.path);
                         });
             }
             case EVAL: {
-                if (!Config.ENABLE_SCRIPTING.get()) {
+                if (!Config.get(Config.ENABLE_SCRIPTING)) {
                     return CompletableFuture.completedFuture(fail(action, "Scripting is disabled in the config"));
                 }
                 if (!PyRuntime.available()) {
@@ -259,7 +287,9 @@ public final class ProjectRequestHandler {
                         var result = net.xmilon.craftpy.project.ModuleBuilder.build(id, build);
                         String message = "Built module '" + result.moduleId() + "' " + result.version() + " to "
                                 + result.export().toAbsolutePath();
-                        if (result.installed() != null) {
+                        if (result.installed() != null && caller.server() == null) {
+                            message += " - installed; it loads when the game starts";
+                        } else if (result.installed() != null) {
                             if (result.replaced()) {
                                 net.xmilon.craftpy.project.ModuleLoader.reload(result.moduleId());
                                 message += " - replaced the installed module";
@@ -396,6 +426,10 @@ public final class ProjectRequestHandler {
         }
     }
 
+    /** Actions that act on the running game (worlds, loaded modules). */
+    private static final java.util.Set<ProjectAction> NEEDS_SERVER = java.util.EnumSet.of(ProjectAction.LOAD,
+            ProjectAction.UNLOAD, ProjectAction.MODULE_SET_ENABLED, ProjectAction.MODULE_SET_ALL, ProjectAction.MODULE_RELOAD);
+
     public record EntryOp(String path, String type) {
     }
 
@@ -495,7 +529,7 @@ public final class ProjectRequestHandler {
         if (server != null && server.isSingleplayer() && server.isSingleplayerOwner(player.getGameProfile())) {
             return true;
         }
-        return player.hasPermissions(Config.PERMISSION_LEVEL.get());
+        return player.hasPermissions(Config.get(Config.PERMISSION_LEVEL));
     }
 
     /** Files whose change needs a run: code, windows drawn in the designer, and assets. */

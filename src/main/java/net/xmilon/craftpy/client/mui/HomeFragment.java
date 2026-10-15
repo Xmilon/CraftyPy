@@ -9,7 +9,6 @@ import icyllis.modernui.annotation.Nullable;
 import icyllis.modernui.core.Context;
 import icyllis.modernui.fragment.Fragment;
 import icyllis.modernui.mc.ui.ClampingScrollView;
-import icyllis.modernui.mc.ui.ThemeControl;
 import icyllis.modernui.util.DataSet;
 import icyllis.modernui.view.Gravity;
 import icyllis.modernui.view.KeyEvent;
@@ -131,7 +130,7 @@ public class HomeFragment extends Fragment {
         {
             var card = card(context);
             var row = row(context);
-            var name = new EditText(context, null, R.attr.editTextOutlinedStyle);
+            var name = CraftPyFragment.field(context);
             name.setSingleLine();
             name.setHint("Project name");
             row.addView(name, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
@@ -202,7 +201,7 @@ public class HomeFragment extends Fragment {
             projectList = card(context);
             projectList.setPadding(0, page.dp(6), 0, page.dp(6));
             projectList.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-            projectList.setDividerDrawable(ThemeControl.makeDivider(projectList));
+            projectList.setDividerDrawable(IdeColors.divider(projectList, false));
             page.addView(projectList, cardParams(page));
         }
 

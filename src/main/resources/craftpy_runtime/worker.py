@@ -290,6 +290,10 @@ def _namespace():
 class Content(str):
     """A declared block or item. It *is* its full id string ("project:id")."""
 
+    kind: str
+    local_id: str
+    name: str
+
     def __new__(cls, full_id, kind, local_id, name, definition=None):
         obj = str.__new__(cls, full_id)
         obj.kind = kind
@@ -298,7 +302,7 @@ class Content(str):
         obj._definition = definition if definition is not None else {}
         return obj
 
-    def extends(self, *extensions):
+    def extends(self, *extensions) -> "Content":
         """Adds behaviour: ``Item("ruby_sword").extends(Sword(tier="diamond"), Durability(1561))``.
 
         Every extension is an object such as ``Tool(...)``, ``Durability(...)`` or your own
@@ -396,7 +400,7 @@ def Food(hunger=4, saturation=0.6, always_eat=False, fast=False):
 
 
 def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None,
-          needs_tool=False, sound=None, drops=None, extensions=(), **extra):
+          needs_tool=False, sound=None, drops=None, extensions=(), **extra) -> "Content":
     """Declares a block and returns it (usable anywhere an id is expected).
 
     ``extensions=[...]`` or ``.extends(...)`` adds behaviour (MineableBy, Redstone, Flammable, your own...)."""
@@ -439,7 +443,7 @@ def _block_drops(block_id, drops):
     loot_table(block_id, entries)
 
 
-def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), **extra):
+def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), **extra) -> "Content":
     """Declares an item and returns it.
 
     ``extensions=[...]`` or ``.extends(...)`` adds behaviour (Sword, Durability, Armor, your own...).
@@ -1330,6 +1334,11 @@ def _call_flexible(fn, ctx):
 
 
 class _TickContext:
+    """What an @every timer receives."""
+
+    tick: int
+    world: "_World"
+
     def __init__(self, tick):
         self.tick = tick
         self.world = world
@@ -1371,20 +1380,20 @@ class Pos(tuple):
     def __new__(cls, x, y, z):
         return tuple.__new__(cls, (x, y, z))
 
-    x = property(lambda self: self[0])
-    y = property(lambda self: self[1])
-    z = property(lambda self: self[2])
+    x: float = property(lambda self: self[0])
+    y: float = property(lambda self: self[1])
+    z: float = property(lambda self: self[2])
 
-    def __add__(self, other):
+    def __add__(self, other) -> "Pos":
         return Pos(self[0] + other[0], self[1] + other[1], self[2] + other[2])
 
-    def up(self, n=1):
+    def up(self, n=1) -> "Pos":
         return Pos(self[0], self[1] + n, self[2])
 
-    def down(self, n=1):
+    def down(self, n=1) -> "Pos":
         return Pos(self[0], self[1] - n, self[2])
 
-    def block(self):
+    def block(self) -> "Pos":
         """Integer block coordinates."""
         return Pos(math.floor(self[0]), math.floor(self[1]), math.floor(self[2]))
 
@@ -1445,7 +1454,7 @@ class _World:
         # Legacy alias kept for source compatibility.
         return self.blocks_in_box(x, y, z, radius=radius, dimension=dimension)
 
-    def spawn(self, entity, x, y=None, z=None, dimension=_OVERWORLD):
+    def spawn(self, entity, x, y=None, z=None, dimension=_OVERWORLD) -> "Entity":
         """Spawns an entity ("zombie", "minecraft:pig") and returns it."""
         x, y, z = _xyz(x, y, z)
         result = _ok(_host_call("world.spawn", {"entity": _ref(entity), "x": x, "y": y, "z": z,
@@ -1509,7 +1518,7 @@ class _World:
         return _host_call("world.entities_in_box", {"x": x, "y": y, "z": z, "radius": radius,
                                                     "dimension": dimension})
 
-    def entities(self, x, y=None, z=None, radius=8, type=None, dimension=_OVERWORLD):
+    def entities(self, x, y=None, z=None, radius=8, type=None, dimension=_OVERWORLD) -> "list[Entity]":
         """Entities near a position, as Entity objects (optionally only one type)."""
         x, y, z = _xyz(x, y, z)
         found = (self.entities_in_box(x, y, z, radius=radius, dimension=dimension) or {}).get("entities", [])
@@ -1517,8 +1526,24 @@ class _World:
         return [Entity(e) for e in found if wanted is None or e.get("type") == wanted]
 
 
+class _GameRef:
+    """Block or item data of an event (``event.block``, ``event.item``, ``player.held_item``). Missing data reads as None."""
+
+    id: str
+    name: str
+    count: int
+
+
 class _Thing:
     """Shared attribute access for Player/Entity snapshots: missing data reads as None."""
+
+    name: str
+    uuid: str
+    x: float
+    y: float
+    z: float
+    dimension: str
+    health: float
 
     def __init__(self, data):
         for key, value in (data or {}).items():
@@ -1530,7 +1555,7 @@ class _Thing:
         return None
 
     @property
-    def pos(self):
+    def pos(self) -> "Pos":
         return Pos(self.x or 0, self.y or 0, self.z or 0)
 
     @property
@@ -1545,8 +1570,14 @@ class Player(_Thing):
     """A player snapshot with actions. Data: name, uuid, x, y, z, pos, dimension, health,
     max_health, food, level, gamemode, held_item."""
 
+    max_health: float
+    food: int
+    level: int
+    gamemode: str
+    held_item: "_GameRef"
+
     @staticmethod
-    def named(name):
+    def named(name) -> "Player":
         """The online player with this name, or None."""
         info = (_try_host("players.get", {"name": str(name)}, default={}) or {}).get("player")
         return Player(info) if info else None
@@ -1624,13 +1655,15 @@ class Player(_Thing):
     def kill(self):
         return self._call("player.kill")
 
-    def refresh(self):
+    def refresh(self) -> "Player":
         """A fresh snapshot of this player (position, health...)."""
         return Player.named(self.name)
 
 
 class Entity(_Thing):
     """An entity snapshot: type, uuid, name, x, y, z, pos, health."""
+
+    type: str
 
     def __repr__(self):
         return "Entity(%r)" % (self.type,)
@@ -1645,7 +1678,7 @@ class Entity(_Thing):
     def set_name(self, name):
         return _ok(_host_call("entity.set_name", {"uuid": self.uuid, "name": str(name)}))
 
-    def refresh(self):
+    def refresh(self) -> "Entity":
         info = (_try_host("entity.get", {"uuid": self.uuid}, default={}) or {}).get("entity")
         return Entity(info) if info else None
 
@@ -1656,7 +1689,7 @@ class _Players:
         result = _try_host("players.all", {}, default={}) or {}
         return result.get("players", []) if isinstance(result, dict) else result
 
-    def online(self):
+    def online(self) -> "list[Player]":
         """Every online player as a Player object."""
         return [p for p in (Player.named(name) for name in self.all()) if p is not None]
 
@@ -1730,7 +1763,7 @@ storage = _Storage()
 scheduler = _Scheduler()
 
 
-def player(name):
+def player(name) -> "Player":
     """The online player with this name, or None."""
     return Player.named(name)
 
@@ -1995,6 +2028,11 @@ ui = _Ui()
 class _UiContext:
     """Passed to widget callbacks: who clicked, the new value and every input value of the window."""
 
+    player: "Player"
+    window: str
+    values: dict
+    closed: bool
+
     def __init__(self, player, window_id, value, values):
         self.player = player
         self.window = window_id
@@ -2103,6 +2141,11 @@ def _player_name(player):
 class _Context:
     """Execution context passed to a project's main(ctx) function (declarations)."""
 
+    debug: bool
+    project: str
+    global_state: dict
+    world: "_World"
+
     def __init__(self, log, debug=False):
         self.debug = debug
         self._log = log
@@ -2133,13 +2176,28 @@ class _EventContext(_Context):
     event.pos (Pos), event.message (chat), event.killer / event.attacker ...
     """
 
+    event: str
+    player: "Player"
+    killer: "Player"
+    attacker_player: "Player"
+    entity: "Entity"
+    attacker: "Entity"
+    block: "_GameRef"
+    item: "_GameRef"
+    message: str
+    damage: float
+    cause: str
+    hand: str
+    dimension: str
+    state: dict
+
     def __getattr__(self, name):
         if name.startswith("__"):
             raise AttributeError(name)
         return None
 
     @property
-    def pos(self):
+    def pos(self) -> "Pos":
         x = self.__dict__.get("x")
         if x is None:
             return self.player.pos if self.player is not None else None
@@ -2718,8 +2776,6 @@ def _handle(method, params):
     if method == "validate":
         _INTERRUPT = False
         return _validate(params)
-    if method == "params":
-        return _params(params)
     if method == "complete":
         return _complete(params)
     if method == "hover":
@@ -2986,45 +3042,653 @@ def _first_line(doc):
     return doc.strip().split("\n")[0] if doc else ""
 
 
-def _params(params):
-    """Names of the arguments of the API function or class called `chain`, for keyword completion."""
-    import inspect
-    target = _resolve_chain(params.get("chain", ""))
-    names = []
-    if target is not None and callable(target):
+# ---------------------------------------------------------------------------
+# Static inference for the editor: what `x.` / `Item("a").extends(` / `event.player.` is, without running anything.
+# Values are API objects, _Inst (an instance of a class), or the _Local* wrappers for defs and classes of the edited file.
+# ---------------------------------------------------------------------------
+
+class _Inst:
+    """An inferred instance of `cls`; `elem` is the element type of a list."""
+
+    def __init__(self, cls, elem=None):
+        self.cls = cls
+        self.elem = elem
+
+
+class _Method:
+    """A function looked up on an instance: called without its first argument."""
+
+    def __init__(self, fn):
+        self.fn = fn
+
+
+class _LocalFn:
+    def __init__(self, node, scope, owner=None):
+        self.node, self.scope, self.owner = node, scope, owner
+
+
+class _LocalClass:
+    def __init__(self, node, scope):
+        self.node, self.scope = node, scope
+
+
+class _LocalInst:
+    def __init__(self, node, scope):
+        self.node, self.scope = node, scope
+
+
+class _Scope:
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.bindings = {}
+
+    def bind(self, name, line, kind, value):
+        self.bindings.setdefault(name, []).append((line, kind, value, self))
+
+    def lookup(self, name, line):
+        entries = self.bindings.get(name)
+        if entries:
+            before = [e for e in entries if e[0] < line]
+            return (before or entries)[-1]
+        return self.parent.lookup(name, line) if self.parent else None
+
+
+_MISSING = object()
+_MAX_DEPTH = 14
+
+
+def _mask(text):
+    """Same length as text, with comments and string contents blanked (quotes kept), for bracket matching."""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "#":
+            while i < n and text[i] != "\n":
+                out[i] = " "
+                i += 1
+            continue
+        if c in "\"'":
+            quote = text[i:i + 3] if text[i:i + 3] in ('"""', "'''") else c
+            j = i + len(quote)
+            while j < n and not text.startswith(quote, j):
+                if text[j] == "\\":
+                    out[j] = " "
+                    j += 1
+                elif text[j] == "\n" and len(quote) == 1:
+                    break
+                if j < n:
+                    out[j] = " " if text[j] != "\n" else "\n"
+                j += 1
+            i = j + len(quote)
+            continue
+        i += 1
+    return "".join(out)
+
+
+def _match_back(masked, close):
+    """Index of the bracket opening the one at `close`, or -1."""
+    depth = 0
+    for i in range(close, -1, -1):
+        c = masked[i]
+        if c in ")]}":
+            depth += 1
+        elif c in "([{":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _receiver(masked, end):
+    """Start of the expression ending at `end` (a name, attribute chain, call or literal), or -1."""
+    i = end
+    while i > 0:
+        c = masked[i - 1]
+        if c in ")]":
+            j = _match_back(masked, i - 1)
+            if j < 0:
+                return -1
+            i = j
+            if i > 0 and (masked[i - 1].isalnum() or masked[i - 1] in "_)]\"'"):
+                continue  # a call or subscript of what comes before
+            break
+        if c.isalnum() or c == "_":
+            while i > 0 and (masked[i - 1].isalnum() or masked[i - 1] == "_"):
+                i -= 1
+            if i > 0 and masked[i - 1] == ".":
+                i -= 1
+                continue
+            break
+        if c in "\"'":
+            j = masked.rfind(c, 0, i - 1)
+            return j
+        break
+    return i if i < end else -1
+
+
+def _open_call(masked):
+    """(start, end) of the callee of the innermost call still open at the end of `masked`; None inside a list/dict."""
+    depth = 0
+    for i in range(len(masked) - 1, -1, -1):
+        c = masked[i]
+        if c in ")]}":
+            depth += 1
+        elif c in "([{":
+            if depth == 0:
+                if c != "(":
+                    return None
+                end = i
+                while end > 0 and masked[end - 1] == " ":
+                    end -= 1
+                start = _receiver(masked, end)
+                return (start, end) if start >= 0 else None
+            depth -= 1
+    return None
+
+
+def _parse_lenient(code, line_idx):
+    """The module AST of code being typed: the cursor line (or what follows it) is replaced until it parses."""
+    import ast
+    try:
+        return ast.parse(code)
+    except SyntaxError:
+        pass
+    lines = code.split("\n")
+    current = lines[line_idx] if 0 <= line_idx < len(lines) else ""
+    indent = current[:len(current) - len(current.lstrip())]
+    attempts = [lines[:line_idx] + [indent + "pass"] + lines[line_idx + 1:], lines[:line_idx] + [indent + "pass"]]
+    for back in range(1, 25):
+        cut = line_idx - back
+        if cut < 0:
+            break
+        prev = lines[cut]
+        prev_indent = prev[:len(prev) - len(prev.lstrip())]
+        # one `pass` per dropped line, so a def around the cursor still reaches the cursor line
+        attempts.append(lines[:cut] + [prev_indent + "pass"] * (line_idx - cut + 1))
+    for attempt in attempts:
         try:
-            for p in inspect.signature(target).parameters.values():
-                if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY) and not p.name.startswith("_"):
-                    names.append(p.name)
-        except (TypeError, ValueError):
-            pass
-    return {"names": names}
+            return ast.parse("\n".join(attempt))
+        except SyntaxError:
+            continue
+    return None
 
 
-def _complete(params):
+def _collect(body, scope):
+    """Binds the names a block assigns (not looking into nested defs and classes)."""
+    import ast
+    for node in body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            scope.bind(node.name, node.lineno, "def", node)
+        elif isinstance(node, ast.ClassDef):
+            scope.bind(node.name, node.lineno, "class", node)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    scope.bind(target.id, node.lineno, "expr", node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            scope.bind(node.target.id, node.lineno, "ann", node.annotation)
+        elif isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(node.target, ast.Name):
+            scope.bind(node.target.id, node.lineno, "iter", node.iter)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if isinstance(item.optional_vars, ast.Name):
+                    scope.bind(item.optional_vars.id, node.lineno, "expr", item.context_expr)
+        for field in ("body", "orelse", "finalbody"):
+            inner = getattr(node, field, None)
+            if isinstance(inner, list) and not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                _collect(inner, scope)
+        for handler in getattr(node, "handlers", []) or []:
+            if handler.name:
+                scope.bind(handler.name, handler.lineno, "exc", handler.type)
+            _collect(handler.body, scope)
+
+
+_CONTEXT_DECORATORS = {"on": "_EventContext", "command": "_EventContext", "every": "_TickContext",
+                       "action": "_UiContext"}
+
+
+def _decorator_root(node):
+    import ast
+    while isinstance(node, (ast.Call, ast.Attribute)):
+        node = node.func if isinstance(node, ast.Call) else node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _function_scope(fn, parent, owner=None, top_level=False):
+    """Scope of a def: its parameters (typed by annotation, decorator or position) and its assignments."""
+    import ast
+    scope = _Scope(parent)
+    positional = list(fn.args.posonlyargs) + list(fn.args.args)
+    decorators = {_decorator_root(d) for d in fn.decorator_list}
+    defaults = list(fn.args.defaults)
+    first_default = len(positional) - len(defaults)
+    for index, arg in enumerate(positional):
+        kind, value = "param", None
+        if arg.annotation is not None:
+            kind, value = "ann", arg.annotation
+        elif index == 0 and owner is not None and "staticmethod" not in decorators:
+            kind, value = "value", _LocalClass(owner, parent) if "classmethod" in decorators else _LocalInst(owner, parent)
+        elif index == 0:
+            context = next((_CONTEXT_DECORATORS[d] for d in decorators if d in _CONTEXT_DECORATORS), None)
+            if context is None and top_level and fn.name == "main":
+                context = "_Context"
+            if context is not None:
+                kind, value = "value", _Inst(globals()[context])
+        if kind == "param" and index >= first_default:
+            kind, value = "expr", defaults[index - first_default]
+        # an untyped parameter is still bound (to nothing), so it hides an API name of the same spelling
+        scope.bind(arg.arg, 0, "value" if kind == "param" else kind, value)
+    for arg, default in zip(fn.args.kwonlyargs, fn.args.kw_defaults):
+        if arg.annotation is not None:
+            scope.bind(arg.arg, 0, "ann", arg.annotation)
+        else:
+            scope.bind(arg.arg, 0, "expr" if default is not None else "value", default)
+    if fn.args.vararg:
+        scope.bind(fn.args.vararg.arg, 0, "value", _Inst(tuple))
+    if fn.args.kwarg:
+        scope.bind(fn.args.kwarg.arg, 0, "value", _Inst(dict))
+    _collect(fn.body, scope)
+    return scope
+
+
+def _scope_for(tree, line):
+    """The scope at a 1-based line: module names, then every def around the line (innermost last)."""
+    import ast
+    scope = _Scope()
+    if tree is None:
+        return scope
+    _collect(tree.body, scope)
+    body, owner, top = tree.body, None, True
+    while True:
+        found = None
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
+                    and node.lineno <= line <= (getattr(node, "end_lineno", None) or node.lineno):
+                found = node
+                break
+        if found is None:
+            return scope
+        if isinstance(found, ast.ClassDef):
+            owner, body = found, found.body  # class-level names are not visible inside its methods
+            continue
+        scope = _function_scope(found, scope, owner, top)
+        body, owner, top = found.body, None, False
+
+
+def _type_value(annotation):
+    """An annotation (a class or its name, `list[Name]`) as an inferred value."""
+    import builtins
     import re
+    if isinstance(annotation, str):
+        m = re.fullmatch(r"\s*(?:list|List)\[\s*([A-Za-z_]\w*)\s*\]\s*", annotation)
+        if m:
+            return _Inst(list, _type_value(m.group(1)))
+        annotation = globals().get(annotation.strip(), getattr(builtins, annotation.strip(), None))
+    return _Inst(annotation) if isinstance(annotation, type) else None
+
+
+def _annotation_node(node, scope, line, depth):
+    import ast
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        try:
+            return _annotation_node(ast.parse(node.value, mode="eval").body, scope, line, depth + 1)
+        except SyntaxError:
+            return None
+    if isinstance(node, ast.Subscript):
+        base = _infer(node.value, scope, line, depth + 1)
+        if base is list:
+            inner = node.slice.value if isinstance(node.slice, getattr(ast, "Index", ())) else node.slice
+            return _Inst(list, _annotation_node(inner, scope, line, depth + 1))
+        return _call(base, depth + 1)
+    return _call(_infer(node, scope, line, depth + 1), depth + 1)
+
+
+def _returns(fn):
+    try:
+        annotation = inspect.signature(fn).return_annotation
+    except (TypeError, ValueError):
+        return None
+    return None if annotation is inspect.Signature.empty else _type_value(annotation)
+
+
+def _own_annotations(klass):
+    """Annotations a class declares itself (Python 3.14 builds them lazily, so __dict__ alone is not enough)."""
+    if not isinstance(klass, type):
+        return {}
+    try:
+        return inspect.get_annotations(klass)
+    except Exception:  # noqa: BLE001
+        return klass.__dict__.get("__annotations__", {}) or {}
+
+
+def _class_annotation(cls, name):
+    for klass in getattr(cls, "__mro__", ()):
+        annotations = _own_annotations(klass)
+        if name in annotations:
+            return annotations[name]
+    return _MISSING
+
+
+def _infer(node, scope, line, depth=0):
+    import ast
+    if node is None or depth > _MAX_DEPTH:
+        return None
+    if isinstance(node, ast.Name):
+        binding = scope.lookup(node.id, line) if scope else None
+        if binding is not None:
+            return _binding_value(binding, depth + 1)
+        names = _api_names()
+        if node.id in names:
+            return names[node.id]
+        return restricted_builtins([]).get(node.id)
+    if isinstance(node, ast.Attribute):
+        return _member(_infer(node.value, scope, line, depth + 1), node.attr, depth + 1)
+    if isinstance(node, ast.Call):
+        return _call(_infer(node.func, scope, line, depth + 1), depth + 1)
+    if isinstance(node, ast.Constant):
+        return None if node.value is None or node.value is Ellipsis else _Inst(type(node.value))
+    if isinstance(node, ast.JoinedStr):
+        return _Inst(str)
+    if isinstance(node, (ast.List, ast.ListComp)):
+        first = node.elts[0] if isinstance(node, ast.List) and node.elts else getattr(node, "elt", None)
+        return _Inst(list, _infer(first, scope, line, depth + 1))
+    if isinstance(node, (ast.Dict, ast.DictComp)):
+        return _Inst(dict)
+    if isinstance(node, ast.Tuple):
+        return _Inst(tuple)
+    if isinstance(node, (ast.Set, ast.SetComp)):
+        return _Inst(set)
+    if isinstance(node, ast.Subscript):
+        base = _infer(node.value, scope, line, depth + 1)
+        return base.elem if isinstance(base, _Inst) else None
+    if isinstance(node, ast.BinOp):
+        return _infer(node.left, scope, line, depth + 1)
+    return None
+
+
+def _binding_value(binding, depth):
+    line, kind, value, scope = binding
+    if kind == "value":
+        return value
+    if kind == "def":
+        return _LocalFn(value, scope)
+    if kind == "class":
+        return _LocalClass(value, scope)
+    if kind == "expr":
+        return _infer(value, scope, getattr(value, "lineno", line) or line, depth)
+    if kind == "ann":
+        return _annotation_node(value, scope, getattr(value, "lineno", line) or line, depth)
+    if kind == "exc":
+        return _call(_infer(value, scope, line, depth), depth) if value is not None else _Inst(Exception)
+    if kind == "iter":
+        iterable = _infer(value, scope, line, depth)
+        return iterable.elem if isinstance(iterable, _Inst) else None
+    return None
+
+
+def _call(value, depth=0):
+    """What calling an inferred value returns."""
+    if value is None or depth > _MAX_DEPTH:
+        return None
+    if isinstance(value, type):
+        return _Inst(value)
+    if isinstance(value, _LocalClass):
+        return _LocalInst(value.node, value.scope)
+    if isinstance(value, _LocalFn):
+        fn = value.node
+        scope = _function_scope(fn, value.scope, value.owner)
+        if fn.returns is not None:
+            return _annotation_node(fn.returns, scope, fn.lineno, depth + 1)
+        import ast
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Return) and node.value is not None:
+                return _infer(node.value, scope, node.lineno, depth + 1)
+        return None
+    if isinstance(value, _Method):
+        return _returns(value.fn)
+    if isinstance(value, (_Inst, _LocalInst)):
+        return None
+    return _returns(value) if callable(value) else None
+
+
+def _local_class_members(node, scope, depth=0):
+    """name -> (binding kind, value node or def, scope) of a class of the file, its own members before its bases'."""
+    import ast
+    members = {}
+    for stmt in node.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            members.setdefault(stmt.name, ("def", stmt))
+            for sub in ast.walk(stmt):
+                if isinstance(sub, ast.Assign):
+                    for target in sub.targets:
+                        if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) \
+                                and target.value.id == "self":
+                            members.setdefault(target.attr, ("self", (stmt, sub.value)))
+        elif isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if isinstance(target, ast.Name):
+                    members.setdefault(target.id, ("expr", stmt.value))
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            members.setdefault(stmt.target.id, ("ann", stmt.annotation))
+    return members
+
+
+def _local_bases(node, scope, depth):
+    out = []
+    for base in node.bases:
+        value = _infer(base, scope, node.lineno, depth + 1)
+        if isinstance(value, (type, _LocalClass)):
+            out.append(value)
+    return out
+
+
+def _member(value, name, depth=0):
+    """value.name as an inferred value."""
+    if value is None or depth > _MAX_DEPTH or name.startswith("_"):
+        return None
+    if isinstance(value, (_LocalInst, _LocalClass)):
+        entry = _local_class_members(value.node, value.scope).get(name)
+        if entry is not None:
+            kind, data = entry
+            if kind == "def":
+                return _LocalFn(data, value.scope, value.node)
+            if kind == "self":
+                method, rhs = data
+                scope = _function_scope(method, value.scope, value.node)
+                return _infer(rhs, scope, rhs.lineno, depth + 1)
+            if kind == "ann":
+                return _annotation_node(data, value.scope, data.lineno, depth + 1)
+            return _infer(data, value.scope, data.lineno, depth + 1)
+        for base in _local_bases(value.node, value.scope, depth):
+            found = _member(_Inst(base) if isinstance(base, type) and isinstance(value, _LocalInst)
+                            else _LocalInst(base.node, base.scope) if isinstance(base, _LocalClass) else base,
+                            name, depth + 1)
+            if found is not None:
+                return found
+        return None
+    if isinstance(value, _Inst):
+        cls = value.cls
+        annotation = _class_annotation(cls, name)
+        if annotation is not _MISSING:
+            return _type_value(annotation)
+        attr = inspect.getattr_static(cls, name, _MISSING)
+        if attr is _MISSING:
+            return None
+        if isinstance(attr, property):
+            return _returns(attr.fget) if attr.fget else None
+        if isinstance(attr, (staticmethod, classmethod)):
+            return attr.__func__
+        if inspect.isfunction(attr):
+            return _Method(attr)
+        return attr
+    if isinstance(value, (_Method, _LocalFn)):
+        return None
+    attr = inspect.getattr_static(value, name, _MISSING)
+    if attr is _MISSING:
+        # `on.block_break` and other names a class makes up in __getattr__ (only where that has no side effects)
+        return getattr(value, name, None) if isinstance(value, _On) else None
+    if isinstance(attr, property):
+        return _returns(attr.fget) if attr.fget else None
+    if isinstance(attr, (staticmethod, classmethod)):
+        return attr.__func__
+    if inspect.isfunction(attr) and not isinstance(value, type) and not inspect.ismodule(value):
+        return _Method(attr)
+    return attr
+
+
+def _signature(fn, skip_first=False):
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return "(...)"
+    if skip_first:
+        sig = sig.replace(parameters=list(sig.parameters.values())[1:])
+    return str(sig)
+
+
+def _type_name(annotation):
+    if isinstance(annotation, str):
+        return annotation.strip("_")
+    return getattr(annotation, "__name__", str(annotation)).strip("_")
+
+
+def _members(value, depth=0):
+    """name -> (kind, signature, doc) of what `value.` offers."""
+    import ast
+    out = {}
+    if value is None or depth > 4:
+        return out
+    if isinstance(value, (_LocalInst, _LocalClass)):
+        for name, (kind, data) in _local_class_members(value.node, value.scope).items():
+            if name.startswith("_"):
+                continue
+            if kind == "def":
+                args = [a.arg for a in data.args.args]
+                if args and isinstance(value, _LocalInst) and "staticmethod" not in {_decorator_root(d) for d in data.decorator_list}:
+                    args = args[1:]
+                out[name] = ("fn", "(" + ", ".join(args) + ")", ast.get_docstring(data) or "")
+            else:
+                out[name] = ("field", "", "")
+        for base in _local_bases(value.node, value.scope, depth):
+            inherited = _members(_Inst(base) if isinstance(base, type) and isinstance(value, _LocalInst)
+                                 else _LocalInst(base.node, base.scope) if isinstance(base, _LocalClass) else base, depth + 1)
+            for name, row in inherited.items():
+                out.setdefault(name, row)
+        return out
+    if isinstance(value, (_Method, _LocalFn)):
+        return out
+    instance = isinstance(value, _Inst)
+    target = value.cls if instance else value
+    names = set(dir(target))
+    if instance:
+        for klass in getattr(target, "__mro__", ()):
+            names.update(_own_annotations(klass))
+    for name in names:
+        if name.startswith("_"):
+            continue
+        annotation = _class_annotation(target, name) if instance else _MISSING
+        if annotation is not _MISSING:
+            out[name] = ("field", ": " + _type_name(annotation), "")
+            continue
+        attr = inspect.getattr_static(target, name, _MISSING)
+        static = attr is not _MISSING
+        if not static:
+            try:
+                attr = getattr(target, name)  # made up by __getattr__/__dir__ (`on.<event>`)
+            except Exception:  # noqa: BLE001
+                continue
+        if isinstance(attr, property):
+            returned = inspect.signature(attr.fget).return_annotation if attr.fget else inspect.Signature.empty
+            out[name] = ("field", "" if returned is inspect.Signature.empty else ": " + _type_name(returned),
+                         (inspect.getdoc(attr) or "").strip())
+        elif isinstance(attr, (staticmethod, classmethod)):
+            out[name] = ("fn", _signature(attr.__func__, isinstance(attr, classmethod)), (inspect.getdoc(attr.__func__) or "").strip())
+        elif inspect.isclass(attr):
+            out[name] = ("class", _signature(attr), (inspect.getdoc(attr) or "").strip())
+        elif callable(attr):
+            bound = static and (inspect.isfunction(attr) or inspect.ismethoddescriptor(attr)) and (instance or not (isinstance(target, type) or inspect.ismodule(target)))
+            out[name] = ("fn", _signature(attr, bound), (inspect.getdoc(attr) or "").strip())
+        else:
+            out[name] = ("field", "", "")
+    return out
+
+
+def _param_names(value):
+    """Keyword names a call of `value` accepts."""
+    import ast
+    if isinstance(value, _LocalFn):
+        args = [a.arg for a in value.node.args.args + value.node.args.kwonlyargs]
+        return args[1:] if value.owner is not None and args else args
+    if isinstance(value, _LocalClass):
+        init = _local_class_members(value.node, value.scope).get("__init__")
+        return [a.arg for a in init[1].args.args[1:]] if init and init[0] == "def" else []
+    fn, skip = (value.fn, True) if isinstance(value, _Method) else (value, False)
+    if fn is None or isinstance(fn, (_Inst, _LocalInst)) or not callable(fn):
+        return []
+    try:
+        parameters = list(inspect.signature(fn).parameters.values())
+    except (TypeError, ValueError):
+        return []
+    if skip:
+        parameters = parameters[1:]
+    return [p.name for p in parameters
+            if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY) and not p.name.startswith("_")]
+
+
+def _cursor(params):
+    """(code, 0-based line, text of the code before the cursor)."""
     code = params.get("code", "")
     lines = code.split("\n")
     line_idx = params.get("line", 0)
     col = params.get("column", 0)
-    text = lines[line_idx][:col] if 0 <= line_idx < len(lines) else ""
+    if not 0 <= line_idx < len(lines):
+        return code, line_idx, None
+    return code, line_idx, "\n".join(lines[:line_idx] + [lines[line_idx][:col]])
+
+
+def _infer_span(code, line_idx, masked, start, end):
+    import ast
+    expr = masked[start:end].strip()
+    if not expr or expr.replace("_", "").isdigit():
+        return None
+    try:
+        node = ast.parse("(" + expr + ")", mode="eval").body
+    except SyntaxError:
+        return None
+    tree = _parse_lenient(code, line_idx)
+    return _infer(node, _scope_for(tree, line_idx + 1), line_idx + 1)
+
+
+def _complete(params):
+    import re
+    code, line_idx, before = _cursor(params)
+    if before is None:
+        return {"prefix": "", "items": [], "suggestions": []}
+    if before and _mask(before)[-1] != before[-1]:
+        return {"prefix": "", "items": [], "suggestions": []}  # in a comment or a string
+    word = re.search(r'[A-Za-z_]\w*$', before)
+    prefix = word.group(0) if word else ""
+    masked = _mask(before[:len(before) - len(prefix)])
     items = []
-    match = re.search(r'((?:[A-Za-z_]\w*\.)+)([A-Za-z_]\w*)?$', text)
-    if match:
-        prefix = match.group(2) or ""
-        target = _resolve_chain(match.group(1)[:-1])
-        if target is not None:
-            for member in dir(target):
-                if member.startswith("_") or not member.startswith(prefix):
-                    continue
-                try:
-                    kind, sig, doc = _describe(member, getattr(target, member))
-                except Exception:  # noqa: BLE001
-                    continue
-                items.append({"n": member, "k": kind, "s": sig, "d": _first_line(doc)})
+    arguments = []
+    stripped = masked.rstrip(" ")
+    if stripped.endswith(".") and not stripped[:-1].rstrip().endswith("."):
+        end = len(stripped) - 1
+        start = _receiver(masked, end)
+        target = _infer_span(code, line_idx, masked, start, end) if start >= 0 else None
+        for name, (kind, sig, doc) in _members(target).items():
+            if name.startswith(prefix):
+                items.append({"n": name, "k": kind, "s": sig, "d": _first_line(doc)})
     else:
-        word = re.search(r'([A-Za-z_]\w*)$', text)
-        prefix = word.group(1) if word else ""
+        if stripped.endswith(("(", ",")):
+            span = _open_call(masked)
+            if span is not None:
+                callee = _infer_span(code, line_idx, masked, span[0], span[1])
+                label = masked[span[0]:span[1]].strip()
+                for name in _param_names(callee):
+                    if name.startswith(prefix) and name != prefix:
+                        arguments.append({"n": name + "=", "k": "kw", "s": "", "d": "argument of " + label})
         seen = set()
 
         def add(name, kind, sig, doc):
@@ -3032,6 +3696,19 @@ def _complete(params):
                 seen.add(name)
                 items.append({"n": name, "k": kind, "s": sig, "d": _first_line(doc)})
 
+        tree = _parse_lenient(code, line_idx)
+        scope = _scope_for(tree, line_idx + 1)
+        while scope is not None:
+            for name, entries in scope.bindings.items():
+                kind = entries[-1][1]
+                if kind == "def":
+                    node = entries[-1][2]
+                    add(name, "fn", "(" + ", ".join(a.arg for a in node.args.args) + ")", _docstring(node))
+                elif kind == "class":
+                    add(name, "class", "", _docstring(entries[-1][2]))
+                else:
+                    add(name, "field", "", "")
+            scope = scope.parent
         for name, (kind, sig, doc) in _local_defs(code).items():
             add(name, kind, sig, doc)
         for name, obj in _api_names().items():
@@ -3046,12 +3723,23 @@ def _complete(params):
                 kind, sig, doc = _describe(name, obj)
                 add(name, kind, sig, doc)
     items.sort(key=lambda i: (i["k"] == "kw", i["n"].lower()))
-    return {"prefix": prefix, "items": items[:80], "suggestions": [i["n"] for i in items[:80]]}
+    items = (arguments + items)[:_COMPLETION_LIMIT]
+    return {"prefix": prefix, "items": items, "suggestions": [i["n"] for i in items]}
+
+
+_COMPLETION_LIMIT = 250
+
+
+def _docstring(node):
+    import ast
+    try:
+        return ast.get_docstring(node) or ""
+    except TypeError:
+        return ""
 
 
 def _hover(params):
     """Documentation of the name under the cursor, for the editor's hover and quick doc."""
-    import re
     code = params.get("code", "")
     lines = code.split("\n")
     line_idx = params.get("line", 0)
@@ -3068,16 +3756,32 @@ def _hover(params):
     word = line[start:end]
     if not word or word[0].isdigit():
         return {}
-    chain = word
-    head = line[:start]
-    m = re.search(r'((?:[A-Za-z_]\w*\.)+)$', head)
-    if m:
-        chain = m.group(1) + word
+    before = "\n".join(lines[:line_idx] + [line[:start]])
+    masked = _mask(before)
+    if masked.endswith("."):
+        receiver = _receiver(masked, len(masked) - 1)
+        base = _infer_span(code, line_idx, masked, receiver, len(masked) - 1) if receiver >= 0 else None
+        row = _members(base).get(word)
+        if row is not None:
+            kind, sig, doc = row
+            label = masked[receiver:len(masked) - 1].strip() + "." + word
+            return {"title": label + sig, "kind": kind, "doc": doc}
+        return {}
     local = _local_defs(code)
-    obj = _resolve_chain(chain)
-    if obj is not None:
-        kind, sig, doc = _describe(chain, obj)
-        return {"title": chain + sig, "kind": kind, "doc": doc}
+    tree = _parse_lenient(code, line_idx)
+    scope = _scope_for(tree, line_idx + 1)
+    binding = scope.lookup(word, line_idx + 2)
+    if binding is not None and binding[1] not in ("def", "class"):
+        value = _binding_value(binding, 0)
+        if isinstance(value, (_Inst, _LocalInst)):
+            cls = value.cls if isinstance(value, _Inst) else None
+            name = _type_name(cls) if cls is not None else value.node.name
+            return {"title": word + ": " + name, "kind": "field",
+                    "doc": (inspect.getdoc(cls) or "") if cls is not None else _docstring(value.node)}
+    if word in _api_names():
+        obj = _api_names()[word]
+        kind, sig, doc = _describe(word, obj)
+        return {"title": word + sig, "kind": kind, "doc": doc}
     if word in local:
         kind, sig, doc = local[word]
         return {"title": ("def " if kind == "fn" else "class " if kind == "class" else "") + word + sig,

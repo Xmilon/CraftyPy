@@ -87,7 +87,7 @@ public final class CraftPyCommand {
 
     private static LiteralArgumentBuilder<CommandSourceStack> give() {
         return Commands.literal("give")
-                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.PERMISSION_LEVEL.get())))
+                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
                 .then(Commands.argument("target", EntityArgument.player())
                         .then(Commands.argument("id", ResourceLocationArgument.id())
                                 .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(contentIds(), builder))
@@ -242,7 +242,7 @@ public final class CraftPyCommand {
 
     private static LiteralArgumentBuilder<CommandSourceStack> ide() {
         return Commands.literal("ide")
-                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.PERMISSION_LEVEL.get())))
+                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
                 .then(Commands.literal("open")
                         .executes(ctx -> ideOpen(ctx, null))
                         .then(Commands.argument("player", EntityArgument.player())
@@ -325,7 +325,7 @@ public final class CraftPyCommand {
 
     private static LiteralArgumentBuilder<CommandSourceStack> project() {
         return Commands.literal("project")
-                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.PERMISSION_LEVEL.get())))
+                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
                 .then(Commands.literal("list").executes(CraftPyCommand::projectList))
                 .then(Commands.literal("new")
                         .then(Commands.argument("name", StringArgumentType.greedyString())
@@ -437,7 +437,7 @@ public final class CraftPyCommand {
 
     private static LiteralArgumentBuilder<CommandSourceStack> moduleGroup() {
         return Commands.literal("module")
-                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.PERMISSION_LEVEL.get())))
+                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
                 .executes(ctx -> {
                     ServerPlayer player = ctx.getSource().getPlayerOrException();
                     openIdeScreen(player, null);
@@ -666,7 +666,7 @@ public final class CraftPyCommand {
 
     private static LiteralArgumentBuilder<CommandSourceStack> window() {
         return Commands.literal("window")
-                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.PERMISSION_LEVEL.get())))
+                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
                 .then(Commands.literal("open")
                         .then(Commands.argument("module_window", StringArgumentType.string())
                                 .executes(ctx -> windowNotAvailable(ctx))

@@ -83,7 +83,7 @@ final class TextureEditorPanel implements DockPanel {
         root.setOrientation(LinearLayout.VERTICAL);
 
         var top = row(context);
-        nameBox = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        nameBox = CraftPyFragment.field(context);
         nameBox.setSingleLine();
         nameBox.setText(path);
         nameBox.setHint("assets/textures/name.png");
@@ -147,7 +147,7 @@ final class TextureEditorPanel implements DockPanel {
         var colours = row(context);
         swatch = new View(context);
         colours.addView(swatch, new LinearLayout.LayoutParams(root.dp(34), root.dp(34)));
-        hexBox = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        hexBox = CraftPyFragment.field(context);
         hexBox.setSingleLine();
         hexBox.setHint("#RRGGBB / #AARRGGBB");
         hexBox.addTextChangedListener(new TextWatcher() {

@@ -10,11 +10,9 @@ import icyllis.modernui.core.Context;
 import icyllis.modernui.fragment.Fragment;
 import icyllis.modernui.fragment.FragmentContainerView;
 import icyllis.modernui.fragment.FragmentTransaction;
-import icyllis.modernui.graphics.drawable.RippleDrawable;
 import icyllis.modernui.graphics.drawable.ShapeDrawable;
 import icyllis.modernui.mc.MuiModApi;
 import icyllis.modernui.mc.ScreenCallback;
-import icyllis.modernui.mc.ui.ThemeControl;
 import icyllis.modernui.resources.ResourceId;
 import icyllis.modernui.resources.TypedValue;
 import icyllis.modernui.util.ColorStateList;
@@ -29,8 +27,6 @@ import icyllis.modernui.widget.Button;
 import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.FrameLayout;
 import icyllis.modernui.widget.LinearLayout;
-import icyllis.modernui.widget.RadioButton;
-import icyllis.modernui.widget.RadioGroup;
 import icyllis.modernui.widget.TextView;
 import net.minecraft.client.gui.screens.Screen;
 import net.xmilon.craftpy.client.ClientProjectStore;
@@ -56,7 +52,8 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
     private static final int ID_CONTAINER = 0x2101;
 
     private final int initialPage;
-    private RadioGroup nav;
+    private LinearLayout nav;
+    private int current;
 
     /** Client thread: jumps into the editor when the server asked for a project ({@code /craftpy ide project}). */
     private final Runnable pendingProjectListener = () -> {
@@ -67,7 +64,7 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         }
         store.setPendingIdeProject(null);
         store.select(pending);
-        RadioGroup view = nav;
+        LinearLayout view = nav;
         if (view != null) {
             view.post(() -> navigate(PAGE_EDITOR));
         }
@@ -102,38 +99,22 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         var base = new LinearLayout(context);
         base.setOrientation(LinearLayout.HORIZONTAL);
         base.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-        base.setDividerDrawable(ThemeControl.makeDivider(base, true));
-        base.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(
-                color(context, R.attr.colorSurface)));
+        base.setDividerDrawable(IdeColors.divider(base, true));
+        base.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(IdeColors.EDITOR));
 
-        nav = new RadioGroup(context);
+        // VS Code's activity bar: one icon per page, the open one marked by an accent bar on its left edge
+        nav = new LinearLayout(context);
         nav.setOrientation(LinearLayout.VERTICAL);
         nav.setGravity(Gravity.CENTER_HORIZONTAL);
-        nav.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(
-                color(context, R.attr.colorSurfaceContainer)));
-        int dp12 = base.dp(12);
-        nav.setPadding(0, dp12, 0, dp12);
-        {
-            var logo = new TextView(context);
-            logo.setText("CraftPy");
-            logo.setTextAppearance(R.attr.textAppearanceTitleMedium);
-            logo.setTextColor(color(context, R.attr.colorPrimary));
-            logo.setGravity(Gravity.CENTER);
-            var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-            lp.bottomMargin = base.dp(16);
-            nav.addView(logo, lp);
-        }
-        nav.addView(navButton(context, PAGE_HOME, "Home"));
-        nav.addView(navButton(context, PAGE_MODULES, "Modules"));
-        nav.addView(navButton(context, PAGE_EDITOR, "Editor"));
-        nav.addView(navButton(context, PAGE_DOCS, "Docs"));
-        nav.check(initialPage);
-        nav.setOnCheckedChangeListener((group, checkedId) -> getChildFragmentManager().beginTransaction()
-                .replace(ID_CONTAINER, pageFragment(checkedId), null)
-                .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
-                .setReorderingAllowed(true)
-                .commit());
-        base.addView(nav, new LinearLayout.LayoutParams(base.dp(104), MATCH_PARENT));
+        nav.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(IdeColors.PANEL));
+        nav.setPadding(0, base.dp(6), 0, base.dp(6));
+        nav.addView(navItem(context, PAGE_HOME, IdeIcon.Glyph.HOME, "Home: projects and templates"));
+        nav.addView(navItem(context, PAGE_EDITOR, IdeIcon.Glyph.CODE, "Editor"));
+        nav.addView(navItem(context, PAGE_MODULES, IdeIcon.Glyph.MODULES, "Modules: installed .cpm files"));
+        nav.addView(navItem(context, PAGE_DOCS, IdeIcon.Glyph.BOOK, "Docs: the Python API and guides"));
+        current = initialPage;
+        updateNav();
+        base.addView(nav, new LinearLayout.LayoutParams(base.dp(44), MATCH_PARENT));
 
         var pages = new FragmentContainerView(context);
         pages.setId(ID_CONTAINER);
@@ -156,8 +137,27 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
 
     /** Switches the visible page (UI thread). */
     public void navigate(int page) {
-        if (nav != null) {
-            nav.check(page);
+        if (nav == null || page == current) {
+            return;
+        }
+        current = page;
+        updateNav();
+        getChildFragmentManager().beginTransaction()
+                .replace(ID_CONTAINER, pageFragment(page), null)
+                .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
+                .setReorderingAllowed(true)
+                .commit();
+    }
+
+    private void updateNav() {
+        for (int i = 0; i < nav.getChildCount(); i++) {
+            View item = nav.getChildAt(i);
+            boolean selected = item.getId() == current;
+            item.setSelected(selected);
+            if (item instanceof ViewGroup group && group.getChildAt(0) instanceof IdeIcon icon) {
+                icon.setTint(selected ? IdeColors.TEXT : IdeColors.TEXT_SECONDARY);
+            }
+            item.invalidate();
         }
     }
 
@@ -184,35 +184,30 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         };
     }
 
-    private RadioButton navButton(Context context, int id, String text) {
-        var button = new RadioButton(context, null, null, null);
-        button.setId(id);
-        button.setText(text);
-        button.setClickable(true);
-        button.setOnClickListener(v -> navigate(id));
-        button.setTextSize(13);
-        button.setGravity(Gravity.CENTER);
-        button.setTextColor(new ColorStateList(
-                new int[][]{new int[]{R.attr.state_checked}, StateSet.WILD_CARD},
-                new int[]{color(context, R.attr.colorOnSecondaryContainer), color(context, R.attr.colorOnSurfaceVariant)}));
-        // Same pill indicator + ripple as Modern UI's navigation rail, with the label inside the pill.
-        var indicator = new ShapeDrawable();
-        indicator.setCornerRadius(1000);
-        indicator.setColor(new ColorStateList(
-                new int[][]{new int[]{R.attr.state_checked}, StateSet.WILD_CARD},
-                new int[]{color(context, R.attr.colorSecondaryContainer), 0}));
-        int onContainer = color(context, R.attr.colorOnSecondaryContainer);
-        button.setBackground(new RippleDrawable(new ColorStateList(
-                new int[][]{new int[]{R.attr.state_pressed}, new int[]{R.attr.state_hovered}, StateSet.WILD_CARD},
-                new int[]{ColorStateList.modulateColor(onContainer, 0.12f),
-                        ColorStateList.modulateColor(onContainer, 0.08f),
-                        ColorStateList.modulateColor(onContainer, 0.08f)}),
-                indicator, null));
-        int dp8 = button.dp(8);
-        var lp = new LinearLayout.LayoutParams(button.dp(84), button.dp(36));
-        lp.setMargins(0, dp8 / 2, 0, dp8 / 2);
-        button.setLayoutParams(lp);
-        return button;
+    /** One activity bar entry: the icon, a hover square, and the accent bar while its page is open. */
+    private View navItem(Context context, int id, IdeIcon.Glyph glyph, String tooltip) {
+        var item = new FrameLayout(context) {
+            private final icyllis.modernui.graphics.Paint bar = new icyllis.modernui.graphics.Paint();
+
+            @Override
+            protected void dispatchDraw(@NonNull icyllis.modernui.graphics.Canvas canvas) {
+                super.dispatchDraw(canvas);
+                if (isSelected()) {
+                    bar.setColor(IdeColors.ACCENT);
+                    canvas.drawRect(0, dp(8), dp(2), getHeight() - dp(8), bar);
+                }
+            }
+        };
+        item.setId(id);
+        item.setClickable(true);
+        item.setTooltipText(tooltip);
+        item.setOnClickListener(EditorFragment.hidingTooltip(tooltip, v -> navigate(id)));
+        var icon = new IdeIcon(context, glyph);
+        icon.setDuplicateParentStateEnabled(true);
+        icon.setBackground(IdeColors.fading(item, 6, 0, IdeColors.SELECTED, IdeColors.HOVER, IdeColors.SELECTED, 0, 0));
+        item.addView(icon, new FrameLayout.LayoutParams(item.dp(32), item.dp(32), Gravity.CENTER));
+        item.setLayoutParams(new LinearLayout.LayoutParams(MATCH_PARENT, item.dp(40)));
+        return item;
     }
 
     // ---- ScreenCallback ----
@@ -241,6 +236,10 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
     }
 
     static int color(Context context, String attr) {
+        Integer palette = IdeColors.role(attr);
+        if (palette != null) {
+            return palette;
+        }
         var value = new TypedValue();
         context.getTheme().resolveAttribute(R.ns, attr, value, true);
         return value.data;
@@ -250,7 +249,15 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         var button = new Button(context, null, style);
         button.setText(text);
         button.setOnClickListener(onClick);
+        IdeColors.styleButton(button, style);
         return button;
+    }
+
+    /** A text field in the IDE's look (Modern UI's outlined field, restyled). */
+    static EditText field(Context context) {
+        var field = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        IdeColors.styleField(field);
+        return field;
     }
 
     static TextView label(Context context, String text, ResourceId appearance) {
@@ -264,29 +271,23 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
     static LinearLayout card(Context context) {
         var card = new LinearLayout(context);
         card.setOrientation(LinearLayout.VERTICAL);
-        ThemeControl.makeOutlinedCard(context, card, new TypedValue());
+        card.setBackground(IdeColors.card(card));
+        int pad = card.dp(12);
+        card.setPadding(pad, pad, pad, pad);
         return card;
     }
 
     /** Hover/press highlight for clickable rows (rounded, theme tinted). */
     static void hoverBackground(View view) {
-        int onSurface = color(view.getContext(), R.attr.colorOnSurface);
-        var mask = new ShapeDrawable();
-        mask.setCornerRadius(view.dp(8));
-        mask.setColor(0xFFFFFFFF);
-        view.setBackground(new RippleDrawable(new ColorStateList(
-                new int[][]{new int[]{R.attr.state_pressed}, StateSet.WILD_CARD},
-                new int[]{ColorStateList.modulateColor(onSurface, 0.12f),
-                        ColorStateList.modulateColor(onSurface, 0.08f)}),
-                null, mask));
+        IdeColors.hoverBackground(view, 5);
     }
 
     /** Rounded pill background for the selected tab/chip; hover highlight otherwise. */
     static void styleChip(View view, boolean selected) {
         if (selected) {
             var bg = new ShapeDrawable();
-            bg.setCornerRadius(view.dp(8));
-            bg.setColor(color(view.getContext(), R.attr.colorSecondaryContainer));
+            bg.setCornerRadius(view.dp(5));
+            bg.setColor(IdeColors.SELECTED);
             view.setBackground(bg);
         } else {
             hoverBackground(view);
@@ -310,7 +311,7 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         var dialog = Overlays.dialog(anchor, title, 320, -1);
         EditText input = null;
         if (initial != null) {
-            input = new EditText(context, null, R.attr.editTextOutlinedStyle);
+            input = field(context);
             input.setSingleLine();
             input.setText(initial);
             input.selectAll();

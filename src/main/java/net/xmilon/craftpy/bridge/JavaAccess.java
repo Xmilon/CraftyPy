@@ -64,7 +64,7 @@ public final class JavaAccess {
     /** Reads the config when NeoForge has loaded it; unit tests and early calls keep the defaults. */
     public static void refreshFromConfig() {
         try {
-            configure(net.xmilon.craftpy.Config.JAVA_BRIDGE_MODE.get(),
+            configure(net.xmilon.craftpy.Config.JAVA_BRIDGE_MODE.get(), // throws while no config is loaded: keep what is set
                     List.copyOf(net.xmilon.craftpy.Config.JAVA_BRIDGE_PACKAGES.get()));
         } catch (Throwable ignored) {
             // config not loaded yet: keep what is set

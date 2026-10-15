@@ -431,7 +431,7 @@ public final class ProjectManager {
                 return new FileRead(id, path, false, "File not found: " + path, "");
             }
             try {
-                if (Files.size(file) > (long) Config.MAX_PACKET_SIZE_KB.get() * 1024) {
+                if (Files.size(file) > (long) Config.get(Config.MAX_PACKET_SIZE_KB) * 1024) {
                     return new FileRead(id, path, false, "File exceeds max packet size", "");
                 }
                 return new FileRead(id, path, true, "", Files.readString(file, StandardCharsets.UTF_8));

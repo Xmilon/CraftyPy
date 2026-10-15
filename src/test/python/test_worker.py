@@ -622,9 +622,9 @@ raw_json("tags/item/x.json", {"values": []}, namespace="minecraft")
 
 def test_params_and_extensions_for_completion():
     assert "player_join" in dir(w.on) and "block_break" in dir(w.on)
-    names = w._handle("params", {"chain": "Item"})["names"]
-    assert "id" in names and "texture" in names, names
-    assert w._handle("params", {"chain": "nothing_here"}) == {"names": []}
+    names = [i["n"] for i in w._handle("complete", {"code": "Item(", "line": 0, "column": 5})["items"]]
+    assert "id=" in names and "texture=" in names, names
+    assert not any(n.endswith("=") for n in [i["n"] for i in w._handle("complete", {"code": "nothing_here(", "line": 0, "column": 13})["items"]])
     run_main("rr", "from craftpy import *\n@extension\nclass Vampiric(Extension):\n    pass\n")
     items = w._handle("complete", {"code": "Vamp", "line": 0, "column": 4})["items"]
     assert any(i["n"] == "Vampiric" for i in items), items
@@ -654,6 +654,73 @@ def touch(event):
     player = {"name": "Dev", "uuid": "00000000-0000-0000-0000-000000000000"}
     assert w._handle("trigger_event", {"event": "block_interact", "context": dict(ctx, player=player)})["handlers"] == 1
     w._handle("unload_owner", {"owner": "bt"})
+
+
+def _names(code, line=None, column=None):
+    lines = code.split(chr(10))
+    line = len(lines) - 1 if line is None else line
+    column = len(lines[line]) if column is None else column
+    return [i["n"] for i in w._handle("complete", {"code": code, "line": line, "column": column})["items"]]
+
+
+def test_completion_of_chained_calls_and_returned_values():
+    assert "extends" in _names('Item("a").')
+    assert "extends" in _names('Item("a", texture="x.png").extends(Sword()).')
+    assert "local_id" in _names('gem = Item("gem")' + chr(10) + "gem.")
+    assert "tier=" in _names('Item("a").extends(Sword(')
+    assert "durability=" in _names('Item("a").extends(Sword(tier="iron"), Durability(') or         any(n.endswith("=") for n in _names('Item("a").extends(Durability('))
+    assert "up" in _names("Pos(1, 2, 3).up(1).")
+    assert "upper" in _names('"abc".')
+    assert _names("x = 1.") == [] or "real" not in _names("x = 1.")
+
+
+def test_completion_of_event_handlers_and_contexts():
+    code = "@on.block_break" + chr(10) + "def broke(event):" + chr(10) + "    event."
+    names = _names(code)
+    assert "player" in names and "block" in names and "cancel" in names, names
+    names = _names(code.replace("event.", "event.player."))
+    assert "give" in names and "teleport" in names and "health" in names, names
+    assert "id" in _names(code.replace("event.", "event.block."))
+    assert "up" in _names(code.replace("event.", "event.pos."))
+    assert "x" in _names(code.replace("event.", "event.player.pos."))
+    assert "count=" in _names(code.replace("event.", "event.player.give(\"x\", "))
+    tick = "@every(seconds=5)" + chr(10) + "def t(ctx):" + chr(10) + "    ctx."
+    assert "tick" in _names(tick) and "world" in _names(tick)
+    assert "set_block" in _names(tick.replace("ctx.", "ctx.world."))
+    cmd = "@command(\"heal\")" + chr(10) + "def heal(ctx, target: Player):" + chr(10) + "    target."
+    assert "heal" in _names(cmd)
+    loop = "for p in players.online():" + chr(10) + "    p."
+    assert "give" in _names(loop)
+    # the line being typed does not parse; the handler around it is still found
+    broken = "@on.player_join" + chr(10) + "def hi(e):" + chr(10) + "    e.player.say(" + chr(10) + "    e."
+    assert "player" in _names(broken)
+
+
+def test_completion_of_classes_and_functions_of_the_file():
+    code = chr(10).join([
+        "class Shop(Window):",
+        "    def __init__(self):",
+        "        self.stock = Item('a')",
+        "    def price(self, item):",
+        "        return 3",
+        "    def show(self):",
+        "        self.",
+    ])
+    names = _names(code)
+    assert "stock" in names and "price" in names and "show" in names, names
+    assert "extends" in _names(code + "stock.")
+    fn = "def make():" + chr(10) + "    return Item('a')" + chr(10) + "make()."
+    assert "extends" in _names(fn)
+    assert "item=" in _names(code + "price(")
+    assert _names("# Item(" + chr(10) + "x", 0, 7) == []  # in a comment
+
+
+def test_hover_uses_inferred_types():
+    code = "@on.block_break" + chr(10) + "def broke(event):" + chr(10) + "    event.player.give('x')"
+    h = w._handle("hover", {"code": code, "line": 2, "column": 21})
+    assert h["title"].startswith("event.player.give("), h
+    h = w._handle("hover", {"code": code, "line": 2, "column": 6})
+    assert h["title"] == "event: EventContext", h
 
 
 if __name__ == "__main__":

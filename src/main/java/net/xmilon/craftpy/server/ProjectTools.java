@@ -11,7 +11,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import net.xmilon.craftpy.analysis.ProjectScan;
-import net.xmilon.craftpy.analysis.StringContext;
 import net.xmilon.craftpy.catalog.ModCatalog;
 import net.xmilon.craftpy.analysis.PyOutline;
 import net.xmilon.craftpy.lifecycle.EventTrace;
@@ -323,25 +322,6 @@ public final class ProjectTools {
     }
 
     /** {@code name=} entries for the arguments the call accepts and the typed part matches, in front of the other items. */
-    static JsonObject withKeywords(JsonObject result, StringContext.Call call, List<String> names) {
-        JsonArray items = new JsonArray();
-        for (String name : names) {
-            if (name.startsWith(call.typed()) && !name.equals(call.typed())) {
-                JsonObject item = new JsonObject();
-                item.addProperty("n", name + "=");
-                item.addProperty("k", "kw");
-                item.addProperty("s", "");
-                item.addProperty("d", "argument of " + call.chain());
-                items.add(item);
-            }
-        }
-        if (result.has("items") && result.get("items").isJsonArray()) {
-            items.addAll(result.getAsJsonArray("items"));
-        }
-        result.add("items", items);
-        return result;
-    }
-
     /** Items and blocks the project declares (as {@code project:id}), by kind; blocks also exist as items. */
     private static Map<String, List<String>> ownIds(String projectId) {
         Map<String, List<String>> own = new java.util.HashMap<>();
@@ -384,12 +364,8 @@ public final class ProjectTools {
         if (!PyRuntime.available()) {
             return done(error(op, "No Python runtime"));
         }
-        var worker = PyRuntime.get().assist(op, code, line, column);
-        // typing a keyword inside a call: the argument names of the API function come first
-        var call = op.equals("complete") ? StringContext.callAt(code, CompletionEngine.offsetOf(code, line, column)) : java.util.Optional.<StringContext.Call>empty();
-        var withNames = call.isEmpty() ? worker : worker.thenCombine(PyRuntime.get().params(call.get().chain()),
-                (result, names) -> withKeywords(result, call.get(), names));
-        return withNames.thenApply(result -> {
+        // the worker infers types (chained calls, event handlers, keyword arguments of the call being typed)
+        return PyRuntime.get().assist(op, code, line, column).thenApply(result -> {
             result.addProperty("op", op);
             if (request.has("seq")) {
                 result.add("seq", request.get("seq"));

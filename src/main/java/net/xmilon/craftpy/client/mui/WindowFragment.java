@@ -268,7 +268,7 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                         v -> send(token, null));
             }
             case "text_input", "text_area" -> {
-                var input = new EditText(context, null, R.attr.editTextOutlinedStyle);
+                var input = CraftPyFragment.field(context);
                 boolean single = "text_input".equals(type);
                 if (single) {
                     input.setSingleLine();

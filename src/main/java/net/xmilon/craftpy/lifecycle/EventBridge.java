@@ -248,7 +248,7 @@ public class EventBridge {
         var future = PyRuntime.get().triggerEvent(event, context);
         long budgetMs = 50;
         try {
-            budgetMs = Math.max(50, net.xmilon.craftpy.Config.EVENT_TIMEOUT_MS.get());
+            budgetMs = Math.max(50, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.EVENT_TIMEOUT_MS));
         } catch (RuntimeException ignored) {
             // config not loaded: default budget
         }

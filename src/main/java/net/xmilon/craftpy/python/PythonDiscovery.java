@@ -36,7 +36,7 @@ public final class PythonDiscovery {
         }
         List<Path> candidates = new ArrayList<>();
 
-        String configured = Config.PYTHON_PATH.get();
+        String configured = Config.get(Config.PYTHON_PATH);
         if (configured != null && !configured.isBlank()) {
             candidates.add(Path.of(configured.trim()));
         }

@@ -77,4 +77,13 @@ public final class Config {
 
     private Config() {
     }
+
+    /** The value, or its default when no config file is loaded (the standalone IDE, unit tests). */
+    public static <T> T get(ModConfigSpec.ConfigValue<T> value) {
+        try {
+            return value.get();
+        } catch (IllegalStateException notLoaded) {
+            return value.getDefault();
+        }
+    }
 }

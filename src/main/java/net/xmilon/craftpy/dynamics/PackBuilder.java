@@ -95,6 +95,7 @@ public final class PackBuilder {
         writeMcmeta(root, RESOURCE_FORMAT, "CraftPy project resources");
 
         JsonObject lang = new JsonObject();
+        java.util.Set<String> usedTextures = new java.util.TreeSet<>();
 
         // Emit an asset for every registered slot so generic blocks/items always
         // resolve to a valid (placeholder when unloaded) model.
@@ -104,6 +105,7 @@ public final class PackBuilder {
             String projectId = ownerOf(holder);
             String texture = def != null && def.texture != null
                     ? texturePath(mapRef(def.texture, projectId, null), projectId, "block") : UNLOADED_TEXTURE;
+            usedTextures.add(texture);
             String name = def != null && def.name != null ? def.name : "Unloaded: " + holder;
             String id = "pcblock_" + i;
 
@@ -137,6 +139,7 @@ public final class PackBuilder {
             String projectId = ownerOf(holder);
             String texture = def != null && def.texture != null
                     ? texturePath(mapRef(def.texture, projectId, null), projectId, "item") : UNLOADED_TEXTURE;
+            usedTextures.add(texture);
             String name = def != null && def.name != null ? def.name : "Unloaded: " + holder;
             String id = "pcitem_" + i;
 
@@ -174,6 +177,66 @@ public final class PackBuilder {
         // actually resolvable in-game and show up in the asset bank.
         copyProjectAssets(root);
         writeProjectResourceExtras(root);
+        writeJson(blockAtlas(root, usedTextures), root.resolve("assets/minecraft/atlases/blocks.json"));
+    }
+
+    /**
+     * The block atlas (blocks and items share it) only stitches {@code textures/block/} and {@code textures/item/} of every
+     * namespace; a project texture such as {@code welcome:gem} ({@code assets/welcome/textures/gem.png}) showed as the
+     * missing texture. Atlas files of all packs are merged, so this adds one {@code single} source per such texture: every
+     * texture a slot model uses and every PNG a project ships (its own models may use them). Package-visible for tests.
+     */
+    static JsonObject blockAtlas(Path root, java.util.Set<String> used) throws java.io.IOException {
+        java.util.Set<String> sprites = new java.util.TreeSet<>();
+        for (String texture : used) {
+            if (needsAtlasEntry(texture)) {
+                sprites.add(texture);
+            }
+        }
+        Path assets = root.resolve("assets");
+        if (Files.isDirectory(assets)) {
+            try (java.util.stream.Stream<Path> namespaces = Files.list(assets)) {
+                for (Path namespace : (Iterable<Path>) namespaces::iterator) {
+                    Path textures = namespace.resolve("textures");
+                    // retextured vanilla files are already in the vanilla atlas or belong to other atlases (entities, gui)
+                    if (namespace.getFileName().toString().equals("minecraft") || !Files.isDirectory(textures)) {
+                        continue;
+                    }
+                    try (java.util.stream.Stream<Path> files = Files.walk(textures)) {
+                        for (Path file : (Iterable<Path>) files::iterator) {
+                            String rel = textures.relativize(file).toString().replace('\\', '/');
+                            if (Files.isRegularFile(file) && rel.endsWith(".png")) {
+                                String id = namespace.getFileName() + ":" + rel.substring(0, rel.length() - 4);
+                                if (needsAtlasEntry(id)) {
+                                    sprites.add(id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        JsonArray sources = new JsonArray();
+        for (String sprite : sprites) {
+            JsonObject source = new JsonObject();
+            source.addProperty("type", "single");
+            source.addProperty("resource", sprite);
+            sources.add(source);
+        }
+        JsonObject atlas = new JsonObject();
+        if (!sources.isEmpty()) {
+            atlas.add("sources", sources);
+        }
+        return atlas;
+    }
+
+    /** False for ids the vanilla directory sources already stitch, and for anything that is not a valid texture id. */
+    private static boolean needsAtlasEntry(String texture) {
+        int colon = texture.indexOf(':');
+        String path = colon < 0 ? texture : texture.substring(colon + 1);
+        String namespace = colon < 0 ? "minecraft" : texture.substring(0, colon);
+        return !path.startsWith("block/") && !path.startsWith("item/")
+                && namespace.matches("[a-z0-9_.-]+") && path.matches("[a-z0-9_./-]+");
     }
 
     /** Writes resource-pack assets described from Python (sounds.json, particles). */

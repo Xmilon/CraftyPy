@@ -79,7 +79,7 @@ final class AssetBrowserPanel implements DockPanel {
         chipScroll.addView(chipRow);
         root.addView(chipScroll);
 
-        search = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        search = CraftPyFragment.field(context);
         search.setSingleLine();
         search.setHint("Search ids   (#tag   @namespace)");
         search.addTextChangedListener(new TextWatcher() {

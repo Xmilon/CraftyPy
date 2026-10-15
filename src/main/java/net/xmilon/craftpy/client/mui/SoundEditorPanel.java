@@ -80,7 +80,7 @@ final class SoundEditorPanel implements DockPanel {
         root.setOrientation(LinearLayout.VERTICAL);
 
         var top = row(context);
-        nameBox = new EditText(context, null, R.attr.editTextOutlinedStyle);
+        nameBox = CraftPyFragment.field(context);
         nameBox.setSingleLine();
         nameBox.setText(oggName(path));
         nameBox.setHint("assets/sounds/name.ogg");

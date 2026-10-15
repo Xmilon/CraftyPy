@@ -22,6 +22,11 @@ UI code, update REPORT/AUDIT/README/guide after each batch, never plant bugs. Se
   4. a "fake instance" of Minecraft: an IDE that compiles and works without opening the game (M18, section 2);
   5. **"once done, commit and push"**: commits are made per stage (M15, M16, M17, M18 step 1+) but **nothing is pushed yet**.
      Push only when M18 is finished (or when you say so) and after the clean-push decision in section 5.
+- **2026-10-16 session**: "do all of the features until they are done, think about what could go wrong, make no mistakes"
+  (the user verifies in game later); then **"think about 50 new features (IDE, UI, quality of life, actual coding) and
+  implement them, don't ask, then refine the entire project"**; then **"this has to be an SSS tier mod; add resizable editor
+  windows like in IntelliJ; it has to look like a clone of IntelliJ but still different"**. Order of work: section 1, M18,
+  sections 3-6, the 50 features (section 9), the IntelliJ-style layout (section 10), a refinement pass over everything.
 - **Reference material**: the compat mods' sources are in `C:/Users/Xmilon/IdeaProjects/Compatibily Mods` (claudemem there is only
   partly set up because indexing takes too long). Load claudemem for that folder only when really needed (tokens are expensive).
   The mod jars used for testing are in `run/mods` (Create 6.0.10, Curios 9.5.1, GeckoLib 4.9.3, Iron's Spellbooks 3.16.3 + Iron's Lib,

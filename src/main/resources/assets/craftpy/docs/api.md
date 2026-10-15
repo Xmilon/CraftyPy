@@ -368,7 +368,7 @@ shaped(RubyBlade, "R", "R", R=ruby)           # the class can be used wherever a
 
 ## Items and blocks
 
-### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), **extra)`
+### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), **extra) -> 'Content'`
 
 Declares an item and returns it; the result can be used anywhere an item id is expected.
 
@@ -387,7 +387,7 @@ Declares an item and returns it; the result can be used anywhere an item id is e
 
 Returns: The item (a string 'project:id' with .extends(...)).
 
-### `Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None, needs_tool=False, sound=None, drops=None, extensions=(), **extra)`
+### `Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None, needs_tool=False, sound=None, drops=None, extensions=(), **extra) -> 'Content'`
 
 Declares a block and returns it; usable anywhere a block or item id is expected.
 
@@ -431,7 +431,7 @@ Class form of Block(...): attributes id, name, texture, hardness, resistance, li
 
 ## Extensions
 
-### `Content.extends(*extensions)`
+### `Content.extends(*extensions) -> 'Content'`
 
 Adds behaviour to an item or block; returns the same item or block so calls chain.
 
@@ -1040,7 +1040,7 @@ Runs a Minecraft command as the server: run('time set day').
 | --- | --- | --- |
 | `command_text` |  | Command without the leading slash. |
 
-### `player(name)`
+### `player(name) -> 'Player'`
 
 The online player with this name, or None.
 
@@ -1081,7 +1081,7 @@ Names of every online player.
 
 Returns: list of str
 
-### `players.online()`
+### `players.online() -> 'list[Player]'`
 
 Every online player.
 
@@ -1291,13 +1291,13 @@ Sets the player on fire.
 
 Kills the player.
 
-### `Player.refresh()`
+### `Player.refresh() -> 'Player'`
 
 A fresh snapshot of this player (position, health...).
 
 Returns: A Player.
 
-### `Player.named(name)`
+### `Player.named(name) -> 'Player'`
 
 The online player with this name, or None.
 
@@ -1331,7 +1331,7 @@ Sets its custom name.
 | --- | --- | --- |
 | `name` |  | The name. |
 
-### `Entity.refresh()`
+### `Entity.refresh() -> 'Entity'`
 
 A fresh snapshot (None if it is gone).
 
@@ -1349,7 +1349,7 @@ An (x, y, z) position; supports pos + (0, 1, 0), pos.up(2).
 | `y` |  | Y. |
 | `z` |  | Z. |
 
-### `Pos.up(n=1)`
+### `Pos.up(n=1) -> 'Pos'`
 
 The position n blocks higher.
 
@@ -1359,7 +1359,7 @@ The position n blocks higher.
 
 Returns: A Pos.
 
-### `Pos.down(n=1)`
+### `Pos.down(n=1) -> 'Pos'`
 
 The position n blocks lower.
 
@@ -1369,7 +1369,7 @@ The position n blocks lower.
 
 Returns: A Pos.
 
-### `Pos.block()`
+### `Pos.block() -> 'Pos'`
 
 Integer block coordinates.
 
@@ -1444,7 +1444,7 @@ Block entities around a position.
 
 Returns: list
 
-### `world.entities(x, y=None, z=None, radius=8, type=None, dimension='minecraft:overworld')`
+### `world.entities(x, y=None, z=None, radius=8, type=None, dimension='minecraft:overworld') -> 'list[Entity]'`
 
 Entities near a position.
 
@@ -1473,7 +1473,7 @@ Entities in a cube around a position.
 
 Returns: list
 
-### `world.spawn(entity, x, y=None, z=None, dimension='minecraft:overworld')`
+### `world.spawn(entity, x, y=None, z=None, dimension='minecraft:overworld') -> 'Entity'`
 
 Spawns an entity ('zombie', 'minecraft:pig').
 

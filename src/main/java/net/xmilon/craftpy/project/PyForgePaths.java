@@ -26,6 +26,10 @@ public final class PyForgePaths {
     }
 
     public static Path root() {
+        String home = System.getProperty("craftpy.home");
+        if (home != null && !home.isBlank()) { // the standalone IDE: the game folder it works on
+            return Path.of(home).resolve("pyforge");
+        }
         Path gameDir = null;
         try {
             gameDir = FMLPaths.GAMEDIR.get();

@@ -81,7 +81,7 @@ final class ListDialog {
         content.addView(message);
 
         if (filterable) {
-            filter = new EditText(context, null, R.attr.editTextOutlinedStyle);
+            filter = CraftPyFragment.field(context);
             filter.setSingleLine();
             filter.setHint("Type to filter (Enter = open the first)");
             filter.addTextChangedListener(new TextWatcher() {

@@ -111,25 +111,4 @@ class CompletionEngineTest {
         assertNull(at("p.eff"));
         assertEquals(0, at("print(\"hel").getAsJsonArray("items").size());
     }
-
-    @Test
-    void keywordsAreOfferedWhileTypingAnArgument() {
-        var call = StringContext.callAt("Item(\"x\", tex", 13).get();
-        assertEquals("Item", call.chain());
-        assertEquals("tex", call.typed());
-        assertEquals("foo", StringContext.callAt("x = foo(", 8).get().chain());
-        assertTrue(StringContext.callAt("p.eff", 5).isEmpty(), "after a dot it is a member, not a keyword");
-        assertTrue(StringContext.callAt("x = tex", 7).isEmpty(), "not inside a call");
-        assertTrue(StringContext.callAt("foo(\"te", 7).isEmpty(), "inside a string");
-        assertTrue(StringContext.callAt("foo([te", 7).isEmpty(), "inside a list");
-        var reply = new JsonObject();
-        var items = new JsonArray();
-        var existing = new JsonObject();
-        existing.addProperty("n", "texture_pack");
-        items.add(existing);
-        reply.add("items", items);
-        ProjectTools.withKeywords(reply, call, List.of("id", "texture", "name"));
-        assertEquals("texture=", reply.getAsJsonArray("items").get(0).getAsJsonObject().get("n").getAsString());
-        assertEquals(2, reply.getAsJsonArray("items").size());
-    }
 }
