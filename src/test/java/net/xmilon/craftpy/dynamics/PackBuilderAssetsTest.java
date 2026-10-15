@@ -4,6 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 class PackBuilderAssetsTest {
     @Test
@@ -31,5 +35,18 @@ class PackBuilderAssetsTest {
                 "{\"pools\":[{\"rolls\":1,\"entries\":[]}]}").getAsJsonObject();
         PackBuilder.requireTool(plain, "axe", 0);
         org.junit.jupiter.api.Assertions.assertTrue(plain.toString().contains("#minecraft:axes"));
+    }
+
+    @Test
+    void declaredSoundsAreAddedToTheProjectsOwnSoundsJson(@TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path own = dir.resolve("sounds.json");
+        java.nio.file.Files.writeString(own, "{\"mine\":{\"sounds\":[\"a\"]},\"both\":{\"sounds\":[\"old\"]}}");
+        JsonObject declared = JsonParser.parseString("{\"both\":{\"sounds\":[\"new\"]},\"extra\":{\"sounds\":[\"b\"]}}").getAsJsonObject();
+        JsonObject merged = PackBuilder.mergeSounds(own, declared);
+        assertEquals(3, merged.size());
+        assertEquals("a", merged.getAsJsonObject("mine").getAsJsonArray("sounds").get(0).getAsString());
+        assertEquals("new", merged.getAsJsonObject("both").getAsJsonArray("sounds").get(0).getAsString());
+        // no file of its own: just the declared ones
+        assertEquals(2, PackBuilder.mergeSounds(dir.resolve("none.json"), declared).size());
     }
 }

@@ -2713,9 +2713,18 @@ public class EditorFragment extends Fragment {
                 return;
             }
             ClientProjectStore store = ClientProjectStore.getInstance();
-            store.uploadAsset(project, target, data);
-            store.refresh();
-            code.post(() -> toast("Copied " + id + " to " + target));
+            byte[] meta = kind == AssetKind.TEXTURE ? AssetFetch.textureMeta(id) : null; // animated textures
+            // the store refreshes the file list once the server wrote the file; say "Copied" only then
+            store.uploadAsset(project, target, data, error -> code.post(() -> {
+                if (error != null) {
+                    toast("Not copied: " + error);
+                    return;
+                }
+                toast("Copied " + id + " to " + target);
+                if (meta != null) {
+                    Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().uploadAsset(project, target + ".mcmeta", meta));
+                }
+            }));
         });
     }
 

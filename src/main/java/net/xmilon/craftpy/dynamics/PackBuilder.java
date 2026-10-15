@@ -209,9 +209,31 @@ public final class PackBuilder {
                 }
             }
             if (!sounds.entrySet().isEmpty()) {
-                writeJson(sounds, namespace.resolve("sounds.json"));
+                writeJson(mergeSounds(namespace.resolve("sounds.json"), sounds), namespace.resolve("sounds.json"));
             }
         }
+    }
+
+    /**
+     * The project may ship its own {@code sounds.json} (copied into the pack before this runs); sounds declared from Python
+     * are added to it and win on the same name, instead of replacing the whole file.
+     */
+    static JsonObject mergeSounds(Path existingFile, JsonObject declared) {
+        JsonObject merged = new JsonObject();
+        if (Files.isRegularFile(existingFile)) {
+            try {
+                JsonElement existing = com.google.gson.JsonParser.parseString(Files.readString(existingFile));
+                if (existing.isJsonObject()) {
+                    merged = existing.getAsJsonObject();
+                }
+            } catch (Exception e) {
+                CraftPy.LOGGER.warn("Ignoring unreadable {}: {}", existingFile, e.toString());
+            }
+        }
+        for (var entry : declared.entrySet()) {
+            merged.add(entry.getKey(), entry.getValue());
+        }
+        return merged;
     }
 
     private static void copyProjectAssets(Path root) {

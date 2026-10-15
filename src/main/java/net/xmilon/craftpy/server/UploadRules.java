@@ -11,7 +11,7 @@ public final class UploadRules {
     /** Characters of base64 per chunk; the client ({@code ClientProjectStore.uploadAsset}) splits with this size. */
     public static final int CHUNK_CHARS = 16000;
 
-    private static final Set<String> EXTENSIONS = Set.of(".png", ".jpg", ".jpeg", ".ogg", ".wav", ".json");
+    private static final Set<String> EXTENSIONS = Set.of(".png", ".jpg", ".jpeg", ".ogg", ".wav", ".json", ".mcmeta");
 
     private UploadRules() {
     }
@@ -39,7 +39,7 @@ public final class UploadRules {
             allowed |= lower.endsWith(extension);
         }
         if (!allowed) {
-            return "Unsupported file type (use .png, .jpg, .ogg, .wav or .json)";
+            return "Unsupported file type (use .png, .jpg, .ogg, .wav, .json or .mcmeta)";
         }
         if (total > maxChunks(maxBytes)) {
             return "File too large (limit " + maxBytes / 1024 + " KB)";

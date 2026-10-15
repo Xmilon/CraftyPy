@@ -43,19 +43,25 @@ public class CraftPyClient {
         CraftPy.LOGGER.info("CraftPy client setup for {}", Minecraft.getInstance().getUser().getName());
         event.enqueueWork(() -> {
             long window = Minecraft.getInstance().getWindow().getWindow();
-            GLFW.glfwSetDropCallback(window, (handle, count, names) -> {
-                java.util.List<java.nio.file.Path> paths = AssetUploader.fromDropArgs(count, names);
-                // Files dropped on a CraftPy screen are uploaded to the open project.
-                if (Minecraft.getInstance().screen instanceof icyllis.modernui.mc.MuiScreen mui
-                        && mui.getFragment() instanceof CraftPyFragment) {
-                    ClientProjectStore store = ClientProjectStore.getInstance();
-                    String projectId = store.activeProjectId();
-                    if (projectId == null) {
-                        store.append("Open a project before dropping assets");
-                        return;
+            final org.lwjgl.glfw.GLFWDropCallback[] previous = new org.lwjgl.glfw.GLFWDropCallback[1];
+            previous[0] = GLFW.glfwSetDropCallback(window, (handle, count, names) -> {
+                // Files dropped on a CraftPy screen are uploaded to the open project; every other screen keeps the
+                // callback that was there (vanilla pack drag and drop).
+                if (!(Minecraft.getInstance().screen instanceof icyllis.modernui.mc.MuiScreen mui
+                        && mui.getFragment() instanceof CraftPyFragment)) {
+                    if (previous[0] != null) {
+                        previous[0].invoke(handle, count, names);
                     }
-                    AssetUploader.uploadAll(projectId, paths, net.xmilon.craftpy.assets.AssetKind.TEXTURE);
+                    return;
                 }
+                java.util.List<java.nio.file.Path> paths = AssetUploader.fromDropArgs(count, names);
+                ClientProjectStore store = ClientProjectStore.getInstance();
+                String projectId = store.activeProjectId();
+                if (projectId == null) {
+                    store.append("Open a project before dropping assets");
+                    return;
+                }
+                AssetUploader.uploadAll(projectId, paths, net.xmilon.craftpy.assets.AssetKind.TEXTURE);
             });
         });
         // Register key mapping

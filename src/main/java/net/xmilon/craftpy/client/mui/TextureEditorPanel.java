@@ -450,8 +450,7 @@ final class TextureEditorPanel implements DockPanel {
 
     /** Valid texture target inside the project's assets folder. */
     static boolean validTarget(String target) {
-        return target.startsWith("assets/") && target.endsWith(".png") && target.matches("[a-z0-9_./-]+")
-                && !target.contains("..") && !target.contains("//");
+        return net.xmilon.craftpy.client.assets.AssetDrop.validTarget(target, ".png");
     }
 
     void save() {

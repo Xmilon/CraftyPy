@@ -50,6 +50,16 @@ public final class AssetFetch {
     }
 
     /** Many blocks only have a block state file; the preview follows it to a model. */
+    /** The animation file next to a texture ({@code water.png.mcmeta}), or null. */
+    public static byte[] textureMeta(String id) {
+        try {
+            return AssetPreview.readResource(
+                    ResourceLocation.parse(withNamespace(id)).withPrefix("textures/").withSuffix(".png.mcmeta"));
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     private static String blockState(String namespace, String path) {
         try {
             byte[] data = AssetPreview.readResource(ResourceLocation.fromNamespaceAndPath(namespace, "blockstates/" + path + ".json"));

@@ -183,12 +183,13 @@ final class AssetBrowserPanel implements DockPanel {
             }
             List<String> shown = new ArrayList<>(found.subList(0, Math.min(found.size(), MAX_ROWS)));
             int total = found.size();
-            boolean building = !index.isBuilt();
+            boolean building = !index.isBuilt() && !index.isFailed();
+            boolean failed = index.isFailed();
             list.post(() -> {
                 if (mine != generation) {
                     return;
                 }
-                render(wanted, shown, total, building);
+                render(wanted, shown, total, building, failed);
                 if (building) {
                     list.postDelayed(() -> {
                         if (mine == generation) {
@@ -200,7 +201,7 @@ final class AssetBrowserPanel implements DockPanel {
         });
     }
 
-    private void render(AssetKind rowKind, List<String> ids, int total, boolean building) {
+    private void render(AssetKind rowKind, List<String> ids, int total, boolean building, boolean failed) {
         list.removeAllViews();
         for (String id : ids) {
             var line = row(context);
@@ -221,7 +222,7 @@ final class AssetBrowserPanel implements DockPanel {
             line.setOnTouchListener(new Drag(rowKind, id));
             list.addView(line);
         }
-        status.setText(building ? "Building the asset index..." : total == 0 ? "Nothing found." : total > ids.size()
+        status.setText(failed ? "Could not read the asset index (see the log)." : building ? "Building the asset index..." : total == 0 ? "Nothing found." : total > ids.size()
                 ? "Showing the first " + ids.size() + " of " + total + " - type to narrow it down."
                 : total + " found.");
     }

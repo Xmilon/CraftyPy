@@ -86,6 +86,29 @@ public final class AssetDrop {
         return id.substring(id.indexOf(':') + 1);
     }
 
+    /**
+     * A project file name typed into the texture or sound editor: under {@code assets/}, lower case, no empty or dot
+     * segments, a real file name before the extension. {@code extensions} are the accepted endings (with the dot).
+     */
+    public static boolean validTarget(String path, String... extensions) {
+        if (path == null || path.length() > 200 || !path.startsWith("assets/") || !path.matches("[a-z0-9_./-]+")) {
+            return false;
+        }
+        boolean typed = false;
+        for (String extension : extensions) {
+            typed |= path.endsWith(extension) && path.length() > "assets/".length() + extension.length();
+        }
+        if (!typed) {
+            return false;
+        }
+        for (String segment : path.split("/", -1)) {
+            if (segment.isEmpty() || segment.startsWith(".")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static String clean(String path) {
         return path.toLowerCase(Locale.ROOT);
     }

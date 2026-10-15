@@ -55,6 +55,20 @@ class AssetDropTest {
     }
 
     @Test
+    void typedTargetsMustBeRealFilesUnderAssets() {
+        assertTrue(AssetDrop.validTarget("assets/textures/block/ruby.png", ".png"));
+        assertTrue(AssetDrop.validTarget("assets/s/a.wav", ".ogg", ".wav"));
+        assertFalse(AssetDrop.validTarget("assets/.png", ".png"));
+        assertFalse(AssetDrop.validTarget("assets/./x.png", ".png"));
+        assertFalse(AssetDrop.validTarget("assets//x.png", ".png"));
+        assertFalse(AssetDrop.validTarget("assets/../x.png", ".png"));
+        assertFalse(AssetDrop.validTarget("code/x.png", ".png"));
+        assertFalse(AssetDrop.validTarget("assets/x.PNG", ".png"));
+        assertFalse(AssetDrop.validTarget("assets/x.ogg", ".png"));
+        assertFalse(AssetDrop.validTarget(null, ".png"));
+    }
+
+    @Test
     void snippets() {
         assertEquals("\"minecraft:block/stone\"", AssetDrop.snippet(AssetKind.TEXTURE, "minecraft:block/stone"));
         assertEquals("event.player.play_sound(\"minecraft:block.bell.use\")",

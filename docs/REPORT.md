@@ -205,6 +205,19 @@
   sessions with file locks, 52 project change log.
 - Unbatched quick ones: 11 LF/CRLF switcher in a status bar, 12 encoding display/conversion.
 
+### Milestone M15: remaining gaps from the M14 audit
+
+`gradlew --no-daemon test` green (186 tests). Nothing was clicked in game.
+- 11 The mod no longer replaces GLFW's drop callback for every screen: on screens other than CraftPy's the previous callback is called (vanilla pack drag and drop works again).
+- 17 `PackBuilder.mergeSounds`: sounds declared from Python are added to the project's own `sounds.json` instead of replacing it.
+- 22 `AssetIndex.isFailed()`: a failed index build is reported in the Assets tab instead of polling forever. The IO and UI pools now run a task on the submitting thread when their queue is full (`CallerRunsPolicy`) instead of silently dropping the oldest (31: a big drop of files no longer loses uploads); only the RPC pool still drops its oldest.
+- 23 Copying an asset into a folder says "Copied" only after the server wrote it, and brings the `.png.mcmeta` of animated textures (`.mcmeta` is an accepted upload type).
+- 26 Sound undo history is also capped at 96 MB.
+- 27 `AssetDrop.validTarget` (tested) is the one rule for names typed into the texture and sound editors: under `assets/`, lower case, no empty or dot segments.
+- 28 New projects no longer get empty `assets/animations` and `assets/other` folders (they would ship as namespaces).
+- 30 Dead code removed: `ModelViewerScreen`, `InspectorScreen`, `SoundPreview.playLooping/tick/setPitchVolume`.
+Still open: 8 (every asset save rebuilds the pack and reloads clients), 29 (*New module* builds keep the old namespace), a sound copied from a multi-variant event is a random variant.
+
 ### Milestone M14: OGG export, menu keys, upload hardening
 
 `gradlew --no-daemon test` is green (new: `OggEncoderTest`, `MenuNavTest`, `UploadRulesTest`, `ProjectWritesTest`). Nothing was clicked in game. The OGG round trip was run for real after `pip install --user soundfile` on this PC.

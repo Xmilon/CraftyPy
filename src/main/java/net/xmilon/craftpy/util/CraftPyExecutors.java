@@ -26,17 +26,22 @@ public final class CraftPyExecutors {
 
     private static synchronized void ensurePools() {
         if (ioPool == null || ioPool.isShutdown()) {
-            ioPool = createPool("IO", 4, 100);
+            ioPool = createPool("IO", 4, 100, new ThreadPoolExecutor.CallerRunsPolicy());
         }
         if (rpcPool == null || rpcPool.isShutdown()) {
-            rpcPool = createPool("RPC", 4, 100);
+            rpcPool = createPool("RPC", 4, 100, new ThreadPoolExecutor.DiscardOldestPolicy());
         }
         if (uiPool == null || uiPool.isShutdown()) {
-            uiPool = createPool("UI", 2, 50);
+            uiPool = createPool("UI", 2, 50, new ThreadPoolExecutor.CallerRunsPolicy());
         }
     }
 
-    private static ExecutorService createPool(String name, int size, int queueCapacity) {
+    /**
+     * A full queue must not lose work: the IO and UI pools make the submitting thread run the task itself (back pressure),
+     * only the RPC pool (events, ticks, where a stale task is worth nothing) drops its oldest.
+     */
+    private static ExecutorService createPool(String name, int size, int queueCapacity,
+                                              java.util.concurrent.RejectedExecutionHandler whenFull) {
         return new ThreadPoolExecutor(size, size, 0L, TimeUnit.MILLISECONDS,
                 new LinkedBlockingQueue<>(queueCapacity),
                 new ThreadFactoryBuilder()
@@ -44,7 +49,7 @@ public final class CraftPyExecutors {
                         .setDaemon(true)
                         .setUncaughtExceptionHandler((t, e) -> CraftPy.LOGGER.error("Uncaught exception on thread {}: ", t.getName(), e))
                         .build(),
-                new ThreadPoolExecutor.DiscardOldestPolicy());
+                whenFull);
     }
 
     public static Executor io() {

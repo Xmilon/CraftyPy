@@ -102,8 +102,13 @@ public final class AssetIndex implements ResourceManagerReloadListener {
         return built;
     }
 
+    /** True when the build threw: the lists stay empty and no new build is started. */
+    public boolean isFailed() {
+        return failed;
+    }
+
     public void ensureBuilt() {
-        if (built || building) {
+        if (built || building || failed) {
             return;
         }
         building = true;
@@ -114,6 +119,9 @@ public final class AssetIndex implements ResourceManagerReloadListener {
         net.xmilon.craftpy.util.CraftPyExecutors.runAsync(() -> {
             try {
                 rebuild(resourceManager);
+            } catch (RuntimeException e) {
+                failed = true;
+                net.xmilon.craftpy.CraftPy.LOGGER.warn("Could not build the asset index", e);
             } finally {
                 building = false;
             }
@@ -121,6 +129,7 @@ public final class AssetIndex implements ResourceManagerReloadListener {
     }
 
     private volatile boolean building = false;
+    private volatile boolean failed = false;
 
     /** Project slot content is not an "existing thing" to reference; keep it out of the bank. */
     private static boolean isSlotContent(ResourceLocation rl) {

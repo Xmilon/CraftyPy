@@ -779,7 +779,7 @@ public final class ProjectManager {
 
     private static void createDirectories(Path dir) throws IOException {
         for (String sub : new String[] { "code", "assets/textures", "assets/models", "assets/sounds", "assets/lang",
-                "assets/animations", "assets/other", "data", "ui", "build" }) {
+                "data", "ui", "build" }) {
             Files.createDirectories(dir.resolve(sub));
         }
     }

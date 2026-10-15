@@ -15,6 +15,7 @@ class UploadRulesTest {
         assertNull(UploadRules.check("assets/welcome/textures/a.png", 0, 1, LIMIT));
         assertNull(UploadRules.check("assets/sounds/a.OGG", 2, 3, LIMIT));
         assertNull(UploadRules.check("assets/sounds/a.wav", 0, 1, LIMIT));
+        assertNull(UploadRules.check("assets/textures/water.png.mcmeta", 0, 1, LIMIT));
     }
 
     @Test

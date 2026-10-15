@@ -46,6 +46,8 @@ import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
  */
 final class SoundEditorPanel implements DockPanel {
     private static final int HISTORY = 12;
+    /** Samples are floats: a long stereo clip is ~20 MB, so the undo list is also capped by size. */
+    private static final long HISTORY_BYTES = 96L * 1024 * 1024;
 
     private final Context context;
     private final String projectId;
@@ -232,6 +234,14 @@ final class SoundEditorPanel implements DockPanel {
         return waveform.hasSelection() ? waveform.selFrom() : Math.max(0, clip.frames() - clip.sampleRate());
     }
 
+    private long undoBytes() {
+        long total = 0;
+        for (AudioClip old : undo) {
+            total += (long) old.frames() * old.channels() * Float.BYTES;
+        }
+        return total;
+    }
+
     private void apply(String what, UnaryOperator<AudioClip> edit) {
         try {
             AudioClip next = edit.apply(clip);
@@ -241,7 +251,7 @@ final class SoundEditorPanel implements DockPanel {
             }
             stop();
             undo.push(clip);
-            while (undo.size() > HISTORY) {
+            while (undo.size() > HISTORY || undoBytes() > HISTORY_BYTES) {
                 undo.removeLast();
             }
             redo.clear();
@@ -426,8 +436,7 @@ final class SoundEditorPanel implements DockPanel {
     /** The checked file name of the name box, or null (after telling the player). */
     private String targetName() {
         String target = nameBox.getText().toString().trim().toLowerCase(Locale.ROOT);
-        if (!target.startsWith("assets/") || !(target.endsWith(".ogg") || target.endsWith(".wav"))
-                || !target.matches("[a-z0-9_./-]+") || target.contains("..") || target.contains("//")) {
+        if (!net.xmilon.craftpy.client.assets.AssetDrop.validTarget(target, ".ogg", ".wav")) {
             say("Name must be like assets/sounds/ruby_chime.ogg (a-z, 0-9, _ - . /)");
             return null;
         }
