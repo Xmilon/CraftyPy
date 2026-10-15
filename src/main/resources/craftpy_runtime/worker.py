@@ -2780,6 +2780,8 @@ def _handle(method, params):
         return _complete(params)
     if method == "hover":
         return _hover(params)
+    if method == "signature":
+        return _signature_help(params)
     if method == "definition":
         return _definition(params)
     if method == "stub":
@@ -3678,8 +3680,9 @@ def _complete(params):
         start = _receiver(masked, end)
         target = _infer_span(code, line_idx, masked, start, end) if start >= 0 else None
         for name, (kind, sig, doc) in _members(target).items():
-            if name.startswith(prefix):
-                items.append({"n": name, "k": kind, "s": sig, "d": _first_line(doc)})
+            rank = _rank(name, prefix)
+            if rank is not None:
+                items.append({"n": name, "k": kind, "s": sig, "d": _first_line(doc), "r": rank})
     else:
         if stripped.endswith(("(", ",")):
             span = _open_call(masked)
@@ -3692,9 +3695,10 @@ def _complete(params):
         seen = set()
 
         def add(name, kind, sig, doc):
-            if name.startswith(prefix) and name != prefix and name not in seen:
+            rank = _rank(name, prefix)
+            if rank is not None and name != prefix and name not in seen:
                 seen.add(name)
-                items.append({"n": name, "k": kind, "s": sig, "d": _first_line(doc)})
+                items.append({"n": name, "k": kind, "s": sig, "d": _first_line(doc), "r": rank})
 
         tree = _parse_lenient(code, line_idx)
         scope = _scope_for(tree, line_idx + 1)
@@ -3722,12 +3726,93 @@ def _complete(params):
             if not name.startswith("_"):
                 kind, sig, doc = _describe(name, obj)
                 add(name, kind, sig, doc)
-    items.sort(key=lambda i: (i["k"] == "kw", i["n"].lower()))
+    items.sort(key=lambda i: (i["k"] == "kw", i.pop("r", 0), i["n"].lower()))
     items = (arguments + items)[:_COMPLETION_LIMIT]
     return {"prefix": prefix, "items": items, "suggestions": [i["n"] for i in items]}
 
 
 _COMPLETION_LIMIT = 250
+
+
+def _signature_help(params):
+    """Signature help: the call the cursor is in, with the argument being typed marked by >>...<<."""
+    import re
+    code, line_idx, before = _cursor(params)
+    if not before:
+        return {}
+    masked = _mask(before)
+    if masked[-1] != before[-1]:
+        return {}  # in a string or a comment
+    span = _open_call(masked)
+    if span is None:
+        return {}
+    callee = _infer_span(code, line_idx, masked, span[0], span[1])
+    if callee is None:
+        return {}
+    label = masked[span[0]:span[1]].strip()
+    if isinstance(callee, (_LocalFn, _LocalClass)):
+        node = callee.node
+        if isinstance(callee, _LocalClass):
+            init = _local_class_members(node, callee.scope).get("__init__")
+            node = init[1] if init and init[0] == "def" else None
+        names = [a.arg for a in node.args.args] if node is not None else []
+        if names and (isinstance(callee, _LocalClass) or callee.owner is not None):
+            names = names[1:]
+        parts, doc = names, _docstring(callee.node)
+    else:
+        fn, skip = (callee.fn, True) if isinstance(callee, _Method) else (callee, False)
+        try:
+            parameters = list(inspect.signature(fn).parameters.values())
+        except (TypeError, ValueError):
+            return {}
+        if skip:
+            parameters = parameters[1:]
+        parts = [str(p) for p in parameters]
+        doc = _first_line(inspect.getdoc(fn) or "")
+    open_at = masked.find("(", span[1])
+    depth, index, segment = 0, 0, open_at + 1
+    for i in range(open_at + 1, len(masked)):
+        ch = masked[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            index += 1
+            segment = i + 1
+    keyword = re.match(r"\s*([A-Za-z_]\w*)\s*=(?!=)", masked[segment:])
+    names = [part.split("=")[0].split(":")[0].strip().lstrip("*") for part in parts]
+    active = names.index(keyword.group(1)) if keyword and keyword.group(1) in names else index
+    if active >= len(parts) and any(part.startswith("*") and not part.startswith("**") for part in parts):
+        active = next(i for i, part in enumerate(parts) if part.startswith("*"))
+    shown = [(">>" + part + "<<") if i == active else part for i, part in enumerate(parts)]
+    return {"title": label + "(" + ", ".join(shown) + ")", "kind": "fn", "doc": doc or ""}
+
+
+def _rank(name, prefix):
+    """How well a completion matches what was typed: 0 prefix, 1 prefix ignoring case, 2 word initials
+    ("gb" -> get_block, "pD" -> playDead), None when it does not match."""
+    import re
+    if not prefix or name.startswith(prefix):
+        return 0
+    if name.lower().startswith(prefix.lower()):
+        return 1
+    if len(prefix) < 2 or prefix.startswith("_"):
+        return None  # "_x" asks for private names, which are never offered
+    parts =[part.lower() for part in re.split(r"_+|(?<=[a-z0-9])(?=[A-Z])", name) if part]
+    wanted = prefix.lower().replace("_", "")
+
+    def match(rest, index):
+        if not rest:
+            return True
+        for j in range(index, len(parts)):
+            part = parts[j]
+            for k in range(min(len(rest), len(part)), 0, -1):
+                if part.startswith(rest[:k]) and match(rest[k:], j + 1):
+                    return True
+        return False
+
+    return 2 if wanted and match(wanted, 0) and parts and parts[0].startswith(wanted[0]) else None
 
 
 def _docstring(node):

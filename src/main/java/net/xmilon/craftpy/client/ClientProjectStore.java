@@ -756,7 +756,7 @@ public final class ClientProjectStore {
                     body.addProperty("error", payload.message().isEmpty() ? "Tool failed" : payload.message());
                 }
                 // Editor assists fire on every keystroke: several replies are in flight, so their callback stays.
-                boolean assist = op.equals("complete") || op.equals("hover");
+                boolean assist = op.equals("complete") || op.equals("hover") || op.equals("signature");
                 java.util.function.Consumer<JsonObject> callback = assist ? toolCallbacks.get(op) : toolCallbacks.remove(op);
                 if (callback != null) {
                     callback.accept(body);

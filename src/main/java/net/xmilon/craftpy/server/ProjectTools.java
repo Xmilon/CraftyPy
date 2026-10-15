@@ -54,7 +54,7 @@ public final class ProjectTools {
             case "decls" -> done(decls(projectId));
             case "profile" -> profile(request);
             case "trace" -> done(trace(request));
-            case "complete", "hover" -> assist(op, projectId, request);
+            case "complete", "hover", "signature" -> assist(op, projectId, request);
             case "changes" -> done(changes(projectId));
             case "add_part" -> addPart(manager, projectId, request);
             case "grep" -> manager.snapshot(projectId).thenApply(s -> grep(s, string(request, "q"),

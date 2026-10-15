@@ -744,6 +744,24 @@ def test_every_building_block_loads_as_a_file_of_a_project():
         w._handle("unload_owner", {"owner": project})
 
 
+
+def test_fuzzy_completion_and_signature_help():
+    names = _names("world.gb")
+    assert "get_block" in names and "get_block_entities" in names, names
+    assert _names("world.set_") == ["set_block", "set_time"]
+    assert names.index("get_block") < len(names)
+    ranked = _names("Ite")
+    assert ranked.index("Item") < ranked.index("ItemIcon"), ranked
+    sig = w._handle("signature", {"code": 'Item("gem", tex', "line": 0, "column": 15})
+    assert sig["title"].startswith("Item(") and ">>name=None<<" in sig["title"], sig
+    sig = w._handle("signature", {"code": 'Item("gem", texture=', "line": 0, "column": 20})
+    assert ">>texture=None<<" in sig["title"], sig
+    code = "@on.player_join" + chr(10) + "def hi(event):" + chr(10) + "    event.player.give("
+    sig = w._handle("signature", {"code": code, "line": 2, "column": 22})
+    assert sig["title"].startswith("event.player.give(>>item<<"), sig
+    assert w._handle("signature", {"code": "x = 1", "line": 0, "column": 5}) == {}
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

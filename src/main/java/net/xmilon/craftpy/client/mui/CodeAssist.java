@@ -81,6 +81,13 @@ final class CodeAssist {
             return;
         }
         code.removeCallbacks(typeTask);
+        code.removeCallbacks(signatureTask);
+        if (added == 1 && start < text.length() && (text.charAt(start) == '(' || text.charAt(start) == ',')
+                && !insideString(text, start + 1)) {
+            hideList();
+            code.postDelayed(signatureTask, TYPE_DELAY_MS); // signature help: the call and the argument being typed
+            return;
+        }
         if (added == 1 && start < text.length()) {
             char c = text.charAt(start);
             if (Character.isLetterOrDigit(c) || c == '_' || c == '.' || ((c == ':' || c == '/') && insideString(text, start + 1))) {
@@ -342,6 +349,47 @@ final class CodeAssist {
         }
     }
 
+    private final Runnable signatureTask = this::requestSignature;
+
+    /** Asks for the signature of the call around the caret; the reply is shown like a hover, under the caret. */
+    private void requestSignature() {
+        Layout layout = code.getLayout();
+        int caret = code.getSelectionStart();
+        if (layout == null || caret < 0 || caret != code.getSelectionEnd() || !code.hasFocus()) {
+            return;
+        }
+        String all = code.getText().toString();
+        int[] slice = slice(all, caret);
+        int line = lineOf(all, caret);
+        hoverSeq = ++seq;
+        hoverX = layout.getPrimaryHorizontal(caret) + code.getCompoundPaddingLeft();
+        hoverY = layout.getLineTop(layout.getLineForOffset(caret)) + code.getExtendedPaddingTop();
+        pendingLine = -1;
+        JsonObject args = new JsonObject();
+        args.addProperty("code", all.substring(slice[0], slice[1]));
+        args.addProperty("line", line - lineOf(all, slice[0]));
+        args.addProperty("column", caret - lineStart(all, caret));
+        args.addProperty("seq", hoverSeq);
+        server.accept("signature", args);
+    }
+
+    /** A signature title marks the argument being typed with >>...<<: it is shown bold in the accent color. */
+    private static CharSequence markedTitle(String title) {
+        int open = title.indexOf(">>");
+        int close = title.indexOf("<<", open + 2);
+        if (open < 0 || close < 0) {
+            return title;
+        }
+        String plain = title.substring(0, open) + title.substring(open + 2, close) + title.substring(close + 2);
+        var out = new icyllis.modernui.text.SpannableString(plain);
+        int end = close - 2;
+        out.setSpan(new icyllis.modernui.text.style.ForegroundColorSpan(IdeColors.ACCENT), open, end,
+                icyllis.modernui.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        out.setSpan(new icyllis.modernui.text.style.StyleSpan(icyllis.modernui.text.TextPaint.BOLD), open, end,
+                icyllis.modernui.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return out;
+    }
+
     private void requestHover() {
         Layout layout = code.getLayout();
         if (layout == null || hoverOffset < 0 || hoverOffset > code.getText().length()) {
@@ -387,7 +435,8 @@ final class CodeAssist {
             box.addView(text, new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
         }
         if (!title.isEmpty()) {
-            var head = label(context, title, R.attr.textAppearanceBodyMedium);
+            var head = label(context, "", R.attr.textAppearanceBodyMedium);
+            head.setText(markedTitle(title));
             head.setTypeface(EditorFont.get());
             box.addView(head, new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
             if (!doc.isEmpty()) {
