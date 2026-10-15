@@ -205,6 +205,38 @@
   sessions with file locks, 52 project change log.
 - Unbatched quick ones: 11 LF/CRLF switcher in a status bar, 12 encoding display/conversion.
 
+### Milestone M19 (2026-10-16): fixes, standalone IDE, IntelliJ-style shell, building blocks, 50 features
+
+`gradlew --no-daemon test` green after every step (Java + `test_worker.py`); `gradlew ideSmokeTest` green; the standalone
+window was opened several times without errors. **Nothing was clicked in game**; everything below needs the in-game check.
+- Textures: the block atlas only stitches `textures/block` and `textures/item`; project textures elsewhere (`welcome:gem`)
+  were the missing texture. `PackBuilder.blockAtlas` adds `single` sources in `assets/minecraft/atlases/blocks.json`.
+- Completion: static inference in the worker (`_infer`, `_members`, `_scope_for`, `_parse_lenient`): chained calls,
+  `event.` in `@on`/`@command`/`@every`/`@action` handlers, locals, loops, `self.`, returned values, keyword arguments of
+  any call. API classes carry annotations (`player: "Player"`, `-> "Content"`). Fuzzy ranking (word initials), signature
+  help on `(`/`,`, hover on ids in strings (`CompletionEngine.hover`). The Java `params` round trip was removed.
+- Standalone IDE (M18): `gradlew runIde` / `ideSmokeTest`; `IdeMain`, `LocalHost`, `WindowChrome` (logo icon, dark DWM
+  caption). The game's classes stay on the classpath but are never bootstrapped. `ProjectRequestHandler.Caller.LOCAL`
+  (no server: world/module actions say "Needs the game"), `Config.get` (defaults without a loaded config),
+  `-Dcraftpy.home`. `GameResources`: asset browser and previews read the vanilla assets jar through a
+  `MultiPackResourceManager`; registries come from the mod catalog; sound playback and the 3D screen need the game.
+- Look: `IdeColors` (IntelliJ New UI dark with CraftPy green) answers every `color()` lookup, so game and standalone look
+  the same; `IdeIcon` painted icons; VS Code activity bar; main toolbar (project widget, search, run widget); tool window
+  stripes (`ToolStripe`, Alt+1..9); underlined tabs with file icons and unsaved dots; resizable split editor
+  (`SplitEditor`, never two editable views of one file); fading hover states; animated tool windows; the console is a
+  read-only code view (scrolls sideways, no jitter while selecting, colored lines).
+- Building blocks (the user's idea): `craftpy_blocks/` (30 templates, `#:` header), `BlocksPanel` (Alt+8): Docs (section
+  of api.md), Insert, New file (`code/<name>.py` + `import` in main.py, on disk via tool `add_part` or in the open buffer).
+- Editing (`LineEdits`, tested): comment, duplicate, delete, move lines, reformat, live templates, smart backspace, rename in
+  file; Find Action, Find in Files (`grep` tool), TODO list, go to line, reopen tab, hide all tool windows, execute
+  selection, copy reference; indent guides, bracket pairs, caret line number, status bar counts, minimap marks; settings
+  dialog; remembered folders and tabs; recent projects; tips; in-game action-bar notices; the IDE key opens the editor.
+- Fixed: a save reply cleared the unsaved mark of whatever tab was active (edits typed during a save were shown as saved);
+  `__pycache__` was tracked and shipped in the jar; warnings were drawn in the success green.
+- Decisions: delete line is Ctrl+Shift+K because Ctrl+Y is the editor's redo; balloons were not built (Modern UI toasts
+  already look the same in game and standalone); the old M18 plan steps (plain Response record, interfaces for HostBridge
+  and SlotRegistry) were not needed because the game jar stays on the classpath.
+
 ### In-game session 2026-10-15 (dev server + client, M13-M18 step 1)
 
 First time the mod was run with Create, Mekanism, Iron's Spells, Curios and Modern UI. The PC block opened, `welcome` was built and loaded on the server ("Applied module welcome declarations: 2 block(s), 4 item(s)"), the catalog dump wrote one file per mod. Found:
