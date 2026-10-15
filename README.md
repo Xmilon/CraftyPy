@@ -79,6 +79,14 @@ One screen with a navigation rail, styled like Modern UI's own settings center:
 | **Python** | CPython **3.13+** on `PATH` (or set `pythonPath` in config; a runtime placed in `pyforge/runtime/` also works) |
 | **Modern UI** | 3.13+ for NeoForge 1.21.1, **client only** (servers do not need it) |
 
+### Installer
+
+`./gradlew installerJar` builds `build/libs/craftpy-installer.jar` (the mod jar is inside). Double-click it, or run
+`java -jar craftpy-installer.jar --cli`. It shows every step before it runs anything: NeoForge 21.1.259 (via its own installer),
+Modern UI 3.13.0.1 and CraftPy into `mods/`, all downloads checked against a pinned SHA-256. Python is only installed with
+`--install-python` (winget / brew / apt / dnf / pacman, printed first) together with the optional `soundfile` package for OGG export.
+Flags: `--dry-run`, `--yes`, `--dir <minecraft folder>`, `--craftpy <jar>`. Start the Minecraft launcher once before the first run so it has a profile.
+
 ## Getting Started
 
 ### Build and run (development)
@@ -209,7 +217,6 @@ Everything is stored as plain files, so projects can also be edited with any ext
 | `enableScripting` | `true` | Master switch for loading/running projects |
 | `permissionLevel` | `2` | Permission level required to use the IDE (singleplayer owner always allowed) |
 | `pythonPath` | `""` | Explicit Python executable; empty = auto-detect |
-| `autoDownloadPython` | `true` | Allow falling back to a runtime in `pyforge/runtime/` *(auto-download is not bundled in this build)* |
 | `debugDefault` | `false` | Start with debug tracing on |
 | `hotReloadOnSave` | `false` | Re-run a loaded project 0.7 s after a code/ui/asset file was saved (one run for a burst of saves) |
 | `javaBridge.mode` | `RESTRICTED` | `OFF`, `RESTRICTED` (Minecraft, NeoForge, Mojang libs, CraftPy + `javaBridge.extraPackages`) or `FULL` |

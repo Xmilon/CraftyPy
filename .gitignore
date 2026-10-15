@@ -42,3 +42,6 @@ repo/
 ### Python ###
 __pycache__/
 *.pyc
+
+# Local notes, kept up to date by hand each batch
+REQUIREMENTS.local.md

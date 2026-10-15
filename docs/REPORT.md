@@ -205,6 +205,15 @@
   sessions with file locks, 52 project change log.
 - Unbatched quick ones: 11 LF/CRLF switcher in a status bar, 12 encoding display/conversion.
 
+### Milestone M17: installer
+
+`gradlew --no-daemon test` green. A real install was not run.
+- `installer/` source set (plain Java 21, no dependencies, `installerJar` -> `craftpy-installer.jar`, the mod jar bundled as `craftpy.jar`). `InstallPlan.build` (pure, tested) turns `Env` (OS, Minecraft folder, Java, Python, package manager, NeoForge present, mod files) + `requirements.properties` into steps: download NeoForge installer and run `--installClient`, download Modern UI, copy CraftPy, and Python/pip only with `--install-python`. Missing Java or an unknown package manager become manual notes, never commands.
+- `Installer` downloads to `.part`, checks SHA-256 and only then moves; a mismatch deletes the file. Everything is printed before it runs (`--dry-run`, `--yes`, `--cli`, `--dir`, `--craftpy`); with a display and no `--cli` a small Swing window shows the plan and an Install button.
+- Pinned: NeoForge 21.1.259 (maven.neoforged.net), Modern UI 3.13.0.1 (Modrinth CDN). Decision: `.properties` instead of JSON so the installer has no dependency.
+- Removed the dead `autoDownloadPython` config option and its lang/README entries; the "no Python" error now points to the installer.
+- Not done: an embedded Python download (package managers only), Linux distros without `python3.13` packages get the python.org note.
+
 ### Milestone M16: mod catalog, id completion and checks, other mods' recipes and attributes
 
 `gradlew --no-daemon test` green. Nothing was clicked in game; the catalog dump on a real server with real mods is the unverified part.

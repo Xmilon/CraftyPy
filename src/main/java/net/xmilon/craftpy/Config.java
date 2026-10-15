@@ -34,12 +34,8 @@ public final class Config {
             .defineListAllowEmpty("javaBridge.extraPackages", java.util.List.of(), () -> "", o -> o instanceof String);
 
     public static final ModConfigSpec.ConfigValue<String> PYTHON_PATH = BUILDER
-            .comment("Path to a Python executable. Leave empty to use the bundled/auto-downloaded runtime.")
+            .comment("Path to a Python executable. Leave empty to use a Python 3.13+ on PATH or one placed in pyforge/runtime/.")
             .define("pythonPath", "");
-
-    public static final ModConfigSpec.BooleanValue AUTO_DOWNLOAD_PYTHON = BUILDER
-            .comment("Download a standalone CPython runtime into pyforge/runtime/ when no system Python is found.")
-            .define("autoDownloadPython", true);
 
     public static final ModConfigSpec.IntValue EVENT_TIMEOUT_MS = BUILDER
             .comment("Budget in milliseconds for a Python event callback before it is cancelled.")

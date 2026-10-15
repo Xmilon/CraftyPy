@@ -228,3 +228,25 @@ idea {
         downloadJavadoc = true
     }
 }
+
+// Standalone installer (plain Java, no Minecraft): ./gradlew installerJar -> build/libs/craftpy-installer.jar.
+// The built mod jar is bundled inside it as craftpy.jar.
+sourceSets {
+    installer {
+        java.srcDir 'installer/java'
+        resources.srcDir 'installer/resources'
+    }
+}
+
+tasks.register('installerJar', Jar) {
+    group = 'build'
+    archiveBaseName = 'craftpy-installer'
+    archiveVersion = ''
+    from sourceSets.installer.output
+    from(tasks.named('jar')) { rename { 'craftpy.jar' } }
+    manifest { attributes 'Main-Class': 'net.xmilon.craftpy.installer.InstallerMain' }
+}
+
+dependencies {
+    testImplementation sourceSets.installer.output
+}

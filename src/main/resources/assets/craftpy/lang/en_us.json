@@ -15,7 +15,6 @@
   "craftpy.configuration.debugDefault": "Debug By Default",
   "craftpy.configuration.hotReloadOnSave": "Hot Reload On Save",
   "craftpy.configuration.pythonPath": "Python Path",
-  "craftpy.configuration.autoDownloadPython": "Auto Download Python",
   "craftpy.configuration.eventTimeoutMs": "Event Timeout (ms)",
   "craftpy.configuration.maxPacketSizeKb": "Max Packet Size (KiB)",
   "craftpy.configuration.maxAssetSizeKb": "Max Asset Size (KiB)",
