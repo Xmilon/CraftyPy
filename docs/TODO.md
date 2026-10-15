@@ -46,7 +46,7 @@ UI code, update REPORT/AUDIT/README/guide after each batch, never plant bugs. Se
 - [ ] Dev machine notes: the client died once with `insufficient memory` (client `-Xmx8G` + server `-Xmx4G` + other apps on a
   16 GB PC; close big apps or lower `-Xmx` for the session). Client and server both use `run/`, so they fight over
   `run/logs/latest.log` (harmless). Stdin is not forwarded to `runServer`, so the console cannot be typed into; `run/server.properties`
-  now has `enable-rcon=true` with a random password (local dev only, set `enable-rcon=false` to turn it off). To op yourself:
+  had `enable-rcon=true` with a random password during the session; it is back to `enable-rcon=false` (set it to true and a password to use RCON again). To op yourself:
   start the server, then send `op <name>` over RCON (port 25575), or write `run/ops.json` before starting.
 
 ## 2. M18: IDE without launching Minecraft (in progress)
