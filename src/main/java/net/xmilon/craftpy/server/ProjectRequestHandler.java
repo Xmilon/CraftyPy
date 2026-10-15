@@ -143,20 +143,19 @@ public final class ProjectRequestHandler {
                 return validateAndRespond(id);
             case UPLOAD_ASSET: {
                 if (!ProjectManager.isValidId(id)) {
-                    return CompletableFuture.completedFuture(fail(action, "Invalid project id"));
+                    return CompletableFuture.completedFuture(uploadReply(false, "Invalid project id", ""));
                 }
                 AssetUpload upload = Json.COMPACT.fromJson(request.data(), AssetUpload.class);
-                if (upload == null || upload.path == null || upload.data == null
-                        || upload.total <= 0 || upload.chunk < 0 || upload.chunk >= upload.total) {
-                    return CompletableFuture.completedFuture(fail(action, "Malformed upload request"));
+                if (upload == null || upload.data == null) {
+                    return CompletableFuture.completedFuture(uploadReply(false, "Malformed upload request", ""));
                 }
-                String lower = upload.path.toLowerCase(java.util.Locale.ROOT);
-                boolean allowed = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
-                        || lower.endsWith(".ogg") || lower.endsWith(".json");
-                if (!allowed) {
-                    return CompletableFuture.completedFuture(fail(action,
-                            "Unsupported file type (use .png, .jpg, .ogg or .json)"));
+                long max = (long) Math.min(Config.MAX_ASSET_SIZE_KB.get(), Config.MAX_PACKET_SIZE_KB.get()) * 1024;
+                String refused = UploadRules.check(upload.path, upload.chunk, upload.total, max);
+                if (refused != null) {
+                    return CompletableFuture.completedFuture(uploadReply(false, refused, String.valueOf(upload.path)));
                 }
+                long now = System.currentTimeMillis();
+                PENDING_UPLOADS.values().removeIf(old -> now - old.created > PENDING_UPLOAD_MS);
                 String key = player.getUUID() + "|" + id + "|" + upload.path;
                 PendingUpload pending = PENDING_UPLOADS.compute(key,
                         (k, existing) -> existing == null || existing.parts.length != upload.total ? new PendingUpload(upload.total)
@@ -175,7 +174,7 @@ public final class ProjectRequestHandler {
                 StringBuilder assembled = new StringBuilder();
                 for (String part : pending.parts) {
                     if (part == null) {
-                        return CompletableFuture.completedFuture(fail(action, "Incomplete upload"));
+                        return CompletableFuture.completedFuture(uploadReply(false, "Incomplete upload", upload.path));
                     }
                     assembled.append(part);
                 }
@@ -183,19 +182,18 @@ public final class ProjectRequestHandler {
                 try {
                     bytes = java.util.Base64.getDecoder().decode(assembled.toString());
                 } catch (IllegalArgumentException e) {
-                    return CompletableFuture.completedFuture(fail(action, "Invalid base64 payload"));
+                    return CompletableFuture.completedFuture(uploadReply(false, "Invalid base64 payload", upload.path));
                 }
-                long max = (long) Config.MAX_PACKET_SIZE_KB.get() * 1024;
                 if (bytes.length > max) {
-                    return CompletableFuture.completedFuture(fail(action,
-                            "File too large (" + bytes.length / 1024 + " KB, limit " + max / 1024 + " KB)"));
+                    return CompletableFuture.completedFuture(uploadReply(false,
+                            "File too large (" + bytes.length / 1024 + " KB, limit " + max / 1024 + " KB)", upload.path));
                 }
                 return manager.writeBinary(id, upload.path, bytes)
                         .thenApply(result -> {
                             if (result.success() && net.xmilon.craftpy.registry.SlotRegistry.isProjectActive(id)) {
                                 refreshPacksAfterAssetChange(player.getServer());
                             }
-                            return fromResult(ProjectAction.UPLOAD_ASSET, result);
+                            return uploadReply(result.success(), result.message(), upload.path);
                         });
             }
             case EVAL: {
@@ -427,6 +425,7 @@ public final class ProjectRequestHandler {
     private static final class PendingUpload {
         final String[] parts;
         int received;
+        final long created = System.currentTimeMillis();
 
         PendingUpload(int total) {
             this.parts = new String[total];
@@ -434,6 +433,9 @@ public final class ProjectRequestHandler {
     }
 
     private static final java.util.Map<String, PendingUpload> PENDING_UPLOADS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** An upload whose last chunk never came is forgotten after this long. */
+    private static final long PENDING_UPLOAD_MS = 60_000;
 
     /**
      * Validates every .py file of a project on the Python worker (async, off the
@@ -501,6 +503,11 @@ public final class ProjectRequestHandler {
             return new ResponsePayload(action, true, result.message(), result.projectId() == null ? "" : result.projectId());
         }
         return fail(action, result.message());
+    }
+
+    /** The reply to the last chunk of an upload (or to a refused one); the path lets the client match it to its save. */
+    private static ResponsePayload uploadReply(boolean success, String message, String path) {
+        return new ResponsePayload(ProjectAction.UPLOAD_ASSET, success, message, path);
     }
 
     private static ResponsePayload fail(ProjectAction action, String message) {

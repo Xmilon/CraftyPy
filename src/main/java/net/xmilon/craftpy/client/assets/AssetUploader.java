@@ -35,10 +35,11 @@ public final class AssetUploader {
         }
         String result;
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            PointerBuffer filters = stack.mallocPointer(4);
+            PointerBuffer filters = stack.mallocPointer(5);
             filters.put(stack.UTF8("*.png"));
             filters.put(stack.UTF8("*.jpg"));
             filters.put(stack.UTF8("*.ogg"));
+            filters.put(stack.UTF8("*.wav"));
             filters.put(stack.UTF8("*.json"));
             filters.flip();
             result = TinyFileDialogs.tinyfd_openFileDialog("Import asset into " + projectId, "", filters, "Assets",
@@ -85,7 +86,7 @@ public final class AssetUploader {
         String folder;
         if (kind == null) {
             folder = switch (ext) {
-                case "ogg" -> "assets/sounds/";
+                case "ogg", "wav" -> "assets/sounds/";
                 case "json" -> "assets/models/";
                 default -> "assets/textures/";
             };
@@ -95,7 +96,7 @@ public final class AssetUploader {
                 case MODEL -> folder = "assets/models/";
                 case ITEM, BLOCK -> folder = "assets/textures/";
                 default -> folder = switch (ext) {
-                    case "ogg" -> "assets/sounds/";
+                    case "ogg", "wav" -> "assets/sounds/";
                     case "json" -> "assets/models/";
                     default -> "assets/textures/";
                 };

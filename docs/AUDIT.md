@@ -106,9 +106,8 @@ with their classes).
   tooltip could be left on a removed view. Toolbar buttons hide their tooltip while the menu they open is up.
 - `ListDialog` clamps its height to the window (the footer used to fall off screen, so the dialog could not be closed),
   has a header close button and closes on Escape.
-- `AssetViewer` (Modern UI popup covering the window) replaces `AssetFileScreen`, which is deleted. The pixel logic is
-  `PixelBuffer` (unit tested). `TextureEditorScreen`, `SoundPlayerScreen` and `AssetPickerScreen` are still the old
-  vanilla screens; the picker still uses them.
+- `AssetViewer` (Modern UI popup covering the window; replaced in M13 by the dock panels `TextureEditorPanel` / `SoundEditorPanel`) replaced `AssetFileScreen`, which is deleted. The pixel logic is
+  `PixelBuffer` (unit tested). The old `AssetPickerScreen` was replaced in M13 by the dock tab `AssetBrowserPanel`.
 - The worker `validate` also lints (undefined names, unused imports, redefined top-level functions) as warnings.
   It is flow-insensitive, so a name that is only bound later is not reported. A `from x import *` other than craftpy
   switches the undefined-name check off for that file.
@@ -116,8 +115,8 @@ with their classes).
 
 ## 7c. M12 changes (overlays, tree, definitions, multi-file, bridge)
 
-- `Overlays` replaces `PopupWindow` everywhere in `client/mui` (grep: no `PopupWindow` import left in `EditorFragment`, `CodeAssist`, `ListDialog`, `UiDesigner`, `AssetViewer`, `CraftPyFragment`). Esc handling lives in `Overlays.Host.dispatchKeyEvent` (before the focused view) and `EditorFragment.onBack`.
-- Threading unchanged: UI views on the UI thread, store calls through `store(...)`, assets through the client thread (`AssetPicker`).
+- `Overlays` replaces `PopupWindow` everywhere in `client/mui` (grep: no `PopupWindow` import left in `EditorFragment`, `CodeAssist`, `ListDialog`, `UiDesigner`, `AssetDock`, `CraftPyFragment`). Esc handling lives in `Overlays.Host.dispatchKeyEvent` (before the focused view) and `EditorFragment.onBack`.
+- Threading unchanged: UI views on the UI thread, store calls through `store(...)`, assets through the client thread (`AssetBrowserPanel`, `AssetDock`).
 - Worker: `ProjectFinder`, transactional `run_main`, `revert_owner`, `definition` / `stub`, `java` bridge proxies, `call_fn`.
 - Host: `bridge.*`, `SlotRegistry.applyAll`, `SlotPlan`, `SlotCounts`, `ProjectController.scheduleReload`.
 - Tests added: `FileTreeTest`, `SlotPlanTest`, `JavaBridgeTest`, `PackBuilderAssetsTest`, Python `test_multi_file_projects_and_failed_reload`, `test_definition_and_stub`, `test_java_bridge_proxies`, `test_java_event_handlers`; `ExamplesAnalysisTest` now reads the split example.
@@ -127,3 +126,11 @@ with their classes).
 Still not carried over: smart-fill ghost text, go to definition,
 command palette, console meta-commands, Markdown preview tab, JSON format action, inline `tex()` thumbnails.
 UI strings are English literals, not lang keys.
+
+## 7d. M13 / M14 changes (dock, asset browser, overlay menus, uploads)
+
+- Menus are `Overlays.MenuPopup` (no `PopupMenu` left in the editor, Home or the UI designer; `WindowFragment` keeps one for Python windows). Keys: `Overlays.Host.dispatchKeyEvent` offers every key press to the topmost menu layer (`Layer.keyHandler`) before the focused view, and swallows the matching key-up. Row choice is the pure `MenuNav`.
+- Upload path: `ClientProjectStore.uploadAsset` (with an optional result callback; the server answers once per upload with the path in `json`) -> `ProjectRequestHandler` UPLOAD_ASSET, which asks `UploadRules` before it allocates anything (assets/ prefix, types, `maxAssetSizeKb`, chunk count, 60 s expiry of unfinished uploads) -> `ProjectManager.writeBinary` (project must exist, write through `build/upload.tmp`). `resolveSafe` also refuses `:`.
+- Reads: `READ_ASSET` callbacks wait in a queue and are matched by path; `BINARY_READ_LIMIT` is 288 KB.
+- Ogg: `OggEncoder` runs the player's Python with `soundfile` in a subprocess on the client (the server worker is sandboxed and single-threaded), install only on request.
+- Threading: sounds are stopped on the client thread; the project file list is copied on the UI thread before the client thread names a save path.

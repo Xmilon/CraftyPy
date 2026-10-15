@@ -20,7 +20,6 @@ import icyllis.modernui.view.Gravity;
 import icyllis.modernui.view.View;
 import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.LinearLayout;
-import icyllis.modernui.widget.PopupMenu;
 import icyllis.modernui.widget.ScrollView;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
@@ -224,7 +223,7 @@ final class UiDesigner {
     // ------------------------------------------------------------------
 
     private void addMenu(View from) {
-        var menu = new PopupMenu(from.getContext(), from);
+        var menu = Overlays.menu(from);
         for (int i = 0; i < TYPES.size(); i++) {
             menu.getMenu().add(0, i, i, TYPES.get(i));
         }

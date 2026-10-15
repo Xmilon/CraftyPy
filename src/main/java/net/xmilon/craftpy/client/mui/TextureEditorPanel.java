@@ -462,11 +462,20 @@ final class TextureEditorPanel implements DockPanel {
         }
         try {
             byte[] png = TextureCodec.encode(buffer);
-            Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().uploadAsset(projectId, target, png));
-            path = target;
-            savedVersion = buffer.version();
-            say("Saved " + target + " (" + png.length + " bytes)");
-            onSaved.accept(target);
+            final int version = buffer.version();
+            say("Saving " + target + " ...");
+            // "Saved" only once the server wrote it; a refused upload (size, type, no project) keeps the edits marked unsaved
+            Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().uploadAsset(projectId, target, png,
+                    error -> root.post(() -> {
+                        if (error != null) {
+                            say("Not saved: " + error);
+                            return;
+                        }
+                        path = target;
+                        savedVersion = version;
+                        say("Saved " + target + " (" + png.length + " bytes)");
+                        onSaved.accept(target);
+                    })));
         } catch (Exception e) {
             CraftPy.LOGGER.warn("Texture save failed", e);
             say("Save failed: " + e.getMessage());

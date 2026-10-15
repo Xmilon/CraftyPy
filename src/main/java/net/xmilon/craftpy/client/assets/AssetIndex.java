@@ -43,6 +43,7 @@ public final class AssetIndex implements ResourceManagerReloadListener {
 
     @Override
     public void onResourceManagerReload(ResourceManager resourceManager) {
+        AssetPreview.invalidate(); // cached model text and textures belong to the old packs
         rebuild(resourceManager);
     }
 
@@ -94,6 +95,11 @@ public final class AssetIndex implements ResourceManagerReloadListener {
         blocks = List.copyOf(blk);
         namespaces = Collections.unmodifiableSet(new LinkedHashSet<>(ns));
         built = true;
+    }
+
+    /** True once the first build has finished (the lists are empty until then). */
+    public boolean isBuilt() {
+        return built;
     }
 
     public void ensureBuilt() {

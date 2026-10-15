@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import java.util.Collection;
 import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -13,9 +14,13 @@ import icyllis.modernui.widget.FrameLayout;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.TextView;
 import net.minecraft.client.Minecraft;
+import net.xmilon.craftpy.assets.AssetKind;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.PixelBuffer;
+import net.xmilon.craftpy.client.assets.AssetDrop;
+import net.xmilon.craftpy.client.assets.AssetFetch;
 import net.xmilon.craftpy.client.assets.SoundCodec;
+import net.xmilon.craftpy.client.assets.SoundPreview;
 import net.xmilon.craftpy.client.assets.TextureCodec;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
@@ -23,8 +28,8 @@ import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
 
 /**
- * The docked panel at the right of the editor with three tabs: resource preview, texture editor and sound editor. It
- * replaces the old dialogs: the files stay visible next to your code. Each tab keeps its state while you switch;
+ * The docked panel at the right of the editor with four tabs: resource preview, texture editor, sound editor and the asset
+ * browser. It replaces the old dialogs: the files stay visible next to your code. Each tab keeps its state while you switch;
  * opening another file in a tab with unsaved work asks first. UI thread only; files are read on the client thread and
  * handed over when ready (a counter drops answers for a file that was replaced meanwhile).
  */
@@ -32,24 +37,34 @@ final class AssetDock {
     static final int PREVIEW = 0;
     static final int TEXTURE = 1;
     static final int SOUND = 2;
-    private static final String[] NAMES = {"Preview", "Texture", "Sound"};
+    static final int ASSETS = 3;
+    private static final String[] NAMES = {"Preview", "Texture", "Sound", "Assets"};
+
+    /** Where a dragged asset was released (window coordinates); the editor decides what the position means. */
+    interface Drop {
+        void drop(AssetKind kind, String id, float windowX, float windowY);
+    }
 
     private final Context context;
     private final LinearLayout column;
     private final FrameLayout content;
-    private final TextView[] tabs = new TextView[3];
-    private final DockPanel[] panels = new DockPanel[3];
+    private final TextView[] tabs = new TextView[NAMES.length];
+    private final DockPanel[] panels = new DockPanel[NAMES.length];
     private final Supplier<String> projectId;
+    private final Supplier<Collection<String>> projectFiles;
     private final Consumer<String> toast;
     private final Runnable onFilesChanged;
     private final Consumer<Boolean> onVisible;
     private final ResourcePreviewPanel preview;
+    private final AssetBrowserPanel browser;
     private int current = -1;
     private int ticket;
 
-    AssetDock(Context context, Supplier<String> projectId, Consumer<String> toast, Runnable onFilesChanged, Consumer<Boolean> onVisible) {
+    AssetDock(Context context, Supplier<String> projectId, Supplier<Collection<String>> projectFiles, Consumer<String> toast,
+              Runnable onFilesChanged, Consumer<Boolean> onVisible, Drop drop) {
         this.context = context;
         this.projectId = projectId;
+        this.projectFiles = projectFiles;
         this.toast = toast;
         this.onFilesChanged = onFilesChanged;
         this.onVisible = onVisible;
@@ -82,6 +97,18 @@ final class AssetDock {
         column.addView(content, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
         preview = new ResourcePreviewPanel(context);
         panels[PREVIEW] = preview;
+        browser = new AssetBrowserPanel(context, new AssetBrowserPanel.Actions() {
+            @Override
+            public void inspect(AssetKind kind, String id) {
+                AssetDock.this.inspect(kind, id);
+            }
+
+            @Override
+            public void drop(AssetKind kind, String id, float windowX, float windowY) {
+                drop.drop(kind, id, windowX, windowY);
+            }
+        });
+        panels[ASSETS] = browser;
         show(PREVIEW);
         setVisible(false);
     }
@@ -90,14 +117,21 @@ final class AssetDock {
         return column;
     }
 
+    void focusSearch() {
+        browser.focusSearch();
+    }
+
     boolean visible() {
         return column.getVisibility() == View.VISIBLE;
     }
 
     void setVisible(boolean visible) {
         column.setVisibility(visible ? View.VISIBLE : View.GONE);
-        if (!visible && panels[SOUND] instanceof SoundEditorPanel sound) {
-            sound.stop(); // a closed dock must not keep playing
+        if (!visible) {
+            stopPreviewSound(); // a closed dock must not keep playing
+            if (panels[SOUND] instanceof SoundEditorPanel sound) {
+                sound.stop();
+            }
         }
         onVisible.accept(visible);
     }
@@ -107,7 +141,7 @@ final class AssetDock {
     }
 
     void show(int tab) {
-        if (tab < 0 || tab > 2) {
+        if (tab < 0 || tab >= panels.length) {
             return;
         }
         current = tab;
@@ -117,8 +151,8 @@ final class AssetDock {
             content.addView(panel.view(), new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
         } else {
             var empty = label(context, tab == TEXTURE
-                    ? "No texture open.\nDouble click a .png in the explorer, or use Tools > New texture."
-                    : "No sound open.\nDouble click an .ogg or .wav in the explorer.", R.attr.textAppearanceBodyMedium);
+                    ? "No texture open.\nDouble click a .png in the explorer, click a texture in the Assets tab, or use Tools > New texture."
+                    : "No sound open.\nDouble click an .ogg or .wav in the explorer, or click a sound in the Assets tab.", R.attr.textAppearanceBodyMedium);
             empty.setPadding(empty.dp(12), empty.dp(16), empty.dp(12), empty.dp(8));
             empty.setGravity(Gravity.START);
             content.addView(empty, new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
@@ -127,6 +161,9 @@ final class AssetDock {
             styleChip(tabs[i], i == tab);
         }
         setVisible(true);
+        if (tab == ASSETS) {
+            browser.activate();
+        }
     }
 
     /** Esc: lets the open panel use it first. */
@@ -145,9 +182,15 @@ final class AssetDock {
         return false;
     }
 
+    /** The sound manager belongs to the client thread. */
+    private static void stopPreviewSound() {
+        Minecraft.getInstance().execute(SoundPreview::stop);
+    }
+
     /** Stops playback and drops the panels (the editor is closing). */
     void dispose() {
         ticket++;
+        stopPreviewSound();
         if (panels[SOUND] instanceof SoundEditorPanel sound) {
             sound.dispose();
         }
@@ -163,7 +206,7 @@ final class AssetDock {
         } else if (lower.endsWith(".ogg") || lower.endsWith(".wav")) {
             openBytes(path, SOUND);
         } else {
-            toast.accept("Nothing to show for " + path + " here");
+            toast.accept(path + " cannot be shown here (only .png, .ogg and .wav open in the dock; convert .jpg to .png and .mp3 to .ogg)");
         }
     }
 
@@ -185,6 +228,77 @@ final class AssetDock {
         if (current != PREVIEW || !visible()) {
             show(PREVIEW);
         }
+    }
+
+    /**
+     * Opens an asset of the game (not necessarily a file of the project) in the right tab: textures and sounds in their
+     * editors, models, blocks and items as a 3D picture. Saving a texture or sound writes a copy into the project's own
+     * resource folder ({@link AssetDrop#projectPath}); the original is never touched.
+     */
+    void inspect(AssetKind kind, String id) {
+        String project = projectId.get();
+        if (project == null) {
+            toast.accept("Open a project first");
+            return;
+        }
+        if (kind == AssetKind.TEXTURE || kind == AssetKind.SOUND) {
+            openResource(project, kind, id);
+            return;
+        }
+        final int mine = ++ticket;
+        Minecraft.getInstance().execute(() -> {
+            String json = AssetFetch.modelJson(kind, id);
+            column.post(() -> {
+                if (mine != ticket) {
+                    return;
+                }
+                if (json.isEmpty()) {
+                    preview.showMessage(id, "There is no model file for " + id + " to show (a block may only have a block state).");
+                    show(PREVIEW);
+                } else {
+                    previewModel(id, json);
+                }
+            });
+        });
+    }
+
+    private void openResource(String project, AssetKind kind, String id) {
+        final int tab = kind == AssetKind.TEXTURE ? TEXTURE : SOUND;
+        // the file list is the UI thread's: name the target here, before the client thread takes over
+        final String target = AssetDrop.projectPath(kind, id, project, new java.util.ArrayList<>(projectFiles.get()));
+        guard(tab, () -> {
+            final int mine = ++ticket;
+            Minecraft.getInstance().execute(() -> {
+                byte[] data = AssetFetch.bytes(kind, id);
+                Runnable result;
+                if (data == null) {
+                    result = () -> fail(id, "it is not in the loaded resources");
+                } else if (kind == AssetKind.TEXTURE) {
+                    try {
+                        PixelBuffer buffer = TextureCodec.decode(data);
+                        result = () -> {
+                            setPanel(TEXTURE, new TextureEditorPanel(context, project, target, buffer, saved -> onFilesChanged.run()));
+                            preview.showTexture(id, new PixelBuffer(buffer.width(), buffer.height(), buffer.copy()));
+                        };
+                    } catch (RuntimeException e) {
+                        result = () -> fail(id, e.getMessage());
+                    }
+                } else {
+                    try {
+                        var clip = SoundCodec.decode(target, data);
+                        result = () -> setPanel(SOUND, new SoundEditorPanel(context, project, target, clip, saved -> onFilesChanged.run()));
+                    } catch (RuntimeException e) {
+                        result = () -> fail(id, e.getMessage());
+                    }
+                }
+                final Runnable run = result;
+                column.post(() -> {
+                    if (mine == ticket) {
+                        run.run();
+                    }
+                });
+            });
+        });
     }
 
     private void openBytes(String path, int tab) {

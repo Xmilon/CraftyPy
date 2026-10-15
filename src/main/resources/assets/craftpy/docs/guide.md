@@ -41,6 +41,7 @@ its blocks, items and event handlers, and the error is shown with its file and l
 | **Breadcrumb** | Where the cursor is (file > class > function). Click it for the outline of the file. |
 | **Code area** | Syntax colours, line numbers, bookmarks, current-line and word highlights, a minimap at the right edge. |
 | **Console / Problems / Bookmarks** (bottom) | Output of runs and events, errors and warnings with their line, your bookmarks. Click a line to jump. |
+| **Dock** (right) | Four tabs: *Preview* (3D model or picture), *Texture* editor, *Sound* editor and *Assets*. *Assets* (toolbar button) lists every texture, item, block, model and sound the game has: type to search (`#tag`, `@namespace`). Click one to open it in the dock. Drag it onto the code to insert it (the id as a string, a sound as `event.player.play_sound("...")`) or onto a folder of the explorer to copy the file there (an existing file is never overwritten). Pressing Save on a texture or sound taken from the game writes your copy to `assets/<project>/textures/...` or `sounds/...`, the resources of the project and of the module built from it; the original stays untouched. |
 
 ### Esc
 
@@ -73,18 +74,53 @@ Clicking outside a dialog also closes it.
 * If the server config `hotReloadOnSave` is on, saving a code, ui or asset file re-runs the project after a short
   pause (one run for a burst of saves).
 
-### Assets
+### The asset dock
 
-Open *Tools > New texture* for a blank 16x16, 32x32 or 64x64 image, or double click a PNG in the explorer.
-The **texture editor** has pencil, eraser, fill, colour picker, line, rectangle and box, a colour mixer with
-hex input, a palette, undo/redo (`Ctrl+Z`/`Ctrl+Y`), flips, rotate and zoom. `Ctrl+S` saves it into the project.
-The **sound player** plays `.ogg`/`.wav` files with volume, pitch and loop. The **Assets** button browses the
-project's textures and copies a reference you can paste into your code.
+*View > Asset dock* (or double click a texture or sound in the explorer) opens a panel at the right of the editor with
+four tabs (Preview, Texture, Sound, Assets). Drag its edge to resize it; `x` hides it, your edits stay.
+
+* **Preview** draws a model, block state or item file (`assets/**/models`, `blockstates`, `items`) as a 3D picture you can turn
+  with the mouse (wheel zooms). The buttons above it show the model the way the game does in the inventory, on the ground, in
+  item frames, in hands and on the head. While the Preview tab is showing, it follows the file you are typing in. Textures and
+  parents are read from the game's resources, so run the project once to put your own assets into the pack. The picture is an
+  approximation: no lighting, tint colours or animation.
+* **Texture** is a pixel editor. Tools: pencil, eraser, fill (with tolerance), colour picker, line, rectangle, filled box,
+  ellipse, filled ellipse, lighten, darken and select. Brush size `[` `]`, mirror drawing, a 3x3 tile preview to check seams,
+  RGBA sliders and hex input, a palette, recent colours, copy / paste of the palette, select + copy / cut / paste, flips, rotate,
+  wrap-shift, resize, undo / redo (`Ctrl+Z` / `Ctrl+Y`) and Save (`Ctrl+S`) into the project. Files up to 288 KB open.
+  *Tools > New texture* starts a blank one. Keys work while the picture has the focus (click it).
+* **Sound** shows the waveform of an `.ogg` or `.wav` file. Drag to select, click to place the cursor, wheel to zoom. Play the
+  sound, the selection or a loop (`Space`); trim, cut (`Delete`), silence, fade in / out, gain, normalize, reverse, faster /
+  slower, mono and insert silence, all undoable. Minecraft plays Ogg Vorbis only, so *Save* writes an `.ogg`: Python with the
+  `soundfile` package encodes it (if it is missing the editor offers *Install encoder*, which runs `pip install --user soundfile`,
+  or *Save as .wav*, a file Minecraft cannot play).
+
+* **Assets** (also the toolbar button) is described above: click opens, drag inserts or copies.
+
+Menus close when you click outside, press Esc or move the pointer away from them. In a menu the arrow keys, Home, End and Enter work (Right opens a sub-menu, Left closes it, Esc closes the menu).
 
 ### Windows
 
 *Tools > New UI window* creates `ui/<id>.json`; *Tools > UI designer* opens the visual editor. Buttons name an
 `@action("...")` function in Python. Windows can also be written in code (`@window` classes, see the API).
+
+## Extensions
+
+Behaviour of items and blocks is added with extensions: `Item("ruby_sword").extends(Sword(tier="diamond"), Durability(1200))`.
+There are built-in ones (tools, durability, armor, fuel, cooldown, tooltips, redstone, fire, friction, pistons...) and you can
+write your own with `@extension` (hooks such as `on_hit` or `on_use`). They are described, with every parameter, in the Python
+API topic.
+
+## Building modules
+
+*Build* packs the project into a `.cpm` module. In the dialog choose **Update** (the installed module of this project is replaced
+in place, so there is never a duplicate) or **New module** (its own id and display name; its blocks and items then use that id as
+namespace). With *Install* ticked the module is loaded right away; the file is always also written to `exports/`.
+
+## Editor font
+
+The code area, line numbers, console and completion list use JetBrains Mono (SIL Open Font License), shipped with the mod. The rest
+of the IDE keeps the game's UI font.
 
 ## Texture packs
 
@@ -100,6 +136,8 @@ assets/ruby_rush/sounds.json, sounds/*.ogg      sounds
 assets/ruby_rush/models/..., blockstates/...    hand written models (they win over generated ones)
 pack.mcmeta                                     optional; a default one is written
 ```
+
+To replace a game texture for everyone instead of adding your own copy, save it as `assets/minecraft/textures/...` (type that path in the name box of the texture editor). The default save of a texture taken from the Assets tab is the module resource folder `assets/<project>/...`, never an override.
 
 ## Java bridge
 

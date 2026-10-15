@@ -19,7 +19,6 @@ import icyllis.modernui.graphics.drawable.ShapeDrawable;
 import icyllis.modernui.view.Gravity;
 import icyllis.modernui.view.View;
 import icyllis.modernui.widget.LinearLayout;
-import icyllis.modernui.widget.PopupMenu;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
 import icyllis.modernui.text.Typeface;
@@ -236,7 +235,7 @@ final class EditorTools {
             host.toast("The outline works for Python files");
             return;
         }
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         int count = 0;
         for (PyOutline.Symbol s : PyOutline.parse(host.text())) {
             if (s.kind() == PyOutline.Kind.CONSTANT || count >= 60) {

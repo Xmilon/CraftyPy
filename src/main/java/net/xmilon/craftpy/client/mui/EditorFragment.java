@@ -37,7 +37,6 @@ import icyllis.modernui.view.ViewGroup;
 import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.HorizontalScrollView;
 import icyllis.modernui.widget.LinearLayout;
-import icyllis.modernui.widget.PopupMenu;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
 import icyllis.modernui.widget.Toast;
@@ -50,6 +49,8 @@ import net.xmilon.craftpy.client.EditorTheme;
 import net.xmilon.craftpy.client.FileTree;
 import net.xmilon.craftpy.client.Syntax;
 import net.xmilon.craftpy.client.TextOps;
+import net.xmilon.craftpy.client.assets.AssetDrop;
+import net.xmilon.craftpy.client.assets.AssetFetch;
 import net.xmilon.craftpy.network.ProjectAction;
 import net.xmilon.craftpy.project.ProjectSummary;
 import net.xmilon.craftpy.python.ValidationProblem;
@@ -206,6 +207,8 @@ public class EditorFragment extends Fragment {
     private String synced = "";
     private boolean loading;
     private boolean internalEdit;
+    /** The player agreed to lose the unsaved dock edits, so Esc may close the screen. */
+    private boolean leaveConfirmed;
     private int autoCloserAt = -1;
     @Nullable
     private String previewPath;
@@ -320,12 +323,12 @@ public class EditorFragment extends Fragment {
         statusBar = createStatusBar(context);
         center.addView(statusBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         body.addView(center, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
-        dock = new AssetDock(context, this::projectId, this::toast, () -> store(ClientProjectStore::refresh),
+        dock = new AssetDock(context, this::projectId, () -> shownFiles, this::toast, () -> store(ClientProjectStore::refresh),
                 visible -> {
                     if (dockSplitter != null) {
                         dockSplitter.setVisibility(visible && !zen ? View.VISIBLE : View.GONE);
                     }
-                });
+                }, this::dropAsset);
         dockSplitter = new Splitter(context, true, this::dragDock, this::saveLayout);
         dockSplitter.setVisibility(View.GONE);
         body.addView(dockSplitter, new LinearLayout.LayoutParams(body.dp(6), MATCH_PARENT));
@@ -385,7 +388,33 @@ public class EditorFragment extends Fragment {
             toggleZen();
             return true;
         }
+        if (dock != null && dock.dirty() && !leaveConfirmed) {
+            confirmLeave();
+            return true;
+        }
         return false;
+    }
+
+    /** The texture or sound editor holds edits that were never saved: leaving the screen would drop them. */
+    private void confirmLeave() {
+        var dialog = Overlays.dialog(code, "Unsaved changes", 380, -1);
+        dialog.body.addView(label(code.getContext(), "The texture or sound in the dock has changes that are not saved. Leave and lose them?",
+                R.attr.textAppearanceBodyMedium));
+        var buttons = row(code.getContext());
+        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        buttons.addView(button(code.getContext(), "Keep editing", R.attr.borderlessButtonStyle, v -> dialog.dismiss()));
+        buttons.addView(button(code.getContext(), "Leave and discard", R.attr.buttonTonalStyle, v -> {
+            dialog.dismiss();
+            leaveConfirmed = true;
+            var screen = Minecraft.getInstance().screen;
+            if (screen != null) {
+                screen.onClose();
+            }
+        }));
+        var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        lp.topMargin = code.dp(10);
+        dialog.body.addView(buttons, lp);
+        dialog.show();
     }
 
     @Override
@@ -428,8 +457,11 @@ public class EditorFragment extends Fragment {
                 v -> save()));
         bar.addView(toolButton(context, "Validate", "Check the file on the Python worker (Ctrl+Enter)",
                 R.attr.borderlessButtonStyle, v -> validate()));
-        bar.addView(toolButton(context, "Assets", "Browse textures; the picked reference is copied to the clipboard",
-                R.attr.borderlessButtonStyle, v -> openAssetPicker()));
+        bar.addView(toolButton(context, "Assets", "Every texture, model and sound of the game: click to open, drag into the code or a folder",
+                R.attr.borderlessButtonStyle, v -> {
+                    dock.show(AssetDock.ASSETS);
+                    dock.focusSearch();
+                }));
         bar.addView(toolButton(context, "Build", "Pack the project into a .cpm module", R.attr.borderlessButtonStyle,
                 this::build));
         bar.addView(toolButton(context, "Stop", "Interrupt the running Python code", R.attr.buttonOutlinedStyle,
@@ -701,7 +733,7 @@ public class EditorFragment extends Fragment {
         if (shownPath == null) {
             return;
         }
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         menu.getMenu().add("Convert to LF (\\n)").setOnMenuItemClickListener(i -> run(() -> convertEndings(false)));
         menu.getMenu().add("Convert to CRLF (\\r\\n)").setOnMenuItemClickListener(i -> run(() -> convertEndings(true)));
         menu.show();
@@ -723,7 +755,7 @@ public class EditorFragment extends Fragment {
             return;
         }
         String all = code.getText().toString();
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         menu.getMenu().add("CraftPy reads and saves UTF-8 only").setEnabled(false);
         if (net.xmilon.craftpy.client.TextFormat.hasBom(all)) {
             menu.getMenu().add("Remove the byte order mark (BOM)").setOnMenuItemClickListener(i -> run(() ->
@@ -1048,7 +1080,7 @@ public class EditorFragment extends Fragment {
         explorerSplitter.setVisibility(visibility);
         if (zen) {
             dockBeforeZen = dock.visible();
-            dock.view().setVisibility(View.GONE);
+            dock.setVisible(false); // also stops a playing sound
             dockSplitter.setVisibility(View.GONE);
         } else if (dockBeforeZen) {
             dock.setVisible(true);
@@ -1229,7 +1261,7 @@ public class EditorFragment extends Fragment {
                 : path + "  (click: preview, double click: keep open)");
         hoverBackground(row);
         row.setOnClickListener(v -> treeClick(entry));
-        row.setOnCreateContextMenuListener((menu, v, info) -> treeMenu(menu, entry));
+        Overlays.contextMenu(row, menu -> treeMenu(menu, entry));
         return row;
     }
 
@@ -1518,7 +1550,7 @@ public class EditorFragment extends Fragment {
                 flush();
                 store(s -> s.openFile(path));
             });
-            chip.setOnCreateContextMenuListener((menu, v, info) -> {
+            Overlays.contextMenu(chip, menu -> {
                 menu.add(pinned ? "Unpin" : "Pin").setOnMenuItemClickListener(item -> {
                     togglePin(path);
                     return true;
@@ -1550,7 +1582,7 @@ public class EditorFragment extends Fragment {
             toast("No open tabs");
             return;
         }
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         for (String path : orderedTabs()) {
             MenuItem item = menu.getMenu().add(path);
             item.setCheckable(true).setChecked(path.equals(state.active()));
@@ -1687,7 +1719,7 @@ public class EditorFragment extends Fragment {
                     tools.recordJump();
                     openAt(path, line);
                 });
-                row.setOnCreateContextMenuListener((menu, v, info) -> menu.add("Remove bookmark").setOnMenuItemClickListener(i -> {
+                Overlays.contextMenu(row, menu -> menu.add("Remove bookmark").setOnMenuItemClickListener(i -> {
                     settings.bookmarks(project, path).remove(line);
                     settings.save();
                     renderBookmarks();
@@ -2167,7 +2199,7 @@ public class EditorFragment extends Fragment {
             toast("No recent searches");
             return;
         }
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         for (String query : settings.findHistory) {
             menu.getMenu().add(query).setOnMenuItemClickListener(item -> {
                 findInput.setText(query);
@@ -2295,7 +2327,7 @@ public class EditorFragment extends Fragment {
     // ------------------------------------------------------------------
 
     private void showEditMenu(View anchor) {
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         Menu m = menu.getMenu();
         m.add("Find...   Ctrl+F").setOnMenuItemClickListener(i -> run(() -> openFind(false)));
         m.add("Replace...   Ctrl+H").setOnMenuItemClickListener(i -> run(() -> openFind(true)));
@@ -2340,7 +2372,7 @@ public class EditorFragment extends Fragment {
     }
 
     private void showToolsMenu(View anchor) {
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         Menu m = menu.getMenu();
         m.add("Go to symbol...   Ctrl+T").setOnMenuItemClickListener(i -> run(tools::symbolSearch));
         m.add("Rename block / item id everywhere...").setOnMenuItemClickListener(i -> run(tools::renameId));
@@ -2355,7 +2387,7 @@ public class EditorFragment extends Fragment {
     }
 
     private void showViewMenu(View anchor) {
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         Menu m = menu.getMenu();
         m.add("Word wrap (this file)").setCheckable(true).setChecked(isWrapped())
                 .setOnMenuItemClickListener(i -> run(this::toggleWrap));
@@ -2603,19 +2635,88 @@ public class EditorFragment extends Fragment {
     }
 
     private void showNewMenu(View anchor, String folder) {
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         addNewItems(menu.getMenu(), folder);
         menu.show();
     }
 
-    /** Opens the asset bank; the picked id goes to the clipboard (as a quoted string) for pasting. */
-    private void openAssetPicker() {
-        flush();
-        AssetPicker.open(code, AssetKind.TEXTURE, id -> store(s -> {
-            String reference = "\"" + id + "\"";
-            Minecraft.getInstance().keyboardHandler.setClipboard(reference);
-            s.append("Copied " + reference + " - paste it as texture=... with Ctrl+V.");
-        }));
+    /**
+     * An asset was dragged out of the dock's Assets tab and released at a window position: over the code it inserts the
+     * asset (see {@link AssetDrop#snippet}), over the explorer it copies the file into the folder under the pointer.
+     */
+    private void dropAsset(AssetKind kind, String id, float windowX, float windowY) {
+        View explorerArea = (View) explorer.getParent();
+        if (insideWindow(explorerArea, windowX, windowY)) {
+            copyAssetInto(kind, id, explorerFolderAt(kind, windowY));
+        } else if (insideWindow(code, windowX, windowY) && shownPath != null && !shownPath.endsWith(".py")) {
+            toast("Drop it into a .py file: " + shownPath + " is not Python");
+        } else if (insideWindow(code, windowX, windowY) && shownPath != null) {
+            int[] at = new int[2];
+            code.getLocationInWindow(at);
+            int length = code.getText().length();
+            int offset = Math.clamp(code.getOffsetForPosition(windowX - at[0], windowY - at[1]), 0, length);
+            String snippet = AssetDrop.snippet(kind, id);
+            applyEdit(new TextOps.Edit(offset, offset, snippet, offset + snippet.length()));
+            code.requestFocus();
+            toast("Inserted " + snippet);
+        } else {
+            toast("Drop it on the code to insert it, or on a folder of the explorer to copy the file");
+        }
+    }
+
+    private static boolean insideWindow(View view, float windowX, float windowY) {
+        int[] at = new int[2];
+        view.getLocationInWindow(at);
+        return view.getVisibility() == View.VISIBLE && windowX >= at[0] && windowX < at[0] + view.getWidth()
+                && windowY >= at[1] && windowY < at[1] + view.getHeight();
+    }
+
+    /** The folder of the explorer row at a window height; the asset's usual folder under the rows. */
+    private String explorerFolderAt(AssetKind kind, float windowY) {
+        String folder = AssetDrop.folder(kind);
+        String usual = "assets/" + (folder == null ? "" : folder + "/");
+        for (int i = 0; i < explorer.getChildCount(); i++) {
+            View child = explorer.getChildAt(i);
+            int[] at = new int[2];
+            child.getLocationInWindow(at);
+            if (windowY >= at[1] && windowY < at[1] + child.getHeight() && child.getTag() instanceof String path) {
+                for (FileTree.Row row : treeRows) {
+                    if (row.path().equals(path)) {
+                        // a file or folder outside assets/ (code/, the project root) is no place for a texture
+                        return row.prefix().startsWith("assets/") ? row.prefix() : usual;
+                    }
+                }
+            }
+        }
+        return usual;
+    }
+
+    /** Copies the file behind an asset into the project; an existing file is never overwritten. */
+    private void copyAssetInto(AssetKind kind, String id, String folder) {
+        String project = projectId();
+        if (project == null) {
+            return;
+        }
+        if (!AssetDrop.isFile(kind)) {
+            toast(id + " is not a file - drop it on the code instead");
+            return;
+        }
+        String target = AssetDrop.intoFolder(kind, id, folder);
+        if (shownFiles.contains(target)) {
+            toast(target + " already exists");
+            return;
+        }
+        Minecraft.getInstance().execute(() -> {
+            byte[] data = AssetFetch.bytes(kind, id);
+            if (data == null) {
+                code.post(() -> toast("Could not read " + id));
+                return;
+            }
+            ClientProjectStore store = ClientProjectStore.getInstance();
+            store.uploadAsset(project, target, data);
+            store.refresh();
+            code.post(() -> toast("Copied " + id + " to " + target));
+        });
     }
 
     /** Single click: preview tab (replaced by the next preview). Double click: a normal tab. */

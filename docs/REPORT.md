@@ -205,6 +205,63 @@
   sessions with file locks, 52 project change log.
 - Unbatched quick ones: 11 LF/CRLF switcher in a status bar, 12 encoding display/conversion.
 
+### Milestone M14: OGG export, menu keys, upload hardening
+
+`gradlew --no-daemon test` is green (new: `OggEncoderTest`, `MenuNavTest`, `UploadRulesTest`, `ProjectWritesTest`). Nothing was clicked in game. The OGG round trip was run for real after `pip install --user soundfile` on this PC.
+
+**New**
+- Sound editor saves **Ogg Vorbis**: `client/assets/OggEncoder` runs the player's Python (`PythonDiscovery`) with `soundfile` in a short-lived process on the client, so dedicated servers need nothing. A missing package shows *Install encoder* (`pip install --user soundfile`, only on a click) and *Save as .wav*. Default name is `.ogg`.
+- Menus take **Up / Down / Home / End / Enter / Right / Left**; the highlight is shared with the mouse (`MenuNav`, `Overlays.MenuPopup.onKey`, `Host.dispatchKeyEvent`).
+
+**Fixed (from the gap audit)**
+1. Dock could not open assets over 24 KB (every normal `.ogg` / saved `.wav`): `BINARY_READ_LIMIT` is 288 KB.
+2. Leaving the editor with Esc while the dock holds unsaved texture / sound edits asks first (`EditorFragment.confirmLeave`). Switching page with the left rail still drops them.
+3. "Saved" appeared before the server accepted the file: the texture and sound editors now wait for the upload result (`ClientProjectStore.uploadAsset(..., done)`); a refused file stays marked unsaved.
+4. Two quick asset opens swapped their bytes (single callback): `ClientProjectStore` keeps a queue matched by path.
+5. Uploads: chunk count, size (`maxAssetSizeKb`, which was never read) and a 60 s expiry for unfinished uploads (`UploadRules`, `ProjectRequestHandler`).
+6. Uploads only into `assets/`; `:` refused in project paths (`ProjectManager.resolveSafe`).
+7. A save no longer recreates a deleted project; binary files are written through a temp file (`ProjectManager`).
+9. Dropping on a root-level or `code/` row copied the texture there; now it goes to the asset's usual `assets/<kind>/` folder.
+10. `.wav` dropped / imported lands in `assets/sounds/`; the file dialog lists `.wav`; opening a `.jpg` / `.mp3` says what to convert.
+12. ▶ in the Assets tab plays sounds that only a `sounds.json` defines, and says so when the id is invalid.
+13. Blocks with only a block state can be inspected (`AssetFetch.blockState`).
+14. Missing models are no longer cached as empty; the cache is cleared on every resource reload.
+15. Sounds stop on the client thread; zen mode stops them too.
+16. A model that cannot be drawn shows the error instead of "Loading...".
+18. A menu no longer closes if the pointer moves before its first layout (real card bounds).
+19. `Overlays.contextMenuListener` exposes the right-click listener so it can be combined with drag handling later.
+20. Closing a menu removes its cards.
+21. Esc cancels an asset drag.
+24. Assets dropped on a non-Python file are refused with a message.
+25. The project file list is copied on the UI thread before the client thread uses it.
+
+**Located, not fixed**
+8 every asset save rebuilds the pack and reloads all clients (`ProjectRequestHandler.refreshPacksAfterAssetChange`, `ClientPackSync.reload`); 11 the mod replaces GLFW's drop callback (`CraftPyClient.onClientSetup`); 17 `PackBuilder.writeProjectResourceExtras` overwrites a project's own `sounds.json`; 22 the index build can poll forever if it fails (`AssetIndex.ensureBuilt`, `AssetBrowserPanel.refresh`); 23 `EditorFragment.copyAssetInto` reports "Copied" before the server answers, skips animation `.mcmeta` and copies a random sound variant; 26 sound undo history can reach ~250 MB (`SoundEditorPanel.HISTORY`); 27 `TextureEditorPanel.validTarget` is loose and untested; 28 `assets/animations` and `assets/other` are seeded as folders but ship as namespaces (`ProjectManager`); 29 *New module* builds keep the old namespace for `assets/<project>/...` (`ModuleBuilder`); 30 dead code (`SoundPreview.playLooping/tick/setPitchVolume`, `ModelViewerScreen`, `InspectorScreen`); 31 many dropped files can overflow the IO queue (`AssetUploader.uploadAll`).
+Earlier gaps stay: slots over 4096, `ContentPreviewScreen` still vanilla, Batch D / E, drag only from the Assets tab, Java bridge limits.
+**Unverified in game:** menu keys and placement, drag and drop, the leave confirmation, the install button, cursor icons.
+
+### Milestone M13: asset dock, asset browser, overlay menus, cursor fix
+
+Compiles and `gradlew --no-daemon test` is green (new: `AssetDropTest`, 7 tests); none of it was clicked in game.
+
+**Fixed**
+- *Text cursor over dialogs.* Modern UI answers the pointer icon with the first child that has one, siblings underneath included, so the code area behind a dialog showed the I-beam over the whole dialog. `Overlays.Layer.onResolvePointerIcon`: a dialog owns the pointer everywhere, menus and floating cards where they cover something.
+- *Menus stayed open.* Modern UI's `PopupMenu` opens a separate popup window. All menus of the editor, Home and the UI designer (Edit, View, Tools, New, tab list, find history, status bar, node menu) and the right click menus (explorer, tab chips, bookmarks) are now `Overlays.MenuPopup` / `Overlays.contextMenu`: drawn in the screen, close on a click outside, Esc, after an item ran, and when the pointer leaves the menu, its open sub-menus and the view it hangs from (6 dp slack). Sub-menus open on hover. `WindowFragment` (Python windows, no overlay host) keeps `PopupMenu` for its dropdown.
+- *Sound editor saves were rejected.* The server only accepted `.png .jpg .ogg .json` uploads, so Save in the sound editor (which then wrote `.wav`) never reached the project. `.wav` is allowed now.
+
+**New**
+- Dock tab *Assets* (`AssetBrowserPanel`, replaces the `AssetPicker` dialog): textures, items, blocks, models, sounds of the game, search with `#tag` and `@namespace`, sound play button.
+  - Click: `AssetDock.inspect` opens a texture in the texture editor, a sound in the sound editor, a model / block / item as the 3D picture (`AssetFetch` reads the bytes from the resource manager on the client thread).
+  - Drag: a chip follows the pointer; release over the code inserts `"id"` (a sound: `event.player.play_sound("id")`) at the pointer; over the explorer copies the file into the folder under the pointer (`AssetDrop.intoFolder`, never overwrites, items and blocks are not files). Naming rules are in `AssetDrop` (pure, tested).
+  - Modified assets: Save of a texture / sound taken from the game writes to the module resources `assets/<project>/textures|sounds/...` (`AssetDrop.projectPath`; other mods' ids keep their namespace as a folder; an id in the project's own namespace keeps using the simple `assets/textures/` file when it exists). Replacing the original for everyone is a separate, explicit act: type `assets/minecraft/textures/...` in the name box.
+- `welcome` example: header documents the asset workflow. `run/pyforge` was reset (old copy kept outside the repo) and `welcome` re-seeded from the jar resources.
+
+**Not done / limits**
+- (Sound saves became `.ogg` in M14.)
+- Drag only starts from the Assets tab (not from the explorer or the preview); keyboard navigation of the new menus is not implemented (Esc only).
+- Pointer leave is judged on hover events, so a menu stays until the pointer moves.
+- Unverified in game: drag and drop positions, menu placement near window edges, cursor icon in every dialog.
+
 ### Milestone M12: overlays, explorer tree, go to definition, multi-file projects, Java bridge
 
 Everything below compiles and is covered by unit tests (`gradlew --no-daemon test`: Java 120+ tests, 20 Python tests); none of it has been clicked through in game.

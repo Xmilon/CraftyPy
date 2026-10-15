@@ -29,6 +29,7 @@ import net.minecraft.client.Minecraft;
 import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.client.AudioClip;
 import net.xmilon.craftpy.client.ClientProjectStore;
+import net.xmilon.craftpy.client.assets.OggEncoder;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -39,8 +40,9 @@ import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
  * looped), and the edits trim, cut, silence, fade in / out, gain, normalize, reverse, speed, mono and insert silence, each
  * undoable. Playback uses the JDK's audio output, independent of the game's sound engine.
  * <p>
- * Minecraft can only play Ogg Vorbis and the game cannot write it, so the result is saved as a 16 bit WAV into the
- * project, next to the original; convert it to .ogg (for example with Audacity) before using it as a sound.
+ * Minecraft can only play Ogg Vorbis and Java cannot write it, so Save hands the sound to a short-lived Python with the
+ * soundfile package ({@link OggEncoder}); when the package is missing the panel offers to install it, or to save a 16 bit
+ * WAV instead.
  */
 final class SoundEditorPanel implements DockPanel {
     private static final int HISTORY = 12;
@@ -54,6 +56,8 @@ final class SoundEditorPanel implements DockPanel {
     private final TextView undoButton;
     private final TextView redoButton;
     private final Consumer<String> onSaved;
+    private final LinearLayout fallbackRow;
+    private final TextView installButton;
     private final ArrayDeque<AudioClip> undo = new ArrayDeque<>();
     private final ArrayDeque<AudioClip> redo = new ArrayDeque<>();
 
@@ -75,10 +79,10 @@ final class SoundEditorPanel implements DockPanel {
         var top = row(context);
         nameBox = new EditText(context, null, R.attr.editTextOutlinedStyle);
         nameBox.setSingleLine();
-        nameBox.setText(wavName(path));
-        nameBox.setHint("assets/sounds/name.wav");
+        nameBox.setText(oggName(path));
+        nameBox.setHint("assets/sounds/name.ogg");
         top.addView(nameBox, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-        top.addView(button(context, "Save WAV", R.attr.buttonStyle, v -> save()));
+        top.addView(button(context, "Save", R.attr.buttonStyle, v -> save()));
         root.addView(top);
 
         var transport = row(context);
@@ -124,17 +128,22 @@ final class SoundEditorPanel implements DockPanel {
         status = label(context, "", R.attr.textAppearanceLabelMedium);
         status.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         root.addView(status);
-        var hint = label(context, "Minecraft plays .ogg only. This saves a .wav next to your sound; convert it to .ogg before using it.",
+        fallbackRow = row(context);
+        installButton = chip("Install encoder", "Runs: python -m pip install --user soundfile", v -> installEncoder());
+        fallbackRow.addView(installButton);
+        fallbackRow.addView(chip("Save as .wav", "Save a 16 bit WAV instead (Minecraft cannot play it)", v -> saveWav()));
+        fallbackRow.setVisibility(View.GONE);
+        root.addView(fallbackRow);
+        var hint = label(context, "Saves Ogg Vorbis (the only format Minecraft plays). That needs Python with the soundfile package; the editor offers to install it.",
                 R.attr.textAppearanceBodySmall);
         hint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         root.addView(hint);
         refresh();
     }
 
-    private static String wavName(String path) {
+    private static String oggName(String path) {
         int dot = path.lastIndexOf('.');
-        String base = dot > 0 ? path.substring(0, dot) : path;
-        return base + (path.toLowerCase(Locale.ROOT).endsWith(".wav") ? "_edit" : "") + ".wav";
+        return (dot > 0 ? path.substring(0, dot) : path) + ".ogg";
     }
 
     @Override
@@ -359,19 +368,88 @@ final class SoundEditorPanel implements DockPanel {
 
     // ------------------------------------------------------------------ saving
 
+    /** Save: Ogg Vorbis through the Python encoder, or a WAV when the name says so. */
     void save() {
-        String target = nameBox.getText().toString().trim().toLowerCase(Locale.ROOT);
-        if (!target.startsWith("assets/") || !target.endsWith(".wav") || !target.matches("[a-z0-9_./-]+")
-                || target.contains("..") || target.contains("//")) {
-            say("Name must be like assets/sounds/ruby_chime.wav (a-z, 0-9, _ - . /)");
+        String target = targetName();
+        if (target == null) {
             return;
         }
-        byte[] wav = clip.toWav();
-        Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().uploadAsset(projectId, target, wav));
-        modified = false;
-        refresh();
-        say("Saved " + target + " (" + wav.length / 1024 + " KB). Convert it to .ogg to use it in the game.");
-        onSaved.accept(target);
+        fallbackRow.setVisibility(View.GONE);
+        if (target.endsWith(".wav")) {
+            upload(target, clip.toWav(), clip);
+            return;
+        }
+        final AudioClip saved = clip;
+        say("Encoding Ogg Vorbis ...");
+        OggEncoder.encode(saved.toWav()).thenAccept(result -> root.post(() -> {
+            switch (result.status()) {
+                case OK -> upload(target, result.ogg(), saved);
+                case MISSING_MODULE -> {
+                    say("Saving .ogg needs the Python package soundfile.");
+                    installButton.setVisibility(View.VISIBLE);
+                    fallbackRow.setVisibility(View.VISIBLE);
+                }
+                default -> {
+                    say("Could not make the .ogg: " + result.message());
+                    installButton.setVisibility(View.GONE);
+                    fallbackRow.setVisibility(View.VISIBLE);
+                }
+            }
+        }));
+    }
+
+    /** The fallback button: the same sound as a 16 bit WAV next to the .ogg name. */
+    private void saveWav() {
+        String target = targetName();
+        if (target != null) {
+            fallbackRow.setVisibility(View.GONE);
+            String wav = target.endsWith(".ogg") ? target.substring(0, target.length() - 4) + ".wav" : target;
+            nameBox.setText(wav);
+            upload(wav, clip.toWav(), clip);
+        }
+    }
+
+    private void installEncoder() {
+        say("Installing soundfile with pip ...");
+        installButton.setVisibility(View.GONE);
+        OggEncoder.install().thenAccept(result -> root.post(() -> {
+            if (result.status() == OggEncoder.Status.OK) {
+                fallbackRow.setVisibility(View.GONE);
+                say("soundfile installed. Press Save again.");
+            } else {
+                installButton.setVisibility(View.VISIBLE);
+                say("Install failed: " + result.message());
+            }
+        }));
+    }
+
+    /** The checked file name of the name box, or null (after telling the player). */
+    private String targetName() {
+        String target = nameBox.getText().toString().trim().toLowerCase(Locale.ROOT);
+        if (!target.startsWith("assets/") || !(target.endsWith(".ogg") || target.endsWith(".wav"))
+                || !target.matches("[a-z0-9_./-]+") || target.contains("..") || target.contains("//")) {
+            say("Name must be like assets/sounds/ruby_chime.ogg (a-z, 0-9, _ - . /)");
+            return null;
+        }
+        return target;
+    }
+
+    /** Uploads the bytes; the sound counts as saved only once the server wrote the file. */
+    private void upload(String target, byte[] bytes, AudioClip saved) {
+        say("Saving " + target + " ...");
+        Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().uploadAsset(projectId, target, bytes,
+                error -> root.post(() -> {
+                    if (error != null) {
+                        say("Not saved: " + error);
+                        return;
+                    }
+                    if (clip == saved) {
+                        modified = false;
+                        refresh();
+                    }
+                    say("Saved " + target + " (" + Math.max(1, bytes.length / 1024) + " KB)");
+                    onSaved.accept(target);
+                })));
     }
 
     private boolean onKey(int keyCode, KeyEvent event) {

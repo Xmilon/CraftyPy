@@ -18,7 +18,6 @@ import icyllis.modernui.view.View;
 import icyllis.modernui.view.ViewGroup;
 import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.LinearLayout;
-import icyllis.modernui.widget.PopupMenu;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
 import net.xmilon.craftpy.assets.AssetKind;
@@ -314,7 +313,7 @@ public class HomeFragment extends Fragment {
     }
 
     private void showMenu(View anchor, ProjectSummary project) {
-        var menu = new PopupMenu(anchor.getContext(), anchor);
+        var menu = Overlays.menu(anchor);
         menu.getMenu().add(0, 1, 0, "Run");
         menu.getMenu().add(0, 2, 1, "Stop");
         menu.getMenu().add(0, 3, 2, "Rename...");

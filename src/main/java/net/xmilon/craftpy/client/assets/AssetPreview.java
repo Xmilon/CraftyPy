@@ -89,21 +89,26 @@ public final class AssetPreview {
 
     /** The raw model JSON text, or "" if it could not be loaded. */
     public static String modelJson(String id) {
-        return MODEL_JSON_CACHE.computeIfAbsent(id, key -> {
-            ResourceLocation rl = modelLocation(key);
-            if (rl == null) {
-                return "";
-            }
-            Optional<Resource> res = mc().getResourceManager().getResource(rl);
-            if (res.isEmpty()) {
-                return "";
-            }
-            try (InputStream in = res.get().open()) {
-                return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            } catch (Exception e) {
-                return "";
-            }
-        });
+        String cached = MODEL_JSON_CACHE.get(id);
+        if (cached != null) {
+            return cached;
+        }
+        // a miss is not remembered: the file may appear with the next pack reload
+        ResourceLocation rl = modelLocation(id);
+        if (rl == null) {
+            return "";
+        }
+        Optional<Resource> res = mc().getResourceManager().getResource(rl);
+        if (res.isEmpty()) {
+            return "";
+        }
+        try (InputStream in = res.get().open()) {
+            String text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            MODEL_JSON_CACHE.put(id, text);
+            return text;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /** A texture ResourceLocation suitable for a model thumbnail, or null. */

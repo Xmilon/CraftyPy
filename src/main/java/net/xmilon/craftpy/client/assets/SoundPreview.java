@@ -72,7 +72,12 @@ public final class SoundPreview {
 
     private static SoundEvent resolve(String soundId) {
         ResourceLocation id = resolveId(soundId);
-        return id == null ? null : BuiltInRegistries.SOUND_EVENT.get(id);
+        if (id == null) {
+            return null;
+        }
+        SoundEvent registered = BuiltInRegistries.SOUND_EVENT.get(id);
+        // events that only a sounds.json defines (a project's own) are not in the registry but play by name
+        return registered != null ? registered : SoundEvent.createVariableRangeEvent(id);
     }
 
     private static ResourceLocation resolveId(String soundId) {

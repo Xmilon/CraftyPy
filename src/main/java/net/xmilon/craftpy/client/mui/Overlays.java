@@ -2,7 +2,9 @@ package net.xmilon.craftpy.client.mui;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiPredicate;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 import icyllis.modernui.R;
 import icyllis.modernui.annotation.NonNull;
@@ -13,11 +15,19 @@ import icyllis.modernui.graphics.drawable.ShapeDrawable;
 import icyllis.modernui.view.Gravity;
 import icyllis.modernui.view.KeyEvent;
 import icyllis.modernui.view.MeasureSpec;
+import icyllis.modernui.view.MenuItem;
+import icyllis.modernui.view.MotionEvent;
+import icyllis.modernui.view.PointerIcon;
 import icyllis.modernui.view.View;
+import icyllis.modernui.view.ViewGroup;
 import icyllis.modernui.view.ViewParent;
+import icyllis.modernui.view.menu.MenuBuilder;
+import icyllis.modernui.view.menu.MenuItemImpl;
 import icyllis.modernui.widget.FrameLayout;
 import icyllis.modernui.widget.LinearLayout;
+import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
+import net.xmilon.craftpy.client.MenuNav;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -43,31 +53,44 @@ final class Overlays {
     static final class Host extends FrameLayout {
         private final List<Layer> layers = new ArrayList<>();
         private final List<BooleanSupplier> backHandlers = new ArrayList<>();
-        private boolean swallowKeyUp;
+        /** Key code whose release must be swallowed because its press was handled here (Esc, menu keys). */
+        private int swallowedUp = -1;
 
         Host(Context context) {
             super(context);
         }
 
-        @Override
+    @Override
         public boolean dispatchKeyEvent(@NonNull KeyEvent event) {
-            if (event.getKeyCode() == KeyEvent.KEY_ESCAPE) {
-                if (event.getAction() == KeyEvent.ACTION_DOWN && back()) {
-                    swallowKeyUp = true;
-                    return true;
-                }
-                if (event.getAction() == KeyEvent.ACTION_UP && swallowKeyUp) {
-                    swallowKeyUp = false;
+            int key = event.getKeyCode();
+            if (event.getAction() == KeyEvent.ACTION_UP && key == swallowedUp) {
+                swallowedUp = -1;
+                return true;
+            }
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (key == KeyEvent.KEY_ESCAPE ? back() : menuKey(event)) {
+                    swallowedUp = key;
                     return true;
                 }
             }
             return super.dispatchKeyEvent(event);
         }
 
+        /** An open menu gets the arrow keys, Enter and the like before the focused view (the code area) can move its caret. */
+        private boolean menuKey(KeyEvent event) {
+            for (int i = layers.size() - 1; i >= 0; i--) {
+                Layer layer = layers.get(i);
+                if (layer.modal || layer.escapes) {
+                    return layer.keyHandler != null && layer.keyHandler.test(event);
+                }
+            }
+            return false;
+        }
+
         /** Esc: closes the topmost dialog, otherwise the newest page handler that wants it. */
         boolean back() {
             for (int i = layers.size() - 1; i >= 0; i--) {
-                if (layers.get(i).modal) {
+                if (layers.get(i).modal || layers.get(i).escapes) {
                     layers.get(i).dismiss();
                     return true;
                 }
@@ -100,9 +123,20 @@ final class Overlays {
         }
     }
 
-    /** One stacked layer. Dialog layers are modal (dim, swallow clicks); floating layers let clicks through. */
+    /**
+     * One stacked layer. Dialog layers are modal (dim, swallow clicks); floating layers let clicks through; menu layers
+     * are transparent but catch the click that dismisses them, Esc, and close when the pointer leaves the menu.
+     */
     private static final class Layer extends FrameLayout {
         final boolean modal;
+        /** Menu layers: Esc closes them like a dialog. */
+        boolean escapes;
+        /** Menu layers: asked with the pointer position in layer coordinates; false closes the menu. */
+        @Nullable
+        BiPredicate<Float, Float> pointerKeeps;
+        /** Menu layers: offered every key press before the focused view; true means it was used. */
+        @Nullable
+        java.util.function.Predicate<KeyEvent> keyHandler;
         Runnable dismisser = () -> { };
 
         Layer(Context context, boolean modal) {
@@ -117,6 +151,42 @@ final class Overlays {
 
         void dismiss() {
             dismisser.run();
+        }
+
+        @Override
+        protected boolean dispatchHoverEvent(@NonNull MotionEvent event) {
+            if (pointerKeeps != null && event.getAction() != MotionEvent.ACTION_HOVER_EXIT
+                    && !pointerKeeps.test(event.getX(), event.getY())) {
+                post(this::dismiss); // not now: this dispatch is still walking the layer's children
+                return false;
+            }
+            return super.dispatchHoverEvent(event);
+        }
+
+        /**
+         * A pointer icon is the first one any child answers, siblings underneath included, so the code area behind a
+         * dialog kept the text cursor over the whole dialog. A dialog owns the pointer everywhere; a menu or floating
+         * card owns it where it covers something.
+         */
+        @Override
+        public PointerIcon onResolvePointerIcon(@NonNull MotionEvent event) {
+            PointerIcon own = super.onResolvePointerIcon(event);
+            if (own != null) {
+                return own;
+            }
+            if (modal) {
+                return PointerIcon.getSystemIcon(PointerIcon.TYPE_ARROW);
+            }
+            float x = event.getX();
+            float y = event.getY();
+            for (int i = getChildCount() - 1; i >= 0; i--) {
+                View child = getChildAt(i);
+                if (child.getVisibility() == VISIBLE && x >= child.getLeft() && x < child.getRight()
+                        && y >= child.getTop() && y < child.getBottom()) {
+                    return PointerIcon.getSystemIcon(PointerIcon.TYPE_ARROW);
+                }
+            }
+            return null;
         }
     }
 
@@ -330,5 +400,362 @@ final class Overlays {
     static Floating floating(View anchor, View content) {
         Host host = host(anchor);
         return host == null ? null : new Floating(host, content);
+    }
+
+    // ------------------------------------------------------------------
+    // Menus (toolbar drop-downs, context menus)
+    // ------------------------------------------------------------------
+
+    /**
+     * A drop-down or context menu drawn inside the screen. Modern UI's {@code PopupMenu} opens a separate popup window
+     * that stayed open when the pointer left it; this one closes on a click outside, on Esc, when an item ran, and as
+     * soon as the pointer leaves the menu, its open sub-menus and the view it hangs from. Fill {@link #getMenu()} like any
+     * menu, then {@link #show()} (under the anchor) or {@link #showAt} (a context menu).
+     */
+    static final class MenuPopup {
+        /** How far the pointer may stray from the menu before it closes, so a corner cut is not punished. */
+        private static final int SLOP_DP = 6;
+
+        @Nullable
+        private final Host host;
+        private final View anchor;
+        private final Layer layer;
+        private final MenuBuilder menu;
+        /** The open cards, the root first; each lies directly in the layer. */
+        private final List<View> cards = new ArrayList<>();
+        /** The highlighted row of each open card (index into its rows), -1 for none; parallel to {@code cards}. */
+        private final List<Integer> cursors = new ArrayList<>();
+        /** Layer rectangles (left, top, right, bottom) of the cards, known as soon as {@link #place} ran: view bounds are 0 before layout. */
+        private final java.util.Map<View, int[]> bounds = new java.util.IdentityHashMap<>();
+        /** Layer coordinates of what the menu hangs from: left, top, right, bottom. */
+        private final int[] anchorBox = new int[4];
+        @Nullable
+        private MenuItem.OnMenuItemClickListener onItem;
+        private boolean showing;
+
+        private MenuPopup(@Nullable Host host, View anchor) {
+            this.host = host;
+            this.anchor = anchor;
+            menu = new MenuBuilder(anchor.getContext());
+            layer = new Layer(anchor.getContext(), false);
+            layer.escapes = true;
+            layer.setClickable(true); // the click outside the menu lands here and closes it
+            layer.setOnClickListener(v -> dismiss());
+            layer.dismisser = this::dismiss;
+            layer.pointerKeeps = this::keeps;
+            layer.keyHandler = this::onKey;
+        }
+
+        MenuBuilder getMenu() {
+            return menu;
+        }
+
+        /** Runs for every item that has no listener of its own. */
+        void setOnMenuItemClickListener(MenuItem.OnMenuItemClickListener listener) {
+            onItem = listener;
+        }
+
+        /** Opens the menu under the view it was made for. */
+        void show() {
+            int[] at = new int[2];
+            anchor.getLocationInWindow(at);
+            open(at[0], at[1], at[0] + anchor.getWidth(), at[1] + anchor.getHeight());
+        }
+
+        /** Opens the menu with its corner at a window point. */
+        void showAt(float windowX, float windowY) {
+            open((int) windowX, (int) windowY, (int) windowX, (int) windowY);
+        }
+
+        void dismiss() {
+            if (showing && host != null) {
+                showing = false;
+                cards.clear();
+                cursors.clear();
+                bounds.clear();
+                layer.removeAllViews();
+                host.detach(layer);
+            }
+        }
+
+        private void open(int left, int top, int right, int bottom) {
+            if (host == null || showing || !menu.hasVisibleItems()) {
+                return;
+            }
+            int[] origin = new int[2];
+            host.getLocationInWindow(origin);
+            anchorBox[0] = left - origin[0];
+            anchorBox[1] = top - origin[1];
+            anchorBox[2] = right - origin[0];
+            anchorBox[3] = bottom - origin[1];
+            showing = true;
+            host.attach(layer);
+            if (host.findFocus() == null) { // nothing to receive keys: the layer takes them for the arrow keys and Esc
+                layer.setFocusableInTouchMode(true);
+                layer.requestFocus();
+            }
+            View card = buildCard(menu, 0);
+            cards.add(card);
+            cursors.add(-1);
+            // below the anchor, or above it when there is no room
+            card.measure(MeasureSpec.makeMeasureSpec(Math.max(1, host.getWidth()), MeasureSpec.AT_MOST),
+                    MeasureSpec.makeMeasureSpec(Math.max(1, host.getHeight()), MeasureSpec.AT_MOST));
+            int y = anchorBox[3];
+            if (y + card.getMeasuredHeight() > host.getHeight()) {
+                y = anchorBox[1] - card.getMeasuredHeight();
+            }
+            place(card, anchorBox[0], y);
+        }
+
+        /** Puts a card at a layer position, moved back inside the window. */
+        private void place(View card, int x, int y) {
+            int width = Math.max(1, host.getWidth());
+            int height = Math.max(1, host.getHeight());
+            card.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST),
+                    MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST));
+            int w = card.getMeasuredWidth();
+            int h = card.getMeasuredHeight();
+            var lp = new FrameLayout.LayoutParams(w, h, Gravity.TOP | Gravity.START);
+            int left = Math.max(0, Math.min(x, width - w));
+            int top = Math.max(0, Math.min(y, height - h));
+            lp.setMargins(left, top, 0, 0);
+            bounds.put(card, new int[]{left, top, left + w, top + h});
+            if (card.getParent() == null) {
+                layer.addView(card, lp);
+            } else {
+                card.setLayoutParams(lp);
+            }
+        }
+
+        private View buildCard(icyllis.modernui.view.Menu source, int depth) {
+            Context context = anchor.getContext();
+            var items = new LinearLayout(context);
+            items.setOrientation(LinearLayout.VERTICAL);
+            boolean checks = false;
+            for (int i = 0; i < source.size(); i++) {
+                MenuItem item = source.getItem(i);
+                checks |= item.isVisible() && item.isCheckable();
+            }
+            for (int i = 0; i < source.size(); i++) {
+                MenuItem item = source.getItem(i);
+                if (item.isVisible()) {
+                    items.addView(itemRow(item, depth, checks), new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+                }
+            }
+            var scroll = new ScrollView(context);
+            scroll.addView(items, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+            var card = card(context);
+            card.setClickable(true); // clicks inside must not reach the dismissing layer
+            int pad = card.dp(4);
+            card.setPadding(pad, pad, pad, pad);
+            card.addView(scroll, new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
+            return card;
+        }
+
+        private View itemRow(MenuItem item, int depth, boolean checks) {
+            Context context = anchor.getContext();
+            var line = row(context);
+            line.setPadding(line.dp(10), line.dp(5), line.dp(10), line.dp(5));
+            if (checks) {
+                var check = label(context, item.isChecked() ? "✓" : "", R.attr.textAppearanceBodyMedium);
+                check.setMinWidth(check.dp(18));
+                line.addView(check);
+            }
+            var title = label(context, String.valueOf(item.getTitle()), R.attr.textAppearanceBodyMedium);
+            line.addView(title, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+            boolean sub = item.hasSubMenu();
+            if (sub) {
+                var arrow = label(context, "›", R.attr.textAppearanceBodyMedium);
+                arrow.setPadding(arrow.dp(16), 0, 0, 0);
+                line.addView(arrow);
+            }
+            if (!item.isEnabled()) {
+                line.setAlpha(0.5f);
+                return line;
+            }
+            line.setTag(item); // the keyboard looks here for sub-menus
+            hoverBackground(line);
+            line.setClickable(true);
+            line.setOnHoverListener((v, event) -> {
+                if (event.getAction() == MotionEvent.ACTION_HOVER_ENTER) {
+                    setCursor(depth, line);
+                    line.post(() -> { // not now: the hover dispatch is still walking the layer's children
+                        if (showing) {
+                            closeBelow(depth + 1);
+                            if (sub) {
+                                openSub(item.getSubMenu(), line, depth);
+                            }
+                        }
+                    });
+                }
+                return false;
+            });
+            line.setOnClickListener(v -> {
+                if (sub) {
+                    closeBelow(depth + 1);
+                    openSub(item.getSubMenu(), line, depth);
+                    return;
+                }
+                dismiss(); // first: the action may open a dialog or another menu
+                boolean handled = item instanceof MenuItemImpl impl && impl.invoke();
+                if (!handled && onItem != null) {
+                    onItem.onMenuItemClick(item);
+                }
+            });
+            return line;
+        }
+
+        private void openSub(icyllis.modernui.view.Menu source, View row, int depth) {
+            if (cards.size() > depth + 1) {
+                return; // already open
+            }
+            View card = buildCard(source, depth + 1);
+            cards.add(card);
+            cursors.add(-1);
+            View parent = cards.get(depth);
+            int[] at = new int[2];
+            row.getLocationInWindow(at);
+            int[] origin = new int[2];
+            host.getLocationInWindow(origin);
+            card.measure(MeasureSpec.makeMeasureSpec(Math.max(1, host.getWidth()), MeasureSpec.AT_MOST),
+                    MeasureSpec.makeMeasureSpec(Math.max(1, host.getHeight()), MeasureSpec.AT_MOST));
+            int x = parent.getRight();
+            if (x + card.getMeasuredWidth() > host.getWidth()) {
+                x = parent.getLeft() - card.getMeasuredWidth();
+            }
+            place(card, x, at[1] - origin[1] - card.dp(4));
+        }
+
+        // ---- keyboard ----
+
+        /** The rows of an open card. */
+        private static ViewGroup rowsOf(View card) {
+            return (ViewGroup) ((ViewGroup) ((ViewGroup) card).getChildAt(0)).getChildAt(0);
+        }
+
+        /** Highlights one row of a card (the one under the pointer or reached by the arrow keys). */
+        private void setCursor(int depth, View row) {
+            if (depth >= cards.size()) {
+                return;
+            }
+            ViewGroup rows = rowsOf(cards.get(depth));
+            int old = cursors.get(depth);
+            if (old >= 0 && old < rows.getChildCount()) {
+                styleChip(rows.getChildAt(old), false);
+            }
+            int index = rows.indexOfChild(row);
+            cursors.set(depth, index);
+            if (index >= 0) {
+                styleChip(row, true);
+                ((ScrollView) ((ViewGroup) cards.get(depth)).getChildAt(0)).scrollToDescendant(row);
+            }
+        }
+
+        /** The next row that can be used from {@code from} in direction {@code dir} (wraps), -1 when there is none. */
+        private static int step(ViewGroup rows, int from, int dir) {
+            boolean[] usable = new boolean[rows.getChildCount()];
+            for (int i = 0; i < usable.length; i++) {
+                usable[i] = rows.getChildAt(i).isClickable();
+            }
+            return MenuNav.step(usable, from, dir);
+        }
+
+        private void select(int depth, int index) {
+            if (index >= 0) {
+                setCursor(depth, rowsOf(cards.get(depth)).getChildAt(index));
+            }
+        }
+
+        /** Arrow keys, Home, End and Enter on the innermost open card; true when the key was used. */
+        private boolean onKey(KeyEvent event) {
+            if (!showing || cards.isEmpty()) {
+                return false;
+            }
+            int depth = cards.size() - 1;
+            ViewGroup rows = rowsOf(cards.get(depth));
+            int cursor = cursors.get(depth);
+            if (rows.getChildCount() == 0) {
+                return false;
+            }
+            switch (event.getKeyCode()) {
+                case KeyEvent.KEY_DOWN -> select(depth, step(rows, cursor, 1));
+                case KeyEvent.KEY_UP -> select(depth, step(rows, cursor, -1));
+                case KeyEvent.KEY_HOME -> select(depth, step(rows, -1, 1));
+                case KeyEvent.KEY_END -> select(depth, step(rows, -1, -1));
+                case KeyEvent.KEY_ENTER, KeyEvent.KEY_KP_ENTER -> {
+                    if (cursor >= 0) {
+                        rows.getChildAt(cursor).performClick();
+                    }
+                }
+                case KeyEvent.KEY_RIGHT -> {
+                    if (cursor >= 0 && rows.getChildAt(cursor).getTag() instanceof MenuItem item && item.hasSubMenu()) {
+                        rows.getChildAt(cursor).performClick(); // opens the sub-menu
+                        if (cards.size() == depth + 2) {
+                            select(depth + 1, step(rowsOf(cards.get(depth + 1)), -1, 1));
+                        }
+                    }
+                }
+                case KeyEvent.KEY_LEFT -> {
+                    if (depth > 0) {
+                        closeBelow(depth);
+                    }
+                }
+                default -> {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void closeBelow(int depth) {
+            while (cards.size() > depth) {
+                View gone = cards.remove(cards.size() - 1);
+                cursors.remove(cursors.size() - 1);
+                bounds.remove(gone);
+                layer.removeView(gone);
+            }
+        }
+
+        /** True while the pointer (layer coordinates) is over the anchor or a card, give or take a few dp. */
+        private boolean keeps(float x, float y) {
+            int slop = layer.dp(SLOP_DP);
+            if (x >= anchorBox[0] - slop && x < anchorBox[2] + slop && y >= anchorBox[1] - slop && y < anchorBox[3] + slop) {
+                return true;
+            }
+            for (int[] box : bounds.values()) {
+                if (x >= box[0] - slop && x < box[2] + slop && y >= box[1] - slop && y < box[3] + slop) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /** A menu for {@code anchor}; it shows nothing when the anchor is not on a screen with a {@link Host}. */
+    static MenuPopup menu(View anchor) {
+        return new MenuPopup(host(anchor), anchor);
+    }
+
+    /**
+     * Right click on {@code view} opens a menu filled by {@code fill} (not called again until the next right click).
+     * Replaces {@code setOnCreateContextMenuListener}, whose popup window outlived the pointer.
+     */
+    static void contextMenu(View view, Consumer<icyllis.modernui.view.Menu> fill) {
+        view.setOnTouchListener(contextMenuListener(fill));
+    }
+
+    /** The touch listener behind {@link #contextMenu}, for a view that needs to combine it with other touch handling. */
+    static View.OnTouchListener contextMenuListener(Consumer<icyllis.modernui.view.Menu> fill) {
+        return (v, event) -> {
+            if (event.getAction() != MotionEvent.ACTION_DOWN || (event.getButtonState() & MotionEvent.BUTTON_SECONDARY) == 0) {
+                return false;
+            }
+            MenuPopup popup = menu(v);
+            fill.accept(popup.getMenu());
+            int[] at = new int[2];
+            v.getLocationInWindow(at);
+            popup.showAt(at[0] + event.getX(), at[1] + event.getY());
+            return true;
+        };
     }
 }

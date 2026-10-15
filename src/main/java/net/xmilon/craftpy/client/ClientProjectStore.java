@@ -321,15 +321,30 @@ public final class ClientProjectStore {
 
     /**
      * Fetches a project asset file from the server for previewing. The callback
-     * runs on the client thread. One request is in flight at a time - previews
-     * are opened one screen at a time anyway.
+     * runs on the client thread. Several requests may be in flight (the dock opens a texture and a sound in a row):
+     * the callbacks wait in order and a reply goes to the one that asked for its path.
      */
     public void requestAsset(String projectId, String path, java.util.function.Consumer<AssetBytes> callback) {
-        this.assetCallback = callback;
+        assetWaiters.add(new AssetWaiter(path, callback));
         request(ProjectAction.READ_ASSET, projectId, path);
     }
 
-    private java.util.function.Consumer<AssetBytes> assetCallback;
+    private record AssetWaiter(String path, java.util.function.Consumer<AssetBytes> callback) {
+    }
+
+    private final java.util.ArrayDeque<AssetWaiter> assetWaiters = new java.util.ArrayDeque<>();
+
+    /** The waiter for a reply: the one that asked for this path, else the oldest. */
+    private AssetWaiter takeWaiter(String path) {
+        for (AssetWaiter waiter : assetWaiters) {
+            if (waiter.path().equals(path)) {
+                assetWaiters.remove(waiter);
+                return waiter;
+            }
+        }
+        return assetWaiters.poll();
+    }
+    private final java.util.Map<String, java.util.ArrayDeque<java.util.function.Consumer<String>>> uploadAcks = new java.util.HashMap<>();
 
     public record EntryOp(String path, String type) {
     }
@@ -339,6 +354,17 @@ public final class ClientProjectStore {
 
     /** Uploads binary asset bytes to the active project as base64, in chunks. */
     public void uploadAsset(String projectId, String path, byte[] bytes) {
+        uploadAsset(projectId, path, bytes, null);
+    }
+
+    /**
+     * As above; {@code done} runs on the client thread once the server answered: null when the file was written,
+     * otherwise the reason it was refused. Use it before telling the player that something is saved.
+     */
+    public void uploadAsset(String projectId, String path, byte[] bytes, java.util.function.Consumer<String> done) {
+        if (done != null) {
+            uploadAcks.computeIfAbsent(path, k -> new java.util.ArrayDeque<>()).add(done);
+        }
         // A single custom-payload string is capped at 32767 chars, so large
         // assets (sounds especially) must be split across several packets. Base64
         // is a single continuous string, so concatenating the chunks on the
@@ -355,7 +381,7 @@ public final class ClientProjectStore {
         }
     }
 
-    private static final int UPLOAD_CHUNK = 16000;
+    private static final int UPLOAD_CHUNK = net.xmilon.craftpy.server.UploadRules.CHUNK_CHARS;
 
     private record AssetUpload(String path, int chunk, int total, String data) {
     }
@@ -669,25 +695,47 @@ public final class ClientProjectStore {
                 return;
             }
             case READ_ASSET -> {
-                java.util.function.Consumer<AssetBytes> callback = this.assetCallback;
-                this.assetCallback = null;
-                if (callback == null) {
-                    return;
-                }
                 if (!payload.success()) {
-                    callback.accept(new AssetBytes("", new byte[0],
-                            payload.message().isEmpty() ? "Failed to read asset" : payload.message()));
+                    AssetWaiter waiter = assetWaiters.poll();
+                    if (waiter != null) {
+                        waiter.callback().accept(new AssetBytes("", new byte[0],
+                                payload.message().isEmpty() ? "Failed to read asset" : payload.message()));
+                    }
                     return;
                 }
                 try {
                     com.google.gson.JsonObject object = Json.COMPACT.fromJson(payload.json(), JsonObject.class);
                     String path = object.get("path").getAsString();
-                    byte[] data = java.util.Base64.getDecoder().decode(object.get("data").getAsString());
-                    callback.accept(new AssetBytes(path, data, ""));
+                    AssetWaiter waiter = takeWaiter(path);
+                    if (waiter != null) {
+                        byte[] data = java.util.Base64.getDecoder().decode(object.get("data").getAsString());
+                        waiter.callback().accept(new AssetBytes(path, data, ""));
+                    }
                 } catch (Exception e) {
-                    callback.accept(new AssetBytes("", new byte[0], "Bad asset payload: " + e.getMessage()));
+                    AssetWaiter waiter = assetWaiters.poll();
+                    if (waiter != null) {
+                        waiter.callback().accept(new AssetBytes("", new byte[0], "Bad asset payload: " + e.getMessage()));
+                    }
                 }
                 return;
+            }
+            case UPLOAD_ASSET -> {
+                var acks = uploadAcks.get(payload.json());
+                var done = acks == null ? null : acks.poll();
+                if (acks != null && acks.isEmpty()) {
+                    uploadAcks.remove(payload.json());
+                }
+                if (done != null) {
+                    done.accept(payload.success() ? null : payload.message());
+                }
+                if (payload.message() != null && !payload.message().isBlank()) {
+                    append(payload.message());
+                }
+                if (!payload.success()) {
+                    notifyListener();
+                    return;
+                }
+                refresh();
             }
             case TOOL -> {
                 JsonObject body = tryParse(payload.action(), payload.json(), JsonObject.class);

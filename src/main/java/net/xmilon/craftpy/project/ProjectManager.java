@@ -449,6 +449,9 @@ public final class ProjectManager {
             if (file == null) {
                 return OpResult.fail("Illegal path: " + path);
             }
+            if (!Files.isDirectory(dir)) {
+                return OpResult.fail("Project not found: " + id);
+            }
             try {
                 Files.createDirectories(file.getParent());
                 Files.writeString(file, content, StandardCharsets.UTF_8);
@@ -468,9 +471,12 @@ public final class ProjectManager {
             if (file == null) {
                 return OpResult.fail("Illegal path: " + path);
             }
+            if (!Files.isDirectory(dir)) {
+                return OpResult.fail("Project not found: " + id);
+            }
             try {
                 Files.createDirectories(file.getParent());
-                Files.write(file, content);
+                writeAtomically(dir, file, content);
                 ChangeLog.record(id, "Wrote " + path + " (" + content.length + " bytes)");
                 return OpResult.ok(id, "Wrote " + path + " (" + content.length + " bytes)");
             } catch (IOException e) {
@@ -503,8 +509,20 @@ public final class ProjectManager {
         }, CraftPyExecutors.forProject(id));
     }
 
+    /** Writes through a temp file in build/ so the pack builder never reads half a file. */
+    private static void writeAtomically(Path dir, Path file, byte[] content) throws IOException {
+        Path temp = dir.resolve("build").resolve("upload.tmp");
+        Files.createDirectories(temp.getParent());
+        Files.write(temp, content);
+        try {
+            Files.move(temp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(temp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
     /** Maximum binary preview size; must fit a single base64 response payload. */
-    public static final int BINARY_READ_LIMIT = 24 * 1024;
+    public static final int BINARY_READ_LIMIT = 288 * 1024; // 288 KB -> 384k base64 chars, under ResponsePayload's 400000
 
     public record BinaryRead(String path, boolean success, String message, byte[] data) {
     }
@@ -719,7 +737,7 @@ public final class ProjectManager {
             return null;
         }
         String normalized = relative.replace('\\', '/');
-        if (normalized.contains("..")) {
+        if (normalized.contains("..") || normalized.indexOf(':') >= 0) { // ".." escapes, ":" is a drive or an NTFS stream
             return null;
         }
         Path resolved = base.resolve(normalized.replace('/', java.io.File.separatorChar)).normalize();

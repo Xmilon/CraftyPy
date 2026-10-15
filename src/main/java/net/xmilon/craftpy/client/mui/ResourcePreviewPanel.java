@@ -130,34 +130,47 @@ final class ResourcePreviewPanel implements DockPanel {
         }
         info.setText("Loading...");
         Minecraft.getInstance().execute(() -> {
-            JsonObject modelJson = blockStateModel(parsed);
-            ModelScene scene = ModelScene.build(modelJson, ModelResources::model);
-            ModelResources resources = new ModelResources();
-            Map<String, PixelBuffer> textures = new HashMap<>();
-            for (String id : scene.textures()) {
-                textures.put(id, resources.texture(id));
+            try {
+                buildModel(mine, parsed);
+            } catch (RuntimeException e) { // a model that cannot be drawn must not leave the panel on "Loading..."
+                root.post(() -> {
+                    if (mine == generation) {
+                        showMessage(name, "Could not draw this model: " + e.getMessage());
+                    }
+                });
             }
-            StringBuilder report = new StringBuilder();
-            report.append(scene.faces().size()).append(" faces, ").append(textures.size()).append(" textures");
-            for (String id : scene.textures()) {
-                if (!resources.found(id)) {
-                    report.append("\nTexture not found: ").append(id)
-                            .append(" (run the project so its assets are in the pack)");
-                }
+        });
+    }
+
+    /** Client thread: resolves the model and its textures, then hands the scene to the view. */
+    private void buildModel(int mine, JsonObject parsed) {
+        JsonObject modelJson = blockStateModel(parsed);
+        ModelScene scene = ModelScene.build(modelJson, ModelResources::model);
+        ModelResources resources = new ModelResources();
+        Map<String, PixelBuffer> textures = new HashMap<>();
+        for (String id : scene.textures()) {
+            textures.put(id, resources.texture(id));
+        }
+        StringBuilder report = new StringBuilder();
+        report.append(scene.faces().size()).append(" faces, ").append(textures.size()).append(" textures");
+        for (String id : scene.textures()) {
+            if (!resources.found(id)) {
+                report.append("\nTexture not found: ").append(id)
+                        .append(" (run the project so its assets are in the pack)");
             }
-            for (String problem : scene.problems()) {
-                report.append('\n').append(problem);
+        }
+        for (String problem : scene.problems()) {
+            report.append('\n').append(problem);
+        }
+        root.post(() -> {
+            if (mine != generation) {
+                return; // a newer file was opened meanwhile
             }
-            root.post(() -> {
-                if (mine != generation) {
-                    return; // a newer file was opened meanwhile
-                }
-                flat.setVisibility(View.GONE);
-                modelView.setVisibility(View.VISIBLE);
-                modelView.set(scene, textures);
-                info.setText(report.toString());
-                rebuildPresets(scene);
-            });
+            flat.setVisibility(View.GONE);
+            modelView.setVisibility(View.VISIBLE);
+            modelView.set(scene, textures);
+            info.setText(report.toString());
+            rebuildPresets(scene);
         });
     }
 

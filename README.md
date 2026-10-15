@@ -142,7 +142,7 @@ The full reference (blocks, items, recipes, events, players, world, entities, ti
 commands and limits) is the **Docs** page in game, from
 [`api.md`](src/main/resources/assets/craftpy/docs/api.md). The older decorator style
 (`@block(...) class X: pass`, `recipe_shaped(...)`) still works.
-Two example projects live in [`examples/`](examples): `tutorial` (start here) and `ruby_rush`.
+The `welcome` project (installed on first start) is the guided tour; a second example, `ruby_rush`, lives in [`examples/`](examples).
 
 ## The `/craftpy` Command
 
@@ -156,7 +156,7 @@ Examples:
 
 ```text
 /craftpy give Dev project_bb:ruby block
-/craftpy give Dev tutorial:ruby_wand item 3
+/craftpy give Dev welcome:gem_wand item 3
 /craftpy give Dev ruby block          # bare id works when unambiguous
 ```
 
@@ -226,7 +226,7 @@ Project Python runs in an external subprocess with a denylist of OS, filesystem,
 
 - **Entities and effects** can be declared but are not yet wired into the game (later milestone).
 - Slot pools are fixed at startup (default 256 blocks / 256 items, at most 4096 each via `config/craftpy-slots.properties`); more at the same time needs a restart.
-- Binary asset previews are capped at 24 KB per file (larger files open with a notice).
+- Binary asset previews are capped at 288 KB per file (larger files open with a notice).
 - Only CPython 3.13+ is supported (no Jython/GraalPy).
 - Hot reload of behavior is per-run: reload a project to re-execute its scripts.
 
