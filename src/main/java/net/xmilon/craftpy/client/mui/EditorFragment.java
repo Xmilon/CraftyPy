@@ -87,6 +87,9 @@ public class EditorFragment extends Fragment {
     private TextView title;
     private View explorerColumn;
     private View explorerSplitter;
+    private AssetDock dock;
+    private View dockSplitter;
+    private boolean dockBeforeZen;
     private LinearLayout explorer;
     private View tabBar;
     private LinearLayout tabs;
@@ -317,6 +320,16 @@ public class EditorFragment extends Fragment {
         statusBar = createStatusBar(context);
         center.addView(statusBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         body.addView(center, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
+        dock = new AssetDock(context, this::projectId, this::toast, () -> store(ClientProjectStore::refresh),
+                visible -> {
+                    if (dockSplitter != null) {
+                        dockSplitter.setVisibility(visible && !zen ? View.VISIBLE : View.GONE);
+                    }
+                });
+        dockSplitter = new Splitter(context, true, this::dragDock, this::saveLayout);
+        dockSplitter.setVisibility(View.GONE);
+        body.addView(dockSplitter, new LinearLayout.LayoutParams(body.dp(6), MATCH_PARENT));
+        body.addView(dock.view(), new LinearLayout.LayoutParams(body.dp(settings.dockWidth), MATCH_PARENT));
 
         var divider = new View(context);
         divider.setBackground(ThemeControl.makeDivider(page));
@@ -351,6 +364,9 @@ public class EditorFragment extends Fragment {
         if (assist != null && assist.dismissTransient()) {
             return true;
         }
+        if (dock != null && dock.back()) {
+            return true;
+        }
         if (findBar.getVisibility() == View.VISIBLE) {
             closeFind();
             return true;
@@ -376,6 +392,9 @@ public class EditorFragment extends Fragment {
     public void onDestroyView() {
         super.onDestroyView();
         removeBack.run();
+        if (dock != null) {
+            dock.dispose();
+        }
         flush();
         if (zen) {
             CraftPyFragment.setNavVisible(this, true);
@@ -979,6 +998,14 @@ public class EditorFragment extends Fragment {
         applyWrap();
     }
 
+    /** The dock sits right of the code: dragging its splitter to the right makes it narrower. */
+    private void dragDock(int dx) {
+        var lp = dock.view().getLayoutParams();
+        int max = Math.max(dock.view().dp(300), ((View) dock.view().getParent()).getWidth() * 3 / 5);
+        lp.width = Math.clamp(lp.width - dx, dock.view().dp(280), max);
+        dock.view().setLayoutParams(lp);
+    }
+
     private void dragExplorer(int dx) {
         var lp = explorerColumn.getLayoutParams();
         int max = Math.max(explorerColumn.dp(160), ((View) explorerColumn.getParent()).getWidth() / 2);
@@ -1009,6 +1036,7 @@ public class EditorFragment extends Fragment {
 
     private void saveLayout() {
         settings.explorerWidth = Math.round(explorerColumn.getLayoutParams().width / (float) explorerColumn.dp(1));
+        settings.dockWidth = Math.round(dock.view().getLayoutParams().width / (float) dock.view().dp(1));
         settings.save();
     }
 
@@ -1018,6 +1046,13 @@ public class EditorFragment extends Fragment {
         toolbar.setVisibility(visibility);
         explorerColumn.setVisibility(visibility);
         explorerSplitter.setVisibility(visibility);
+        if (zen) {
+            dockBeforeZen = dock.visible();
+            dock.view().setVisibility(View.GONE);
+            dockSplitter.setVisibility(View.GONE);
+        } else if (dockBeforeZen) {
+            dock.setVisible(true);
+        }
         tabBar.setVisibility(visibility);
         bottomSplitter.setVisibility(visibility);
         bottomPanel.setVisibility(visibility);
@@ -1078,6 +1113,7 @@ public class EditorFragment extends Fragment {
         if (!active.equals(shownPath)) {
             flush();
             setEditorText(active, content);
+            refreshPreview();
             settings.touchRecent(next.projectId(), active);
             settings.save();
         } else if (!content.equals(synced) && code.getText().toString().equals(synced)) {
@@ -1266,6 +1302,12 @@ public class EditorFragment extends Fragment {
             deleteEntry(entry);
             return true;
         });
+        if (!entry.folder() && AssetDock.isAsset(path)) {
+            menu.add("Open in the dock").setOnMenuItemClickListener(item -> {
+                dock.open(path);
+                return true;
+            });
+        }
         menu.add("Copy path").setOnMenuItemClickListener(item -> {
             Minecraft.getInstance().keyboardHandler.setClipboard(path);
             toast("Copied " + path);
@@ -1382,6 +1424,19 @@ public class EditorFragment extends Fragment {
             }
         }
         return ordered;
+    }
+
+    /** True for model, block state and item files, which the dock can draw. */
+    private static boolean isModelJson(@Nullable String path) {
+        return path != null && path.startsWith("assets/") && path.endsWith(".json")
+                && (path.contains("/models/") || path.contains("/blockstates/") || path.contains("/items/"));
+    }
+
+    /** Keeps the dock's preview in step with the model file being edited (only while that tab is showing). */
+    private void refreshPreview() {
+        if (dock != null && dock.visible() && dock.tab() == AssetDock.PREVIEW && isModelJson(shownPath)) {
+            dock.previewModel(shownPath, code.getText().toString());
+        }
     }
 
     private String tabsSignature = "";
@@ -1665,6 +1720,7 @@ public class EditorFragment extends Fragment {
         highlight();
         updateMinimap();
         updateBreadcrumb();
+        refreshPreview();
         if (findBar.getVisibility() == View.VISIBLE) {
             updateMatches(false);
         }
@@ -2252,7 +2308,7 @@ public class EditorFragment extends Fragment {
                 if (id == null) {
                     toast("Open a project first");
                 } else {
-                    AssetViewer.newTexture(code, id, size);
+                    dock.newTexture(size);
                 }
             }));
         }
@@ -2316,6 +2372,15 @@ public class EditorFragment extends Fragment {
                     settings.save();
                     updateSticky();
                 }));
+        m.add("Asset dock (preview, texture, sound)").setCheckable(true).setChecked(dock.visible())
+                .setOnMenuItemClickListener(i -> run(() -> dock.setVisible(!dock.visible())));
+        m.add("Preview this file in the dock").setOnMenuItemClickListener(i -> run(() -> {
+            if (isModelJson(shownPath)) {
+                dock.previewModel(shownPath, code.getText().toString());
+            } else {
+                toast("Open a model, block state or item file under assets/ first");
+            }
+        }));
         m.add("Minimap").setCheckable(true).setChecked(settings.minimap)
                 .setOnMenuItemClickListener(i -> run(() -> {
                     settings.minimap = !settings.minimap;
@@ -2591,15 +2656,7 @@ public class EditorFragment extends Fragment {
         boolean asset = isAsset(path);
         flush();
         if (asset) {
-            final View host = code;
-            store(s -> {
-                String projectId = s.activeProjectId();
-                if (projectId == null) {
-                    return;
-                }
-                s.requestAsset(projectId, path, data -> host.post(() ->
-                        AssetViewer.open(host, projectId, path, data.data(), data.error())));
-            });
+            dock.open(path);
             return;
         }
         boolean alreadyOpen = state != null && state.tabs().contains(path);

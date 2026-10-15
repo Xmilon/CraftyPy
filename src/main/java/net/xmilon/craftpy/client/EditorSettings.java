@@ -34,6 +34,8 @@ public final class EditorSettings {
     /** Dim everything except the function/class the cursor is in. */
     public boolean focusMode = false;
     public int explorerWidth = 220;
+    /** Width of the asset dock (preview / texture / sound editor) at the right of the editor. */
+    public int dockWidth = 460;
     /** Share of the editor column the code area takes (the rest is the console/problems panel). */
     public float codeWeight = 0.67f;
     public Set<String> wrapped = new TreeSet<>();
@@ -82,6 +84,7 @@ public final class EditorSettings {
         if (findHistory == null) findHistory = new ArrayList<>();
         if (codeWeight <= 0.1f || codeWeight >= 0.95f) codeWeight = 0.67f;
         if (explorerWidth < 120) explorerWidth = 220;
+        if (dockWidth < 280 || dockWidth > 1400) dockWidth = 460;
     }
 
     public synchronized void save() {

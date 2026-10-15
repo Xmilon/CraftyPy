@@ -132,6 +132,7 @@ dependencies {
     compileOnly("icyllis.modernui:ModernUI-NeoForge:1.21.1-3.13.0.1") { transitive = false }
     compileOnly("dev.icyllis:modernui-core:3.13.0") { transitive = false }
     compileOnly("dev.icyllis:arc3d-core:2026.2.0") { transitive = false }
+    compileOnly("dev.icyllis:arc3d-sketch:2026.2.0") { transitive = false }
     compileOnly("icyllis.modernui:ModernUI-Markflow:3.12.0") { transitive = false }
     compileOnly("org.commonmark:commonmark:0.25.0") { transitive = false }
 
