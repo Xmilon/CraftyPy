@@ -100,4 +100,15 @@ class TextOpsTest {
         assertEquals(Set.of(1, 6), TextOps.shiftLines(Set.of(1, 4), 2, 0, 2));
         assertEquals(Set.of(1, 2, 3), TextOps.shiftLines(Set.of(1, 3, 6), 2, 3, 0));
     }
+
+    @org.junit.jupiter.api.Test
+    void matchingBracketSkipsStringsAndComments() {
+        String code = "f(a, \")\", [1, (2)])  # )";
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[]{1, 18}, TextOps.matchingBracket(code, 2));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[]{18, 1}, TextOps.matchingBracket(code, 19));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[]{10, 17}, TextOps.matchingBracket(code, 11));
+        org.junit.jupiter.api.Assertions.assertNull(TextOps.matchingBracket(code, 7), "inside a string");
+        org.junit.jupiter.api.Assertions.assertNull(TextOps.matchingBracket("x = 1", 2));
+        org.junit.jupiter.api.Assertions.assertNull(TextOps.matchingBracket("f(", 2), "never closed");
+    }
 }

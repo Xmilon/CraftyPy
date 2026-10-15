@@ -354,4 +354,34 @@ public final class TextOps {
         }
         return out.append(text.substring(last)).toString();
     }
+
+    /**
+     * The bracket just before or at {@code caret} and the one that closes or opens it, skipping strings and comments
+     * ({@code [at, partner]}), or null. Searches at most 20000 characters away.
+     */
+    public static int[] matchingBracket(String text, int caret) {
+        for (int at : new int[]{caret - 1, caret}) {
+            if (at < 0 || at >= text.length() || "()[]{}".indexOf(text.charAt(at)) < 0) {
+                continue;
+            }
+            String masked = net.xmilon.craftpy.analysis.PyLex.maskNonCode(text);
+            char c = masked.charAt(at);
+            if ("()[]{}".indexOf(c) < 0) {
+                continue; // the bracket is inside a string or a comment
+            }
+            boolean open = "([{".indexOf(c) >= 0;
+            char partner = open ? closerFor(c) : "([{".charAt(")]}".indexOf(c));
+            int depth = 0;
+            int step = open ? 1 : -1;
+            for (int i = at, n = 0; i >= 0 && i < masked.length() && n < 20_000; i += step, n++) {
+                char d = masked.charAt(i);
+                if (d == c) {
+                    depth++;
+                } else if (d == partner && --depth == 0) {
+                    return new int[]{at, i};
+                }
+            }
+        }
+        return null;
+    }
 }

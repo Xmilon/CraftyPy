@@ -11,6 +11,7 @@ import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.Layout;
 import icyllis.modernui.text.TextWatcher;
 import icyllis.modernui.view.MotionEvent;
+import icyllis.modernui.view.View;
 import icyllis.modernui.widget.EditText;
 import net.xmilon.craftpy.client.EditorTheme;
 import net.xmilon.craftpy.client.TextOps;
@@ -43,6 +44,16 @@ public class CodeView extends EditText {
     private int cachedWordStart = -1;
     private int cachedWordEnd = -1;
     private List<int[]> wordMatches = List.of();
+
+    // Indent guides: indentation (in spaces) of every logical line, recomputed when the text changes.
+    private int guidesVersion = -1;
+    private int[] lineStarts = new int[0];
+    private int[] lineIndents = new int[0];
+    private boolean indentGuides = true;
+    // Bracket pair at the caret.
+    private int bracketVersion = -1;
+    private int bracketCaret = -1;
+    private int[] bracketPair;
 
     public CodeView(Context context) {
         super(context);
@@ -89,6 +100,11 @@ public class CodeView extends EditText {
             }
             lineStart = lineEnd + 1;
         }
+    }
+
+    public void setIndentGuides(boolean show) {
+        indentGuides = show;
+        invalidate();
     }
 
     public void setTheme(EditorTheme theme) {
@@ -223,6 +239,14 @@ public class CodeView extends EditText {
                 paint.setColor(theme.ruler);
                 canvas.drawRect(x, 0, x + Math.max(1, dp(1) / 2f), Math.max(getHeight(), layout.getHeight() + top), paint);
             }
+            drawIndentGuides(canvas, layout, left, top);
+            int[] pair = bracketPair(selection);
+            if (pair != null) {
+                paint.setColor(theme.wordMatch);
+                for (int at : pair) {
+                    drawRange(canvas, layout, left, top, at, at + 1, theme.wordMatch);
+                }
+            }
             for (int[] match : wordMatchesAt(selection)) {
                 drawRange(canvas, layout, left, top, match[0], match[1], theme.wordMatch);
             }
@@ -245,6 +269,113 @@ public class CodeView extends EditText {
                         top + layout.getHeight(), paint);
             }
         }
+    }
+
+    /** The ScrollView the editor scrolls in, for the visible range (null when there is none). */
+    private icyllis.modernui.widget.ScrollView scroller() {
+        for (var parent = getParent(); parent instanceof View view; parent = view.getParent()) {
+            if (view instanceof icyllis.modernui.widget.ScrollView scroll) {
+                return scroll;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Thin vertical lines at every indentation level of the visible lines (IntelliJ and VS Code draw them). Blank lines take
+     * the indentation of the next line that has text, so a block's guide does not break at an empty line.
+     */
+    private void drawIndentGuides(Canvas canvas, Layout layout, int left, int top) {
+        if (!indentGuides || getText().length() > 300_000) {
+            return;
+        }
+        if (guidesVersion != textVersion) {
+            computeIndents();
+            guidesVersion = textVersion;
+        }
+        var scroll = scroller();
+        int from = 0;
+        int to = layout.getLineCount() - 1;
+        if (scroll != null) {
+            int offsetInScroll = 0;
+            for (View v = this; v != null && v != scroll && v.getParent() instanceof View parent; v = parent) {
+                offsetInScroll += v.getTop();
+            }
+            int y0 = scroll.getScrollY() - offsetInScroll - top;
+            from = layout.getLineForVertical(Math.max(0, y0));
+            to = layout.getLineForVertical(Math.max(0, y0 + scroll.getHeight()));
+        }
+        float unit = charWidth() * 4;
+        if (unit <= 0) {
+            return;
+        }
+        paint.setColor((theme.ruler & 0x00FFFFFF) | 0x80000000);
+        float width = Math.max(1, dp(1) / 2f);
+        for (int visual = from; visual <= to; visual++) {
+            int logical = logicalLine(layout.getLineStart(visual));
+            int indent = logical < lineIndents.length ? lineIndents[logical] : 0;
+            float lineTop = top + layout.getLineTop(visual);
+            float lineBottom = top + layout.getLineBottom(visual);
+            for (int level = 1; level * 4 <= indent; level++) {
+                float x = left + (level - 1) * unit;
+                canvas.drawRect(x, lineTop, x + width, lineBottom, paint);
+            }
+        }
+    }
+
+    private void computeIndents() {
+        String text = getText().toString();
+        int count = 1;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) == '\n') {
+                count++;
+            }
+        }
+        int[] starts = new int[count];
+        int[] indents = new int[count];
+        boolean[] blank = new boolean[count];
+        int line = 0;
+        int start = 0;
+        while (line < count) {
+            int end = text.indexOf('\n', start);
+            if (end < 0) {
+                end = text.length();
+            }
+            starts[line] = start;
+            int spaces = 0;
+            while (start + spaces < end && text.charAt(start + spaces) == ' ') {
+                spaces++;
+            }
+            blank[line] = start + spaces == end;
+            indents[line] = spaces;
+            line++;
+            start = end + 1;
+        }
+        int next = 0;
+        for (int i = count - 1; i >= 0; i--) {
+            if (blank[i]) {
+                indents[i] = next;
+            } else {
+                next = indents[i];
+            }
+        }
+        lineStarts = starts;
+        lineIndents = indents;
+    }
+
+    private int logicalLine(int offset) {
+        int index = java.util.Arrays.binarySearch(lineStarts, offset);
+        return index >= 0 ? index : Math.max(0, -index - 2);
+    }
+
+    /** Offsets of the bracket next to the caret and its partner, or null; cached per text version and caret. */
+    private int[] bracketPair(int caret) {
+        if (caret != bracketCaret || bracketVersion != textVersion) {
+            bracketCaret = caret;
+            bracketVersion = textVersion;
+            bracketPair = net.xmilon.craftpy.client.TextOps.matchingBracket(getText().toString(), caret);
+        }
+        return bracketPair;
     }
 
     private List<int[]> wordMatchesAt(int selection) {

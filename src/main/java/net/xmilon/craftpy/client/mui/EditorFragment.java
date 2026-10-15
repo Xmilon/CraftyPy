@@ -130,6 +130,13 @@ public class EditorFragment extends Fragment {
     private TextView statusPosition;
     private TextView statusEnding;
     private TextView statusEncoding;
+    private TextView statusProblems;
+    /** Where each line number starts in the gutter text, to brighten the caret's line number. */
+    private int[] gutterLineStarts = new int[0];
+    private CharSequence gutterText = "";
+    private int gutterCaretLine = -1;
+    private long lastTabClick;
+    private String lastTabClickPath;
     private int textVersion;
     private final EditorTools tools = new EditorTools(new EditorTools.Host() {
         @Override
@@ -1344,7 +1351,10 @@ public class EditorFragment extends Fragment {
         code.setHint("Open a file from the explorer (Ctrl+P: quick open)");
         code.setOnZoom(this::zoom);
         code.setOnCtrlClick(tools::goToDefinition);
-        code.setOnCaret(offset -> updateBreadcrumb());
+        code.setOnCaret(offset -> {
+            updateBreadcrumb();
+            highlightGutterLine();
+        });
         code.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -1428,9 +1438,17 @@ public class EditorFragment extends Fragment {
         var bar = row(context);
         bar.setPadding(bar.dp(10), 0, bar.dp(10), 0);
         bar.setBackground(new ColorDrawable(IdeColors.PANEL));
+        statusProblems = smallButton(context, "", "Problems of this file (Alt+6)", v -> openPanel(PANEL_PROBLEMS));
+        bar.addView(statusProblems);
         statusPosition = label(context, "", R.attr.textAppearanceLabelMedium);
         statusPosition.setTextColor(IdeColors.TEXT_SECONDARY);
+        statusPosition.setPadding(bar.dp(8), 0, 0, 0);
         bar.addView(statusPosition, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        var indent = label(context, "4 spaces", R.attr.textAppearanceLabelMedium);
+        indent.setTextColor(IdeColors.TEXT_SECONDARY);
+        indent.setTooltipText("Indentation: 4 spaces (Tab inserts them, Ctrl+Alt+L turns tabs into spaces)");
+        indent.setPadding(bar.dp(8), 0, bar.dp(8), 0);
+        bar.addView(indent);
         statusEnding = smallButton(context, "LF", "Line endings of this file - click to convert", this::showEndingMenu);
         bar.addView(statusEnding);
         statusEncoding = smallButton(context, "UTF-8", "Files are read and saved as UTF-8", this::showEncodingMenu);
@@ -1565,6 +1583,7 @@ public class EditorFragment extends Fragment {
         consoleView.setHorizontallyScrolling(true);
         consoleView.setBackground(null);
         consoleView.setGravity(Gravity.START | Gravity.TOP);
+        consoleView.setOnCtrlClick(this::jumpFromConsole);
         console = consoleView;
         console.setTypeface(EditorFont.get());
         console.setTextSize(12);
@@ -1981,11 +2000,13 @@ public class EditorFragment extends Fragment {
         chevron.setTextColor(muted);
         chevron.setGravity(Gravity.CENTER);
         row.addView(chevron, new LinearLayout.LayoutParams(row.dp(14), WRAP_CONTENT));
-        var badge = label(context, badge(entry), R.attr.textAppearanceLabelSmall);
-        badge.setTextColor(entry.folder() ? muted : color(context, path.endsWith(".py") ? R.attr.colorPrimary
-                : isAsset(path) ? R.attr.colorTertiary : R.attr.colorOnSurfaceVariant));
-        badge.setGravity(Gravity.CENTER);
-        row.addView(badge, new LinearLayout.LayoutParams(row.dp(22), WRAP_CONTENT));
+        var icon = new IdeIcon(context, entry.folder() ? IdeIcon.Glyph.FOLDER : fileGlyph(path));
+        icon.setTint(entry.folder() ? 0xFFB9A26B : path.endsWith(".py") ? 0xFF6C9BD2
+                : isAsset(path) ? 0xFFC77DBB : IdeColors.TEXT_SECONDARY);
+        icon.setTooltipText(badge(entry));
+        var iconLp = new LinearLayout.LayoutParams(row.dp(16), row.dp(16));
+        iconLp.rightMargin = row.dp(6);
+        row.addView(icon, iconLp);
         var name = label(context, entry.name(), R.attr.textAppearanceBodyMedium);
         name.setSingleLine();
         row.addView(name, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
@@ -2297,6 +2318,14 @@ public class EditorFragment extends Fragment {
             }
             chip.setClickable(true);
             chip.setOnClickListener(v -> {
+                long now = System.currentTimeMillis();
+                if (path.equals(lastTabClickPath) && now - lastTabClick < DOUBLE_CLICK_MS) {
+                    hideAllToolWindows(); // IntelliJ: double click a tab to maximise the editor
+                    lastTabClickPath = null;
+                    return;
+                }
+                lastTabClick = now;
+                lastTabClickPath = path;
                 flush();
                 store(s -> s.openFile(path));
             });
@@ -2314,6 +2343,25 @@ public class EditorFragment extends Fragment {
                 }
                 menu.add("Split right   Ctrl+\\").setOnMenuItemClickListener(item -> {
                     openSplit(path);
+                    return true;
+                });
+                menu.add("Close all").setOnMenuItemClickListener(item -> {
+                    for (String other : state.tabs()) {
+                        if (!isPinned(other) && !state.dirtyTabs().contains(other)) {
+                            rememberClosed(other);
+                            store(s -> s.closeFile(other));
+                        }
+                    }
+                    return true;
+                });
+                menu.add("Close tabs to the right").setOnMenuItemClickListener(item -> {
+                    List<String> order = orderedTabs();
+                    for (String other : order.subList(order.indexOf(path) + 1, order.size())) {
+                        if (!isPinned(other) && !state.dirtyTabs().contains(other)) {
+                            rememberClosed(other);
+                            store(s -> s.closeFile(other));
+                        }
+                    }
                     return true;
                 });
                 menu.add("Close others").setOnMenuItemClickListener(item -> {
@@ -2423,6 +2471,26 @@ public class EditorFragment extends Fragment {
     private boolean consoleWriting;
 
     /** Errors red, warnings yellow, typed input in the accent color, results dimmer: the console reads at a glance. */
+    private static final java.util.regex.Pattern CONSOLE_LOCATION = java.util.regex.Pattern.compile(
+            "(?:File \"([^\"]+\\.py)\", line (\\d+))|((?:code|library)/[\\w/.-]+\\.py):(\\d+)");
+
+    /** Ctrl+click on a console line naming a file and line (a traceback, a problem) opens it there. */
+    private void jumpFromConsole(int offset) {
+        String text = console.getText().toString();
+        int start = TextOps.lineStart(text, offset);
+        var m = CONSOLE_LOCATION.matcher(text.substring(start, TextOps.lineEnd(text, offset)));
+        if (!m.find()) {
+            return;
+        }
+        String file = m.group(1) != null ? m.group(1) : m.group(3);
+        int line = Integer.parseInt(m.group(1) != null ? m.group(2) : m.group(4)) - 1;
+        if (!shownFiles.contains(file)) {
+            toast(file + " is not a file of this project");
+            return;
+        }
+        openAt(file, Math.max(0, line));
+    }
+
     private static CharSequence consoleColors(String text) {
         var out = new SpannableString(text);
         int start = 0;
@@ -2481,6 +2549,21 @@ public class EditorFragment extends Fragment {
             problems.addView(none);
         }
         panelTabs[PANEL_PROBLEMS].setText(count == 0 ? "Problems" : "Problems (" + count + ")");
+        int errors = 0;
+        for (ValidationProblem p : next.problems()) {
+            errors += p.isError() ? 1 : 0;
+        }
+        for (CodeProblems.Problem p : next.localProblems()) {
+            errors += p.severity() == CodeProblems.Severity.ERROR ? 1 : 0;
+        }
+        int warnings = count - errors;
+        if (count == 0) {
+            statusProblems.setText("✓ No problems");
+            statusProblems.setTextColor(IdeColors.SUCCESS);
+        } else {
+            statusProblems.setText((errors > 0 ? "✖ " + errors + "  " : "") + (warnings > 0 ? "⚠ " + warnings : ""));
+            statusProblems.setTextColor(errors > 0 ? IdeColors.ERROR : IdeColors.WARNING);
+        }
     }
 
     private View problemRow(Context context, @Nullable String file, int line, String text, String colorAttr) {
@@ -2613,7 +2696,41 @@ public class EditorFragment extends Fragment {
             start = end + 1;
             line++;
         }
-        gutter.setText(numbers);
+        gutterText = numbers.toString();
+        String[] rows = gutterText.toString().split("\n", -1);
+        gutterLineStarts = new int[rows.length];
+        int at = 0;
+        for (int i = 0; i < rows.length; i++) {
+            gutterLineStarts[i] = at;
+            at += rows[i].length() + 1;
+        }
+        gutterCaretLine = -1;
+        highlightGutterLine();
+    }
+
+    /** The caret's line number is drawn brighter, like in IntelliJ. Wrapped lines have empty rows in the gutter. */
+    private void highlightGutterLine() {
+        if (code == null || gutter == null) {
+            return;
+        }
+        String all = code.getText().toString();
+        int line = TextOps.lineOf(all, Math.max(0, code.getSelectionStart()));
+        if (line == gutterCaretLine && gutter.getText().length() == gutterText.length()) {
+            return;
+        }
+        gutterCaretLine = line;
+        String text = gutterText.toString();
+        // the gutter has one row per logical line when not wrapped; wrapped files skip the highlight
+        if (isWrapped() || line >= gutterLineStarts.length) {
+            gutter.setText(text);
+            return;
+        }
+        int start = gutterLineStarts[line];
+        int end = text.indexOf('\n', start);
+        var spans = new SpannableString(text);
+        spans.setSpan(new ForegroundColorSpan(IdeColors.TEXT), start, end < 0 ? text.length() : end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        gutter.setText(spans);
     }
 
     private void shiftBookmarks(Editable s) {

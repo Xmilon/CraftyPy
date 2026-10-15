@@ -54,7 +54,7 @@ public final class IdeColors {
             Map.entry(R.attr.colorSecondary, TEXT_SECONDARY),
             Map.entry(R.attr.colorSecondaryContainer, SELECTED),
             Map.entry(R.attr.colorOnSecondaryContainer, TEXT),
-            Map.entry(R.attr.colorTertiary, SUCCESS),
+            Map.entry(R.attr.colorTertiary, WARNING), // warnings in the problem list
             Map.entry(R.attr.colorTertiaryContainer, 0xFF253627),
             Map.entry(R.attr.colorOnTertiaryContainer, TEXT),
             Map.entry(R.attr.colorError, ERROR),
