@@ -123,4 +123,17 @@ class ServerToolsTest {
         request.addProperty("module", "../evil");
         assertFalse(ProjectTools.handle(manager, "demo", request.toString()).get().success());
     }
+
+    @Test
+    void grepFindsTextAndTodos() {
+        var snapshot = new ProjectManager.Snapshot(List.of("code/main.py", "code/a.py"), new java.util.LinkedHashMap<>(java.util.Map.of(
+                "code/main.py", "import a\n# TODO: more blocks\nx = Gem\n",
+                "code/a.py", "gem = 1\n# fixme later\n")));
+        var found = com.google.gson.JsonParser.parseString(ProjectTools.grep(snapshot, "gem", false).json()).getAsJsonObject();
+        assertEquals(2, found.getAsJsonArray("rows").size(), "case-insensitive");
+        var todos = com.google.gson.JsonParser.parseString(ProjectTools.grep(snapshot, "", true).json()).getAsJsonObject();
+        assertEquals(2, todos.getAsJsonArray("rows").size());
+        var none = com.google.gson.JsonParser.parseString(ProjectTools.grep(snapshot, " ", false).json()).getAsJsonObject();
+        assertEquals(0, none.getAsJsonArray("rows").size(), "a blank query finds nothing");
+    }
 }

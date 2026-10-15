@@ -45,6 +45,7 @@ import net.xmilon.craftpy.client.EditorSettings;
 import net.xmilon.craftpy.client.EditorTheme;
 import net.xmilon.craftpy.client.FileTree;
 import net.xmilon.craftpy.client.Syntax;
+import net.xmilon.craftpy.client.LineEdits;
 import net.xmilon.craftpy.client.TextOps;
 import net.xmilon.craftpy.client.assets.AssetDrop;
 import net.xmilon.craftpy.client.assets.AssetFetch;
@@ -118,6 +119,10 @@ public class EditorFragment extends Fragment {
     private ToolStripe rightStripe;
     private TextView avatar;
     private SplitEditor split;
+    /** Tabs closed in this session, newest first (Ctrl+Shift+T reopens them). */
+    private final java.util.ArrayDeque<String> closedTabs = new java.util.ArrayDeque<>();
+    /** Which tool windows were open before Ctrl+Shift+F12 hid them all: explorer, bottom, dock, blocks. */
+    private boolean[] hiddenToolWindows;
     private BlocksPanel blocks;
     private View blocksSplitter;
     private View splitSplitter;
@@ -653,6 +658,242 @@ public class EditorFragment extends Fragment {
         var transition = new icyllis.modernui.animation.LayoutTransition();
         transition.setDuration(160);
         return transition;
+    }
+
+    // ---- line commands, navigation and actions (IntelliJ shortcuts)
+
+    private void lineEdit(@Nullable TextOps.Edit edit) {
+        if (edit != null && code != null) {
+            applyEdit(edit);
+        }
+    }
+
+    private void reformatFile() {
+        String text = code.getText().toString();
+        String formatted = LineEdits.reformat(text);
+        if (formatted.equals(text)) {
+            toast("Already formatted");
+            return;
+        }
+        int caret = TextOps.lineOf(text, code.getSelectionStart());
+        applyEdit(new TextOps.Edit(0, text.length(), formatted, 0));
+        String now = code.getText().toString();
+        code.setSelection(Math.min(TextOps.offsetOfLine(now, caret), now.length()));
+        toast("Reformatted (whitespace only)");
+    }
+
+    private void renameInFile() {
+        String text = code.getText().toString();
+        int caret = code.getSelectionStart();
+        int[] word = TextOps.wordAt(text, caret);
+        if (word == null) {
+            toast("Put the cursor on a name");
+            return;
+        }
+        String name = text.substring(word[0], word[1]);
+        prompt(code, "Rename '" + name + "' in this file (Shift+F6)", name, "Rename", value -> {
+            TextOps.Edit edit = LineEdits.renameInFile(code.getText().toString(), caret, value.trim());
+            if (edit == null) {
+                toast("Not a valid Python name");
+            } else {
+                applyEdit(edit);
+            }
+        });
+    }
+
+    private void goToLinePrompt() {
+        String text = code.getText().toString();
+        int current = TextOps.lineOf(text, Math.max(0, code.getSelectionStart())) + 1;
+        prompt(code, "Go to line (1-" + (TextOps.lineOf(text, text.length()) + 1) + ")", String.valueOf(current), "Go",
+                value -> {
+                    try {
+                        goToLine(Math.max(0, Integer.parseInt(value.trim()) - 1));
+                    } catch (NumberFormatException e) {
+                        toast("Type a line number");
+                    }
+                });
+    }
+
+    private void rememberClosed(String path) {
+        closedTabs.remove(path);
+        closedTabs.addFirst(path);
+        while (closedTabs.size() > 20) {
+            closedTabs.removeLast();
+        }
+    }
+
+    private void reopenClosedTab() {
+        String path = closedTabs.pollFirst();
+        if (path == null) {
+            toast("No closed tab to reopen");
+            return;
+        }
+        if (!shownFiles.contains(path)) {
+            toast(path + " is not in the project any more");
+            return;
+        }
+        flush();
+        store(s -> s.openFile(path));
+    }
+
+    /** Ctrl+Shift+F12: hides every tool window, the next press brings back the ones that were open. */
+    private void hideAllToolWindows() {
+        if (hiddenToolWindows == null) {
+            hiddenToolWindows = new boolean[]{settings.explorerVisible, settings.bottomVisible, dock.visible(), blocksVisible()};
+            settings.explorerVisible = false;
+            settings.bottomVisible = false;
+            dock.setVisible(false);
+            setBlocksVisible(false);
+        } else {
+            settings.explorerVisible = hiddenToolWindows[0];
+            settings.bottomVisible = hiddenToolWindows[1];
+            if (hiddenToolWindows[2]) {
+                dock.setVisible(true);
+            }
+            if (hiddenToolWindows[3]) {
+                setBlocksVisible(true);
+            }
+            hiddenToolWindows = null;
+        }
+        settings.save();
+        applyToolWindows();
+    }
+
+    /** One entry of Find Action: what it is called, its shortcut and what it does. */
+    private record ActionEntry(String name, String keys, Runnable run) {
+    }
+
+    private List<ActionEntry> actions() {
+        List<ActionEntry> a = new ArrayList<>();
+        a.add(new ActionEntry("Save", "Ctrl+S", this::save));
+        a.add(new ActionEntry("Validate", "Ctrl+Enter", this::validate));
+        a.add(new ActionEntry("Run", "Ctrl+R", this::run));
+        a.add(new ActionEntry("Reload project and modules", "F5", this::reloadAll));
+        a.add(new ActionEntry("Stop", "", () -> store(ClientProjectStore::interrupt)));
+        a.add(new ActionEntry("Build module", "", () -> build(code)));
+        a.add(new ActionEntry("Find", "Ctrl+F", () -> openFind(false)));
+        a.add(new ActionEntry("Replace", "Ctrl+H", () -> openFind(true)));
+        a.add(new ActionEntry("Find in files", "Ctrl+Shift+F", this::findInFiles));
+        a.add(new ActionEntry("TODO list", "", this::todoList));
+        a.add(new ActionEntry("Open file (quick open)", "Ctrl+P", this::quickOpen));
+        a.add(new ActionEntry("Go to symbol", "Ctrl+T", tools::symbolSearch));
+        a.add(new ActionEntry("Go to line", "Ctrl+G", this::goToLinePrompt));
+        a.add(new ActionEntry("Go to definition", "Ctrl+B / F12", () -> tools.goToDefinition(code.getSelectionStart())));
+        a.add(new ActionEntry("Back", "Alt+Left", tools::back));
+        a.add(new ActionEntry("Forward", "Alt+Right", tools::forward));
+        a.add(new ActionEntry("Recent locations", "Ctrl+E", tools::showRecentLocations));
+        a.add(new ActionEntry("Reopen closed tab", "Ctrl+Shift+T", this::reopenClosedTab));
+        a.add(new ActionEntry("Toggle line comment", "Ctrl+/", () -> lineEdit(LineEdits.toggleComment(
+                code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd()))));
+        a.add(new ActionEntry("Duplicate line or selection", "Ctrl+D", () -> lineEdit(LineEdits.duplicate(
+                code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd()))));
+        a.add(new ActionEntry("Delete line", "Ctrl+Shift+K", () -> lineEdit(LineEdits.deleteLines(
+                code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd()))));
+        a.add(new ActionEntry("Move line up", "Alt+Shift+Up", () -> lineEdit(LineEdits.moveLines(
+                code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd(), true))));
+        a.add(new ActionEntry("Move line down", "Alt+Shift+Down", () -> lineEdit(LineEdits.moveLines(
+                code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd(), false))));
+        a.add(new ActionEntry("Reformat file", "Ctrl+Alt+L", this::reformatFile));
+        a.add(new ActionEntry("Rename in file", "Shift+F6", this::renameInFile));
+        a.add(new ActionEntry("Rename block / item id everywhere", "", tools::renameId));
+        a.add(new ActionEntry("Organise imports", "Ctrl+Alt+O", tools::organiseImports));
+        a.add(new ActionEntry("Add missing imports", "Ctrl+Alt+I", tools::addMissingImports));
+        a.add(new ActionEntry("Generate docstring", "Ctrl+Shift+D", tools::generateDocstring));
+        a.add(new ActionEntry("Extract variable", "Ctrl+Alt+V", tools::extractVariable));
+        a.add(new ActionEntry("Extract function", "Ctrl+Alt+M", tools::extractFunction));
+        a.add(new ActionEntry("Toggle bookmark", "Ctrl+F2", this::toggleBookmark));
+        a.add(new ActionEntry("Split editor right", "Ctrl+\\", () -> {
+            if (splitOpen()) {
+                closeSplit();
+            } else {
+                openSplit(null);
+            }
+        }));
+        a.add(new ActionEntry("Project tool window", "Alt+1", this::toggleExplorer));
+        a.add(new ActionEntry("Python console", "Alt+4", () -> toggleBottom(PANEL_CONSOLE)));
+        a.add(new ActionEntry("Problems", "Alt+6", () -> toggleBottom(PANEL_PROBLEMS)));
+        a.add(new ActionEntry("Bookmarks", "Alt+2", () -> toggleBottom(PANEL_BOOKMARKS)));
+        a.add(new ActionEntry("Event tracer", "", () -> openPanel(PANEL_EVENTS)));
+        a.add(new ActionEntry("Structure of this file", "Alt+7", () -> tools.showOutline(breadcrumb)));
+        a.add(new ActionEntry("Building blocks", "Alt+8", () -> setBlocksVisible(true)));
+        a.add(new ActionEntry("Assets", "Alt+9", () -> toggleDock(AssetDock.ASSETS)));
+        a.add(new ActionEntry("Hide all tool windows", "Ctrl+Shift+F12", this::hideAllToolWindows));
+        a.add(new ActionEntry("Zen mode", "F11", this::toggleZen));
+        a.add(new ActionEntry("Word wrap (this file)", "", this::toggleWrap));
+        a.add(new ActionEntry("Zoom in", "Ctrl+=", () -> zoom(1)));
+        a.add(new ActionEntry("Zoom out", "Ctrl+-", () -> zoom(-1)));
+        a.add(new ActionEntry("Recipes", "", tools::recipes));
+        a.add(new ActionEntry("Loot tables", "", tools::loot));
+        a.add(new ActionEntry("Handler profiler", "", tools::profiler));
+        a.add(new ActionEntry("Why isn't my block showing?", "", tools::explain));
+        a.add(new ActionEntry("Preview block / item (3D)", "", tools::previewContent));
+        a.add(new ActionEntry("Asset usage report", "", tools::assetUsage));
+        a.add(new ActionEntry("Change log", "", tools::changeLog));
+        a.add(new ActionEntry("UI designer", "", tools::uiDesigner));
+        a.add(new ActionEntry("New UI window", "", tools::newWindow));
+        a.add(new ActionEntry("Keyboard shortcuts", "F1", this::showShortcuts));
+        a.add(new ActionEntry("Help", "", () -> HelpPanel.open(code)));
+        return a;
+    }
+
+    /** Ctrl+Shift+A (IntelliJ's Find Action): every command of the editor by name. */
+    private void findAction() {
+        var dialog = ListDialog.open(code, "Find action", true, 520, 380);
+        List<ListDialog.Row> rows = new ArrayList<>();
+        for (ActionEntry entry : actions()) {
+            rows.add(ListDialog.Row.link(entry.name(), entry.keys(), () -> {
+                dialog.dismiss();
+                entry.run().run();
+            }));
+        }
+        dialog.setRows(rows);
+    }
+
+    /** Ctrl+Shift+F: every line of the project's files that contains the text (unsaved tabs are searched as saved). */
+    private void findInFiles() {
+        String start = code.getSelectionStart() != code.getSelectionEnd()
+                ? code.getText().toString().substring(Math.min(code.getSelectionStart(), code.getSelectionEnd()),
+                        Math.max(code.getSelectionStart(), code.getSelectionEnd()))
+                : "";
+        prompt(code, "Find in files", start.contains("\n") ? "" : start, "Find", query -> searchProject(query, false));
+    }
+
+    private void todoList() {
+        searchProject("", true);
+    }
+
+    private void searchProject(String query, boolean todo) {
+        if (projectId() == null) {
+            toast("Open a project first");
+            return;
+        }
+        var dialog = ListDialog.open(code, todo ? "TODO" : "Find in files: " + query, true, 720, 380);
+        dialog.setMessage("Searching...");
+        var args = new com.google.gson.JsonObject();
+        args.addProperty("q", query);
+        args.addProperty("todo", todo);
+        store(s -> s.tool("grep", args, reply -> code.post(() -> {
+            if (!dialog.isShowing()) {
+                return;
+            }
+            if (reply.has("error")) {
+                dialog.setMessage(reply.get("error").getAsString());
+                return;
+            }
+            List<ListDialog.Row> rows = new ArrayList<>();
+            for (var element : reply.getAsJsonArray("rows")) {
+                var row = element.getAsJsonObject();
+                String file = row.get("f").getAsString();
+                int line = row.get("l").getAsInt();
+                rows.add(ListDialog.Row.link(row.get("t").getAsString().strip(), file + ":" + (line + 1), () -> {
+                    dialog.dismiss();
+                    openAt(file, line);
+                }));
+            }
+            dialog.setMessage(rows.isEmpty() ? "Nothing found" : rows.size() + " match(es)"
+                    + (reply.has("cut") && reply.get("cut").getAsBoolean() ? " (first 500)" : ""));
+            dialog.setRows(rows);
+        })));
     }
 
     // ---- building blocks (ready-made code: docs, insert at the cursor, new file imported by main.py)
@@ -2150,9 +2391,12 @@ public class EditorFragment extends Fragment {
         boolean dirty = state.dirtyTabs().contains(path)
                 || (path.equals(shownPath) && !code.getText().toString().equals(synced));
         if (dirty) {
-            prompt(anchor, "Close " + path + " and discard unsaved changes?", null, "Discard",
-                    ignored -> store(s -> s.closeFile(path)));
+            prompt(anchor, "Close " + path + " and discard unsaved changes?", null, "Discard", ignored -> {
+                rememberClosed(path);
+                store(s -> s.closeFile(path));
+            });
         } else {
+            rememberClosed(path);
             store(s -> s.closeFile(path));
         }
     }
@@ -2445,6 +2689,15 @@ public class EditorFragment extends Fragment {
             tools.goToDefinition(code.getSelectionStart());
             return true;
         }
+        if (keyCode == KeyEvent.KEY_F6 && shift && !ctrl) {
+            renameInFile();
+            return true;
+        }
+        if (event.isAltPressed() && !ctrl && shift && (keyCode == KeyEvent.KEY_UP || keyCode == KeyEvent.KEY_DOWN)) {
+            lineEdit(LineEdits.moveLines(code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd(),
+                    keyCode == KeyEvent.KEY_UP));
+            return true;
+        }
         if (event.isAltPressed() && !ctrl) {
             switch (keyCode) {
                 case KeyEvent.KEY_1 -> {
@@ -2493,6 +2746,7 @@ public class EditorFragment extends Fragment {
                 case KeyEvent.KEY_I -> tools.addMissingImports();
                 case KeyEvent.KEY_V -> tools.extractVariable();
                 case KeyEvent.KEY_M -> tools.extractFunction();
+                case KeyEvent.KEY_L -> reformatFile();
                 default -> {
                     return false;
                 }
@@ -2501,13 +2755,39 @@ public class EditorFragment extends Fragment {
         }
         if (ctrl) {
             switch (keyCode) {
-                case KeyEvent.KEY_T -> tools.symbolSearch();
+                case KeyEvent.KEY_T -> {
+                    if (shift) {
+                        reopenClosedTab();
+                    } else {
+                        tools.symbolSearch();
+                    }
+                }
+                case KeyEvent.KEY_A -> {
+                    if (!shift) {
+                        return false; // select all
+                    }
+                    findAction();
+                }
+                case KeyEvent.KEY_K -> { // Ctrl+Y stays redo
+                    if (!shift) {
+                        return false;
+                    }
+                    lineEdit(LineEdits.deleteLines(code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd()));
+                }
+                case KeyEvent.KEY_G -> goToLinePrompt();
+                case KeyEvent.KEY_F12 -> {
+                    if (!shift) {
+                        return false;
+                    }
+                    hideAllToolWindows();
+                }
                 case KeyEvent.KEY_E -> tools.showRecentLocations();
                 case KeyEvent.KEY_D -> {
                     if (shift) {
                         tools.generateDocstring();
                     } else {
-                        return false;
+                        lineEdit(LineEdits.duplicate(code.getText().toString(), code.getSelectionStart(),
+                                code.getSelectionEnd()));
                     }
                 }
                 case KeyEvent.KEY_S -> save();
@@ -2520,7 +2800,13 @@ public class EditorFragment extends Fragment {
                     }
                 }
                 case KeyEvent.KEY_J -> joinLines();
-                case KeyEvent.KEY_F -> openFind(false);
+                case KeyEvent.KEY_F -> {
+                    if (shift) {
+                        findInFiles();
+                    } else {
+                        openFind(false);
+                    }
+                }
                 case KeyEvent.KEY_H -> openFind(true);
                 case KeyEvent.KEY_P -> quickOpen();
                 case KeyEvent.KEY_W -> {
@@ -2531,7 +2817,8 @@ public class EditorFragment extends Fragment {
                 case KeyEvent.KEY_EQUAL, KeyEvent.KEY_KP_ADD -> zoom(1);
                 case KeyEvent.KEY_MINUS, KeyEvent.KEY_KP_SUBTRACT -> zoom(-1);
                 case KeyEvent.KEY_0 -> zoom(0);
-                case KeyEvent.KEY_SLASH -> showShortcuts();
+                case KeyEvent.KEY_SLASH -> lineEdit(LineEdits.toggleComment(code.getText().toString(),
+                        code.getSelectionStart(), code.getSelectionEnd()));
                 case KeyEvent.KEY_BACKSLASH -> {
                     if (splitOpen()) {
                         closeSplit();
@@ -2589,7 +2876,20 @@ public class EditorFragment extends Fragment {
                 }
                 return true;
             }
+            case KeyEvent.KEY_BACKSPACE -> {
+                TextOps.Edit back = from == to && !ctrl ? LineEdits.smartBackspace(all, from) : null;
+                if (back == null) {
+                    return false;
+                }
+                applyEdit(back);
+                return true;
+            }
             case KeyEvent.KEY_TAB -> {
+                TextOps.Edit template = !shift && from == to ? LineEdits.expandTemplate(all, from) : null;
+                if (template != null) {
+                    applyEdit(template);
+                    return true;
+                }
                 if (shift || all.substring(from, to).contains("\n")) {
                     indentLines(from, to, !shift);
                 } else {

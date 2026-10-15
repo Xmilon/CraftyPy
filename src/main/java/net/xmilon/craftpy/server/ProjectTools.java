@@ -57,8 +57,51 @@ public final class ProjectTools {
             case "complete", "hover" -> assist(op, projectId, request);
             case "changes" -> done(changes(projectId));
             case "add_part" -> addPart(manager, projectId, request);
+            case "grep" -> manager.snapshot(projectId).thenApply(s -> grep(s, string(request, "q"),
+                    request.has("todo") && request.get("todo").getAsBoolean()));
             default -> done(error(op, "Unknown tool: " + op));
         };
+    }
+
+    // -- find in files / TODO list -----------------------------------------------------
+
+    private static final java.util.regex.Pattern TODO = java.util.regex.Pattern.compile("#\\s*(TODO|FIXME|XXX|HACK)\\b.*",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final int GREP_LIMIT = 500;
+
+    /** Lines of the project's text files that contain {@code query} (case-insensitive), or TODO comments. */
+    static ResponsePayload grep(ProjectManager.Snapshot snapshot, String query, boolean todo) {
+        JsonObject out = new JsonObject();
+        out.addProperty("op", "grep");
+        JsonArray rows = new JsonArray();
+        String needle = query.toLowerCase(java.util.Locale.ROOT);
+        if (!todo && needle.isBlank()) {
+            out.add("rows", rows);
+            return ok(out);
+        }
+        boolean cut = false;
+        search:
+        for (var entry : snapshot.texts().entrySet()) {
+            String[] lines = entry.getValue().split("\n", -1);
+            for (int i = 0; i < lines.length; i++) {
+                boolean hit = todo ? TODO.matcher(lines[i]).find() : lines[i].toLowerCase(java.util.Locale.ROOT).contains(needle);
+                if (!hit) {
+                    continue;
+                }
+                if (rows.size() >= GREP_LIMIT) {
+                    cut = true;
+                    break search;
+                }
+                JsonObject row = new JsonObject();
+                row.addProperty("f", entry.getKey());
+                row.addProperty("l", i);
+                row.addProperty("t", clip(lines[i]));
+                rows.add(row);
+            }
+        }
+        out.add("rows", rows);
+        out.addProperty("cut", cut);
+        return ok(fit(out, "rows"));
     }
 
     // -- building blocks: a new file connected to main.py ----------------------------

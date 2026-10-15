@@ -199,4 +199,30 @@ See the *Java bridge* topic: `java.cls("net.minecraft...")`, `java.new(...)`, `@
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset (also `Ctrl` + mouse wheel) |
 | `F11` | Zen mode |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Ctrl+Shift+A` | Find action: every command by name |
+| `Ctrl+Shift+F` | Find in files |
+| `Ctrl+G` | Go to line |
+| `Ctrl+/` | Comment / uncomment the lines |
+| `Ctrl+D` | Duplicate the line or selection |
+| `Ctrl+Shift+K` | Delete the line |
+| `Alt+Shift+Up` / `Alt+Shift+Down` | Move the line up / down |
+| `Ctrl+Alt+L` | Reformat the file (whitespace only) |
+| `Shift+F6` | Rename a name in this file (strings and comments stay) |
+| `Tab` after `onj`, `onb`, `cmd`, `win`, `item`... | Expand a live template (see below) |
+| `Ctrl+Shift+T` | Reopen the last closed tab |
+| `Ctrl+\` | Split the editor right / close the split |
+| `Alt+1` / `Alt+2` / `Alt+4` / `Alt+6` / `Alt+7` / `Alt+8` / `Alt+9` | Project / Bookmarks / Console / Problems / Structure / Building blocks / Assets |
+| `Ctrl+Shift+F12` | Hide all tool windows (again: bring them back) |
 | `F1` | This help |
+
+### Live templates
+
+Type the abbreviation alone on a line and press `Tab`: `main`, `item`, `block`, `onj` (player join), `onb` (block break),
+`onp` (block place), `oni` (block right click), `onu` (item use), `onc` (chat), `ond` (death), `cmd`, `every`, `after`,
+`win` (window), `ext` (extension), `shaped`, `for` (every online player). The cursor lands where you type next.
+
+### Building blocks
+
+The **Building blocks** tool window (right edge, `Alt+8`) has ready-made pieces: windows and other UI elements, items, blocks,
+events, commands, timers, recipes and world actions. Each one has **Docs** (its part of the API reference), **Insert** (the
+code at the cursor) and **New file** (`code/<name>.py`, already imported by `main.py`).
