@@ -806,6 +806,16 @@ public class EditorFragment extends Fragment {
         return row;
     }
 
+    /** Ctrl+Alt+Shift+C: "code/main.py:12" of the caret, for a chat message or an issue. */
+    private void copyReference() {
+        if (shownPath == null) {
+            return;
+        }
+        String reference = shownPath + ":" + (TextOps.lineOf(code.getText().toString(), Math.max(0, code.getSelectionStart())) + 1);
+        EditorTools.copyToClipboard(reference);
+        toast("Copied " + reference);
+    }
+
     /** Alt+Shift+E (IntelliJ "Execute selection in console"): the selection, or the caret's line, runs in the console. */
     private void executeSelection() {
         String text = code.getText().toString();
@@ -996,6 +1006,7 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("New UI window", "", tools::newWindow));
         a.add(new ActionEntry("Keyboard shortcuts", "F1", this::showShortcuts));
         a.add(new ActionEntry("Settings", "Ctrl+Alt+S", this::showSettings));
+        a.add(new ActionEntry("Copy reference (file:line)", "Ctrl+Alt+Shift+C", this::copyReference));
         a.add(new ActionEntry("Execute selection in console", "Alt+Shift+E", this::executeSelection));
         a.add(new ActionEntry("Help", "", () -> HelpPanel.open(code)));
         return a;
@@ -2491,7 +2502,21 @@ public class EditorFragment extends Fragment {
                 flush();
                 store(s -> s.openFile(path));
             });
+            // middle click closes a tab (button presses arrive as generic motion events, not touches)
+            chip.setOnGenericMotionListener((v, event) -> {
+                if (event.getAction() == icyllis.modernui.view.MotionEvent.ACTION_BUTTON_PRESS
+                        && event.getActionButton() == icyllis.modernui.view.MotionEvent.BUTTON_TERTIARY && !pinned) {
+                    closeTab(v, path);
+                    return true;
+                }
+                return false;
+            });
             Overlays.contextMenu(chip, menu -> {
+                menu.add("Copy path").setOnMenuItemClickListener(item -> {
+                    EditorTools.copyToClipboard(path);
+                    toast("Copied " + path);
+                    return true;
+                });
                 menu.add(pinned ? "Unpin" : "Pin").setOnMenuItemClickListener(item -> {
                     togglePin(path);
                     return true;
@@ -3044,6 +3069,12 @@ public class EditorFragment extends Fragment {
                 case KeyEvent.KEY_V -> tools.extractVariable();
                 case KeyEvent.KEY_M -> tools.extractFunction();
                 case KeyEvent.KEY_L -> reformatFile();
+                case KeyEvent.KEY_C -> {
+                    if (!shift) {
+                        return false;
+                    }
+                    copyReference();
+                }
                 case KeyEvent.KEY_S -> showSettings();
                 default -> {
                     return false;

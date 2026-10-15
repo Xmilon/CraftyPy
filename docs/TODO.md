@@ -135,21 +135,25 @@ Done:
 11. Project avatars on the Home page.
 12. Standalone window: logo icon, dark caption.
 13. Save replies name their file (fixes a real data-loss risk: edits typed while saving were marked saved).
-Planned (wave 2 onward):
-14. Toggle line comment Ctrl+/ (shortcut list moves to F1 only). 15. Duplicate line Ctrl+D. 16. Delete line Ctrl+Y.
-17. Move line up/down Alt+Shift+Up/Down. 18. Reopen closed tab Ctrl+Shift+T. 19. Close others/all/to the right.
-20. Middle-click closes a tab. 21. Hide all tool windows Ctrl+Shift+F12 / double-click a tab. 22. Find Action Ctrl+Shift+A.
-23. Find in Files Ctrl+Shift+F (server grep). 24. TODO tool window. 25. Console traceback lines jump to the file.
-26. Status bar: problem counts (click: Problems). 27. Status bar: indent "4 spaces". 28. Bracket match highlight.
-29. Indent guides. 30. Current line number highlight in the gutter. 31. Problem marks on the minimap.
-32. Explorer file-type icons. 33. Expanded folders remembered. 34. Open tabs restored per project.
-35. Fuzzy completion (initials: `gb` -> `get_block`) with prefix matches first. 36. Signature help while typing arguments.
-37. Undefined-name and unused-import warnings in the worker lint. 38. Live templates (Tab after `onb`, `cmd`, `item`...).
-39. Reformat file Ctrl+Alt+L (whitespace-safe). 40. Rename a local name in the file Shift+F6 (strings/comments untouched).
-41. Go to line Ctrl+G. 42. Smart backspace (one indent level). 43. Hover on an id string shows its mod and kind.
-44. Settings dialog Ctrl+Alt+S. 45. Notification balloons (bottom right). 46. Recent projects in the project widget.
-47. Tip of the day on Home. 48. Completion in the console input. 49. In game: action-bar message when a project reloaded.
-50. In game: a key to open the IDE on the project you last used.
+Done in waves 2-6 (2026-10-16), each with tests where there is logic:
+14. Toggle line comment Ctrl+/ (the shortcut list stays on F1). 15. Duplicate line or selection Ctrl+D.
+16. Delete line Ctrl+Shift+K (Ctrl+Y stays redo). 17. Move lines Alt+Shift+Up/Down. 18. Reopen closed tab Ctrl+Shift+T.
+19. Tab menu: Close all, Close tabs to the right, Copy path. 20. Middle click closes a tab. 21. Hide all tool windows
+Ctrl+Shift+F12 and double click on a tab. 22. Find Action Ctrl+Shift+A. 23. Find in Files Ctrl+Shift+F (server tool grep).
+24. TODO list (Find Action > TODO list). 25. Console: Ctrl+click a traceback line opens the file at the line.
+26. Status bar error/warning counts (click: Problems). 27. Status bar indentation. 28. Bracket pair highlight.
+29. Indent guides (Settings can turn them off). 30. Caret line number brighter in the gutter. 31. Error/warning marks on
+the minimap. 32. Painted file icons in the explorer and the tabs. 33. Open folders remembered per project. 34. Open tabs
+restored per project. 35. Fuzzy completion (word initials) with prefix matches first. 36. Signature help on ( and ,
+with the argument being typed in bold. 37. Lint: undefined names and unused imports (was already in the worker; now
+surfaced in the status bar and minimap). 38. Live templates on Tab. 39. Reformat Ctrl+Alt+L (whitespace only).
+40. Rename in file Shift+F6. 41. Go to line Ctrl+G. 42. Smart backspace. 43. Hover on an id string: registry and mod.
+44. Settings dialog Ctrl+Alt+S. 45. Execute selection in console Alt+Shift+E (instead of notification balloons: Modern
+UI's toasts already work the same in game and standalone). 46. Recent projects in the project widget. 47. Tip of the
+day on Home. 48. Copy reference Ctrl+Alt+Shift+C (instead of completion in the console input, which would need the
+console line to become a code view). 49. In game: action-bar line when a project loads or fails. 50. In game: the IDE
+key opens the editor on the last project, also for singleplayer owners without cheats.
+Not checked in game yet: all of the above (unit tests and the standalone window only).
 
 ## 10. IntelliJ-style layout (asked 2026-10-16)
 
