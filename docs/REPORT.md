@@ -205,6 +205,11 @@
   sessions with file locks, 52 project change log.
 - Unbatched quick ones: 11 LF/CRLF switcher in a status bar, 12 encoding display/conversion.
 
+### Milestone M18 (started): standalone IDE, feasibility spike only
+
+No IDE code was written yet. Spike result (a scratch `main`, not in the repo): `new ModernUI().run(fragment)` opens a Modern UI window on a plain JVM with no Minecraft, `Core.initialize()` works outside the game. Classpath that was enough: `modernui-core 3.13.0`, `arc3d-core/sketch/compiler/engine/granite/opengl/vulkan 2026.2.0`, LWJGL 3.3.3 (core, glfw, opengl, stb, freetype, jemalloc + natives-windows), fastutil 8.5.x, icu4j 73.2, joml 1.10.5, slf4j-api 2.0.9, log4j-api/core 2.22.1, jetbrains annotations.
+Sizing of the refactor still to do: 23 client classes import Minecraft/NeoForge (18x `Minecraft` for `execute`/clipboard/resources, `client/assets/*` the most: AssetIndex, AssetInfo, AssetPreview, SoundPreview read resource packs and sound registries), 4x `ThemeControl` + 1 `ClampingScrollView` from the ModernUI-NeoForge jar, `ClientProjectStore.request` uses `PacketDistributor`, `ProjectRequestHandler` needs a `ServerPlayer`. Plan: `IdeHost` (execute, clipboard, folders, capabilities), a `Transport` in the store, a `ProjectService` split of the handler, `Config.safe`, `-Dcraftpy.home`, asset index from the catalog; `runIde` and `ideJar` Gradle tasks.
+
 ### Milestone M17: installer
 
 `gradlew --no-daemon test` green. A real install was not run.
