@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.lifecycle;
 
+import net.xmilon.craftpy.CraftPyLog;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -22,7 +23,6 @@ import net.neoforged.neoforge.event.entity.player.ItemEntityPickupEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.block.SlottedBlock;
 import net.xmilon.craftpy.block.SlottedItem;
 import net.xmilon.craftpy.python.PyRuntime;
@@ -260,14 +260,14 @@ public class EventBridge {
         JsonObject result = future.getNow(null);
         if (result == null) {
             EventTrace.finish(trace, 0, 0);
-            CraftPy.LOGGER.warn("Python did not answer {} within {} ms; the game event carries on", event, budgetMs);
+            CraftPyLog.LOGGER.warn("Python did not answer {} within {} ms; the game event carries on", event, budgetMs);
             return null;
         }
         EventTrace.finish(trace, result.has("handlers") ? result.get("handlers").getAsInt() : 0,
                 result.has("ms") ? result.get("ms").getAsDouble() : 0);
         if (result.has("log") && result.get("log").isJsonArray()) {
             result.getAsJsonArray("log").forEach(line -> {
-                CraftPy.LOGGER.info("[Python {}] {}", event, line.getAsString());
+                CraftPyLog.LOGGER.info("[Python {}] {}", event, line.getAsString());
                 net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[" + event + "] " + line.getAsString());
             });
         }
@@ -302,7 +302,7 @@ public class EventBridge {
             if (result.has("log") && result.get("log").isJsonArray() && level instanceof ServerLevel serverLevel) {
                 // print() output and handler errors also reach the editor console.
                 result.getAsJsonArray("log").forEach(line -> {
-                    CraftPy.LOGGER.info("[Python {}] {}", event, line.getAsString());
+                    CraftPyLog.LOGGER.info("[Python {}] {}", event, line.getAsString());
                     net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(serverLevel.getServer(),
                             "[" + event + "] " + line.getAsString());
                 });

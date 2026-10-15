@@ -7,14 +7,14 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.block.PythonComputerBlock;
 import net.xmilon.craftpy.block.SlottedBlock;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 public final class ModBlocks {
-    public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(CraftPy.MODID);
+    public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(CraftPyLog.MODID);
 
     public static final DeferredBlock<PythonComputerBlock> PYTHON_COMPUTER = BLOCKS.register(
             "python_computer",

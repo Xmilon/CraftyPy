@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.util.function.Consumer;
 
 import icyllis.modernui.R;
@@ -31,7 +32,6 @@ import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.RadioButton;
 import icyllis.modernui.widget.RadioGroup;
 import icyllis.modernui.widget.TextView;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.xmilon.craftpy.client.ClientProjectStore;
 
@@ -237,7 +237,7 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
 
     /** Runs a store action on the client thread. */
     static void store(Consumer<ClientProjectStore> action) {
-        Minecraft.getInstance().execute(() -> action.accept(ClientProjectStore.getInstance()));
+        IdeHost.get().execute(() -> action.accept(ClientProjectStore.getInstance()));
     }
 
     static int color(Context context, String attr) {

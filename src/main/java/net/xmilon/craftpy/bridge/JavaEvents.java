@@ -19,7 +19,7 @@ import net.neoforged.bus.api.Event;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.bridge.JavaBridge.BridgeException;
 import net.xmilon.craftpy.python.PyRuntime;
 import net.xmilon.craftpy.registry.SlotRegistry;
@@ -87,7 +87,7 @@ final class JavaEvents {
             CompletableFuture<JsonObject> done = PyRuntime.get().triggerEvent(name, context);
             await(server, done);
         } catch (RuntimeException e) {
-            CraftPy.LOGGER.warn("Python handler for {} failed: {}", eventClass, e.toString());
+            CraftPyLog.LOGGER.warn("Python handler for {} failed: {}", eventClass, e.toString());
         } finally {
             JavaBridge.release(handle);
         }

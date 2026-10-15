@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.Config;
 import net.xmilon.craftpy.project.PyForgePaths;
 
@@ -106,7 +106,7 @@ public final class PythonDiscovery {
                 if (isSupported(version)) {
                     return version;
                 }
-                CraftPy.LOGGER.warn("Found Python at {} but version {} is not supported (need 3.13+)",
+                CraftPyLog.LOGGER.warn("Found Python at {} but version {} is not supported (need 3.13+)",
                         executable, line);
                 return null;
             }

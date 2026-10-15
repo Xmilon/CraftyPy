@@ -10,7 +10,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.ItemAttributeModifierEvent;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.block.SlottedItem;
 import net.xmilon.craftpy.content.Defs;
 
@@ -43,7 +43,7 @@ public final class ItemAttributes {
         if (def.armor != null) {
             EquipmentSlot slot = item.getEquipmentSlot(event.getItemStack());
             EquipmentSlotGroup group = EquipmentSlotGroup.bySlot(slot);
-            ResourceLocation id = ResourceLocation.fromNamespaceAndPath(CraftPy.MODID, "armor." + def.armor.slot());
+            ResourceLocation id = ResourceLocation.fromNamespaceAndPath(CraftPyLog.MODID, "armor." + def.armor.slot());
             event.replaceModifier(Attributes.ARMOR, add(id, def.armor.defense()), group);
             event.replaceModifier(Attributes.ARMOR_TOUGHNESS, add(id, def.armor.toughness()), group);
             event.replaceModifier(Attributes.KNOCKBACK_RESISTANCE, add(id, def.armor.knockbackResistance()), group);
@@ -52,7 +52,7 @@ public final class ItemAttributes {
         for (Defs.ItemDef.AttributeSpec spec : def.attributes) {
             Holder<Attribute> attribute = attribute(spec.attribute());
             if (attribute != null) { // an attribute of a mod that is not installed is simply not applied
-                var id = ResourceLocation.fromNamespaceAndPath(CraftPy.MODID, "ext." + index);
+                var id = ResourceLocation.fromNamespaceAndPath(CraftPyLog.MODID, "ext." + index);
                 event.addModifier(attribute, new AttributeModifier(id, spec.amount(), operation(spec.operation())), group(spec.slot()));
             }
             index++;
@@ -65,7 +65,7 @@ public final class ItemAttributes {
         event.replaceModifier(Attributes.ATTACK_SPEED, add(ATTACK_SPEED, attackSpeed - 4.0), EquipmentSlotGroup.MAINHAND);
         if (knockback > 0f) {
             event.replaceModifier(Attributes.ATTACK_KNOCKBACK,
-                    add(ResourceLocation.fromNamespaceAndPath(CraftPy.MODID, "weapon_knockback"), knockback),
+                    add(ResourceLocation.fromNamespaceAndPath(CraftPyLog.MODID, "weapon_knockback"), knockback),
                     EquipmentSlotGroup.MAINHAND);
         }
     }

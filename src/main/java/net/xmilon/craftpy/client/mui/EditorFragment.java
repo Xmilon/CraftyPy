@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,7 +41,6 @@ import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
 import icyllis.modernui.widget.Toast;
-import net.minecraft.client.Minecraft;
 import net.xmilon.craftpy.assets.AssetKind;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.CodeProblems;
@@ -406,10 +406,7 @@ public class EditorFragment extends Fragment {
         buttons.addView(button(code.getContext(), "Leave and discard", R.attr.buttonTonalStyle, v -> {
             dialog.dismiss();
             leaveConfirmed = true;
-            var screen = Minecraft.getInstance().screen;
-            if (screen != null) {
-                screen.onClose();
-            }
+            IdeHost.get().closeScreen();
         }));
         var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         lp.topMargin = code.dp(10);
@@ -1341,7 +1338,7 @@ public class EditorFragment extends Fragment {
             });
         }
         menu.add("Copy path").setOnMenuItemClickListener(item -> {
-            Minecraft.getInstance().keyboardHandler.setClipboard(path);
+            IdeHost.get().setClipboard(path);
             toast("Copied " + path);
             return true;
         });
@@ -2706,7 +2703,7 @@ public class EditorFragment extends Fragment {
             toast(target + " already exists");
             return;
         }
-        Minecraft.getInstance().execute(() -> {
+        IdeHost.get().execute(() -> {
             byte[] data = AssetFetch.bytes(kind, id);
             if (data == null) {
                 code.post(() -> toast("Could not read " + id));
@@ -2722,7 +2719,7 @@ public class EditorFragment extends Fragment {
                 }
                 toast("Copied " + id + " to " + target);
                 if (meta != null) {
-                    Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().uploadAsset(project, target + ".mcmeta", meta));
+                    IdeHost.get().execute(() -> ClientProjectStore.getInstance().uploadAsset(project, target + ".mcmeta", meta));
                 }
             }));
         });

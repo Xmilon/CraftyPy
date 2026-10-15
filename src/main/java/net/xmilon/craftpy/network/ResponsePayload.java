@@ -6,7 +6,7 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 
 /**
  * Server -&gt; client reply for a {@link RequestPayload}. {@code json} holds the
@@ -15,7 +15,7 @@ import net.xmilon.craftpy.CraftPy;
 public record ResponsePayload(ProjectAction action, boolean success, String message, String json)
         implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<ResponsePayload> TYPE = new CustomPacketPayload.Type<>(
-            ResourceLocation.fromNamespaceAndPath(CraftPy.MODID, "response"));
+            ResourceLocation.fromNamespaceAndPath(CraftPyLog.MODID, "response"));
 
     public static final StreamCodec<FriendlyByteBuf, ResponsePayload> STREAM_CODEC = StreamCodec.composite(
             RequestPayload.ACTION_CODEC, ResponsePayload::action,

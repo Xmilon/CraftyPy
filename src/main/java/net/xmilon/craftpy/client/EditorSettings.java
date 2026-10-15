@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -10,8 +11,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-import net.neoforged.fml.loading.FMLPaths;
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.util.Json;
 
 /**
@@ -54,7 +53,7 @@ public final class EditorSettings {
     }
 
     private static Path file() {
-        return FMLPaths.CONFIGDIR.get().resolve("craftpy-editor.json");
+        return IdeHost.get().configDir().resolve("craftpy-editor.json");
     }
 
     private static EditorSettings load() {
@@ -68,7 +67,7 @@ public final class EditorSettings {
                 }
             }
         } catch (Exception e) {
-            CraftPy.LOGGER.warn("CraftPy: could not read editor settings, using defaults: {}", e.toString());
+            CraftPyLog.LOGGER.warn("CraftPy: could not read editor settings, using defaults: {}", e.toString());
         }
         return new EditorSettings();
     }
@@ -95,7 +94,7 @@ public final class EditorSettings {
             Files.writeString(tmp, Json.GSON.toJson(this));
             Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         } catch (Exception e) {
-            CraftPy.LOGGER.warn("CraftPy: could not save editor settings: {}", e.toString());
+            CraftPyLog.LOGGER.warn("CraftPy: could not save editor settings: {}", e.toString());
         }
     }
 

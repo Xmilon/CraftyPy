@@ -3,7 +3,6 @@ package net.xmilon.craftpy;
 import net.xmilon.craftpy.command.CraftPyCommand;
 import org.slf4j.Logger;
 
-import com.mojang.logging.LogUtils;
 
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -28,8 +27,8 @@ import net.xmilon.craftpy.util.CraftPyExecutors;
 
 @Mod(CraftPy.MODID)
 public class CraftPy {
-    public static final String MODID = "craftpy";
-    public static final Logger LOGGER = LogUtils.getLogger();
+    public static final String MODID = CraftPyLog.MODID;
+    public static final Logger LOGGER = CraftPyLog.LOGGER;
 
     public CraftPy(IEventBus modEventBus, ModContainer modContainer) {
         ModBlocks.BLOCKS.register(modEventBus);

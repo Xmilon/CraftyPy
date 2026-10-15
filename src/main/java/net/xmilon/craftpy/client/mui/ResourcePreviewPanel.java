@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +22,6 @@ import icyllis.modernui.widget.FrameLayout;
 import icyllis.modernui.widget.HorizontalScrollView;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.TextView;
-import net.minecraft.client.Minecraft;
 import net.xmilon.craftpy.client.ModelScene;
 import net.xmilon.craftpy.client.PixelBuffer;
 import net.xmilon.craftpy.client.assets.ModelResources;
@@ -129,7 +129,7 @@ final class ResourcePreviewPanel implements DockPanel {
             return;
         }
         info.setText("Loading...");
-        Minecraft.getInstance().execute(() -> {
+        IdeHost.get().execute(() -> {
             try {
                 buildModel(mine, parsed);
             } catch (RuntimeException e) { // a model that cannot be drawn must not leave the panel on "Loading..."

@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayDeque;
 import java.util.Locale;
@@ -26,7 +27,7 @@ import icyllis.modernui.widget.HorizontalScrollView;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.TextView;
 import net.minecraft.client.Minecraft;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.client.AudioClip;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.assets.OggEncoder;
@@ -341,7 +342,7 @@ final class SoundEditorPanel implements DockPanel {
             waveform.playhead = from;
             tickPlayhead(line, part.frames());
         } catch (Exception e) {
-            CraftPy.LOGGER.warn("Sound playback failed", e);
+            CraftPyLog.LOGGER.warn("Sound playback failed", e);
             say("Could not play: " + e.getMessage());
             playing = null;
         }
@@ -446,7 +447,7 @@ final class SoundEditorPanel implements DockPanel {
     /** Uploads the bytes; the sound counts as saved only once the server wrote the file. */
     private void upload(String target, byte[] bytes, AudioClip saved) {
         say("Saving " + target + " ...");
-        Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().uploadAsset(projectId, target, bytes,
+        IdeHost.get().execute(() -> ClientProjectStore.getInstance().uploadAsset(projectId, target, bytes,
                 error -> root.post(() -> {
                     if (error != null) {
                         say("Not saved: " + error);

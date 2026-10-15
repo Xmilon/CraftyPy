@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -18,8 +19,7 @@ import icyllis.modernui.widget.HorizontalScrollView;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.SeekBar;
 import icyllis.modernui.widget.TextView;
-import net.minecraft.client.Minecraft;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.PixelBuffer;
 import net.xmilon.craftpy.client.assets.TextureCodec;
@@ -406,13 +406,13 @@ final class TextureEditorPanel implements DockPanel {
             text.append(PixelBuffer.hex(c)).append('\n');
         }
         String out = text.toString();
-        Minecraft.getInstance().execute(() -> Minecraft.getInstance().keyboardHandler.setClipboard(out));
+        IdeHost.get().execute(() -> IdeHost.get().setClipboard(out));
         say(out.isEmpty() ? "No colours to copy." : "Copied " + out.lines().count() + " colours.");
     }
 
     private void pastePalette() {
-        Minecraft.getInstance().execute(() -> {
-            String text = Minecraft.getInstance().keyboardHandler.getClipboard();
+        IdeHost.get().execute(() -> {
+            String text = IdeHost.get().clipboard();
             root.post(() -> {
                 int added = 0;
                 for (String token : text.split("[\\s,;]+")) {
@@ -464,7 +464,7 @@ final class TextureEditorPanel implements DockPanel {
             final int version = buffer.version();
             say("Saving " + target + " ...");
             // "Saved" only once the server wrote it; a refused upload (size, type, no project) keeps the edits marked unsaved
-            Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().uploadAsset(projectId, target, png,
+            IdeHost.get().execute(() -> ClientProjectStore.getInstance().uploadAsset(projectId, target, png,
                     error -> root.post(() -> {
                         if (error != null) {
                             say("Not saved: " + error);
@@ -476,7 +476,7 @@ final class TextureEditorPanel implements DockPanel {
                         onSaved.accept(target);
                     })));
         } catch (Exception e) {
-            CraftPy.LOGGER.warn("Texture save failed", e);
+            CraftPyLog.LOGGER.warn("Texture save failed", e);
             say("Save failed: " + e.getMessage());
         }
     }

@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -9,11 +10,7 @@ import java.util.Map;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 
-import net.minecraft.client.Minecraft;
-import net.neoforged.neoforge.network.PacketDistributor;
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.network.ProjectAction;
-import net.xmilon.craftpy.network.RequestPayload;
 import net.xmilon.craftpy.network.ResponsePayload;
 import net.xmilon.craftpy.project.ProjectManager;
 import net.xmilon.craftpy.project.ProjectSummary;
@@ -533,7 +530,7 @@ public final class ClientProjectStore {
     }
 
     public void request(ProjectAction action, String projectId, String data) {
-        PacketDistributor.sendToServer(RequestPayload.of(action, projectId, data));
+        IdeHost.get().send(action, projectId, data);
     }
 
     /** Parses a response payload defensively; a malformed body logs and yields null instead of crashing the client. */
@@ -541,7 +538,7 @@ public final class ClientProjectStore {
         try {
             return Json.COMPACT.fromJson(json, type);
         } catch (Exception e) {
-            CraftPy.LOGGER.warn("CraftPy: bad {} response ({}): {} -> {}", action, type.getSimpleName(), e.getMessage(),
+            CraftPyLog.LOGGER.warn("CraftPy: bad {} response ({}): {} -> {}", action, type.getSimpleName(), e.getMessage(),
                     truncate(json));
             return null;
         }
@@ -551,7 +548,7 @@ public final class ClientProjectStore {
         try {
             return Json.COMPACT.fromJson(json, type);
         } catch (Exception e) {
-            CraftPy.LOGGER.warn("CraftPy: bad {} response: {} -> {}", action, e.getMessage(), truncate(json));
+            CraftPyLog.LOGGER.warn("CraftPy: bad {} response: {} -> {}", action, e.getMessage(), truncate(json));
             return null;
         }
     }
@@ -851,7 +848,7 @@ public final class ClientProjectStore {
         if (listeners.isEmpty()) {
             return;
         }
-        Minecraft.getInstance().execute(() -> {
+        IdeHost.get().execute(() -> {
             for (Runnable current : listeners) {
                 current.run();
             }

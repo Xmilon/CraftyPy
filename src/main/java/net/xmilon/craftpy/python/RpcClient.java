@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.python;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -18,7 +19,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.util.Json;
 
 /**
@@ -75,7 +75,7 @@ public final class RpcClient {
         if (isRunning()) {
             return;
         }
-        CraftPy.LOGGER.info("Starting CraftPy Python worker: {} {}", python, workerScript);
+        CraftPyLog.LOGGER.info("Starting CraftPy Python worker: {} {}", python, workerScript);
         try {
             ProcessBuilder builder = new ProcessBuilder(python.toString(), workerScript.toString());
             builder.redirectErrorStream(false);
@@ -95,7 +95,7 @@ public final class RpcClient {
 
             running = true;
         } catch (IOException e) {
-            CraftPy.LOGGER.error("Failed to start Python worker", e);
+            CraftPyLog.LOGGER.error("Failed to start Python worker", e);
             running = false;
         }
     }
@@ -129,7 +129,7 @@ public final class RpcClient {
                 return future.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             } catch (java.util.concurrent.TimeoutException e) {
                 pending.remove(id);
-                CraftPy.LOGGER.warn("Python worker timeout for {} ({} ms)", method, timeoutMs);
+                CraftPyLog.LOGGER.warn("Python worker timeout for {} ({} ms)", method, timeoutMs);
                 throw new IOException("Python worker timed out for " + method, e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -166,7 +166,7 @@ public final class RpcClient {
             out.newLine();
             out.flush();
         } catch (IOException e) {
-            CraftPy.LOGGER.warn("Failed to notify worker: {}", method, e);
+            CraftPyLog.LOGGER.warn("Failed to notify worker: {}", method, e);
         } finally {
             writeLock.unlock();
         }
@@ -188,7 +188,7 @@ public final class RpcClient {
                     }
                     JsonPrimitive idPrimitive = response.getAsJsonPrimitive("id");
                     if (idPrimitive == null || !idPrimitive.isNumber()) {
-                        CraftPy.LOGGER.info("[worker log] {}", line);
+                        CraftPyLog.LOGGER.info("[worker log] {}", line);
                         continue;
                     }
                     long id = idPrimitive.getAsLong();
@@ -206,12 +206,12 @@ public final class RpcClient {
                         future.complete(result);
                     }
                 } catch (RuntimeException e) {
-                    CraftPy.LOGGER.warn("Malformed worker response: {}", line, e);
+                    CraftPyLog.LOGGER.warn("Malformed worker response: {}", line, e);
                 }
             }
         } catch (IOException e) {
             if (running) {
-                CraftPy.LOGGER.warn("Worker stdout closed", e);
+                CraftPyLog.LOGGER.warn("Worker stdout closed", e);
             }
         } finally {
             transportFailure();
@@ -224,7 +224,7 @@ public final class RpcClient {
             StringBuilder buffer = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
-                CraftPy.LOGGER.info("[python] {}", line);
+                CraftPyLog.LOGGER.info("[python] {}", line);
                 buffer.append(line).append(System.lineSeparator());
                 if (buffer.length() > 4096) {
                     buffer.setLength(0);
@@ -268,7 +268,7 @@ public final class RpcClient {
                 out.flush();
             }
         } catch (IOException e) {
-            CraftPy.LOGGER.warn("Failed to reply to host call", e);
+            CraftPyLog.LOGGER.warn("Failed to reply to host call", e);
         } finally {
             writeLock.unlock();
         }

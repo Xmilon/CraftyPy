@@ -6,7 +6,7 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 
 /**
  * Client -&gt; server request. A single flexible envelope keeps the wire
@@ -14,7 +14,7 @@ import net.xmilon.craftpy.CraftPy;
  */
 public record RequestPayload(ProjectAction action, String projectId, String data) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<RequestPayload> TYPE = new CustomPacketPayload.Type<>(
-            ResourceLocation.fromNamespaceAndPath(CraftPy.MODID, "request"));
+            ResourceLocation.fromNamespaceAndPath(CraftPyLog.MODID, "request"));
 
     public static final StreamCodec<FriendlyByteBuf, ProjectAction> ACTION_CODEC = StreamCodec.of(
             (buf, value) -> buf.writeVarInt(value.ordinal()),

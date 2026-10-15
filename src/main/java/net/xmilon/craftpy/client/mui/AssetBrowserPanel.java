@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,7 +16,6 @@ import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
-import net.minecraft.client.Minecraft;
 import net.xmilon.craftpy.assets.AssetKind;
 import net.xmilon.craftpy.client.assets.AssetDrop;
 import net.xmilon.craftpy.client.assets.AssetIndex;
@@ -170,7 +170,7 @@ final class AssetBrowserPanel implements DockPanel {
         final int mine = ++generation;
         final AssetKind wanted = kind;
         final String query = search.getText().toString().trim();
-        Minecraft.getInstance().execute(() -> {
+        IdeHost.get().execute(() -> {
             AssetIndex index = AssetIndex.get();
             index.ensureBuilt(); // starts a background build the first time
             List<String> found;
@@ -228,7 +228,7 @@ final class AssetBrowserPanel implements DockPanel {
     }
 
     private void play(String id) {
-        Minecraft.getInstance().execute(() -> {
+        IdeHost.get().execute(() -> {
             try {
                 if (!SoundPreview.play(id, 1f, 1f)) {
                     list.post(() -> status.setText("Cannot play " + id + ": not a valid sound id"));

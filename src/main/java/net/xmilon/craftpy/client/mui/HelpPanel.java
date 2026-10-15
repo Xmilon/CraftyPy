@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
@@ -11,8 +12,6 @@ import icyllis.modernui.view.View;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
-import net.minecraft.client.Minecraft;
-import net.minecraft.resources.ResourceLocation;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -57,7 +56,7 @@ final class HelpPanel {
                 text.setText("Loading...");
                 scroll.scrollTo(0, 0);
                 // Resources belong to the client thread; render back on the UI thread.
-                Minecraft.getInstance().execute(() -> {
+                IdeHost.get().execute(() -> {
                     String markdown = load(TOPICS[index][1]);
                     text.post(() -> markflow.setMarkdown(text, markdown));
                 });
@@ -81,15 +80,11 @@ final class HelpPanel {
     }
 
     private static String load(String file) {
-        var location = ResourceLocation.fromNamespaceAndPath("craftpy", "docs/" + file);
-        try {
-            var resource = Minecraft.getInstance().getResourceManager().getResource(location);
-            if (resource.isEmpty()) {
+        try (InputStream in = IdeHost.get().doc(file)) {
+            if (in == null) {
                 return "# Missing\n\nThe bundled document `craftpy:docs/" + file + "` is not in this build.";
             }
-            try (InputStream in = resource.get().open()) {
-                return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (Exception e) {
             return "# Could not read the document\n\n" + e.getMessage();
         }

@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.command;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.util.List;
 
 import net.minecraft.network.chat.Component;
@@ -8,7 +9,6 @@ import net.neoforged.neoforge.server.permission.events.PermissionGatherEvent;
 import net.neoforged.neoforge.server.permission.nodes.PermissionNode;
 import net.neoforged.neoforge.server.permission.nodes.PermissionTypes;
 import net.xmilon.craftpy.Config;
-import net.xmilon.craftpy.CraftPy;
 
 /**
  * NeoForge PermissionAPI nodes for the {@code /craftpy} command tree
@@ -33,7 +33,7 @@ public final class CraftPyPermissions {
     private static PermissionNode<Boolean> node(String path, int fallbackLevel) {
         // The required level is resolved lazily so Config is read only when a
         // permission is actually queried (and so the node can be built in tests).
-        return new PermissionNode<>(CraftPy.MODID, "command." + path, PermissionTypes.BOOLEAN,
+        return new PermissionNode<>(CraftPyLog.MODID, "command." + path, PermissionTypes.BOOLEAN,
                 (player, uuid, context) -> {
                     int required = Math.max(fallbackLevel, Config.PERMISSION_LEVEL.get());
                     return player == null ? required <= 2 : player.hasPermissions(required);

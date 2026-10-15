@@ -22,9 +22,9 @@ import net.xmilon.craftpy.registry.ModMenus;
 import org.lwjgl.glfw.GLFW;
 
 // This class will not load on dedicated servers. Accessing client side code from here is safe.
-@Mod(value = CraftPy.MODID, dist = Dist.CLIENT)
+@Mod(value = CraftPyLog.MODID, dist = Dist.CLIENT)
 // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
-@EventBusSubscriber(modid = CraftPy.MODID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = CraftPyLog.MODID, value = Dist.CLIENT)
 public class CraftPyClient {
     public static final String KEY_CATEGORY = "key.categories.craftpy";
     public static final KeyMapping OPEN_IDE_KEY = new KeyMapping(
@@ -40,7 +40,8 @@ public class CraftPyClient {
 
     @SubscribeEvent
     static void onClientSetup(FMLClientSetupEvent event) {
-        CraftPy.LOGGER.info("CraftPy client setup for {}", Minecraft.getInstance().getUser().getName());
+        CraftPyLog.LOGGER.info("CraftPy client setup for {}", Minecraft.getInstance().getUser().getName());
+        net.xmilon.craftpy.client.IdeHost.install(new net.xmilon.craftpy.client.McHost());
         event.enqueueWork(() -> {
             long window = Minecraft.getInstance().getWindow().getWindow();
             final org.lwjgl.glfw.GLFWDropCallback[] previous = new org.lwjgl.glfw.GLFWDropCallback[1];

@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.project;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
@@ -17,7 +18,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.Config;
 import net.xmilon.craftpy.util.CraftPyExecutors;
 import net.xmilon.craftpy.util.Json;
@@ -80,12 +80,12 @@ public final class ProjectManager {
                         Files.copy(in, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                     }
                 }
-                CraftPy.LOGGER.info("Installed the default project 'welcome'");
+                CraftPyLog.LOGGER.info("Installed the default project 'welcome'");
             }
             Files.createDirectories(marker.getParent());
             Files.writeString(marker, "The default project was installed once; delete this file to install it again.\n");
         } catch (IOException e) {
-            CraftPy.LOGGER.warn("Could not install the default project: {}", e.toString());
+            CraftPyLog.LOGGER.warn("Could not install the default project: {}", e.toString());
         }
     }
 
@@ -136,7 +136,7 @@ public final class ProjectManager {
                     summaries.add(summary);
                 });
             } catch (IOException e) {
-                CraftPy.LOGGER.error("Failed to list projects", e);
+                CraftPyLog.LOGGER.error("Failed to list projects", e);
             }
             summaries.sort((a, b) -> a.id.compareToIgnoreCase(b.id));
             return summaries;
@@ -223,7 +223,7 @@ public final class ProjectManager {
                 Json.writeString(dir.resolve("README.md"), templateReadme(id, metadata.name));
                 return OpResult.ok(id, "Created project " + id);
             } catch (IOException e) {
-                CraftPy.LOGGER.error("Failed to create project {}", id, e);
+                CraftPyLog.LOGGER.error("Failed to create project {}", id, e);
                 return OpResult.fail("Failed to create project: " + e.getMessage());
             }
         }, CraftPyExecutors.io());
@@ -333,7 +333,7 @@ public final class ProjectManager {
         try {
             loadedMetadata = loadMetadata(id, dir);
         } catch (IOException e) {
-            CraftPy.LOGGER.warn("Project '{}' has an unreadable project.json ({}); loading with defaults",
+            CraftPyLog.LOGGER.warn("Project '{}' has an unreadable project.json ({}); loading with defaults",
                     id, e.getMessage());
             loadedMetadata = new ProjectMetadata(id, id);
         }
@@ -374,7 +374,7 @@ public final class ProjectManager {
                             }
                         });
             } catch (IOException e) {
-                CraftPy.LOGGER.error("Failed to list files of {}", id, e);
+                CraftPyLog.LOGGER.error("Failed to list files of {}", id, e);
             }
             files.sort(String::compareTo);
             return files;
@@ -405,7 +405,7 @@ public final class ProjectManager {
                     sources.put(relative, Files.readString(file, StandardCharsets.UTF_8));
                 }
             } catch (IOException e) {
-                CraftPy.LOGGER.warn("Failed to read sources of {}: {}", id, e.getMessage());
+                CraftPyLog.LOGGER.warn("Failed to read sources of {}: {}", id, e.getMessage());
             }
             return sources;
         }, CraftPyExecutors.forProject(id));
@@ -654,7 +654,7 @@ public final class ProjectManager {
                     }
                 }
             } catch (IOException e) {
-                CraftPy.LOGGER.warn("snapshot failed for {}: {}", id, e.getMessage());
+                CraftPyLog.LOGGER.warn("snapshot failed for {}: {}", id, e.getMessage());
             }
             return new Snapshot(paths, texts);
         }, CraftPyExecutors.forProject(id));
@@ -716,7 +716,7 @@ public final class ProjectManager {
                     }
                 }
             } catch (IOException e) {
-                CraftPy.LOGGER.warn("findDefinition failed for {}: {}", id, e.getMessage());
+                CraftPyLog.LOGGER.warn("findDefinition failed for {}: {}", id, e.getMessage());
             }
             return FindResult.missing();
         }, CraftPyExecutors.forProject(id));

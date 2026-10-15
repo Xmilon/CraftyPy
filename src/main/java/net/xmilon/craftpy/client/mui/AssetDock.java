@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.util.Collection;
 import java.util.Locale;
 import java.util.function.Consumer;
@@ -13,7 +14,6 @@ import icyllis.modernui.view.View;
 import icyllis.modernui.widget.FrameLayout;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.TextView;
-import net.minecraft.client.Minecraft;
 import net.xmilon.craftpy.assets.AssetKind;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.client.PixelBuffer;
@@ -184,7 +184,7 @@ final class AssetDock {
 
     /** The sound manager belongs to the client thread. */
     private static void stopPreviewSound() {
-        Minecraft.getInstance().execute(SoundPreview::stop);
+        IdeHost.get().execute(SoundPreview::stop);
     }
 
     /** Stops playback and drops the panels (the editor is closing). */
@@ -246,7 +246,7 @@ final class AssetDock {
             return;
         }
         final int mine = ++ticket;
-        Minecraft.getInstance().execute(() -> {
+        IdeHost.get().execute(() -> {
             String json = AssetFetch.modelJson(kind, id);
             column.post(() -> {
                 if (mine != ticket) {
@@ -268,7 +268,7 @@ final class AssetDock {
         final String target = AssetDrop.projectPath(kind, id, project, new java.util.ArrayList<>(projectFiles.get()));
         guard(tab, () -> {
             final int mine = ++ticket;
-            Minecraft.getInstance().execute(() -> {
+            IdeHost.get().execute(() -> {
                 byte[] data = AssetFetch.bytes(kind, id);
                 Runnable result;
                 if (data == null) {
@@ -310,7 +310,7 @@ final class AssetDock {
         guard(tab, () -> {
             final int mine = ++ticket;
             ClientProjectStore.getInstance(); // fail early outside the game
-            Minecraft.getInstance().execute(() -> ClientProjectStore.getInstance().requestAsset(id, path, data -> {
+            IdeHost.get().execute(() -> ClientProjectStore.getInstance().requestAsset(id, path, data -> {
                 // runs on the client thread: decode here, hand the result to the UI thread
                 Runnable result;
                 if (data.error() != null && !data.error().isEmpty()) {

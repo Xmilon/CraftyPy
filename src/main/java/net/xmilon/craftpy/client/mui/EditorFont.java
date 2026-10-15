@@ -4,7 +4,7 @@ import java.io.InputStream;
 
 import icyllis.modernui.graphics.text.FontFamily;
 import icyllis.modernui.text.Typeface;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 
 /**
  * The font of the code editor, console and completion list: JetBrains Mono, shipped in the jar
@@ -31,7 +31,7 @@ final class EditorFont {
                 FontFamily family = FontFamily.createFamily(in, false);
                 typeface = Typeface.createTypeface(family, FontFamily.MONOSPACED);
             } catch (Exception | LinkageError e) {
-                CraftPy.LOGGER.warn("Editor font JetBrains Mono not available, using the system monospace font: {}", e.toString());
+                CraftPyLog.LOGGER.warn("Editor font JetBrains Mono not available, using the system monospace font: {}", e.toString());
             }
         }
         return typeface != null ? typeface : Typeface.MONOSPACED;

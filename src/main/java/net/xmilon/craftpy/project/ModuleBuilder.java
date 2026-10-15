@@ -1,6 +1,6 @@
 package net.xmilon.craftpy.project;
 
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.util.Json;
 
 import java.io.FileOutputStream;
@@ -136,7 +136,7 @@ public final class ModuleBuilder {
             Files.copy(outputFile, staging, StandardCopyOption.REPLACE_EXISTING);
             Files.move(staging, installed, StandardCopyOption.REPLACE_EXISTING);
         }
-        CraftPy.LOGGER.info("Exported module {} {} to {}{}", moduleId, version, outputFile,
+        CraftPyLog.LOGGER.info("Exported module {} {} to {}{}", moduleId, version, outputFile,
                 installed == null ? "" : (replaced ? ", replaced " : ", installed as ") + installed);
         return new Result(outputFile, installed, moduleId, version, replaced);
     }

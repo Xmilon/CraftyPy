@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
+import net.xmilon.craftpy.client.IdeHost;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -1139,7 +1140,7 @@ final class EditorTools {
     // ------------------------------------------------------------------
 
     static void copyToClipboard(String text) {
-        store(s -> Minecraft.getInstance().keyboardHandler.setClipboard(text));
+        store(s -> IdeHost.get().setClipboard(text));
     }
 
     /** The content id on the caret line or under the caret ({@code ruby_ore = Block("ruby_ore"...)} -> ruby_ore). */

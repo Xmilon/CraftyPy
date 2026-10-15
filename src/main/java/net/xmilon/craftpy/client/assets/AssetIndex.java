@@ -121,7 +121,7 @@ public final class AssetIndex implements ResourceManagerReloadListener {
                 rebuild(resourceManager);
             } catch (RuntimeException e) {
                 failed = true;
-                net.xmilon.craftpy.CraftPy.LOGGER.warn("Could not build the asset index", e);
+                net.xmilon.craftpy.CraftPyLog.LOGGER.warn("Could not build the asset index", e);
             } finally {
                 building = false;
             }

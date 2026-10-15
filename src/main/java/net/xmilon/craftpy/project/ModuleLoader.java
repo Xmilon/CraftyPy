@@ -1,8 +1,8 @@
 package net.xmilon.craftpy.project;
 
+import net.xmilon.craftpy.CraftPyLog;
 import com.google.gson.JsonObject;
 
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.python.Declarations;
 import net.xmilon.craftpy.registry.SlotRegistry;
 import net.xmilon.craftpy.util.CraftPyExecutors;
@@ -50,19 +50,19 @@ public final class ModuleLoader {
                 try {
                     ModuleInfo info = readInfo(file);
                     if (info.error != null) {
-                        CraftPy.LOGGER.warn("Skipping unreadable module {}: {}", file, info.error);
+                        CraftPyLog.LOGGER.warn("Skipping unreadable module {}: {}", file, info.error);
                         continue;
                     }
                     if (!info.enabled) {
                         continue;
                     }
                     if (LOADED_MODULES.containsKey(info.id)) {
-                        CraftPy.LOGGER.info("Module {} already loaded from another file, skipping {}", info.id, file);
+                        CraftPyLog.LOGGER.info("Module {} already loaded from another file, skipping {}", info.id, file);
                         continue;
                     }
                     loadModule(file);
                 } catch (Exception e) {
-                    CraftPy.LOGGER.error("Failed to load module {}", file, e);
+                    CraftPyLog.LOGGER.error("Failed to load module {}", file, e);
                 }
             }
         }
@@ -119,9 +119,9 @@ public final class ModuleLoader {
                     if (file != null) {
                         try {
                             loadModule(file);
-                            CraftPy.LOGGER.info("Enabled module {}", id);
+                            CraftPyLog.LOGGER.info("Enabled module {}", id);
                         } catch (IOException e) {
-                            CraftPy.LOGGER.error("Failed to enable module {}", id, e);
+                            CraftPyLog.LOGGER.error("Failed to enable module {}", id, e);
                         }
                     }
                 }
@@ -131,7 +131,7 @@ public final class ModuleLoader {
                 PENDING_UNLOAD.add(id);
                 // Its Python handlers and timers stop now; placed content stays until a restart.
                 net.xmilon.craftpy.python.PyRuntime.get().unloadOwner(id, true);
-                CraftPy.LOGGER.info("Disabled module {} (fully unloads on next restart)", id);
+                CraftPyLog.LOGGER.info("Disabled module {} (fully unloads on next restart)", id);
             }
         }
     }
@@ -234,7 +234,7 @@ public final class ModuleLoader {
                 }
 
                 if (LOADED_MODULES.containsKey(meta.id)) {
-                    CraftPy.LOGGER.info("Module {} already loaded, skipping.", meta.id);
+                    CraftPyLog.LOGGER.info("Module {} already loaded, skipping.", meta.id);
                     return;
                 }
 
@@ -244,19 +244,19 @@ public final class ModuleLoader {
 
                 LOADED_MODULES.put(meta.id, meta);
                 MODULE_FILES.put(meta.id, path);
-                CraftPy.LOGGER.info("Loaded module: {} ({})", meta.name, meta.id);
+                CraftPyLog.LOGGER.info("Loaded module: {} ({})", meta.name, meta.id);
 
                 // Wire into the Python runtime as a persistent module and apply declarations to slots
                 final String moduleId = meta.id;
                 CompletableFuture<JsonObject> future = net.xmilon.craftpy.python.PyRuntime.get().loadModule(moduleId, cacheDir);
                 future.thenAcceptAsync(result -> {
                     if (result == null || !result.has("declarations")) {
-                        CraftPy.LOGGER.error("Module {} returned no declarations: {}", moduleId, result);
+                        CraftPyLog.LOGGER.error("Module {} returned no declarations: {}", moduleId, result);
                         return;
                     }
                     Declarations declarations = Declarations.parse(result, "module:" + moduleId);
                     if (declarations.failed()) {
-                        CraftPy.LOGGER.error("Module {} failed: {}", moduleId, declarations.error());
+                        CraftPyLog.LOGGER.error("Module {} failed: {}", moduleId, declarations.error());
                         var server = ServerLifecycleHooks.getCurrentServer();
                         net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server,
                                 "[module " + moduleId + "] ERROR: " + declarations.error());
@@ -266,7 +266,7 @@ public final class ModuleLoader {
                     var server = ServerLifecycleHooks.getCurrentServer();
                     Runnable apply = () -> {
                         applyModuleDeclarations(moduleId, declarations);
-                        CraftPy.LOGGER.info("Applied module {} declarations: {} block(s), {} item(s)",
+                        CraftPyLog.LOGGER.info("Applied module {} declarations: {} block(s), {} item(s)",
                                 moduleId,
                                 declarations.contents().stream().filter(c -> "block".equals(c.kind())).count(),
                                 declarations.contents().stream().filter(c -> "item".equals(c.kind())).count());
@@ -277,7 +277,7 @@ public final class ModuleLoader {
                         apply.run();
                     }
                 }, CraftPyExecutors.io()).exceptionally(ex -> {
-                    CraftPy.LOGGER.error("Failed to apply module {} declarations", moduleId, ex);
+                    CraftPyLog.LOGGER.error("Failed to apply module {} declarations", moduleId, ex);
                     return null;
                 });
             }
@@ -291,13 +291,13 @@ public final class ModuleLoader {
             try {
                 net.xmilon.craftpy.command.ProjectCommandRegistry.register(moduleId, declarations);
             } catch (Exception e) {
-                CraftPy.LOGGER.warn("Failed to register module commands for {}", moduleId, e);
+                CraftPyLog.LOGGER.warn("Failed to register module commands for {}", moduleId, e);
             }
 
             // Rebuild packs and sync to clients (like ProjectController.afterChange)
             triggerModuleSync(moduleId);
         } catch (RuntimeException e) {
-            CraftPy.LOGGER.error("Slot allocation failed for module {}", moduleId, e);
+            CraftPyLog.LOGGER.error("Slot allocation failed for module {}", moduleId, e);
         }
     }
 
@@ -309,17 +309,17 @@ public final class ModuleLoader {
         }).thenRun(() -> {
             var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
             if (server == null) {
-                CraftPy.LOGGER.warn("No server available to sync module {}", moduleId);
+                CraftPyLog.LOGGER.warn("No server available to sync module {}", moduleId);
                 return;
             }
             server.execute(() -> {
                 server.reloadResources(server.getPackRepository().getSelectedIds())
                         .thenRun(() -> {
                             net.xmilon.craftpy.network.CraftPyNetwork.broadcastActive(server);
-                            CraftPy.LOGGER.info("Module {} synced to clients", moduleId);
+                            CraftPyLog.LOGGER.info("Module {} synced to clients", moduleId);
                         })
                         .exceptionally(error -> {
-                            CraftPy.LOGGER.error("Datapack reload failed for module {}", moduleId, error);
+                            CraftPyLog.LOGGER.error("Datapack reload failed for module {}", moduleId, error);
                             return null;
                         });
             });
@@ -394,7 +394,7 @@ public final class ModuleLoader {
         try (ZipFile zip = new ZipFile(path.toFile())) {
             return readReadme(zip);
         } catch (IOException e) {
-            CraftPy.LOGGER.error("Failed to read README from {}", path, e);
+            CraftPyLog.LOGGER.error("Failed to read README from {}", path, e);
             return "";
         }
     }
@@ -448,15 +448,15 @@ public final class ModuleLoader {
             for (Path file : stream) {
                 Path target = PyForgePaths.modules().resolve(file.getFileName());
                 if (Files.exists(target)) {
-                    CraftPy.LOGGER.warn("imports/{} left in place: modules/ already has a file with that name",
+                    CraftPyLog.LOGGER.warn("imports/{} left in place: modules/ already has a file with that name",
                             file.getFileName());
                 } else {
                     Files.move(file, target);
-                    CraftPy.LOGGER.info("Installed module {} from imports/", file.getFileName());
+                    CraftPyLog.LOGGER.info("Installed module {} from imports/", file.getFileName());
                 }
             }
         } catch (IOException e) {
-            CraftPy.LOGGER.error("Error collecting dropped modules from {}", imports, e);
+            CraftPyLog.LOGGER.error("Error collecting dropped modules from {}", imports, e);
         }
     }
 
@@ -473,7 +473,7 @@ public final class ModuleLoader {
                 }
             }
         } catch (IOException e) {
-            CraftPy.LOGGER.error("Error scanning modules in {}", dir, e);
+            CraftPyLog.LOGGER.error("Error scanning modules in {}", dir, e);
         }
     }
 
@@ -567,7 +567,7 @@ public final class ModuleLoader {
                     state = loaded;
                 }
             } catch (IOException e) {
-                CraftPy.LOGGER.error("Failed to read {}", file, e);
+                CraftPyLog.LOGGER.error("Failed to read {}", file, e);
             }
         }
         if (state.disabled == null) {
@@ -579,7 +579,7 @@ public final class ModuleLoader {
         try {
             Json.write(stateFile(), state);
         } catch (IOException e) {
-            CraftPy.LOGGER.error("Failed to write {}", stateFile(), e);
+            CraftPyLog.LOGGER.error("Failed to write {}", stateFile(), e);
         }
     }
 

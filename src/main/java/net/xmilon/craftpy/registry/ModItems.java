@@ -5,13 +5,13 @@ import java.util.List;
 
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.block.SlottedItem;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 public final class ModItems {
-    public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(CraftPy.MODID);
+    public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(CraftPyLog.MODID);
 
     public static final DeferredItem<BlockItem> PYTHON_COMPUTER = ITEMS.registerSimpleBlockItem(ModBlocks.PYTHON_COMPUTER);
     public static final DeferredItem<BlockItem> UNLOADED_BLOCK = ITEMS.registerSimpleBlockItem(ModBlocks.UNLOADED_BLOCK);

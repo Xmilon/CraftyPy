@@ -1,12 +1,12 @@
 package net.xmilon.craftpy.server;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.Config;
 import net.xmilon.craftpy.project.ProjectManager;
 import net.xmilon.craftpy.network.ProjectAction;
@@ -45,7 +45,7 @@ public final class ProjectRequestHandler {
                 }
             });
         } catch (RuntimeException e) {
-            net.xmilon.craftpy.CraftPy.LOGGER.warn("Bad window event from {}: {}", player.getName().getString(), e.toString());
+            net.xmilon.craftpy.CraftPyLog.LOGGER.warn("Bad window event from {}: {}", player.getName().getString(), e.toString());
         }
     }
 
@@ -485,7 +485,7 @@ public final class ProjectRequestHandler {
                         });
             });
         }).exceptionally(error -> {
-            CraftPy.LOGGER.error("Validation failed", error);
+            CraftPyLog.LOGGER.error("Validation failed", error);
             return fail(ProjectAction.VALIDATE, "Python validation failed: " + error.getMessage());
         });
     }
@@ -537,7 +537,7 @@ public final class ProjectRequestHandler {
                         net.xmilon.craftpy.network.CraftPyNetwork.broadcastProjectList(server);
                     })
                     .exceptionally(error -> {
-                        CraftPy.LOGGER.error("Resource reload after asset change failed", error);
+                        CraftPyLog.LOGGER.error("Resource reload after asset change failed", error);
                         return null;
                     });
         }));

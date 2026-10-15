@@ -15,7 +15,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.Config;
 import net.xmilon.craftpy.block.SlottedBlock;
 import net.xmilon.craftpy.block.SlottedItem;
@@ -70,7 +70,7 @@ public final class SlotRegistry {
 
     /** True for the generic {@code craftpy:pcblock_N} / {@code pcitem_N} pool entries (hidden from vanilla tab completion). */
     public static boolean isPlaceholder(net.minecraft.resources.ResourceLocation id) {
-        if (!CraftPy.MODID.equals(id.getNamespace())) {
+        if (!CraftPyLog.MODID.equals(id.getNamespace())) {
             return false;
         }
         String path = id.getPath();
@@ -182,7 +182,7 @@ public final class SlotRegistry {
                     }
                 }
             } catch (Exception e) {
-                CraftPy.LOGGER.warn("Failed to read slots.json, starting empty", e);
+                CraftPyLog.LOGGER.warn("Failed to read slots.json, starting empty", e);
             }
         }
         loaded = true;
@@ -207,7 +207,7 @@ public final class SlotRegistry {
             Files.createDirectories(slotsFile().getParent());
             Files.writeString(slotsFile(), Json.GSON.toJson(root), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            CraftPy.LOGGER.error("Failed to write slots.json", e);
+            CraftPyLog.LOGGER.error("Failed to write slots.json", e);
         }
     }
 

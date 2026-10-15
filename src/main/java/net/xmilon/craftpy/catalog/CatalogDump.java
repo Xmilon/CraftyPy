@@ -24,7 +24,7 @@ import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforgespi.language.IModInfo;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 
 /**
  * Writes the {@link Catalog} of every loaded mod once the server has started, so the IDE can complete and check names of
@@ -68,10 +68,10 @@ public final class CatalogDump {
                 catalog.store().save(result);
             }
             catalog.invalidate();
-            CraftPy.LOGGER.info("Catalog: {} namespace(s) of {} mod(s) written in {} ms", made.size(), stale.size(),
+            CraftPyLog.LOGGER.info("Catalog: {} namespace(s) of {} mod(s) written in {} ms", made.size(), stale.size(),
                     System.currentTimeMillis() - started);
         } catch (Exception | LinkageError e) {
-            CraftPy.LOGGER.warn("Could not write the mod catalog: {}", e.toString());
+            CraftPyLog.LOGGER.warn("Could not write the mod catalog: {}", e.toString());
         }
     }
 

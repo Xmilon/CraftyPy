@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.python;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,7 +26,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
-import net.xmilon.craftpy.CraftPy;
 
 /**
  * Executes reverse calls issued by project Python code. Every handler that
@@ -123,7 +123,7 @@ public final class HostBridge {
                     yield ok();
                 }
                 case "server.log" -> {
-                    CraftPy.LOGGER.info("[module] {}", params.has("message") ? params.get("message").getAsString() : "");
+                    CraftPyLog.LOGGER.info("[module] {}", params.has("message") ? params.get("message").getAsString() : "");
                     yield ok();
                 }
                 case "capabilities" -> ok();
@@ -132,7 +132,7 @@ public final class HostBridge {
                 default -> unsupported(method);
             };
         } catch (Exception e) {
-            CraftPy.LOGGER.warn("Host call '{}' failed: {}", method, e.toString());
+            CraftPyLog.LOGGER.warn("Host call '{}' failed: {}", method, e.toString());
             return error(e.getMessage() == null ? e.toString() : e.getMessage());
         }
     }

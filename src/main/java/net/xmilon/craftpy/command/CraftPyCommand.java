@@ -651,7 +651,7 @@ public final class CraftPyCommand {
                 CraftPyNetwork.sendTo(player, ProjectAction.CONSOLE, true, String.join("\n", lines), "");
             } else {
                 for (String line : lines) {
-                    net.xmilon.craftpy.CraftPy.LOGGER.info("[craftpy py] {}", line);
+                    net.xmilon.craftpy.CraftPyLog.LOGGER.info("[craftpy py] {}", line);
                 }
                 ctx.getSource().sendSuccess(() -> Component.literal(String.join("\n", lines)), false);
             }

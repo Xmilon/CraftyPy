@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.dynamics;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -8,7 +9,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.content.Defs;
 import net.xmilon.craftpy.project.PyForgePaths;
 import net.xmilon.craftpy.python.Declarations;
@@ -53,9 +53,9 @@ public final class PackBuilder {
             writeDataPack(data);
             swapIn(resources, resourcePackRoot());
             swapIn(data, dataPackRoot());
-            CraftPy.LOGGER.info("CraftPy dynamic packs rebuilt");
+            CraftPyLog.LOGGER.info("CraftPy dynamic packs rebuilt");
         } catch (Exception e) {
-            CraftPy.LOGGER.error("Failed to rebuild dynamic packs", e);
+            CraftPyLog.LOGGER.error("Failed to rebuild dynamic packs", e);
         }
     }
 
@@ -227,7 +227,7 @@ public final class PackBuilder {
                     merged = existing.getAsJsonObject();
                 }
             } catch (Exception e) {
-                CraftPy.LOGGER.warn("Ignoring unreadable {}: {}", existingFile, e.toString());
+                CraftPyLog.LOGGER.warn("Ignoring unreadable {}: {}", existingFile, e.toString());
             }
         }
         for (var entry : declared.entrySet()) {
@@ -252,7 +252,7 @@ public final class PackBuilder {
                     String name = child.getFileName().toString();
                     String namespace = assetNamespace(projectId, name, Files.isDirectory(child));
                     if (namespace == null) {
-                        CraftPy.LOGGER.warn("Project {}: ignoring assets/{} (not a valid namespace folder)", projectId, name);
+                        CraftPyLog.LOGGER.warn("Project {}: ignoring assets/{} (not a valid namespace folder)", projectId, name);
                         continue;
                     }
                     Path target = root.resolve("assets").resolve(namespace);
@@ -265,7 +265,7 @@ public final class PackBuilder {
                     }
                 }
             } catch (Exception e) {
-                CraftPy.LOGGER.warn("Failed to copy assets of project {}", projectId, e);
+                CraftPyLog.LOGGER.warn("Failed to copy assets of project {}", projectId, e);
             }
         }
     }
@@ -412,7 +412,7 @@ public final class PackBuilder {
             return;
         }
         if (!BUILT_IN_RECIPES.contains(type)) { // it used to become a shapeless recipe, which is never what was meant
-            CraftPy.LOGGER.warn("Project {}: recipe type '{}' is unknown and was skipped (use recipe(\"mod:type\", ...) for other mods)", projectId, type);
+            CraftPyLog.LOGGER.warn("Project {}: recipe type '{}' is unknown and was skipped (use recipe(\"mod:type\", ...) for other mods)", projectId, type);
             return;
         }
         JsonObject out = new JsonObject();
@@ -837,14 +837,14 @@ public final class PackBuilder {
         if (namespace != null && namespace.isJsonPrimitive()) {
             String name = namespace.getAsString();
             if (!name.matches("[a-z0-9_][a-z0-9_.-]*")) {
-                CraftPy.LOGGER.warn("Rejected raw datapack namespace: {}", name);
+                CraftPyLog.LOGGER.warn("Rejected raw datapack namespace: {}", name);
                 return;
             }
             base = data.getParent().resolve(name);
         }
         Path target = base.resolve(path).normalize();
         if (!target.startsWith(base.normalize())) {
-            CraftPy.LOGGER.warn("Rejected out-of-tree raw datapack path: {}", entry.id());
+            CraftPyLog.LOGGER.warn("Rejected out-of-tree raw datapack path: {}", entry.id());
             return;
         }
         Files.createDirectories(target.getParent());

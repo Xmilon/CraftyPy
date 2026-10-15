@@ -1,7 +1,7 @@
 package net.xmilon.craftpy.util;
 
+import net.xmilon.craftpy.CraftPyLog;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import net.xmilon.craftpy.CraftPy;
 
 import java.util.Map;
 import java.util.Queue;
@@ -47,7 +47,7 @@ public final class CraftPyExecutors {
                 new ThreadFactoryBuilder()
                         .setNameFormat("CraftPy-" + name + "-%d")
                         .setDaemon(true)
-                        .setUncaughtExceptionHandler((t, e) -> CraftPy.LOGGER.error("Uncaught exception on thread {}: ", t.getName(), e))
+                        .setUncaughtExceptionHandler((t, e) -> CraftPyLog.LOGGER.error("Uncaught exception on thread {}: ", t.getName(), e))
                         .build(),
                 whenFull);
     }
@@ -100,7 +100,7 @@ public final class CraftPyExecutors {
             try {
                 r.run();
             } catch (Throwable t) {
-                CraftPy.LOGGER.error("Async task failed on thread {}: ", Thread.currentThread().getName(), t);
+                CraftPyLog.LOGGER.error("Async task failed on thread {}: ", Thread.currentThread().getName(), t);
                 throw t;
             }
         };
@@ -111,7 +111,7 @@ public final class CraftPyExecutors {
             try {
                 return s.get();
             } catch (Throwable t) {
-                CraftPy.LOGGER.error("Async task failed on thread {}: ", Thread.currentThread().getName(), t);
+                CraftPyLog.LOGGER.error("Async task failed on thread {}: ", Thread.currentThread().getName(), t);
                 throw t;
             }
         };

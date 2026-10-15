@@ -13,7 +13,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonElement;
 
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.project.PyForgePaths;
 import net.xmilon.craftpy.util.CraftPyExecutors;
 
@@ -58,7 +58,7 @@ public final class PyRuntime {
                 noteSchedule(result);
                 return result;
             } catch (Exception e) {
-                CraftPy.LOGGER.error("Failed to load Python module: " + id, e);
+                CraftPyLog.LOGGER.error("Failed to load Python module: " + id, e);
                 return new JsonObject();
             }
         }, CraftPyExecutors.rpc());
@@ -92,7 +92,7 @@ public final class PyRuntime {
             try {
                 client().call("interrupt", new JsonObject(), 500);
             } catch (Exception e) {
-                CraftPy.LOGGER.warn("Interrupt failed: {}", e.getMessage());
+                CraftPyLog.LOGGER.warn("Interrupt failed: {}", e.getMessage());
             }
         }, CraftPyExecutors.rpc());
     }
@@ -108,7 +108,7 @@ public final class PyRuntime {
                 params.addProperty("owner", (module ? "module:" : "") + id);
                 noteSchedule(client().call("unload_owner", params, DEFAULT_TIMEOUT_MS));
             } catch (Exception e) {
-                CraftPy.LOGGER.warn("Failed to unload Python owner {}: {}", id, e.toString());
+                CraftPyLog.LOGGER.warn("Failed to unload Python owner {}: {}", id, e.toString());
             }
         }, CraftPyExecutors.rpc());
     }
@@ -137,7 +137,7 @@ public final class PyRuntime {
                 params.addProperty("owner", projectId);
                 client().call("revert_owner", params, DEFAULT_TIMEOUT_MS);
             } catch (Exception e) {
-                CraftPy.LOGGER.warn("Failed to revert Python owner {}: {}", projectId, e.toString());
+                CraftPyLog.LOGGER.warn("Failed to revert Python owner {}: {}", projectId, e.toString());
             }
             return null;
         }, CraftPyExecutors.rpc());
@@ -204,7 +204,7 @@ public final class PyRuntime {
                 noteSchedule(result);
                 return result;
             } catch (Exception e) {
-                CraftPy.LOGGER.error("Failed to trigger Python event: " + eventName, e);
+                CraftPyLog.LOGGER.error("Failed to trigger Python event: " + eventName, e);
                 return new JsonObject();
             }
         }, net.xmilon.craftpy.util.CraftPyExecutors.rpc());
@@ -243,7 +243,7 @@ public final class PyRuntime {
                 if (result != null && result.has("log") && result.get("log").isJsonArray()) {
                     var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
                     for (var line : result.getAsJsonArray("log")) {
-                        CraftPy.LOGGER.info("[Python timer] {}", line.getAsString());
+                        CraftPyLog.LOGGER.info("[Python timer] {}", line.getAsString());
                         net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[timer] " + line.getAsString());
                     }
                 }
@@ -271,7 +271,7 @@ public final class PyRuntime {
             byte[] bundled;
             try (InputStream in = PyRuntime.class.getResourceAsStream("/craftpy_runtime/worker.py")) {
                 if (in == null) {
-                    CraftPy.LOGGER.error("worker.py missing from mod resources");
+                    CraftPyLog.LOGGER.error("worker.py missing from mod resources");
                     return;
                 }
                 bundled = in.readAllBytes();
@@ -283,9 +283,9 @@ public final class PyRuntime {
                 }
             }
             Files.write(workerScript, bundled);
-            CraftPy.LOGGER.info("Installed worker.py ({} bytes) at {}", bundled.length, workerScript);
+            CraftPyLog.LOGGER.info("Installed worker.py ({} bytes) at {}", bundled.length, workerScript);
         } catch (IOException e) {
-            CraftPy.LOGGER.error("Failed to install worker.py", e);
+            CraftPyLog.LOGGER.error("Failed to install worker.py", e);
         }
     }
 
@@ -298,7 +298,7 @@ public final class PyRuntime {
                 JsonObject result = client().call("ping", new JsonObject(), DEFAULT_TIMEOUT_MS);
                 return "Python " + result.get("version").getAsString() + " OK";
             } catch (Exception e) {
-                CraftPy.LOGGER.error("Python ping failed", e);
+                CraftPyLog.LOGGER.error("Python ping failed", e);
                 return "Python unavailable: " + e.getMessage();
             }
         }, CraftPyExecutors.rpc());
@@ -362,7 +362,7 @@ public final class PyRuntime {
                 noteSchedule(result);
                 return Declarations.parse(result, fileName);
             } catch (Exception e) {
-                CraftPy.LOGGER.error("run_main failed for {}", projectId, e);
+                CraftPyLog.LOGGER.error("run_main failed for {}", projectId, e);
                 return Declarations.error("Worker failed: " + e.getMessage());
             }
         }, CraftPyExecutors.rpc());
@@ -410,7 +410,7 @@ public final class PyRuntime {
                 if (session != null) params.addProperty("session", session);
                 client().call("reset_console", params, DEFAULT_TIMEOUT_MS);
             } catch (Exception e) {
-                CraftPy.LOGGER.warn("reset_console failed: {}", e.getMessage());
+                CraftPyLog.LOGGER.warn("reset_console failed: {}", e.getMessage());
             }
         }, CraftPyExecutors.rpc());
     }

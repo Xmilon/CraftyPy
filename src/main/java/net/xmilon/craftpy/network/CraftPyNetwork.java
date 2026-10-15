@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.registry.SlotRegistry;
 import net.xmilon.craftpy.server.ProjectRequestHandler;
 import net.xmilon.craftpy.util.Json;
@@ -101,7 +101,7 @@ public final class CraftPyNetwork {
                         }
                     })
                     .exceptionally(error -> {
-                        CraftPy.LOGGER.error("Request {} failed", payload.action(), error);
+                        CraftPyLog.LOGGER.error("Request {} failed", payload.action(), error);
                         player.server.execute(() -> context.reply(new ResponsePayload(payload.action(), false,
                                 "Internal error: " + error.getMessage(), "")));
                         return null;

@@ -13,7 +13,7 @@ import org.lwjgl.system.MemoryStack;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 import net.minecraft.client.Minecraft;
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.client.ClientProjectStore;
 import net.xmilon.craftpy.util.CraftPyExecutors;
 import net.xmilon.craftpy.assets.AssetKind;
@@ -73,7 +73,7 @@ public final class AssetUploader {
                     String target = targetPath(path, kind);
                     Minecraft.getInstance().execute(() -> store.uploadAsset(projectId, target, bytes));
                 } catch (IOException e) {
-                    CraftPy.LOGGER.warn("Failed to read dropped file {}", path, e);
+                    CraftPyLog.LOGGER.warn("Failed to read dropped file {}", path, e);
                     Minecraft.getInstance().execute(() -> store.append("Failed to read " + path.getFileName()));
                 }
             }, CraftPyExecutors.forProject(projectId));

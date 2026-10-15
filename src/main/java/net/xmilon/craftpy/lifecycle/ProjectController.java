@@ -1,11 +1,11 @@
 package net.xmilon.craftpy.lifecycle;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import net.minecraft.server.MinecraftServer;
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.Config;
 import net.xmilon.craftpy.dynamics.PackBuilder;
 import net.xmilon.craftpy.network.CraftPyNetwork;
@@ -61,11 +61,11 @@ public final class ProjectController {
             return;
         }
         if (!Config.ENABLE_SCRIPTING.get()) {
-            CraftPy.LOGGER.warn("CraftPy load blocked: scripting disabled in config");
+            CraftPyLog.LOGGER.warn("CraftPy load blocked: scripting disabled in config");
             return;
         }
         if (!PyRuntime.available()) {
-            CraftPy.LOGGER.warn("CraftPy load aborted: no supported Python runtime found");
+            CraftPyLog.LOGGER.warn("CraftPy load aborted: no supported Python runtime found");
             return;
         }
         ProjectManager manager = ProjectManager.get();
@@ -91,7 +91,7 @@ public final class ProjectController {
                 })
                 .exceptionally(error -> {
                     loading.remove(projectId);
-                    CraftPy.LOGGER.error("Load pipeline failed for {}", projectId, error);
+                    CraftPyLog.LOGGER.error("Load pipeline failed for {}", projectId, error);
                     manager.markLoaded(projectId, false);
                     manager.setLastError(projectId, "Load pipeline failed: " + error.getMessage());
                     if (server != null) {
@@ -118,12 +118,12 @@ public final class ProjectController {
                                 ? " (line " + (declarations.errorLine() + 1) + ")" : "");
                 if (SlotRegistry.declarations(projectId) != null) {
                     // Rollback: keep last known good definitions running.
-                    CraftPy.LOGGER.warn("Project {} reload failed, keeping previous version: {}", projectId, message);
+                    CraftPyLog.LOGGER.warn("Project {} reload failed, keeping previous version: {}", projectId, message);
                     manager.setLastError(projectId, "Reload failed - previous version kept: " + message);
                 } else {
                     manager.markLoaded(projectId, false);
                     manager.setLastError(projectId, message);
-                    CraftPy.LOGGER.error("Project {} failed to load: {}", projectId, message);
+                    CraftPyLog.LOGGER.error("Project {} failed to load: {}", projectId, message);
                 }
                 net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server,
                         "[" + projectId + "] ERROR: " + message);
@@ -150,7 +150,7 @@ public final class ProjectController {
             } catch (RuntimeException e) {
                 // Nothing was applied: the previous version keeps its content, and the worker puts back its handlers.
                 failed = true;
-                CraftPy.LOGGER.error("Applying content of {} failed, previous version kept", projectId, e);
+                CraftPyLog.LOGGER.error("Applying content of {} failed, previous version kept", projectId, e);
                 PyRuntime.get().revert(projectId);
                 String message = (e.getMessage() == null ? e.toString() : e.getMessage());
                 if (SlotRegistry.declarations(projectId) != null) {
@@ -175,15 +175,15 @@ public final class ProjectController {
                 try {
                     net.xmilon.craftpy.command.ProjectCommandRegistry.register(projectId, declarations);
                 } catch (Exception e) {
-                    CraftPy.LOGGER.warn("Failed to register project commands for {}", projectId, e);
+                    CraftPyLog.LOGGER.warn("Failed to register project commands for {}", projectId, e);
                 }
                 manager.markLoaded(projectId, true);
                 manager.setLastError(projectId, null);
-                CraftPy.LOGGER.info("Loaded project {} ({} block(s), {} item(s), {} datapack entr{}), scripts: {}",
+                CraftPyLog.LOGGER.info("Loaded project {} ({} block(s), {} item(s), {} datapack entr{}), scripts: {}",
                         projectId, blocks, items, declarations.datapack().size(),
                         declarations.datapack().size() == 1 ? "y" : "ies", declarations.log());
                 for (String note : notes) {
-                    CraftPy.LOGGER.info("[{}] {}", projectId, note);
+                    CraftPyLog.LOGGER.info("[{}] {}", projectId, note);
                 }
                 for (String line : declarations.log()) {
                     net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[" + projectId + "] " + line);
@@ -191,7 +191,7 @@ public final class ProjectController {
             }
             afterChange(server);
         } catch (RuntimeException e) {
-            CraftPy.LOGGER.error("Unexpected error while finishing load of {}", projectId, e);
+            CraftPyLog.LOGGER.error("Unexpected error while finishing load of {}", projectId, e);
             afterChange(server);
         }
     }
@@ -223,7 +223,7 @@ public final class ProjectController {
         try {
             net.xmilon.craftpy.command.ProjectCommandRegistry.unregister(projectId);
         } catch (Exception e) {
-            CraftPy.LOGGER.warn("Failed to unregister project commands for {}", projectId, e);
+            CraftPyLog.LOGGER.warn("Failed to unregister project commands for {}", projectId, e);
         }
         manager.markLoaded(projectId, false);
         SlotRegistry.releaseProject(projectId);
@@ -243,7 +243,7 @@ public final class ProjectController {
                                 CraftPyNetwork.broadcastProjectList(server);
                             })
                             .exceptionally(error -> {
-                                CraftPy.LOGGER.error("Datapack reload failed", error);
+                                CraftPyLog.LOGGER.error("Datapack reload failed", error);
                                 return null;
                             });
                 });

@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import net.xmilon.craftpy.CraftPy;
+import net.xmilon.craftpy.CraftPyLog;
 
 /** One line per saved, deleted, renamed or uploaded file of a project, kept in {@code system/logs/changes-<id>.log}. */
 public final class ChangeLog {
@@ -39,7 +39,7 @@ public final class ChangeLog {
                 Files.write(file, lines.subList(Math.max(0, lines.size() - KEEP), lines.size()), StandardCharsets.UTF_8);
             }
         } catch (IOException e) {
-            CraftPy.LOGGER.warn("Could not write the change log of {}: {}", id, e.getMessage());
+            CraftPyLog.LOGGER.warn("Could not write the change log of {}: {}", id, e.getMessage());
         }
     }
 

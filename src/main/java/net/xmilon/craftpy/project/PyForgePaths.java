@@ -90,7 +90,7 @@ public final class PyForgePaths {
             try {
                 Files.createDirectories(path);
             } catch (IOException e) {
-                net.xmilon.craftpy.CraftPy.LOGGER.error("Failed to create {}", path, e);
+                net.xmilon.craftpy.CraftPyLog.LOGGER.error("Failed to create {}", path, e);
             }
         }
         migrate();
@@ -112,7 +112,7 @@ public final class PyForgePaths {
                 }
                 Files.move(from, to, StandardCopyOption.ATOMIC_MOVE);
             } catch (IOException | RuntimeException e) {
-                net.xmilon.craftpy.CraftPy.LOGGER.warn("Could not move {} into system/: {}", from, e.toString());
+                net.xmilon.craftpy.CraftPyLog.LOGGER.warn("Could not move {} into system/: {}", from, e.toString());
             }
         }
     }

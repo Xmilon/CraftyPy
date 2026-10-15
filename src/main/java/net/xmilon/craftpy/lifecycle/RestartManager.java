@@ -1,12 +1,12 @@
 package net.xmilon.craftpy.lifecycle;
 
+import net.xmilon.craftpy.CraftPyLog;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
-import net.xmilon.craftpy.CraftPy;
 import net.xmilon.craftpy.network.CraftPyNetwork;
 
 /**
@@ -31,7 +31,7 @@ public final class RestartManager {
         server = s;
         int ticks = Math.max(0, seconds * 20);
         ticksRemaining.set(ticks);
-        CraftPy.LOGGER.info("Scheduling game restart in {} seconds (honest: will stop server; manual relaunch needed).", seconds);
+        CraftPyLog.LOGGER.info("Scheduling game restart in {} seconds (honest: will stop server; manual relaunch needed).", seconds);
         broadcast("§c[CraftPy] §fRestarting in §e" + seconds + "§f seconds...");
     }
 
@@ -53,7 +53,7 @@ public final class RestartManager {
                 player.sendSystemMessage(Component.literal(msg));
             }
         } else {
-            CraftPy.LOGGER.info(msg);
+            CraftPyLog.LOGGER.info(msg);
         }
     }
 
@@ -72,7 +72,7 @@ public final class RestartManager {
                     event.getServer().halt(false);
                 }
             } catch (Throwable e) {
-                CraftPy.LOGGER.error("Failed to halt server for restart", e);
+                CraftPyLog.LOGGER.error("Failed to halt server for restart", e);
             }
             ticksRemaining.set(-1);
         } else if (t % 20 == 0) {
