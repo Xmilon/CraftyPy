@@ -56,6 +56,10 @@ One screen with a navigation rail, styled like Modern UI's own settings center:
 - **Drag & drop** image files onto the window to upload them into the active project.
 - Texture editor: pencil, eraser, fill, eyedropper, palette, mirror/flip/rotate, undo, zoom, grid.
 
+### Working with other mods
+- **Mod catalog**: ids, tags, events and recipe fields of every installed mod are dumped once and completed inside strings; *Validate* warns about unknown ids.
+- `recipe("create:mixing", ...)`, `Attributes(...)` and `raw_json(..., namespace=)` reach into other mods (see the in-game guide).
+
 ### Runtime
 - Declarative Python API (`@block`, `@item`, recipes, loot tables, tags, events).
 - Projects load/unload/reload at runtime with automatic resource + data pack regeneration and multiplayer sync.

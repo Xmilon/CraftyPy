@@ -1,0 +1,6 @@
+{
+  "mod": "curios",
+  "namespace": "curios",
+  "folders": ["curios/slots", "curios/entities"],
+  "recipeTypes": {}
+}

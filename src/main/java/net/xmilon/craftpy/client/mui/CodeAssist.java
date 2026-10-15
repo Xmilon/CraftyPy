@@ -83,7 +83,7 @@ final class CodeAssist {
         code.removeCallbacks(typeTask);
         if (added == 1 && start < text.length()) {
             char c = text.charAt(start);
-            if (Character.isLetterOrDigit(c) || c == '_' || c == '.') {
+            if (Character.isLetterOrDigit(c) || c == '_' || c == '.' || ((c == ':' || c == '/') && insideString(text, start + 1))) {
                 code.postDelayed(typeTask, TYPE_DELAY_MS);
                 return;
             }
@@ -154,7 +154,19 @@ final class CodeAssist {
             return false;
         }
         char c = text.charAt(caret - 1);
-        return Character.isLetterOrDigit(c) || c == '_' || c == '.';
+        return Character.isLetterOrDigit(c) || c == '_' || c == '.' || ((c == ':' || c == '/') && insideString(text, caret));
+    }
+
+    /** True when an odd number of quotes precede the position on its line: it is probably inside a string. */
+    private static boolean insideString(CharSequence text, int position) {
+        int quotes = 0;
+        for (int i = position - 1; i >= 0 && text.charAt(i) != '\n'; i--) {
+            char c = text.charAt(i);
+            if ((c == '"' || c == '\'') && (i == 0 || text.charAt(i - 1) != '\\')) {
+                quotes++;
+            }
+        }
+        return quotes % 2 == 1;
     }
 
     void onComplete(JsonObject reply) {
@@ -246,6 +258,7 @@ final class CodeAssist {
             case "fn" -> "ƒ";
             case "class" -> "C";
             case "kw" -> "k";
+            case "id" -> "◆";
             default -> "v";
         };
     }

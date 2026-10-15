@@ -1,0 +1,82 @@
+{
+  "mod": "create",
+  "namespace": "create",
+  "folders": ["create/potato_projectile", "data_maps/item"],
+  "recipeTypes": {
+    "create:mixing": {
+      "fields": ["ingredients", "results", "processing_time", "heat_requirement"],
+      "note": "Mechanical mixer / basin. heat_requirement: none, heated or superheated. Ingredients are items or fluids.",
+      "sample": {"ingredients": [{"item": "minecraft:gold_ingot"}, {"fluid": "minecraft:lava", "amount": 250}], "results": [{"id": "minecraft:gold_block", "count": 1}], "heat_requirement": "heated"}
+    },
+    "create:compacting": {
+      "fields": ["ingredients", "results", "processing_time", "heat_requirement"],
+      "note": "Mechanical press with a basin.",
+      "sample": {"ingredients": [{"item": "minecraft:coal"}, {"item": "minecraft:coal"}], "results": [{"id": "minecraft:coal_block"}]}
+    },
+    "create:pressing": {
+      "fields": ["ingredients", "results", "processing_time"],
+      "note": "Mechanical press.",
+      "sample": {"ingredients": [{"item": "minecraft:iron_ingot"}], "results": [{"id": "create:iron_sheet"}]}
+    },
+    "create:crushing": {
+      "fields": ["ingredients", "results", "processing_time"],
+      "note": "Crushing wheels. A result can have a chance (0 to 1).",
+      "sample": {"ingredients": [{"item": "minecraft:cobblestone"}], "results": [{"id": "minecraft:gravel"}, {"id": "minecraft:flint", "chance": 0.1}], "processing_time": 250}
+    },
+    "create:milling": {
+      "fields": ["ingredients", "results", "processing_time"],
+      "note": "Millstone.",
+      "sample": {"ingredients": [{"item": "minecraft:wheat"}], "results": [{"id": "create:wheat_flour"}], "processing_time": 150}
+    },
+    "create:cutting": {
+      "fields": ["ingredients", "results", "processing_time"],
+      "note": "Mechanical saw.",
+      "sample": {"ingredients": [{"item": "minecraft:oak_log"}], "results": [{"id": "minecraft:oak_planks", "count": 6}], "processing_time": 50}
+    },
+    "create:splashing": {
+      "fields": ["ingredients", "results", "processing_time"],
+      "note": "Encased fan with water (washing).",
+      "sample": {"ingredients": [{"item": "minecraft:gravel"}], "results": [{"id": "minecraft:flint", "chance": 0.25}]}
+    },
+    "create:haunting": {
+      "fields": ["ingredients", "results", "processing_time"],
+      "note": "Encased fan with soul fire.",
+      "sample": {"ingredients": [{"item": "minecraft:stone"}], "results": [{"id": "minecraft:deepslate"}]}
+    },
+    "create:deploying": {
+      "fields": ["ingredients", "results", "keep_held_item"],
+      "note": "Deployer. ingredients are [block or item to work on, tool the deployer holds].",
+      "sample": {"ingredients": [{"item": "minecraft:stick"}, {"item": "minecraft:iron_nugget"}], "results": [{"id": "minecraft:lightning_rod"}], "keep_held_item": false}
+    },
+    "create:filling": {
+      "fields": ["ingredients", "results"],
+      "note": "Spout. ingredients are [item, fluid].",
+      "sample": {"ingredients": [{"item": "minecraft:glass_bottle"}, {"fluid": "minecraft:water", "amount": 250}], "results": [{"id": "minecraft:potion"}]}
+    },
+    "create:emptying": {
+      "fields": ["ingredients", "results"],
+      "note": "Item drain. results are [item, fluid].",
+      "sample": {"ingredients": [{"item": "minecraft:potion"}], "results": [{"id": "minecraft:glass_bottle"}, {"fluid": "minecraft:water", "amount": 250}]}
+    },
+    "create:sandpaper_polishing": {
+      "fields": ["ingredients", "results"],
+      "note": "Sandpaper in the hand.",
+      "sample": {"ingredients": [{"item": "minecraft:quartz"}], "results": [{"id": "create:polished_rose_quartz"}]}
+    },
+    "create:item_application": {
+      "fields": ["ingredients", "results", "keep_held_item"],
+      "note": "Use an item on a block.",
+      "sample": {"ingredients": [{"item": "minecraft:stripped_oak_log"}, {"item": "create:andesite_alloy"}], "results": [{"id": "create:andesite_casing"}]}
+    },
+    "create:mechanical_crafting": {
+      "fields": ["pattern", "key", "result", "acceptMirrored"],
+      "note": "Shaped like crafting but up to 9x9.",
+      "sample": {"pattern": ["AAA", "ABA"], "key": {"A": {"item": "minecraft:stone"}, "B": {"item": "minecraft:iron_ingot"}}, "result": {"id": "minecraft:dispenser"}}
+    },
+    "create:sequenced_assembly": {
+      "fields": ["ingredient", "loops", "results", "sequence", "transitional_item"],
+      "note": "A chain of deploying / pressing / filling / cutting steps.",
+      "sample": {"ingredient": {"item": "minecraft:iron_ingot"}, "loops": 3, "results": [{"id": "create:precision_mechanism"}], "sequence": []}
+    }
+  }
+}

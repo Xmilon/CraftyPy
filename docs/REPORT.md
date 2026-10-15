@@ -205,6 +205,16 @@
   sessions with file locks, 52 project change log.
 - Unbatched quick ones: 11 LF/CRLF switcher in a status bar, 12 encoding display/conversion.
 
+### Milestone M16: mod catalog, id completion and checks, other mods' recipes and attributes
+
+`gradlew --no-daemon test` green. Nothing was clicked in game; the catalog dump on a real server with real mods is the unverified part.
+- `catalog/*`: `CatalogDump.onServerStarted` writes `system/catalog/<mod>.json` (items, blocks, entities, effects, attributes, sounds, particles, enchantments, tags, registries, recipe types with fields, events, classes) only for mods whose jar or version changed; `ModCatalog.view()` is what the IDE reads. `craftpy_integrations/*.json` (Create, Mekanism, Iron's Spells, Curios) ship recipe layouts and datapack folders a dump cannot tell (`CatalogSeeds`), visible only while the mod is installed.
+- Completion: `CompletionEngine` answers inside strings from the catalog (ids, `#tags`, `java.cls(`, `@on(` events) without Python; `StringContext` finds the call and keyword; typing a keyword in a call adds `name=` items from the worker (`params` RPC, `PyRuntime.params`). `@extension` classes of the project are completed (`_USER_EXTENSIONS`, dropped with the owner). `on.` completes from `__dir__`. `CodeAssist` triggers on `:` and `/` inside strings.
+- Validate: `IdChecker` warns about ids no installed mod provides and recipe types of missing mods; silent while the catalog is empty.
+- API: `recipe("mod:type", ...)` writes another mod's recipe as given, with a `neoforge:mod_loaded` condition (`PackBuilder.modRecipe`); an unknown built-in recipe type is now skipped with a warning instead of becoming shapeless; `Attributes(...)` extension applies any attribute while held or worn (`ItemAttributes`, `Defs.AttributeSpec`); `raw_json(..., namespace=)` writes to `data/<namespace>/`.
+- Fixed while resuming after a crash: `_drop_owner` had its docstring pushed below new code.
+- Tests: `CatalogTest`, `IdCheckerTest`, `CompletionEngineTest`, `PackBuilder*Test`, `test_worker.py` (recipes/attributes/params/extensions).
+
 ### Milestone M15: remaining gaps from the M14 audit
 
 `gradlew --no-daemon test` green (186 tests). Nothing was clicked in game.

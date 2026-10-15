@@ -406,6 +406,15 @@ public final class PackBuilder {
 
     static void writeRecipe(Path data, String projectId, JsonObject raw) throws Exception {
         String type = jsonString(raw, "type", "shapeless");
+        if (type.contains(":")) { // another mod's recipe type, for example create:mixing
+            String name = fileName(jsonString(raw, "id", type.replace(':', '_') + "_" + Integer.toHexString(raw.toString().hashCode())));
+            writeJson(modRecipe(raw, projectId), data.resolve("recipe/" + name + ".json"));
+            return;
+        }
+        if (!BUILT_IN_RECIPES.contains(type)) { // it used to become a shapeless recipe, which is never what was meant
+            CraftPy.LOGGER.warn("Project {}: recipe type '{}' is unknown and was skipped (use recipe(\"mod:type\", ...) for other mods)", projectId, type);
+            return;
+        }
         JsonObject out = new JsonObject();
         String fallback = "unknown";
         switch (type) {
@@ -470,6 +479,56 @@ public final class PackBuilder {
         }
         String name = fileName(jsonString(raw, "id", fallback));
         writeJson(out, data.resolve("recipe/" + name + ".json"));
+    }
+
+    private static final java.util.Set<String> BUILT_IN_RECIPES = java.util.Set.of("shaped", "shapeless", "smelting", "blasting",
+            "smoking", "campfire", "stonecutting", "smithing");
+
+    /**
+     * A recipe of another mod's type: the fields are written as given (the mod defines the layout), the project's own content
+     * is mapped to its slots, and a mod_loaded condition keeps the pack loading when the mod is not installed.
+     */
+    static JsonObject modRecipe(JsonObject raw, String projectId) {
+        String type = jsonString(raw, "type", "");
+        JsonObject out = new JsonObject();
+        out.addProperty("type", type);
+        for (var entry : raw.entrySet()) {
+            if (!entry.getKey().equals("type") && !entry.getKey().equals("id")) {
+                out.add(entry.getKey(), mapContentRefs(entry.getValue(), projectId));
+            }
+        }
+        String mod = type.substring(0, type.indexOf(':'));
+        if (!mod.equals("minecraft") && !out.has("neoforge:conditions")) {
+            JsonObject condition = new JsonObject();
+            condition.addProperty("type", "neoforge:mod_loaded");
+            condition.addProperty("modid", mod);
+            JsonArray conditions = new JsonArray();
+            conditions.add(condition);
+            out.add("neoforge:conditions", conditions);
+        }
+        return out;
+    }
+
+    /** Strings under item, id and result keys that name project content become the slot ids; everything else is kept. */
+    static JsonElement mapContentRefs(JsonElement value, String projectId) {
+        if (value.isJsonArray()) {
+            JsonArray out = new JsonArray();
+            value.getAsJsonArray().forEach(element -> out.add(mapContentRefs(element, projectId)));
+            return out;
+        }
+        if (value.isJsonObject()) {
+            JsonObject out = new JsonObject();
+            for (var entry : value.getAsJsonObject().entrySet()) {
+                String key = entry.getKey();
+                JsonElement child = entry.getValue();
+                boolean ref = key.equals("item") || key.equals("id") || key.equals("result");
+                out.add(key, ref && child.isJsonPrimitive() && child.getAsJsonPrimitive().isString()
+                        ? new com.google.gson.JsonPrimitive(mapRef(child.getAsString(), projectId, SlotRegistry.Kind.ITEM))
+                        : mapContentRefs(child, projectId));
+            }
+            return out;
+        }
+        return value;
     }
 
     /** A readable name for an ingredient value (string, {"item"} or {"tag"}), used for file names. */
@@ -772,8 +831,19 @@ public final class PackBuilder {
         if (!path.endsWith(".json")) {
             path = path + ".json";
         }
-        Path target = data.resolve(path).normalize();
-        if (!target.startsWith(data.normalize())) {
+        // namespace="minecraft" (or another mod) writes next to the project's own data folder: data/<namespace>/<path>
+        JsonElement namespace = entry.payload().getAsJsonObject().get("namespace");
+        Path base = data;
+        if (namespace != null && namespace.isJsonPrimitive()) {
+            String name = namespace.getAsString();
+            if (!name.matches("[a-z0-9_][a-z0-9_.-]*")) {
+                CraftPy.LOGGER.warn("Rejected raw datapack namespace: {}", name);
+                return;
+            }
+            base = data.getParent().resolve(name);
+        }
+        Path target = base.resolve(path).normalize();
+        if (!target.startsWith(base.normalize())) {
             CraftPy.LOGGER.warn("Rejected out-of-tree raw datapack path: {}", entry.id());
             return;
         }

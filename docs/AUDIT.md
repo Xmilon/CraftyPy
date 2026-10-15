@@ -134,3 +134,11 @@ UI strings are English literals, not lang keys.
 - Reads: `READ_ASSET` callbacks wait in a queue and are matched by path; `BINARY_READ_LIMIT` is 288 KB.
 - Ogg: `OggEncoder` runs the player's Python with `soundfile` in a subprocess on the client (the server worker is sandboxed and single-threaded), install only on request.
 - Threading: sounds are stopped on the client thread; the project file list is copied on the UI thread before the client thread names a save path.
+
+## 7e. M16 changes (mod catalog)
+
+- The dump reads other mods' registries on the server thread at start; a mod that throws while being read must not stop startup (check `CatalogDump` logging on a modded server). Catalog files are trusted input from the game folder, not from projects.
+- `CompletionEngine` and `IdChecker` only read the catalog view; an empty catalog means no warnings, so a fresh install is quiet.
+- `recipe("mod:type")` accepts any fields and writes them as given; a bad layout fails in the mod's own recipe loader, not in CraftPy. The `mod_loaded` condition keeps the pack loading without the mod.
+- Raw datapack `namespace` is limited to `[a-z0-9_][a-z0-9_.-]*` and the path stays inside that namespace folder.
+

@@ -158,6 +158,24 @@ public final class PyRuntime {
         }, CraftPyExecutors.rpc());
     }
 
+    /** Names of the arguments of the API function or class called {@code chain} (for keyword completion). */
+    public CompletableFuture<java.util.List<String>> params(String chain) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            java.util.List<String> names = new java.util.ArrayList<>();
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("chain", chain);
+                JsonObject result = client().call("params", params, 2000);
+                if (result.has("names") && result.get("names").isJsonArray()) {
+                    result.getAsJsonArray("names").forEach(name -> names.add(name.getAsString()));
+                }
+            } catch (Exception e) {
+                // no names: the plain completion is still shown
+            }
+            return names;
+        }, CraftPyExecutors.rpc());
+    }
+
     /** Handler profiler data (call counts and timings per handler / timer); {@code reset} clears it afterwards. */
     public CompletableFuture<JsonObject> profile(boolean reset) {
         return CraftPyExecutors.supplyAsync(() -> {

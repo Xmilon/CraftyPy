@@ -2,6 +2,7 @@ package net.xmilon.craftpy.dynamics;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.xmilon.craftpy.util.Json;
 import net.xmilon.craftpy.registry.SlotRegistry;
 import org.junit.jupiter.api.Test;
@@ -147,7 +148,7 @@ class PackBuilderRecipesTest {
     }
 
     @Test
-    void writeRecipe_unknownTypeFallsBackToShapeless() throws Exception {
+    void writeRecipe_unknownTypeIsSkipped() throws Exception {
         SlotRegistry.clearAll();
         for (int i = 0; i < 8; i++) SlotRegistry.applyItem("dummy", "item" + i, new JsonObject());
         SlotRegistry.applyItem("testproj", "ppl plate", new JsonObject()); // pcitem_8
@@ -163,8 +164,8 @@ class PackBuilderRecipesTest {
         Path data = root.resolve("data").resolve("testproj");
         PackBuilder.writeRecipe(data, "testproj", raw);
 
-        JsonObject written = readJson(data.resolve("recipe/project_ppl_plate.json"));
-        assertEquals("minecraft:crafting_shapeless", written.get("type").getAsString());
+        // it used to become a shapeless recipe, which hid typos and recipe types of mods that were not written correctly
+        assertFalse(Files.exists(data.resolve("recipe/project_ppl_plate.json")));
     }
 
     @Test
@@ -276,5 +277,32 @@ class PackBuilderRecipesTest {
         } catch (Exception e) {
             throw new AssertionError("failed to read " + path, e);
         }
+    }
+
+    @Test
+    void aRecipeOfAnotherModKeepsItsLayoutAndOnlyLoadsWithThatMod() throws Exception {
+        SlotRegistry.clearAll();
+        SlotRegistry.applyItem("demo", "gem", new JsonObject()); // pcitem_0
+        Path data = tmp();
+        JsonObject raw = JsonParser.parseString("{\"type\":\"create:mixing\",\"id\":\"mix_gem\",\"heat_requirement\":\"heated\","
+                + "\"ingredients\":[{\"item\":\"demo:gem\"},{\"fluid\":\"minecraft:lava\",\"amount\":250}],"
+                + "\"results\":[{\"id\":\"demo:gem\",\"count\":2}]}").getAsJsonObject();
+        PackBuilder.writeRecipe(data, "demo", raw);
+        JsonObject written = Json.readTree(data.resolve("recipe/mix_gem.json")).getAsJsonObject();
+        assertEquals("create:mixing", written.get("type").getAsString());
+        assertEquals("heated", written.get("heat_requirement").getAsString());
+        assertEquals("craftpy:pcitem_0", written.getAsJsonArray("ingredients").get(0).getAsJsonObject().get("item").getAsString());
+        assertEquals("minecraft:lava", written.getAsJsonArray("ingredients").get(1).getAsJsonObject().get("fluid").getAsString());
+        assertEquals("craftpy:pcitem_0", written.getAsJsonArray("results").get(0).getAsJsonObject().get("id").getAsString());
+        assertEquals("create", written.getAsJsonArray("neoforge:conditions").get(0).getAsJsonObject().get("modid").getAsString());
+        assertFalse(written.has("id"));
+    }
+
+    @Test
+    void anUnknownBareRecipeTypeIsSkippedInsteadOfBecomingShapeless() throws Exception {
+        Path data = tmp();
+        JsonObject raw = JsonParser.parseString("{\"type\":\"mixing\",\"id\":\"x\",\"result\":\"minecraft:stick\"}").getAsJsonObject();
+        PackBuilder.writeRecipe(data, "demo", raw);
+        assertFalse(Files.exists(data.resolve("recipe/x.json")));
     }
 }

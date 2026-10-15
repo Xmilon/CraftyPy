@@ -1,0 +1,27 @@
+{
+  "mod": "irons_spellbooks",
+  "namespace": "irons_spellbooks",
+  "folders": ["irons_spellbooks/upgrade_orb_type", "irons_spellbooks_spell_config", "irons_jewelry/material", "irons_jewelry/part", "irons_jewelry/pattern", "curios/slots"],
+  "recipeTypes": {
+    "irons_spellbooks:alchemist_cauldron_fill": {
+      "fields": ["input", "result", "fluid", "mustFitAll", "sound"],
+      "note": "Alchemist cauldron: pour an item's fluid in.",
+      "sample": {"input": {"item": "minecraft:potion"}, "result": {"id": "minecraft:glass_bottle"}, "fluid": {"id": "minecraft:water", "amount": 250}}
+    },
+    "irons_spellbooks:alchemist_cauldron_empty": {
+      "fields": ["input", "result", "fluid", "sound"],
+      "note": "Alchemist cauldron: fill an item from the fluid.",
+      "sample": {"input": {"item": "minecraft:glass_bottle"}, "result": {"id": "minecraft:potion"}, "fluid": {"id": "minecraft:water", "amount": 250}}
+    },
+    "irons_spellbooks:alchemist_cauldron_brew": {
+      "fields": ["base_fluid", "input", "results", "byproduct"],
+      "note": "Alchemist cauldron: brew by adding an ingredient to a fluid.",
+      "sample": {}
+    },
+    "irons_spellbooks:smithing_transform_no_addition": {
+      "fields": ["template", "base", "result"],
+      "note": "Smithing without an addition slot.",
+      "sample": {}
+    }
+  }
+}

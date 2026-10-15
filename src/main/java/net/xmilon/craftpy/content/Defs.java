@@ -151,6 +151,8 @@ public final class Defs {
         public float cooldownSeconds;
         public final List<String> tooltip = new ArrayList<>();
         public String tooltipColor = "gray";
+        /** Attribute modifiers while held or worn (Attributes extension): any attribute of the game or of a mod. */
+        public final List<AttributeSpec> attributes = new ArrayList<>();
 
         public static ItemDef from(JsonObject json) {
             ItemDef def = new ItemDef();
@@ -172,6 +174,12 @@ public final class Defs {
                     case "durability" -> {
                         def.maxDamage = Math.max(0, Math.min(32767, i(ext, "uses", 0)));
                         def.repairWith = s(ext, "repair_with", "");
+                    }
+                    case "attributes" -> {
+                        if (def.attributes.size() < 16 && !s(ext, "attribute", "").isEmpty()) {
+                            def.attributes.add(new AttributeSpec(s(ext, "attribute", ""), f(ext, "amount", 0f),
+                                    s(ext, "operation", "add_value"), s(ext, "slot", "mainhand")));
+                        }
                     }
                     case "enchantable" -> def.enchantValue = Math.max(0, Math.min(50, i(ext, "value", 0)));
                     case "cooldown" -> def.cooldownSeconds = Math.max(0f, f(ext, "seconds", 0f));
@@ -201,6 +209,10 @@ public final class Defs {
         }
 
         public record ArmorSpec(String slot, float defense, float toughness, float knockbackResistance) {
+        }
+
+        /** One modifier: attribute id, amount, operation (add_value, add_multiplied_base, add_multiplied_total), slot group. */
+        public record AttributeSpec(String attribute, double amount, String operation, String slot) {
         }
 
         private static net.minecraft.world.food.FoodProperties foodFrom(JsonObject json) {

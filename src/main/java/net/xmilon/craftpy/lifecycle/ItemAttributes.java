@@ -1,8 +1,11 @@
 package net.xmilon.craftpy.lifecycle;
 
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.EquipmentSlotGroup;
+import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -45,6 +48,15 @@ public final class ItemAttributes {
             event.replaceModifier(Attributes.ARMOR_TOUGHNESS, add(id, def.armor.toughness()), group);
             event.replaceModifier(Attributes.KNOCKBACK_RESISTANCE, add(id, def.armor.knockbackResistance()), group);
         }
+        int index = 0;
+        for (Defs.ItemDef.AttributeSpec spec : def.attributes) {
+            Holder<Attribute> attribute = attribute(spec.attribute());
+            if (attribute != null) { // an attribute of a mod that is not installed is simply not applied
+                var id = ResourceLocation.fromNamespaceAndPath(CraftPy.MODID, "ext." + index);
+                event.addModifier(attribute, new AttributeModifier(id, spec.amount(), operation(spec.operation())), group(spec.slot()));
+            }
+            index++;
+        }
     }
 
     /** Damage and speed are given the way the tooltip shows them (a diamond sword hits for 7); the player has 1 and 4. */
@@ -56,6 +68,29 @@ public final class ItemAttributes {
                     add(ResourceLocation.fromNamespaceAndPath(CraftPy.MODID, "weapon_knockback"), knockback),
                     EquipmentSlotGroup.MAINHAND);
         }
+    }
+
+    /** The attribute holder for an id such as {@code irons_spellbooks:fire_spell_power}, null when no mod provides it. */
+    static Holder<Attribute> attribute(String id) {
+        ResourceLocation location = ResourceLocation.tryParse(id.contains(":") ? id : "minecraft:" + id);
+        return location == null ? null : BuiltInRegistries.ATTRIBUTE.getHolder(location).orElse(null);
+    }
+
+    static EquipmentSlotGroup group(String name) {
+        for (EquipmentSlotGroup group : EquipmentSlotGroup.values()) {
+            if (group.getSerializedName().equals(name)) {
+                return group;
+            }
+        }
+        return EquipmentSlotGroup.MAINHAND;
+    }
+
+    static AttributeModifier.Operation operation(String name) {
+        return switch (name) {
+            case "add_multiplied_base" -> AttributeModifier.Operation.ADD_MULTIPLIED_BASE;
+            case "add_multiplied_total" -> AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL;
+            default -> AttributeModifier.Operation.ADD_VALUE;
+        };
     }
 
     private static AttributeModifier add(ResourceLocation id, double amount) {

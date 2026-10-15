@@ -1,0 +1,94 @@
+{
+  "mod": "mekanism",
+  "namespace": "mekanism",
+  "folders": ["mekanism/robit_skin", "data_maps/mekanism/chemical"],
+  "recipeTypes": {
+    "mekanism:crushing": {
+      "fields": ["input", "output"],
+      "note": "Crusher. input is an ingredient with a count, output an item stack.",
+      "sample": {"input": {"count": 1, "tag": "c:ores/iron"}, "output": {"count": 2, "id": "mekanism:dirty_iron_dust"}}
+    },
+    "mekanism:enriching": {
+      "fields": ["input", "output"],
+      "note": "Enrichment chamber.",
+      "sample": {"input": {"count": 1, "item": "minecraft:coal"}, "output": {"count": 1, "id": "mekanism:enriched_carbon"}}
+    },
+    "mekanism:smelting": {
+      "fields": ["input", "output"],
+      "note": "Energized smelter.",
+      "sample": {"input": {"count": 1, "item": "minecraft:sand"}, "output": {"count": 1, "id": "minecraft:glass"}}
+    },
+    "mekanism:combining": {
+      "fields": ["main_input", "extra_input", "output"],
+      "note": "Combiner.",
+      "sample": {"main_input": {"count": 1, "item": "minecraft:iron_ingot"}, "extra_input": {"count": 1, "item": "minecraft:redstone"}, "output": {"count": 1, "id": "minecraft:iron_block"}}
+    },
+    "mekanism:sawing": {
+      "fields": ["input", "main_output", "secondary_output", "secondary_chance"],
+      "note": "Precision sawmill. The secondary fields are optional.",
+      "sample": {"input": {"count": 1, "item": "minecraft:oak_log"}, "main_output": {"count": 6, "id": "minecraft:oak_planks"}}
+    },
+    "mekanism:chemical_infusing": {
+      "fields": ["left_input", "right_input", "output"],
+      "note": "Chemical infuser. Inputs are chemical ingredients (amount, chemical or tag).",
+      "sample": {"left_input": {"amount": 1, "chemical": "mekanism:hydrogen"}, "right_input": {"amount": 1, "chemical": "mekanism:chlorine"}, "output": {"amount": 1, "id": "mekanism:hydrogen_chloride"}}
+    },
+    "mekanism:pigment_mixing": {
+      "fields": ["left_input", "right_input", "output"],
+      "note": "Pigment mixer.",
+      "sample": {}
+    },
+    "mekanism:metallurgic_infusing": {
+      "fields": ["item_input", "chemical_input", "output", "per_tick_usage"],
+      "note": "Metallurgic infuser.",
+      "sample": {"item_input": {"count": 1, "item": "minecraft:iron_ingot"}, "chemical_input": {"amount": 10, "chemical": "mekanism:redstone"}, "output": {"count": 1, "id": "mekanism:alloy_infused"}}
+    },
+    "mekanism:injecting": {
+      "fields": ["item_input", "chemical_input", "output", "per_tick_usage"],
+      "note": "Chemical injection chamber.",
+      "sample": {}
+    },
+    "mekanism:painting": {
+      "fields": ["item_input", "chemical_input", "output", "per_tick_usage"],
+      "note": "Painting machine.",
+      "sample": {}
+    },
+    "mekanism:nucleosynthesizing": {
+      "fields": ["item_input", "chemical_input", "output", "duration", "per_tick_usage"],
+      "note": "Antiprotonic nucleosynthesizer.",
+      "sample": {}
+    },
+    "mekanism:reaction": {
+      "fields": ["item_input", "fluid_input", "chemical_input", "duration", "item_output", "chemical_output"],
+      "note": "Pressurized reaction chamber.",
+      "sample": {}
+    },
+    "mekanism:separating": {
+      "fields": ["input", "left_chemical_output", "right_chemical_output"],
+      "note": "Electrolytic separator.",
+      "sample": {}
+    },
+    "mekanism:rotary": {
+      "fields": ["fluid_input", "fluid_output", "chemical_input", "chemical_output"],
+      "note": "Rotary condensentrator (either direction).",
+      "sample": {}
+    },
+    "mekanism:oxidizing": {
+      "fields": ["input", "output"],
+      "note": "Chemical oxidizer.",
+      "sample": {"input": {"count": 1, "item": "mekanism:sulfur_dust"}, "output": {"amount": 100, "id": "mekanism:sulfur_dioxide"}}
+    },
+    "mekanism:evaporating": {
+      "fields": ["input", "output"],
+      "note": "Thermal evaporation plant (fluid to fluid).",
+      "sample": {}
+    },
+    "mekanism:purifying": {"fields": ["item_input", "chemical_input", "output", "per_tick_usage"], "note": "Purification chamber.", "sample": {}},
+    "mekanism:compressing": {"fields": ["item_input", "chemical_input", "output", "per_tick_usage"], "note": "Osmium compressor.", "sample": {}},
+    "mekanism:activating": {"fields": ["input", "output"], "note": "Solar neutron activator.", "sample": {}},
+    "mekanism:centrifuging": {"fields": ["input", "output"], "note": "Isotopic centrifuge.", "sample": {}},
+    "mekanism:crystallizing": {"fields": ["input", "output"], "note": "Chemical crystallizer.", "sample": {}},
+    "mekanism:dissolution": {"fields": ["item_input", "chemical_input", "output", "per_tick_usage"], "note": "Chemical dissolution chamber.", "sample": {}},
+    "mekanism:washing": {"fields": ["fluid_input", "slurry_input", "output"], "note": "Chemical washer.", "sample": {}}
+  }
+}

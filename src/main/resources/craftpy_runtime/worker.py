@@ -260,6 +260,8 @@ def _profile_report():
 
 def _drop_owner(owner):
     """Forgets everything ``owner`` registered: declarations, handlers and timers."""
+    for name in [n for n, o in _USER_EXTENSIONS.items() if o == owner]:
+        del _USER_EXTENSIONS[name]
     _OWNERS.pop(owner, None)
     for key in [k for k in _PROFILE if k[0] == owner]:
         del _PROFILE[key]
@@ -555,12 +557,16 @@ class Extension:
         """Change the target here. Nothing to do by default."""
 
 
+_USER_EXTENSIONS = {}  # name of an @extension class -> owner that declared it, for completion
+
+
 def extension(cls):
     """Marks your class as an extension: ``@extension class Vampiric(Extension): ...``."""
     if not isinstance(cls, type):
         raise TypeError("@extension goes on a class")
     if not issubclass(cls, Extension):
         cls = type(cls.__name__, (cls, Extension), {})
+    _USER_EXTENSIONS[cls.__name__] = _OWNER[0]
     for name in dir(cls):
         if name.startswith("on_") and name not in _ALL_HOOKS and name not in ("on_load", "on_unload"):
             raise TypeError("%s.%s is not a hook. Hooks: %s" % (cls.__name__, name, ", ".join(sorted(_ALL_HOOKS))))
@@ -880,12 +886,38 @@ class BlockType(_TypeBase):
     applies_to = ("block",)
 
 
+class Attributes(_Data):
+    """Adds attribute modifiers to an item while it is held or worn: any attribute of the game or of a mod.
+
+    attribute: id such as "minecraft:generic.max_health" or "irons_spellbooks:fire_spell_power" (the IDE completes them).
+    amount: the number to add. operation: "add" (default), "multiply_base" (+ amount x base value) or "multiply_total"
+    (x (1 + amount) at the end). slot: "mainhand", "offhand", "head", "chest", "legs", "feet", "hand", "armor", "body"
+    or "any". Use several ``Attributes(...)`` for several modifiers."""
+    applies_to = ("item",)
+    type = "attributes"
+    _OPERATIONS = {"add": "add_value", "add_value": "add_value", "multiply_base": "add_multiplied_base",
+                   "add_multiplied_base": "add_multiplied_base", "multiply_total": "add_multiplied_total",
+                   "add_multiplied_total": "add_multiplied_total"}
+    _SLOTS = ("any", "mainhand", "offhand", "hand", "head", "chest", "legs", "feet", "armor", "body")
+
+    def __init__(self, attribute, amount, operation="add", slot="mainhand"):
+        if not isinstance(attribute, str) or not attribute:
+            raise ValueError("Attributes needs the attribute id, e.g. Attributes('minecraft:generic.max_health', 4)")
+        self.attribute = attribute if ":" in attribute else "minecraft:" + attribute
+        self.amount = _num("Attributes amount", amount, -1000000.0, 1000000.0)
+        self.operation = self._OPERATIONS[_choice("Attributes operation", operation, tuple(self._OPERATIONS))]
+        self.slot = _choice("Attributes slot", slot, self._SLOTS)
+
+    def data(self):
+        return {"attribute": self.attribute, "amount": self.amount, "operation": self.operation, "slot": self.slot}
+
+
 _EXTENSION_NAMES = {
     "Extension": Extension, "extension": extension, "ItemType": ItemType, "BlockType": BlockType,
     "Tool": Tool, "Sword": Sword, "Pickaxe": Pickaxe, "Axe": Axe, "Shovel": Shovel, "Hoe": Hoe,
     "Durability": Durability, "Weapon": Weapon, "Fuel": Fuel, "Armor": Armor, "Enchantable": Enchantable,
     "Cooldown": Cooldown, "Tooltip": Tooltip, "MineableBy": MineableBy, "Drops": Drops, "Redstone": Redstone,
-    "Flammable": Flammable, "Friction": Friction, "Piston": Piston,
+    "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes,
 }
 
 
@@ -971,9 +1003,15 @@ def advancement(ident, **kwargs):
     _DECLS["advancements"].append({"id": ident, "definition": kwargs})
 
 
-def raw_json(path, data):
-    """Escape hatch: write a raw datapack JSON file (flagged version-specific)."""
-    _DECLS["raw"].append({"id": path, "definition": data})
+def raw_json(path, data, namespace=None):
+    """Escape hatch: write a raw datapack JSON file (flagged version-specific).
+
+    It goes to data/<your project>/<path>; with namespace="minecraft" (or any other) to data/<namespace>/<path>,
+    for example a tag that another mod reads."""
+    entry = {"id": path, "definition": data}
+    if namespace:
+        entry["namespace"] = str(namespace)
+    _DECLS["raw"].append(entry)
 
 
 def tag(ident, values, replace=False, type="item"):
@@ -1024,6 +1062,19 @@ def smelt(ingredient, result, xp=0.1, seconds=10, using="furnace"):
 def stonecut(ingredient, result, count=1):
     _recipe("stonecutting", result=_ref(result), ingredient=_ref(ingredient), count=int(count),
             id="%s_stonecutting" % _ref(result).split(":")[-1])
+
+
+def recipe(type, id=None, **fields):
+    """recipe("create:mixing", ingredients=[...], results=[...]) - a recipe of another mod's type.
+
+    The fields are that mod's own recipe JSON; the IDE completes the type and lists its fields. Your own items and blocks
+    can be named like everywhere else. The recipe only loads when the mod is installed (it carries a mod_loaded condition)."""
+    if not isinstance(type, str) or ":" not in type:
+        raise ValueError("recipe() needs a 'mod:type' such as 'create:mixing'; use shaped, shapeless, smelt or stonecut for vanilla recipes")
+    payload = dict(fields, type=type)
+    if id:
+        payload["id"] = str(id)
+    _DECLS["recipes"].append(payload)
 
 
 def recipe_shaped(result, pattern, keys, category="misc", **extra):
@@ -1082,6 +1133,11 @@ def loot_entry(item, count=1, weight=1, **kwargs):
 _FILTER_KEYS = ("block", "item", "entity")
 
 
+_EVENT_NAMES = ("block_break", "block_place", "block_interact", "block_tick", "item_use", "item_hit", "item_mine",
+                "item_hold_tick", "item_craft", "item_pickup", "player_join", "player_leave", "player_respawn",
+                "player_death", "entity_death", "entity_hurt", "chat")
+
+
 class _On:
     """``@on("block_break")``, ``@on("block_break", block=ruby_ore)`` or ``@on.block_break(block=ruby_ore)``."""
 
@@ -1097,6 +1153,9 @@ class _On:
             _HANDLERS.setdefault(event, []).append((fn, wanted))
             return fn
         return deco
+
+    def __dir__(self):
+        return list(_EVENT_NAMES)  # the IDE completes `on.` from this
 
     def __getattr__(self, event):
         if event.startswith("_"):
@@ -2165,7 +2224,7 @@ def _api_names():
         "recipe_stonecutting": recipe_stonecutting, "recipe_smithing": recipe_smithing,
         "loot_table": loot_table, "loot_entry": loot_entry,
         "tag": tag, "lang": lang, "sound": sound, "particle": particle,
-        "advancement": advancement, "raw_json": raw_json,
+        "advancement": advancement, "raw_json": raw_json, "recipe": recipe,
         "window": window, "Window": Window, "ui": ui, "cp": cp, "action": action,
         "world": world, "players": players, "server": server,
         "storage": storage, "scheduler": scheduler,
@@ -2659,6 +2718,8 @@ def _handle(method, params):
     if method == "validate":
         _INTERRUPT = False
         return _validate(params)
+    if method == "params":
+        return _params(params)
     if method == "complete":
         return _complete(params)
     if method == "hover":
@@ -2925,6 +2986,21 @@ def _first_line(doc):
     return doc.strip().split("\n")[0] if doc else ""
 
 
+def _params(params):
+    """Names of the arguments of the API function or class called `chain`, for keyword completion."""
+    import inspect
+    target = _resolve_chain(params.get("chain", ""))
+    names = []
+    if target is not None and callable(target):
+        try:
+            for p in inspect.signature(target).parameters.values():
+                if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY) and not p.name.startswith("_"):
+                    names.append(p.name)
+        except (TypeError, ValueError):
+            pass
+    return {"names": names}
+
+
 def _complete(params):
     import re
     code = params.get("code", "")
@@ -2961,6 +3037,8 @@ def _complete(params):
         for name, obj in _api_names().items():
             kind, sig, doc = _describe(name, obj)
             add(name, kind, sig, doc)
+        for name in sorted(_USER_EXTENSIONS):
+            add(name, "class", "", "an extension of this project")
         for name in _KEYWORDS:
             add(name, "kw", "", "")
         for name, obj in restricted_builtins([]).items():
@@ -3322,7 +3400,8 @@ def _load_docs():
         "particle": ("Declares a particle definition.", {"ident": "Particle id.", "textures": "(keyword) list of texture ids."}, ""),
         "advancement": ("Declares an advancement; keywords are the fields of the advancement JSON.", {"ident": "Advancement id."}, ""),
         "raw_json": ("Writes any data pack JSON file as is (escape hatch; version specific).", {
-            "path": "Path inside the data pack, for example 'tags/item/foo.json'.", "data": "A dict or list to write as JSON."}, ""),
+            "path": "Path inside the data pack, for example 'tags/item/foo.json'.", "data": "A dict or list to write as JSON.",
+            "namespace": "Write to data/<namespace>/ instead of your project's own folder (for example 'minecraft')."}, ""),
         "tex": ("Reference to a texture by name.", {"ref": "Texture name or id."}, "A texture reference."),
         "snd": ("Reference to a sound by name.", {"ref": "Sound event id."}, "A sound reference."),
         "mdl": ("Reference to a model by name.", {"ref": "Model id."}, "A model reference."),
@@ -3339,6 +3418,10 @@ def _load_docs():
             "using": "'furnace' (default), 'blast_furnace', 'smoker' or 'campfire'."}, ""),
         "stonecut": ("Stonecutter recipe.", {"ingredient": "Item put in.", "result": "Item produced.",
                                              "count": "Items produced per input."}, ""),
+        "recipe": ("A recipe of another mod's type: recipe('create:mixing', ingredients=[...], results=[...]).", {
+            "type": "Recipe type id 'mod:type' (the IDE lists the types of the installed mods).",
+            "id": "File name of the recipe (optional).",
+            "fields": "The mod's own recipe fields as keywords; the IDE shows the ones it knows."}, ""),
         "recipe_shaped": ("Low-level shaped recipe with the raw pattern.", {
             "result": "Result item id or dict.", "pattern": "List of up to 3 strings.", "keys": "Dict letter -> ingredient.",
             "category": "Recipe book category: 'building', 'redstone', 'equipment' or 'misc'."}, ""),
@@ -3525,6 +3608,10 @@ def _load_docs():
         "Redstone": ("The block emits a redstone signal.", {"power": "Signal strength 0 to 15."}, ""),
         "Flammable": ("Fire can burn the block.", {"chance": "How easily it catches fire, 0 to 300 (wood 5, leaves 30).", "spread": "How fast fire spreads over it, 0 to 300 (wood 20, leaves 60)."}, ""),
         "Friction": ("How slippery the block is.", {"value": "0.1 to 1.0 (normal 0.6, ice 0.98)."}, ""),
+        "Attributes": ("Attribute modifiers on an item (any attribute of the game or of a mod): Attributes('irons_spellbooks:fire_spell_power', 0.1, slot='mainhand').", {
+            "attribute": "Attribute id; the IDE completes the ones of the installed mods.", "amount": "Number added (or the factor, with a multiply operation).",
+            "operation": "'add' (default), 'multiply_base' or 'multiply_total'.",
+            "slot": "'mainhand' (default), 'offhand', 'head', 'chest', 'legs', 'feet', 'hand', 'armor', 'body' or 'any'."}, ""),
         "Piston": ("What pistons do to the block.", {"reaction": "'normal', 'destroy', 'block', 'ignore' or 'push_only'."}, ""),
         "Content.extends": ("Adds behaviour to an item or block; returns the same item or block so calls chain.", {"extensions": "Extension objects, or lists of them."}, "The item or block."),
         # ---------------------------------------------------------------- java bridge

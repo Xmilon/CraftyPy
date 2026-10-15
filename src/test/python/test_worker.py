@@ -595,6 +595,44 @@ def test_lint_warnings():
     assert not any("Undefined" in p["message"] for p in star["problems"])
 
 
+def test_recipes_of_other_mods_and_attribute_extensions():
+    d = run_main("rr", '''
+from craftpy import *
+
+gem = Item("gem")
+gem.extends(Attributes("irons_spellbooks:fire_spell_power", 0.1, operation="multiply_base", slot="offhand"))
+recipe("create:mixing", id="mix", ingredients=[gem, "lava"], results=[{"id": gem}], heat_requirement="heated")
+raw_json("tags/item/x.json", {"values": []}, namespace="minecraft")
+''')
+    mix = [r for r in d["recipes"] if r["type"] == "create:mixing"][0]
+    assert mix["id"] == "mix" and mix["heat_requirement"] == "heated"
+    assert mix["ingredients"] == ["rr:gem", "lava"] and mix["results"] == [{"id": "rr:gem"}]
+    ext = [i for i in d["items"] if i["id"] == "gem"][0]["definition"]["ext"]
+    assert ext == [{"type": "attributes", "attribute": "irons_spellbooks:fire_spell_power", "amount": 0.1,
+                    "operation": "add_multiplied_base", "slot": "offhand"}], ext
+    raw = [r for r in d["raw"] if r["id"] == "tags/item/x.json"][0]
+    assert raw.get("namespace") == "minecraft", raw
+    for bad in (lambda: w.recipe("shaped"), lambda: w.Attributes("", 1), lambda: w.Attributes("a:b", 1, slot="knee")):
+        try:
+            bad()
+            assert False, "should have been refused"
+        except ValueError:
+            pass
+
+
+def test_params_and_extensions_for_completion():
+    assert "player_join" in dir(w.on) and "block_break" in dir(w.on)
+    names = w._handle("params", {"chain": "Item"})["names"]
+    assert "id" in names and "texture" in names, names
+    assert w._handle("params", {"chain": "nothing_here"}) == {"names": []}
+    run_main("rr", "from craftpy import *\n@extension\nclass Vampiric(Extension):\n    pass\n")
+    items = w._handle("complete", {"code": "Vamp", "line": 0, "column": 4})["items"]
+    assert any(i["n"] == "Vampiric" for i in items), items
+    w._handle("unload_owner", {"owner": "rr"})
+    items = w._handle("complete", {"code": "Vamp", "line": 0, "column": 4})["items"]
+    assert not any(i["n"] == "Vampiric" for i in items), items
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

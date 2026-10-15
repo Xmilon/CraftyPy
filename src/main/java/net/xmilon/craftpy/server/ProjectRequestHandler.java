@@ -473,8 +473,16 @@ public final class ProjectRequestHandler {
                     contents.add(result.success() ? result.content() : "");
                 }
                 return PyRuntime.get().validateProject(projectId, pyFiles, contents)
-                        .thenApply(problems -> new ResponsePayload(ProjectAction.VALIDATE, true, "",
-                                Json.COMPACT.toJson(problems)));
+                        .thenApply(problems -> {
+                            List<net.xmilon.craftpy.python.ValidationProblem> all = new ArrayList<>(problems);
+                            // ids no installed mod provides (typos, content of a mod that is gone)
+                            var view = net.xmilon.craftpy.catalog.ModCatalog.get().view();
+                            var own = net.xmilon.craftpy.analysis.IdChecker.ownNames(contents);
+                            for (int i = 0; i < pyFiles.size(); i++) {
+                                all.addAll(net.xmilon.craftpy.analysis.IdChecker.check(pyFiles.get(i), contents.get(i), view, projectId, own));
+                            }
+                            return new ResponsePayload(ProjectAction.VALIDATE, true, "", Json.COMPACT.toJson(all));
+                        });
             });
         }).exceptionally(error -> {
             CraftPy.LOGGER.error("Validation failed", error);

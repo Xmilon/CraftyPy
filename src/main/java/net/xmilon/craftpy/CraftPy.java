@@ -59,6 +59,8 @@ public class CraftPy {
         ProjectManager.init();
         net.xmilon.craftpy.project.ModuleLoader.discoverAndLoad();
         LOGGER.info("CraftPy project manager ready");
+        // Silent: writes system/catalog/<mod>.json for mods that changed, so the IDE can complete their names.
+        net.xmilon.craftpy.catalog.CatalogDump.onServerStarted(event.getServer());
         // Rebuild generated packs and re-apply previously active projects.
         ProjectController.startup(event.getServer());
         for (String projectId : net.xmilon.craftpy.registry.SlotRegistry.activeProjectIds()) {

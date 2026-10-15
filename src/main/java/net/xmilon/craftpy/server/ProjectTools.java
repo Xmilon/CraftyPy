@@ -11,6 +11,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import net.xmilon.craftpy.analysis.ProjectScan;
+import net.xmilon.craftpy.analysis.StringContext;
+import net.xmilon.craftpy.catalog.ModCatalog;
 import net.xmilon.craftpy.analysis.PyOutline;
 import net.xmilon.craftpy.lifecycle.EventTrace;
 import net.xmilon.craftpy.network.ProjectAction;
@@ -53,7 +55,7 @@ public final class ProjectTools {
             case "decls" -> done(decls(projectId));
             case "profile" -> profile(request);
             case "trace" -> done(trace(request));
-            case "complete", "hover" -> assist(op, request);
+            case "complete", "hover" -> assist(op, projectId, request);
             case "changes" -> done(changes(projectId));
             default -> done(error(op, "Unknown tool: " + op));
         };
@@ -320,10 +322,45 @@ public final class ProjectTools {
         return ok(fit(body, "rows"));
     }
 
-    private static CompletableFuture<ResponsePayload> assist(String op, JsonObject request) {
-        if (!PyRuntime.available()) {
-            return done(error(op, "No Python runtime"));
+    /** {@code name=} entries for the arguments the call accepts and the typed part matches, in front of the other items. */
+    static JsonObject withKeywords(JsonObject result, StringContext.Call call, List<String> names) {
+        JsonArray items = new JsonArray();
+        for (String name : names) {
+            if (name.startsWith(call.typed()) && !name.equals(call.typed())) {
+                JsonObject item = new JsonObject();
+                item.addProperty("n", name + "=");
+                item.addProperty("k", "kw");
+                item.addProperty("s", "");
+                item.addProperty("d", "argument of " + call.chain());
+                items.add(item);
+            }
         }
+        if (result.has("items") && result.get("items").isJsonArray()) {
+            items.addAll(result.getAsJsonArray("items"));
+        }
+        result.add("items", items);
+        return result;
+    }
+
+    /** Items and blocks the project declares (as {@code project:id}), by kind; blocks also exist as items. */
+    private static Map<String, List<String>> ownIds(String projectId) {
+        Map<String, List<String>> own = new java.util.HashMap<>();
+        Declarations declarations = SlotRegistry.declarations(projectId);
+        if (declarations != null) {
+            for (Declarations.Content content : declarations.contents()) {
+                String id = projectId + ":" + content.id();
+                if (content.kind().equals("item") || content.kind().equals("block")) {
+                    own.computeIfAbsent(content.kind(), k -> new java.util.ArrayList<>()).add(id);
+                }
+                if (content.kind().equals("block")) {
+                    own.computeIfAbsent("item", k -> new java.util.ArrayList<>()).add(id);
+                }
+            }
+        }
+        return own;
+    }
+
+    private static CompletableFuture<ResponsePayload> assist(String op, String projectId, JsonObject request) {
         String code = string(request, "code");
         int line;
         int column;
@@ -333,7 +370,26 @@ public final class ProjectTools {
         } catch (RuntimeException e) {
             return done(error(op, "Bad position"));
         }
-        return PyRuntime.get().assist(op, code, line, column).thenApply(result -> {
+        if (op.equals("complete")) {
+            // inside a string the ids of the installed mods are offered, no Python needed
+            JsonObject local = CompletionEngine.complete(code, line, column, ModCatalog.get().view(), ownIds(projectId));
+            if (local != null) {
+                local.addProperty("op", op);
+                if (request.has("seq")) {
+                    local.add("seq", request.get("seq"));
+                }
+                return done(ok(local));
+            }
+        }
+        if (!PyRuntime.available()) {
+            return done(error(op, "No Python runtime"));
+        }
+        var worker = PyRuntime.get().assist(op, code, line, column);
+        // typing a keyword inside a call: the argument names of the API function come first
+        var call = op.equals("complete") ? StringContext.callAt(code, CompletionEngine.offsetOf(code, line, column)) : java.util.Optional.<StringContext.Call>empty();
+        var withNames = call.isEmpty() ? worker : worker.thenCombine(PyRuntime.get().params(call.get().chain()),
+                (result, names) -> withKeywords(result, call.get(), names));
+        return withNames.thenApply(result -> {
             result.addProperty("op", op);
             if (request.has("seq")) {
                 result.add("seq", request.get("seq"));

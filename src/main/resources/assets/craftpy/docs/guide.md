@@ -111,6 +111,33 @@ There are built-in ones (tools, durability, armor, fuel, cooldown, tooltips, red
 write your own with `@extension` (hooks such as `on_hit` or `on_use`). They are described, with every parameter, in the Python
 API topic.
 
+## Working with other mods
+
+When the game starts, CraftPy quietly writes a *catalog* of every installed mod to `pyforge/system/catalog/<mod>.json`: its items,
+blocks, entities, mob effects, attributes, sounds, particles, enchantments, tags, custom registries, recipe types (with the fields
+their recipes use), event classes and class names. It is made again only for mods whose jar or version changed. If you remove a
+mod its entries disappear from the IDE (the file stays; add the same mod back and it is used again without a new dump).
+
+What the IDE does with it:
+
+* **Completion inside strings.** `player.give("`, `shaped("`, `effect("`, `Attributes("`, `recipe("` and keywords like
+  `on.block_break(block="` offer the ids of the installed mods, vanilla first, with the mod shown next to each. `#` completes
+  tags, `java.cls("` completes class names, `@on("` event names. Typing a keyword inside a call offers `name=` for the
+  arguments of the CraftPy function.
+* **Checks.** *Validate* warns about an id no installed mod provides (a typo, or content of a mod that is not installed) and about
+  recipe types of missing mods. Nothing is reported while the catalog is empty (before the game ran once).
+* **Recipes of other mods.** `recipe("create:mixing", ingredients=[...], results=[...], heat_requirement="heated")` writes the
+  recipe as you give it (the fields are the mod's own JSON; your items and blocks may be named as usual) and adds a
+  `mod_loaded` condition, so the pack still loads without that mod. An unknown recipe type of CraftPy's own is skipped with a
+  warning instead of becoming a shapeless recipe.
+* **Attributes.** `Item("ring").extends(Attributes("irons_spellbooks:fire_spell_power", 0.1, slot="offhand"))` adds any attribute
+  of the game or of a mod while the item is held or worn. An attribute whose mod is missing is not applied.
+* **Other namespaces.** `raw_json("tags/item/ingots.json", {...}, namespace="minecraft")` writes to `data/minecraft/...`.
+* Your own `@extension` classes are completed too.
+
+CraftPy ships what a dump cannot tell: the JSON layout of the recipe types of Create, Mekanism and Iron's Spells 'n Spellbooks, and
+the datapack folders of Curios (`craftpy_integrations/*.json`). They show only while that mod is installed.
+
 ## Building modules
 
 *Build* packs the project into a `.cpm` module. In the dialog choose **Update** (the installed module of this project is replaced

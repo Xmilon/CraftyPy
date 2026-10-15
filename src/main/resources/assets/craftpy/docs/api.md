@@ -636,6 +636,17 @@ What pistons do to the block.
 | --- | --- | --- |
 | `reaction` | `'normal'` | 'normal', 'destroy', 'block', 'ignore' or 'push_only'. |
 
+### `Attributes(attribute, amount, operation='add', slot='mainhand')`
+
+Attribute modifiers on an item (any attribute of the game or of a mod): Attributes('irons_spellbooks:fire_spell_power', 0.1, slot='mainhand').
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `attribute` |  | Attribute id; the IDE completes the ones of the installed mods. |
+| `amount` |  | Number added (or the factor, with a multiply operation). |
+| `operation` | `'add'` | 'add' (default), 'multiply_base' or 'multiply_total'. |
+| `slot` | `'mainhand'` | 'mainhand' (default), 'offhand', 'head', 'chest', 'legs', 'feet', 'hand', 'armor', 'body' or 'any'. |
+
 ## Recipes
 
 ### `shaped(result, *rows, count=1, **keys)`
@@ -680,6 +691,16 @@ Stonecutter recipe.
 | `ingredient` |  | Item put in. |
 | `result` |  | Item produced. |
 | `count` | `1` | Items produced per input. |
+
+### `recipe(type, id=None, **fields)`
+
+A recipe of another mod's type: recipe('create:mixing', ingredients=[...], results=[...]).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `type` |  | Recipe type id 'mod:type' (the IDE lists the types of the installed mods). |
+| `id` | `None` | File name of the recipe (optional). |
+| `**fields` |  | The mod's own recipe fields as keywords; the IDE shows the ones it knows. |
 
 ### `recipe_shaped(result, pattern, keys, category='misc', **extra)`
 
@@ -851,7 +872,7 @@ Declares an advancement; keywords are the fields of the advancement JSON.
 | `ident` |  | Advancement id. |
 | `**kwargs` |  | Further fields written into the JSON as they are. |
 
-### `raw_json(path, data)`
+### `raw_json(path, data, namespace=None)`
 
 Writes any data pack JSON file as is (escape hatch; version specific).
 
@@ -859,6 +880,7 @@ Writes any data pack JSON file as is (escape hatch; version specific).
 | --- | --- | --- |
 | `path` |  | Path inside the data pack, for example 'tags/item/foo.json'. |
 | `data` |  | A dict or list to write as JSON. |
+| `namespace` | `None` | Write to data/<namespace>/ instead of your project's own folder (for example 'minecraft'). |
 
 ### `tex(ref)`
 
