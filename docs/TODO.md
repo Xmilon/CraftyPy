@@ -6,6 +6,27 @@ Sources merged here: the two plan files (`extensions / dock / clean push` and `m
 Rules that apply to every item: Gradle with `--no-daemon`, only the 1.21.1 version, Modern UI widgets only, no Python logic in
 UI code, update REPORT/AUDIT/README/guide after each batch, never plant bugs. See also `REQUIREMENTS.local.md` (not committed).
 
+## 0. Your requests, as you gave them (so nothing is lost)
+
+- **Before the first crash, about the asset dock (15:14)** - verify each in game (M13/M14 were built, never clicked):
+  widgets such as the View menu must close when the cursor leaves them or their children; the text cursor must not show as
+  "type mode" over the Assets tab and other non-text areas; sounds, textures and models can be inspected by clicking them;
+  dragging an asset adds it to the project in the specified folder, or inserts a function/call that uses it; modified assets go
+  to the module's resource area, which is different from the plain texture-pack overwrite.
+- **The big request (18:37), now stages M15-M18** (plan file `~/.claude/plans/u-can-fix-the-binary-rocket.md`):
+  1. fix the gaps first (M15, done);
+  2. a full smart completion system that knows the extensions, classes, recipe types and more of every installed mod, plus a
+     silent integration for attributes, effects and such, cached per mod so entries hide when the mod is removed and come back
+     when it is added again (M16, done, needs in-game verification; gaps in section 3);
+  3. an easy way to install the mod with its dependencies (M17, installer built, section 4);
+  4. a "fake instance" of Minecraft: an IDE that compiles and works without opening the game (M18, section 2);
+  5. **"once done, commit and push"**: commits are made per stage (M15, M16, M17, M18 step 1+) but **nothing is pushed yet**.
+     Push only when M18 is finished (or when you say so) and after the clean-push decision in section 5.
+- **Reference material**: the compat mods' sources are in `C:/Users/Xmilon/IdeaProjects/Compatibily Mods` (claudemem there is only
+  partly set up because indexing takes too long). Load claudemem for that folder only when really needed (tokens are expensive).
+  The mod jars used for testing are in `run/mods` (Create 6.0.10, Curios 9.5.1, GeckoLib 4.9.3, Iron's Spellbooks 3.16.3 + Iron's Lib,
+  Mekanism 10.7.19, Player Animation Lib 2.0.4, Modern UI 3.13.0.1).
+
 ## 1. Fix first: found in the first in-game session (2026-10-15)
 
 - [ ] **Textures are not applied** to CraftPy items/blocks in game. Not investigated yet. Start with: does the dynamic pack
@@ -92,3 +113,13 @@ At the end of a batch: remake the shipped example (`src/main/resources/craftpy_d
 reset `run/pyforge` for the dev client (move it out of the repo, backup in the scratchpad, never a hard delete; re-seed `welcome`
 from the manifest; the game writes the marker on next start). **Not done for M16-M18**; the session built and installed the
 `welcome` module into `run/pyforge/modules/` while testing.
+
+## 8. Known limits (from the last "what is missing" list)
+
+- Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.
+- Files are always read and written as UTF-8 (no charset conversion).
+- `storage` is not persisted across restarts.
+- Recipe, loot and content previews need the project to be running.
+- Rename refuses on unsaved text.
+- The missing-imports helper only knows about 20 standard-library modules.
+- Handlers can cancel only `block_break`, `item_use`, `item_hit` and `item_mine`.
