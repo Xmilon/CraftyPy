@@ -86,6 +86,54 @@ public final class CompletionEngine {
         return reply;
     }
 
+    /**
+     * Hover inside a string: what the id is ("minecraft:diamond - item from Minecraft", "not found in any installed mod"),
+     * or null outside strings and for strings the call does not take an id in.
+     */
+    public static JsonObject hover(String code, int line, int column, CatalogView view, Map<String, List<String>> own) {
+        int offset = offsetOf(code, line, column);
+        if (offset < 0) {
+            return null;
+        }
+        for (StringContext.Located located : StringContext.all(code)) {
+            if (offset < located.start() || offset > located.end()) {
+                continue;
+            }
+            String kind = IdKinds.kindFor(located.call());
+            if (kind == null || kind.equals(IdKinds.EVENT)) {
+                return null;
+            }
+            String id = code.substring(located.start(), located.end()).strip();
+            if (id.isEmpty()) {
+                return null;
+            }
+            String doc;
+            if (kind.equals(IdKinds.CLASS)) {
+                doc = view.classes().contains(id) ? "Java class" : "No class with this name in the game or the installed mods";
+            } else {
+                boolean tag = id.startsWith("#");
+                String key = tag ? id.substring(1) : id;
+                String full = key.contains(":") ? key : "minecraft:" + key;
+                if (own.getOrDefault(kind, List.of()).contains(full)) {
+                    doc = kind + " of this project";
+                } else if (view.isEmpty()) {
+                    doc = kind + " (the mod catalog is written the first time the game starts)";
+                } else if (view.contains(tag ? "tag:" + kind : kind, full)) {
+                    String namespace = full.substring(0, full.indexOf(':'));
+                    doc = (tag ? "tag of " : "") + kind + " from " + view.modOf(namespace);
+                } else {
+                    doc = "No " + (tag ? "tag of " : "") + kind + " with this id in the game or the installed mods";
+                }
+            }
+            JsonObject reply = new JsonObject();
+            reply.addProperty("title", id);
+            reply.addProperty("kind", "id");
+            reply.addProperty("doc", doc);
+            return reply;
+        }
+        return null;
+    }
+
     private static void classes(CatalogView view, String typed, List<String[]> rows) {
         String query = typed.toLowerCase(Locale.ROOT);
         List<String[]> contains = new ArrayList<>();

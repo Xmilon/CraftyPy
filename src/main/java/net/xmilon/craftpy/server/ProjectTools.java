@@ -449,6 +449,16 @@ public final class ProjectTools {
                 return done(ok(local));
             }
         }
+        if (op.equals("hover")) {
+            JsonObject local = CompletionEngine.hover(code, line, column, ModCatalog.get().view(), ownIds(projectId));
+            if (local != null) {
+                local.addProperty("op", op);
+                if (request.has("seq")) {
+                    local.add("seq", request.get("seq"));
+                }
+                return done(ok(local));
+            }
+        }
         if (!PyRuntime.available()) {
             return done(error(op, "No Python runtime"));
         }

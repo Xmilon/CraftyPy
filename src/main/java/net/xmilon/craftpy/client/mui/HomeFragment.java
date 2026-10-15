@@ -60,6 +60,26 @@ public class HomeFragment extends Fragment {
         }
     };
 
+    private static final String[] TIPS = {
+            "Ctrl+Shift+A finds any command of the editor by name.",
+            "The Building blocks window (Alt+8) adds a ready-made window, item, block or event to your project in one click.",
+            "Type onj and press Tab: a player-join handler appears. Try onb, cmd, win, item, every too.",
+            "Ctrl+\\ splits the editor: two files side by side, drag the bar between them.",
+            "Ctrl+click a name to jump to where it is defined; Alt+Left jumps back.",
+            "Ctrl+Click a traceback line in the console to open the file at the line that failed.",
+            "Alt+Shift+E runs the selected lines in the Python console.",
+            "Ctrl+Alt+L tidies the whitespace of a file without changing what it does.",
+            "Shift+F6 renames a name everywhere in the file, but not inside strings and comments.",
+            "Double click an editor tab to hide every tool window; double click again to bring them back.",
+            "Inside a string, completion lists the ids of every installed mod: items, blocks, effects, sounds...",
+            "Hover an id in a string to see which mod it comes from, or that it does not exist.",
+            "Ctrl+Shift+F searches every file of the project; the TODO list finds your # TODO comments.",
+            "F5 saves, re-runs the project and reloads every installed module.",
+            "The Assets window (Alt+9) shows every texture, model and sound; drag one into your code.",
+            "Ctrl+Alt+S opens the settings: color scheme, font size, minimap, indent guides...",
+            "gradlew runIde opens this IDE without starting Minecraft.",
+    };
+
     /** CREATE request body: the project name and the starter script to write. */
     private record CreateRequest(String name, String template) {
     }
@@ -124,6 +144,32 @@ public class HomeFragment extends Fragment {
                 R.attr.textAppearanceBodyMedium);
         subtitle.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         page.addView(subtitle);
+
+        // Tip of the day
+        {
+            var card = card(context);
+            var head = row(context);
+            var title = label(context, "Tip", R.attr.textAppearanceLabelLarge);
+            title.setTextColor(IdeColors.ACCENT);
+            head.addView(title, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+            var tip = label(context, "", R.attr.textAppearanceBodyMedium);
+            tip.setTextColor(IdeColors.TEXT);
+            int[] index = {new java.util.Random().nextInt(TIPS.length)};
+            tip.setText(TIPS[index[0]]);
+            var next = label(context, "Next tip", R.attr.textAppearanceLabelMedium);
+            next.setTextColor(IdeColors.ACCENT);
+            next.setPadding(next.dp(8), next.dp(2), next.dp(8), next.dp(2));
+            next.setClickable(true);
+            hoverBackground(next);
+            next.setOnClickListener(v -> {
+                index[0] = (index[0] + 1) % TIPS.length;
+                tip.setText(TIPS[index[0]]);
+            });
+            head.addView(next);
+            card.addView(head);
+            card.addView(tip);
+            page.addView(card, cardParams(page));
+        }
 
         // New project
         page.addView(sectionTitle(context, "New project"));

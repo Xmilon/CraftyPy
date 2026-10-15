@@ -111,4 +111,16 @@ class CompletionEngineTest {
         assertNull(at("p.eff"));
         assertEquals(0, at("print(\"hel").getAsJsonArray("items").size());
     }
+
+    @Test
+    void hoverOnAnIdTellsTheModOrThatItIsUnknown() {
+        String code = "p.effect(\"irons_spellbooks:evasion\")\np.effect(\"nope:missing\")\nx = \"text\"";
+        var known = CompletionEngine.hover(code, 0, 12, view(), Map.of());
+        assertEquals("irons_spellbooks:evasion", known.get("title").getAsString());
+        assertTrue(known.get("doc").getAsString().contains("irons_spellbooks"), known.toString());
+        var unknown = CompletionEngine.hover(code, 1, 12, view(), Map.of());
+        assertTrue(unknown.get("doc").getAsString().startsWith("No "), unknown.toString());
+        assertNull(CompletionEngine.hover(code, 2, 6, view(), Map.of()), "a plain string is not an id");
+        assertNull(CompletionEngine.hover(code, 0, 2, view(), Map.of()), "outside strings the worker answers");
+    }
 }
