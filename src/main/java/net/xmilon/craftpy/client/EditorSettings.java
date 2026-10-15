@@ -43,6 +43,11 @@ public final class EditorSettings {
     /** Share of the width the main editor keeps while the editor is split. */
     public float splitWeight = 0.5f;
     public int blocksWidth = 320;
+    public boolean indentGuides = true;
+    /** Open folders of the explorer, per project. */
+    public Map<String, TreeSet<String>> expanded = new LinkedHashMap<>();
+    /** Open tabs per project (the active one last), reopened with the project. */
+    public Map<String, List<String>> openTabs = new LinkedHashMap<>();
     public Set<String> wrapped = new TreeSet<>();
     public Set<String> pinned = new LinkedHashSet<>();
     public Map<String, TreeSet<Integer>> bookmarks = new LinkedHashMap<>();
@@ -87,6 +92,10 @@ public final class EditorSettings {
         if (bookmarks == null) bookmarks = new LinkedHashMap<>();
         if (recent == null) recent = new ArrayList<>();
         if (findHistory == null) findHistory = new ArrayList<>();
+        if (expanded == null) expanded = new LinkedHashMap<>();
+        if (openTabs == null) openTabs = new LinkedHashMap<>();
+        if (splitWeight < 0.15f || splitWeight > 0.85f) splitWeight = 0.5f;
+        if (blocksWidth < 240 || blocksWidth > 1400) blocksWidth = 320;
         if (codeWeight <= 0.1f || codeWeight >= 0.95f) codeWeight = 0.67f;
         if (explorerWidth < 120) explorerWidth = 220;
         if (dockWidth < 280 || dockWidth > 1400) dockWidth = 460;

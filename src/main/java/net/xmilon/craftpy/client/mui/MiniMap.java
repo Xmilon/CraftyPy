@@ -20,6 +20,13 @@ final class MiniMap extends View {
     private EditorTheme theme = EditorTheme.DARK;
     private int[] lengths = new int[0];
     private boolean[] comments = new boolean[0];
+    /** line -> 2 error, 1 warning (drawn as marks on the right edge, like IntelliJ's error stripe). */
+    private java.util.Map<Integer, Integer> marks = java.util.Map.of();
+
+    void setMarks(java.util.Map<Integer, Integer> marks) {
+        this.marks = marks;
+        invalidate();
+    }
 
     MiniMap(Context context, ScrollView scroll) {
         super(context);
@@ -63,6 +70,11 @@ final class MiniMap extends View {
             paint.setColor((theme.color(comments[line] ? Kind.COMMENT : Kind.TEXT)) & 0x00FFFFFF | 0x99000000);
             float barWidth = Math.max(unit, Math.min(width - 2f, lengths[line] / (float) maxChars * width));
             canvas.drawRect(1, row * unit, 1 + barWidth, row * unit + unit, paint);
+        }
+        for (var mark : marks.entrySet()) {
+            float y = Math.min(height - unit * 2f, mark.getKey() / (float) stride * unit);
+            paint.setColor(mark.getValue() >= 2 ? 0xFFF75464 : 0xFFF2C55C);
+            canvas.drawRect(width - unit * 4f, y, width, y + unit * 2f, paint);
         }
         float total = contentHeight();
         float top = scroll.getScrollY() / total * Math.min(height, (lengths.length / stride) * unit);

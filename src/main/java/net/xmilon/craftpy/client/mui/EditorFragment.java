@@ -2,10 +2,7 @@ package net.xmilon.craftpy.client.mui;
 
 import net.xmilon.craftpy.client.IdeHost;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -285,6 +282,8 @@ public class EditorFragment extends Fragment {
         ClientProjectStore store = ClientProjectStore.getInstance();
         String id = store.activeProjectId();
         ProjectSummary summary = store.find(id);
+        recentProjects = store.projects().stream().limit(8)
+                .map(p -> new String[]{p.id, p.name == null || p.name.isBlank() ? p.id : p.name}).toList();
         String active = store.activeFile();
         List<String> openTabs = store.openTabs();
         List<String> dirtyTabs = openTabs.stream().filter(store::isDirty).toList();
@@ -390,6 +389,7 @@ public class EditorFragment extends Fragment {
 
         applyTheme();
         applyFontSize();
+        code.setIndentGuides(settings.indentGuides);
         findBar.setVisibility(View.GONE);
         render(new State(null, "", "", List.of(), List.of(), List.of(), null, null, false,
                 List.of(), List.of(), List.of(), java.util.Map.of()));
@@ -612,10 +612,22 @@ public class EditorFragment extends Fragment {
         IdeColors.avatar(avatar, name);
     }
 
+    /** id and name of up to 8 projects, refreshed from the store whenever it changes. */
+    private volatile List<String[]> recentProjects = List.of();
+
     private void showProjectMenu(View anchor) {
         var menu = Overlays.menu(anchor);
         Menu m = menu.getMenu();
+        for (String[] project : recentProjects) {
+            if (!project[0].equals(projectId())) {
+                m.add(project[1]).setOnMenuItemClickListener(i -> run(() -> {
+                    flush();
+                    store(s -> s.select(project[0]));
+                }));
+            }
+        }
         m.add("Open another project...").setOnMenuItemClickListener(i -> run(() -> CraftPyFragment.navigate(this, CraftPyFragment.PAGE_HOME)));
+        m.add("Settings...   Ctrl+Alt+S").setOnMenuItemClickListener(i -> run(this::showSettings));
         m.add("Run   Ctrl+R").setOnMenuItemClickListener(i -> run(this::run));
         m.add("Reload project and modules   F5").setOnMenuItemClickListener(i -> run(this::reloadAll));
         m.add("Build module...").setOnMenuItemClickListener(i -> run(() -> build(anchor)));
@@ -665,6 +677,150 @@ public class EditorFragment extends Fragment {
         var transition = new icyllis.modernui.animation.LayoutTransition();
         transition.setDuration(160);
         return transition;
+    }
+
+    private String tabsRestoredFor;
+    private String tabsRemembered = "";
+
+    /** The first time a project's files arrive with no tab open, its last tabs reopen; afterwards the tabs are remembered. */
+    private void rememberOrRestoreTabs(State next) {
+        String id = next.projectId();
+        if (id == null || next.files().isEmpty()) {
+            return;
+        }
+        if (!id.equals(tabsRestoredFor)) {
+            tabsRestoredFor = id;
+            List<String> saved = settings.openTabs.getOrDefault(id, List.of());
+            if (next.tabs().isEmpty() && !saved.isEmpty()) {
+                for (String path : saved) {
+                    if (next.files().contains(path)) {
+                        store(s -> s.openFile(path)); // the last one opened ends up active
+                    }
+                }
+                return;
+            }
+        }
+        List<String> tabs = new ArrayList<>();
+        for (String tab : next.tabs()) {
+            if (!tab.equals(next.active()) && next.files().contains(tab)) {
+                tabs.add(tab);
+            }
+        }
+        if (next.active() != null && next.files().contains(next.active())) {
+            tabs.add(next.active());
+        }
+        String signature = id + "|" + tabs;
+        if (!signature.equals(tabsRemembered)) {
+            tabsRemembered = signature;
+            settings.openTabs.put(id, tabs);
+            settings.save();
+        }
+    }
+
+    // ---- settings (Ctrl+Alt+S)
+
+    private void showSettings() {
+        var dialog = Overlays.dialog(code, "Settings - Esc closes", 420, -1);
+        Context context = code.getContext();
+        dialog.body.addView(settingToggle(context, "Minimap", () -> settings.minimap, value -> {
+            settings.minimap = value;
+            updateMinimap();
+        }));
+        dialog.body.addView(settingToggle(context, "Indent guides", () -> settings.indentGuides, value -> {
+            settings.indentGuides = value;
+            code.setIndentGuides(value);
+        }));
+        dialog.body.addView(settingToggle(context, "Sticky scroll (pin the def you are in)", () -> settings.stickyScroll, value -> {
+            settings.stickyScroll = value;
+            updateSticky();
+        }));
+        dialog.body.addView(settingToggle(context, "Focus mode (dim all but this function)", () -> settings.focusMode, value -> {
+            settings.focusMode = value;
+            updateFocus();
+        }));
+        dialog.body.addView(settingToggle(context, "Trim trailing spaces on save", () -> settings.trimOnSave,
+                value -> settings.trimOnSave = value));
+        dialog.body.addView(settingStepper(context, "Font size", () -> Math.round(settings.fontSize) + "", step -> zoom(step)));
+        dialog.body.addView(settingStepper(context, "Right margin (ruler)", () -> settings.ruler == 0 ? "off" : settings.ruler + "",
+                step -> {
+                    settings.ruler = Math.clamp(settings.ruler + step * 10, 0, 200);
+                    applyTheme();
+                }));
+        dialog.body.addView(settingStepper(context, "Color scheme", () -> settings.theme().label, step -> {
+            EditorTheme[] all = EditorTheme.values();
+            settings.theme = all[Math.floorMod(settings.theme().ordinal() + step, all.length)].name();
+            applyTheme();
+            if (split != null) {
+                split.applySettings();
+            }
+        }));
+        dialog.show();
+    }
+
+    private View settingToggle(Context context, String text, java.util.function.BooleanSupplier get,
+                               java.util.function.Consumer<Boolean> set) {
+        var row = row(context);
+        row.setPadding(row.dp(4), row.dp(4), row.dp(4), row.dp(4));
+        var name = label(context, text, R.attr.textAppearanceBodyMedium);
+        name.setTextColor(IdeColors.TEXT);
+        row.addView(name, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        var value = label(context, "", R.attr.textAppearanceLabelLarge);
+        Runnable show = () -> {
+            value.setText(get.getAsBoolean() ? "On" : "Off");
+            value.setTextColor(get.getAsBoolean() ? IdeColors.ACCENT : IdeColors.TEXT_SECONDARY);
+        };
+        show.run();
+        value.setPadding(value.dp(12), value.dp(4), value.dp(12), value.dp(4));
+        value.setClickable(true);
+        hoverBackground(value);
+        value.setOnClickListener(v -> {
+            set.accept(!get.getAsBoolean());
+            settings.save();
+            show.run();
+        });
+        row.addView(value);
+        return row;
+    }
+
+    private View settingStepper(Context context, String text, java.util.function.Supplier<String> get,
+                                java.util.function.IntConsumer step) {
+        var row = row(context);
+        row.setPadding(row.dp(4), row.dp(4), row.dp(4), row.dp(4));
+        var name = label(context, text, R.attr.textAppearanceBodyMedium);
+        name.setTextColor(IdeColors.TEXT);
+        row.addView(name, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        var value = label(context, get.get(), R.attr.textAppearanceLabelLarge);
+        value.setTextColor(IdeColors.TEXT);
+        value.setGravity(Gravity.CENTER);
+        row.addView(action(context, IdeIcon.Glyph.MINUS, "Less", v -> {
+            step.accept(-1);
+            settings.save();
+            value.setText(get.get());
+        }));
+        row.addView(value, new LinearLayout.LayoutParams(row.dp(110), WRAP_CONTENT));
+        row.addView(action(context, IdeIcon.Glyph.PLUS, "More", v -> {
+            step.accept(1);
+            settings.save();
+            value.setText(get.get());
+        }));
+        return row;
+    }
+
+    /** Alt+Shift+E (IntelliJ "Execute selection in console"): the selection, or the caret's line, runs in the console. */
+    private void executeSelection() {
+        String text = code.getText().toString();
+        int from = Math.min(code.getSelectionStart(), code.getSelectionEnd());
+        int to = Math.max(code.getSelectionStart(), code.getSelectionEnd());
+        String source = from == to ? text.substring(TextOps.lineStart(text, from), TextOps.lineEnd(text, from)) : text.substring(from, to);
+        if (source.isBlank()) {
+            return;
+        }
+        String dedented = java.util.Arrays.stream(source.stripIndent().split("\n")).collect(java.util.stream.Collectors.joining("\n"));
+        openPanel(PANEL_CONSOLE);
+        store(s -> {
+            s.append(">>> " + dedented.replace("\n", "\n... "));
+            s.evaluate(dedented);
+        });
     }
 
     // ---- line commands, navigation and actions (IntelliJ shortcuts)
@@ -839,6 +995,8 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("UI designer", "", tools::uiDesigner));
         a.add(new ActionEntry("New UI window", "", tools::newWindow));
         a.add(new ActionEntry("Keyboard shortcuts", "F1", this::showShortcuts));
+        a.add(new ActionEntry("Settings", "Ctrl+Alt+S", this::showSettings));
+        a.add(new ActionEntry("Execute selection in console", "Alt+Shift+E", this::executeSelection));
         a.add(new ActionEntry("Help", "", () -> HelpPanel.open(code)));
         return a;
     }
@@ -1859,6 +2017,7 @@ public class EditorFragment extends Fragment {
         if (splitOpen()) {
             split.refresh();
         }
+        rememberOrRestoreTabs(next);
         boolean activeChanged = !java.util.Objects.equals(next.active(), revealed);
         revealed = next.active();
         if (!next.files().equals(shownFiles)) {
@@ -1943,11 +2102,11 @@ public class EditorFragment extends Fragment {
     }
 
     /** Folders that are open in the tree, per project; survives page switches. */
-    private static final Map<String, Set<String>> EXPANDED = new HashMap<>();
     private List<FileTree.Row> treeRows = List.of();
 
+    /** Open folders of this project's tree, remembered across sessions (settings.expanded). */
     private Set<String> expandedSet() {
-        return EXPANDED.computeIfAbsent(projectId() == null ? "" : projectId(), k -> new HashSet<>(List.of("code")));
+        return settings.expanded.computeIfAbsent(projectId() == null ? "" : projectId(), k -> new TreeSet<>(List.of("code")));
     }
 
     private void renderExplorer() {
@@ -2034,16 +2193,19 @@ public class EditorFragment extends Fragment {
         if (!open.remove(folder)) {
             open.add(folder);
         }
+        settings.save();
         renderExplorer();
     }
 
     private void collapseAll() {
         expandedSet().clear();
+        settings.save();
         renderExplorer();
     }
 
     private void expandAll() {
         expandedSet().addAll(FileTree.folders(shownFiles));
+        settings.save();
         renderExplorer();
     }
 
@@ -2557,6 +2719,20 @@ public class EditorFragment extends Fragment {
             errors += p.severity() == CodeProblems.Severity.ERROR ? 1 : 0;
         }
         int warnings = count - errors;
+        java.util.Map<Integer, Integer> marks = new java.util.HashMap<>();
+        for (ValidationProblem p : next.problems()) {
+            if (p.file().isEmpty() || p.file().equals(shownPath)) {
+                marks.merge(p.line(), p.isError() ? 2 : 1, Math::max);
+            }
+        }
+        for (CodeProblems.Problem p : next.localProblems()) {
+            if (p.severity() != CodeProblems.Severity.INFO) {
+                marks.merge(p.line(), p.severity() == CodeProblems.Severity.ERROR ? 2 : 1, Math::max);
+            }
+        }
+        if (minimap != null) {
+            minimap.setMarks(marks);
+        }
         if (count == 0) {
             statusProblems.setText("✓ No problems");
             statusProblems.setTextColor(IdeColors.SUCCESS);
@@ -2810,6 +2986,10 @@ public class EditorFragment extends Fragment {
             renameInFile();
             return true;
         }
+        if (event.isAltPressed() && !ctrl && shift && keyCode == KeyEvent.KEY_E) {
+            executeSelection();
+            return true;
+        }
         if (event.isAltPressed() && !ctrl && shift && (keyCode == KeyEvent.KEY_UP || keyCode == KeyEvent.KEY_DOWN)) {
             lineEdit(LineEdits.moveLines(code.getText().toString(), code.getSelectionStart(), code.getSelectionEnd(),
                     keyCode == KeyEvent.KEY_UP));
@@ -2864,6 +3044,7 @@ public class EditorFragment extends Fragment {
                 case KeyEvent.KEY_V -> tools.extractVariable();
                 case KeyEvent.KEY_M -> tools.extractFunction();
                 case KeyEvent.KEY_L -> reformatFile();
+                case KeyEvent.KEY_S -> showSettings();
                 default -> {
                     return false;
                 }

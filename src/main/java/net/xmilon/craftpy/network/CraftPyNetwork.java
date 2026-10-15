@@ -44,6 +44,25 @@ public final class CraftPyNetwork {
         }
     }
 
+    /**
+     * A short action-bar line for every player allowed to use CraftPy ("ruby_rush loaded: 3 blocks, 4 items"), so a
+     * reload is visible without opening the IDE. Any thread.
+     */
+    public static void notifyEditors(MinecraftServer server, String message, boolean error) {
+        if (server == null || message == null || message.isBlank()) {
+            return;
+        }
+        server.execute(() -> {
+            var text = net.minecraft.network.chat.Component.literal("CraftPy: " + message)
+                    .withStyle(error ? net.minecraft.ChatFormatting.RED : net.minecraft.ChatFormatting.GREEN);
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                if (ProjectRequestHandler.Caller.of(player).allowed()) {
+                    player.displayClientMessage(text, true);
+                }
+            }
+        });
+    }
+
     /** Pushes a console line (e.g. project print()/ctx.log output) to every player. */
     public static void broadcastConsole(MinecraftServer server, String message) {
         if (server == null || message == null || message.isBlank()) {

@@ -94,6 +94,7 @@ public final class ProjectController {
                     CraftPyLog.LOGGER.error("Load pipeline failed for {}", projectId, error);
                     manager.markLoaded(projectId, false);
                     manager.setLastError(projectId, "Load pipeline failed: " + error.getMessage());
+                    net.xmilon.craftpy.network.CraftPyNetwork.notifyEditors(server, projectId + " failed - details in the IDE console", true);
                     if (server != null) {
                         server.execute(() -> {});
                     }
@@ -120,9 +121,11 @@ public final class ProjectController {
                     // Rollback: keep last known good definitions running.
                     CraftPyLog.LOGGER.warn("Project {} reload failed, keeping previous version: {}", projectId, message);
                     manager.setLastError(projectId, "Reload failed - previous version kept: " + message);
+                    net.xmilon.craftpy.network.CraftPyNetwork.notifyEditors(server, projectId + " failed - details in the IDE console", true);
                 } else {
                     manager.markLoaded(projectId, false);
                     manager.setLastError(projectId, message);
+                    net.xmilon.craftpy.network.CraftPyNetwork.notifyEditors(server, projectId + " failed - details in the IDE console", true);
                     CraftPyLog.LOGGER.error("Project {} failed to load: {}", projectId, message);
                 }
                 net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server,
@@ -155,9 +158,11 @@ public final class ProjectController {
                 String message = (e.getMessage() == null ? e.toString() : e.getMessage());
                 if (SlotRegistry.declarations(projectId) != null) {
                     manager.setLastError(projectId, "Reload failed - previous version kept: " + message);
+                    net.xmilon.craftpy.network.CraftPyNetwork.notifyEditors(server, projectId + " failed - details in the IDE console", true);
                 } else {
                     manager.markLoaded(projectId, false);
                     manager.setLastError(projectId, message);
+                    net.xmilon.craftpy.network.CraftPyNetwork.notifyEditors(server, projectId + " failed - details in the IDE console", true);
                 }
                 net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server,
                         "[" + projectId + "] ERROR: " + message);
@@ -179,6 +184,8 @@ public final class ProjectController {
                 }
                 manager.markLoaded(projectId, true);
                 manager.setLastError(projectId, null);
+                net.xmilon.craftpy.network.CraftPyNetwork.notifyEditors(server,
+                        projectId + " loaded: " + blocks + " block(s), " + items + " item(s)", false);
                 CraftPyLog.LOGGER.info("Loaded project {} ({} block(s), {} item(s), {} datapack entr{}), scripts: {}",
                         projectId, blocks, items, declarations.datapack().size(),
                         declarations.datapack().size() == 1 ? "y" : "ies", declarations.log());

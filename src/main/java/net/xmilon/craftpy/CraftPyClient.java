@@ -91,9 +91,11 @@ public class CraftPyClient {
     static void onInput(InputEvent.Key event) {
         if (OPEN_IDE_KEY.consumeClick()) {
             Minecraft mc = Minecraft.getInstance();
-            if (mc.player != null && mc.player.hasPermissions(2)) { // Cheats/admin only
+            // admins, or the owner of a singleplayer world (the server checks again on every request)
+            if (mc.player != null && (mc.player.hasPermissions(2) || mc.hasSingleplayerServer())) {
                 if (mc.screen == null) {
-                    mc.setScreen(CraftPyFragment.createScreen(CraftPyFragment.PAGE_HOME));
+                    boolean project = net.xmilon.craftpy.client.ClientProjectStore.getInstance().selectedId() != null;
+                    mc.setScreen(CraftPyFragment.createScreen(project ? CraftPyFragment.PAGE_EDITOR : CraftPyFragment.PAGE_HOME));
                 }
             }
         }
