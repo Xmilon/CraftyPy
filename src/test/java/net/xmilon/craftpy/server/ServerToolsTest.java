@@ -98,4 +98,29 @@ class ServerToolsTest {
         assertTrue(Files.exists(project.resolve("assets/textures/garnet.png")));
         assertFalse(Files.exists(project.resolve("assets/textures/ruby.png")));
     }
+
+    @Test
+    void addPartWritesTheFileAndImportsItInMain(@TempDir Path dir) throws Exception {
+        Path project = dir.resolve("demo");
+        Files.createDirectories(project.resolve("code"));
+        Files.writeString(project.resolve("code/main.py"), "from craftpy import *\nimport items\n", StandardCharsets.UTF_8);
+        Constructor<ProjectManager> constructor = ProjectManager.class.getDeclaredConstructor(Path.class);
+        constructor.setAccessible(true);
+        ProjectManager manager = constructor.newInstance(dir);
+
+        JsonObject request = new JsonObject();
+        request.addProperty("op", "add_part");
+        request.addProperty("module", "shop");
+        request.addProperty("content", "from craftpy import *\n");
+        request.addProperty("patchMain", true);
+        var reply = ProjectTools.handle(manager, "demo", request.toString()).get();
+        assertTrue(reply.success(), reply.message());
+        assertEquals("from craftpy import *\n", Files.readString(project.resolve("code/shop.py")));
+        assertEquals("from craftpy import *\nimport items\nimport shop\n", Files.readString(project.resolve("code/main.py")));
+
+        var again = ProjectTools.handle(manager, "demo", request.toString()).get();
+        assertFalse(again.success(), "an existing file is never overwritten");
+        request.addProperty("module", "../evil");
+        assertFalse(ProjectTools.handle(manager, "demo", request.toString()).get().success());
+    }
 }

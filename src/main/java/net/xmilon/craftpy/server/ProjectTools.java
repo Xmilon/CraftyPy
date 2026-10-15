@@ -56,8 +56,53 @@ public final class ProjectTools {
             case "trace" -> done(trace(request));
             case "complete", "hover" -> assist(op, projectId, request);
             case "changes" -> done(changes(projectId));
+            case "add_part" -> addPart(manager, projectId, request);
             default -> done(error(op, "Unknown tool: " + op));
         };
+    }
+
+    // -- building blocks: a new file connected to main.py ----------------------------
+
+    /**
+     * Writes {@code code/<module>.py} and, with {@code patchMain}, adds {@code import <module>} to {@code code/main.py}.
+     * The editor sends {@code patchMain=false} when main.py is open in it: it patches its own buffer instead, so an unsaved
+     * main.py is never overwritten here.
+     */
+    private static CompletableFuture<ResponsePayload> addPart(ProjectManager manager, String projectId, JsonObject request) {
+        String module = string(request, "module");
+        String content = string(request, "content");
+        boolean patchMain = request.has("patchMain") && request.get("patchMain").getAsBoolean();
+        if (!module.matches("[a-z_][a-z0-9_]{0,63}")) {
+            return done(error("add_part", "Not a valid file name: " + module + " (lowercase letters, digits and _)"));
+        }
+        String path = "code/" + module + ".py";
+        return manager.snapshot(projectId).thenCompose(snapshot -> {
+            if (snapshot.paths().contains(path)) {
+                return done(error("add_part", path + " already exists"));
+            }
+            return manager.writeFile(projectId, path, content).thenCompose(written -> {
+                if (!written.success()) {
+                    return done(error("add_part", written.message()));
+                }
+                JsonObject out = new JsonObject();
+                out.addProperty("op", "add_part");
+                out.addProperty("path", path);
+                String main = snapshot.texts().get("code/main.py");
+                if (!patchMain || main == null) {
+                    out.addProperty("main", false);
+                    return done(ok(out));
+                }
+                String patched = net.xmilon.craftpy.analysis.PyImports.addImport(main, module);
+                if (patched.equals(main)) {
+                    out.addProperty("main", true);
+                    return done(ok(out));
+                }
+                return manager.writeFile(projectId, "code/main.py", patched).thenApply(result -> {
+                    out.addProperty("main", result.success());
+                    return ok(out);
+                });
+            });
+        });
     }
 
     // -- symbols (21) -------------------------------------------------------------

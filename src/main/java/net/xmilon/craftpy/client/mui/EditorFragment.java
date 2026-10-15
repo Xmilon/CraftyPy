@@ -118,6 +118,8 @@ public class EditorFragment extends Fragment {
     private ToolStripe rightStripe;
     private TextView avatar;
     private SplitEditor split;
+    private BlocksPanel blocks;
+    private View blocksSplitter;
     private View splitSplitter;
     private View mainEditor;
     private TextView statusPosition;
@@ -345,6 +347,9 @@ public class EditorFragment extends Fragment {
                     if (dockSplitter != null) {
                         dockSplitter.setVisibility(visible && !zen ? View.VISIBLE : View.GONE);
                     }
+                    if (visible && blocks != null) {
+                        setBlocksVisible(false); // one tool window on the right at a time
+                    }
                     if (rightStripe != null) {
                         rightStripe.refresh();
                     }
@@ -353,6 +358,11 @@ public class EditorFragment extends Fragment {
         dockSplitter.setVisibility(View.GONE);
         body.addView(dockSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
         body.addView(dock.view(), new LinearLayout.LayoutParams(body.dp(settings.dockWidth), MATCH_PARENT));
+        blocks = new BlocksPanel(context, blocksHost());
+        blocksSplitter = new Splitter(context, true, this::dragBlocks, this::saveLayout);
+        body.addView(blocksSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
+        body.addView(blocks.view(), new LinearLayout.LayoutParams(body.dp(settings.blocksWidth), MATCH_PARENT));
+        setBlocksVisible(false);
         body.addView(separator(context, true), new LinearLayout.LayoutParams(body.dp(1), MATCH_PARENT));
         rightStripe = createRightStripe(context);
         body.addView(rightStripe, new LinearLayout.LayoutParams(body.dp(40), MATCH_PARENT));
@@ -586,19 +596,8 @@ public class EditorFragment extends Fragment {
         return line;
     }
 
-    /** Colored initials of the project, like IntelliJ's project icons: the color follows the name. */
     private void updateAvatar(@Nullable String name) {
-        String clean = name == null ? "" : name.replaceAll("[^A-Za-z0-9 _-]", "").trim();
-        String[] words = clean.split("[ _-]+");
-        String initials = words.length > 1 && !words[1].isEmpty()
-                ? ("" + words[0].charAt(0) + words[1].charAt(0))
-                : clean.length() >= 2 ? clean.substring(0, 2) : clean.isEmpty() ? "?" : clean;
-        avatar.setText(initials.toUpperCase(Locale.ROOT));
-        int[] colors = {0xFF3D8B62, 0xFF4A6FBF, 0xFF9C5DC9, 0xFFB5733C, 0xFF3C8E9E, 0xFFB0485E, 0xFF6B8E2F};
-        var bg = new icyllis.modernui.graphics.drawable.ShapeDrawable();
-        bg.setCornerRadius(avatar.dp(5));
-        bg.setColor(colors[Math.floorMod(clean.hashCode(), colors.length)]);
-        avatar.setBackground(bg);
+        IdeColors.avatar(avatar, name);
     }
 
     private void showProjectMenu(View anchor) {
@@ -628,6 +627,8 @@ public class EditorFragment extends Fragment {
 
     private ToolStripe createRightStripe(Context context) {
         var stripe = new ToolStripe(context);
+        stripe.add(IdeIcon.Glyph.MODULES, "Building blocks: windows, items, blocks, events... ready to insert (Alt+8)",
+                this::blocksVisible, v -> setBlocksVisible(!blocksVisible()));
         stripe.add(IdeIcon.Glyph.IMAGE, "Assets: every texture, model and sound (Alt+9)", () -> dockShows(AssetDock.ASSETS),
                 v -> toggleDock(AssetDock.ASSETS));
         stripe.add(IdeIcon.Glyph.EYE, "Preview: models and textures", () -> dockShows(AssetDock.PREVIEW),
@@ -652,6 +653,157 @@ public class EditorFragment extends Fragment {
         var transition = new icyllis.modernui.animation.LayoutTransition();
         transition.setDuration(160);
         return transition;
+    }
+
+    // ---- building blocks (ready-made code: docs, insert at the cursor, new file imported by main.py)
+
+    private boolean blocksVisible() {
+        return blocks != null && blocks.view().getVisibility() == View.VISIBLE;
+    }
+
+    private void setBlocksVisible(boolean visible) {
+        int visibility = visible && !zen ? View.VISIBLE : View.GONE;
+        blocks.view().setVisibility(visibility);
+        blocksSplitter.setVisibility(visibility);
+        if (visible) {
+            if (dock.visible()) {
+                dock.setVisible(false);
+            }
+            blocks.focusSearch();
+        }
+        if (rightStripe != null) {
+            rightStripe.refresh();
+        }
+    }
+
+    private void dragBlocks(int dx) {
+        var lp = blocks.view().getLayoutParams();
+        int max = Math.max(blocks.view().dp(300), ((View) blocks.view().getParent()).getWidth() / 2);
+        lp.width = Math.clamp(lp.width - dx, blocks.view().dp(240), max);
+        blocks.view().setLayoutParams(lp);
+        settings.blocksWidth = Math.round(lp.width / (float) blocks.view().dp(1));
+    }
+
+    private BlocksPanel.Host blocksHost() {
+        return new BlocksPanel.Host() {
+            @Override
+            public void docs(View anchor, net.xmilon.craftpy.project.BuildingBlocks.Block block) {
+                HelpPanel.openSection(anchor, block.title(), block.docFile(), block.docHeading());
+            }
+
+            @Override
+            public void insert(net.xmilon.craftpy.project.BuildingBlocks.Block block) {
+                insertBlock(block);
+            }
+
+            @Override
+            public void newFile(View anchor, net.xmilon.craftpy.project.BuildingBlocks.Block block) {
+                newBlockFile(anchor, block);
+            }
+
+            @Override
+            public void hide() {
+                setBlocksVisible(false);
+            }
+        };
+    }
+
+    /** Puts the block's code on a new line after the cursor's line (or on the empty line the cursor is on). */
+    private void insertBlock(net.xmilon.craftpy.project.BuildingBlocks.Block block) {
+        if (shownPath == null || !shownPath.endsWith(".py") || (state != null && state.activeVirtual())) {
+            toast("Open a Python file of the project first (or use New file)");
+            return;
+        }
+        String all = code.getText().toString();
+        // content ids come from the name: a second copy of the same block gets name_2, name_3...
+        String name = block.module();
+        for (int n = 2; java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(name) + "\\b").matcher(all).find(); n++) {
+            name = block.module() + "_" + n;
+        }
+        String snippet = block.snippet(name, projectId());
+        int cursor = Math.max(0, code.getSelectionEnd());
+        int lineStart = TextOps.lineStart(all, cursor);
+        int lineEnd = TextOps.lineEnd(all, cursor);
+        boolean blank = all.substring(lineStart, lineEnd).isBlank();
+        String text = blank ? snippet : "\n\n" + snippet;
+        int start = blank ? lineStart : lineEnd;
+        int end = blank ? lineEnd : lineEnd;
+        applyEdit(new TextOps.Edit(start, end, text, start + text.length()));
+        code.requestFocus();
+        toast("Inserted \"" + block.title() + "\"");
+    }
+
+    /** Adds the block as code/<name>.py and connects it: main.py gets "import <name>". */
+    private void newBlockFile(View anchor, net.xmilon.craftpy.project.BuildingBlocks.Block block) {
+        String project = projectId();
+        if (project == null) {
+            toast("Open a project first");
+            return;
+        }
+        String suggested = net.xmilon.craftpy.project.BuildingBlocks.freeModule(block.module(), shownFiles);
+        prompt(anchor, "New file from \"" + block.title() + "\"", suggested, "Create", value -> {
+            String module = value.trim().toLowerCase(Locale.ROOT).replaceAll("\\.py$", "").replaceAll("[^a-z0-9_]", "_");
+            if (!module.matches("[a-z_][a-z0-9_]*")) {
+                toast("Use lowercase letters, digits and _ for the file name");
+                return;
+            }
+            String path = "code/" + module + ".py";
+            if (shownFiles.contains(path)) {
+                toast(path + " already exists");
+                return;
+            }
+            String main = "code/main.py";
+            boolean mainOpen = state != null && state.tabs().contains(main);
+            boolean mainShown = main.equals(shownPath);
+            boolean mainWasDirty = state != null && state.dirtyTabs().contains(main);
+            var args = new com.google.gson.JsonObject();
+            args.addProperty("module", module);
+            args.addProperty("content", block.fill(module, project));
+            args.addProperty("patchMain", !mainOpen);
+            flush();
+            View view = code;
+            store(s -> s.tool("add_part", args, reply -> {
+                if (view == null) {
+                    return;
+                }
+                view.post(() -> {
+                    if (reply.has("error")) {
+                        toast(reply.get("error").getAsString());
+                        return;
+                    }
+                    if (mainShown && main.equals(shownPath)) {
+                        // main.py is in the editor: change the editor's text, not the file under it
+                        String text = code.getText().toString();
+                        String patched = net.xmilon.craftpy.analysis.PyImports.addImport(text, module);
+                        if (!patched.equals(text)) {
+                            int caret = code.getSelectionStart();
+                            applyEdit(new TextOps.Edit(0, text.length(), patched, Math.min(caret, patched.length())));
+                            flush();
+                            if (!mainWasDirty) {
+                                store(st -> st.saveFile(main));
+                            }
+                        }
+                    } else if (mainOpen) {
+                        store(st -> {
+                            String text = st.fileContent(main);
+                            if (text == null) {
+                                return;
+                            }
+                            String patched = net.xmilon.craftpy.analysis.PyImports.addImport(text, module);
+                            if (!patched.equals(text)) {
+                                boolean dirty = st.isDirty(main);
+                                st.markDirty(main, patched);
+                                if (!dirty) {
+                                    st.saveFile(main);
+                                }
+                            }
+                        });
+                    }
+                    store(st -> st.select(project, path));
+                    toast("Added " + path + " and imported it in main.py");
+                });
+            }));
+        });
     }
 
     // ---- split editor (IntelliJ "Split Right")
@@ -1417,6 +1569,7 @@ public class EditorFragment extends Fragment {
         if (zen) {
             dockBeforeZen = dock.visible();
             dock.setVisible(false); // also stops a playing sound
+            setBlocksVisible(false);
             dockSplitter.setVisibility(View.GONE);
         } else if (dockBeforeZen) {
             dock.setVisible(true);
@@ -2316,6 +2469,10 @@ public class EditorFragment extends Fragment {
                 }
                 case KeyEvent.KEY_9 -> {
                     toggleDock(AssetDock.ASSETS);
+                    return true;
+                }
+                case KeyEvent.KEY_8 -> {
+                    setBlocksVisible(!blocksVisible());
                     return true;
                 }
                 default -> {

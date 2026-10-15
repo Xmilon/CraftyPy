@@ -254,6 +254,11 @@ public class HomeFragment extends Fragment {
         row.setPadding(dp12, row.dp(8), row.dp(4), row.dp(8));
         row.setMinimumHeight(row.dp(56));
         hoverBackground(row);
+        var avatar = label(context, "", R.attr.textAppearanceLabelLarge);
+        IdeColors.avatar(avatar, project.name.isBlank() ? project.id : project.name);
+        var avatarLp = new LinearLayout.LayoutParams(row.dp(32), row.dp(32));
+        avatarLp.rightMargin = row.dp(12);
+        row.addView(avatar, avatarLp);
 
         var text = new LinearLayout(context);
         text.setOrientation(LinearLayout.VERTICAL);

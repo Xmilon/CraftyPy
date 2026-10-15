@@ -79,6 +79,28 @@ final class HelpPanel {
         dialog.show();
     }
 
+    /** One section of a bundled document (from its heading to the next one of the same level) in a dialog. */
+    static void openSection(View anchor, String title, String file, String heading) {
+        var dialog = Overlays.dialog(anchor, title + " - Esc closes", 640, 24);
+        var text = new TextView(anchor.getContext());
+        text.setTextIsSelectable(true);
+        int pad = text.dp(12);
+        text.setPadding(pad, pad / 2, pad, pad);
+        text.setText("Loading...");
+        var scroll = new ScrollView(anchor.getContext());
+        scroll.addView(text, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        int windowHeight = anchor.getRootView().getHeight();
+        int height = windowHeight > 0 ? Math.max(anchor.dp(200), Math.min(anchor.dp(520), windowHeight - anchor.dp(160)))
+                : anchor.dp(420);
+        dialog.body.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, height));
+        var markflow = Markflow.create(anchor.getContext());
+        IdeHost.get().execute(() -> {
+            String markdown = net.xmilon.craftpy.project.BuildingBlocks.section(load(file), heading);
+            text.post(() -> markflow.setMarkdown(text, markdown));
+        });
+        dialog.show();
+    }
+
     private static String load(String file) {
         try (InputStream in = IdeHost.get().doc(file)) {
             if (in == null) {

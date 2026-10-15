@@ -152,6 +152,23 @@ public final class IdeColors {
         return line;
     }
 
+    /** Colored initials of a project, like IntelliJ's project icons: the color follows the name. */
+    static void avatar(icyllis.modernui.widget.TextView view, @icyllis.modernui.annotation.Nullable String name) {
+        String clean = name == null ? "" : name.replaceAll("[^A-Za-z0-9 _-]", "").trim();
+        String[] words = clean.split("[ _-]+");
+        String initials = words.length > 1 && !words[0].isEmpty() && !words[1].isEmpty()
+                ? "" + words[0].charAt(0) + words[1].charAt(0)
+                : clean.length() >= 2 ? clean.substring(0, 2) : clean.isEmpty() ? "?" : clean;
+        view.setText(initials.toUpperCase(java.util.Locale.ROOT));
+        view.setGravity(Gravity.CENTER);
+        view.setTextColor(0xFFFFFFFF);
+        int[] colors = {0xFF3D8B62, 0xFF4A6FBF, 0xFF9C5DC9, 0xFFB5733C, 0xFF3C8E9E, 0xFFB0485E, 0xFF6B8E2F};
+        var bg = new ShapeDrawable();
+        bg.setCornerRadius(view.dp(5));
+        bg.setColor(colors[Math.floorMod(clean.hashCode(), colors.length)]);
+        view.setBackground(bg);
+    }
+
     /** A raised card: panel color, thin border, rounded like IntelliJ's popups. */
     static ShapeDrawable card(icyllis.modernui.view.View view) {
         var bg = new ShapeDrawable();

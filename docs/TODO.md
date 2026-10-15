@@ -34,14 +34,14 @@ UI code, update REPORT/AUDIT/README/guide after each batch, never plant bugs. Se
 
 ## 1. Fix first: found in the first in-game session (2026-10-15)
 
-- [ ] **Textures are not applied** to CraftPy items/blocks in game. Not investigated yet. Start with: does the dynamic pack
-  contain the textures (`run/pyforge/system/...` and the rebuilt `craftpy:dynamic` pack), does the client get the pack after
-  `Module welcome synced to clients` (`ClientPackSync`), do the slot models point at `<namespace>:...` after the M12 texture-pack
-  namespace change in `PackBuilder`, and does the client reload resources after the sync.
-- [ ] **Complex syntax is not completed** in the editor. Simple names and keywords work; to check and fix: chained calls
-  (`Item(...).extends(` / `.extends(Sword(`), attributes of values returned by calls, `event.` inside `@on` handlers
-  (`event.player.`, `event.block.`), attributes of instances and of class members, arguments of nested calls, completion inside
-  lists/dicts passed to calls. Code: worker `_complete`, `server/CompletionEngine`, `analysis/StringContext`, `client/mui/CodeAssist`.
+- [x] **Textures are not applied** (2026-10-16): project textures at the root of `textures/` (`welcome:gem`) are not in the
+  block atlas, which only stitches `textures/block/` and `textures/item/`. `PackBuilder.blockAtlas` writes
+  `assets/minecraft/atlases/blocks.json` with a `single` source per such texture (atlas files of all packs are merged).
+  **Check in game.** Known limit: a client on a remote dedicated server only has the pack the server's folder holds when both
+  share the game folder (dev setup); sending the pack to remote clients is not done.
+- [x] **Complex syntax is not completed** (2026-10-16): the worker infers types statically (`_infer`, `_members`): chained
+  calls, `event.` in `@on`/`@command`/`@every`/`@action` handlers, locals, `for` loops, `self.` in classes of the file, values
+  returned by defs, keyword arguments of the call being typed (any nesting). API classes carry annotations for it. **Check in game.**
 - [x] `block_tick` / `block_interact` failed on every tick with `property 'pos' of '_EventContext' object has no setter`
   (`SlottedBlockEntity` sent `pos` as a string). Now sends the shape of every other block event (x/y/z, dimension, block, player).
   Test: `test_block_tick_and_interact_context_from_a_block_entity`. **Needs one look in game** (a block with `@on.block_tick`).
@@ -56,18 +56,17 @@ UI code, update REPORT/AUDIT/README/guide after each batch, never plant bugs. Se
 
 ## 2. M18: IDE without launching Minecraft (in progress)
 
-Done: spike (Modern UI runs on a plain JVM), step 1 (`IdeHost`/`McHost`, `CraftPyLog`). Remaining, in this order, each step
-compiled and tested alone (details and error counts in REPORT M18):
-- [ ] `RequestPayload` / `ResponsePayload`: a plain `Response` record behind the packets (store and handler use them as data).
-- [ ] `Config.safe(...)` (defaults when the NeoForge config is not loaded); `PyForgePaths` honouring `-Dcraftpy.home`.
-- [ ] `python/HostBridge` and `registry/SlotRegistry` (via `ProjectTools.ownIds`, `Declarations`) behind small interfaces.
-- [ ] `ProjectService` taking a `Caller` (permission, upload key, reload/refresh callbacks); `ProjectRequestHandler` becomes the
-  player adapter (window events stay there).
-- [ ] `client/assets/*` (AssetIndex, AssetInfo, AssetPreview, SoundPreview) read from the catalog / files instead of Minecraft
-  registries when there is no game; 3D preview, sound preview and Run-in-world disabled through capabilities.
-- [ ] Copy the few `ThemeControl` / `ClampingScrollView` members used (or find MC-free equivalents).
-- [ ] `ide/IdeMain` (+ `LocalBackend`), `runIde` and `ideJar` Gradle tasks, smoke test printing `CraftPy IDE ready`.
-  Classpath that worked in the spike is in REPORT M18. Limit: with no game ever started the catalog is only the seeds + jar scan.
+Done (2026-10-16): `gradlew runIde` opens the IDE in its own window on `run/` (or `-PcraftpyHome=<game folder>`);
+`gradlew ideSmokeTest` starts it headless. How: the game's classes stay on the classpath but are never bootstrapped (the unit
+tests already ran that way), so the payload records, `Config` (`Config.get` falls back to defaults) and the handler are reused
+as they are. `ProjectRequestHandler.Caller.LOCAL` has no server: load/unload/modules answer "Needs the game". `IdeMain`,
+`LocalHost` (requests in-process, Modern UI thread, system clipboard), `WindowChrome` (title, logo icon, dark Windows caption).
+Remaining:
+- [ ] Assets dock, 3D preview and sound preview read the game's resource manager: in the standalone window they must read the
+  bundled vanilla assets jar instead, or say "needs the game" (check every `client/assets/*` entry point).
+- [ ] `ideJar`: one runnable jar with Modern UI (today `runIde` needs the Gradle classpath).
+- [ ] Optional later: the decoupling steps of the old plan (plain `Response` record, `HostBridge`/`SlotRegistry` interfaces)
+  only matter for an IDE without the game jar on the classpath.
 
 ## 3. M16 gaps (mod catalog / completion), from the plan but not confirmed done
 
@@ -118,6 +117,44 @@ At the end of a batch: remake the shipped example (`src/main/resources/craftpy_d
 reset `run/pyforge` for the dev client (move it out of the repo, backup in the scratchpad, never a hard delete; re-seed `welcome`
 from the manifest; the game writes the marker on next start). **Not done for M16-M18**; the session built and installed the
 `welcome` module into `run/pyforge/modules/` while testing.
+
+## 9. The 50 new features (asked 2026-10-16: "IDE, UI, quality of life, actual coding; then refine everything")
+
+Done:
+1. IntelliJ New UI look in game and standalone: one palette (`IdeColors`), painted icons (`IdeIcon`), fading hover states.
+2. VS Code activity bar (Home / Editor / Modules / Docs).
+3. Main toolbar: project widget with colored initials, menus, Search Everywhere box, run widget (Run / Reload / Stop).
+4. Tool window stripes on both edges; Project, Bookmarks, Console, Problems, Events, Assets, Preview, Texture, Sound, Blocks.
+5. Alt+1/2/4/6/7/8/9 tool window shortcuts; open/closed state remembered.
+6. Resizable split editor (Ctrl+\, tab menu "Split right", View menu); never two editors on one file.
+7. IntelliJ editor tabs: file icons, accent underline, VS Code dot for unsaved files.
+8. Animated tool windows (LayoutTransition).
+9. Console: read-only editor view (scrolls sideways, selecting no longer jumps), colored errors / input / results.
+10. Building Blocks tool window (the user's idea): 30 ready-made pieces in 9 categories, each with Docs (its section of the
+    API docs), Insert at the cursor, New file (`code/<name>.py` + `import <name>` in main.py, also when main.py is open).
+11. Project avatars on the Home page.
+12. Standalone window: logo icon, dark caption.
+13. Save replies name their file (fixes a real data-loss risk: edits typed while saving were marked saved).
+Planned (wave 2 onward):
+14. Toggle line comment Ctrl+/ (shortcut list moves to F1 only). 15. Duplicate line Ctrl+D. 16. Delete line Ctrl+Y.
+17. Move line up/down Alt+Shift+Up/Down. 18. Reopen closed tab Ctrl+Shift+T. 19. Close others/all/to the right.
+20. Middle-click closes a tab. 21. Hide all tool windows Ctrl+Shift+F12 / double-click a tab. 22. Find Action Ctrl+Shift+A.
+23. Find in Files Ctrl+Shift+F (server grep). 24. TODO tool window. 25. Console traceback lines jump to the file.
+26. Status bar: problem counts (click: Problems). 27. Status bar: indent "4 spaces". 28. Bracket match highlight.
+29. Indent guides. 30. Current line number highlight in the gutter. 31. Problem marks on the minimap.
+32. Explorer file-type icons. 33. Expanded folders remembered. 34. Open tabs restored per project.
+35. Fuzzy completion (initials: `gb` -> `get_block`) with prefix matches first. 36. Signature help while typing arguments.
+37. Undefined-name and unused-import warnings in the worker lint. 38. Live templates (Tab after `onb`, `cmd`, `item`...).
+39. Reformat file Ctrl+Alt+L (whitespace-safe). 40. Rename a local name in the file Shift+F6 (strings/comments untouched).
+41. Go to line Ctrl+G. 42. Smart backspace (one indent level). 43. Hover on an id string shows its mod and kind.
+44. Settings dialog Ctrl+Alt+S. 45. Notification balloons (bottom right). 46. Recent projects in the project widget.
+47. Tip of the day on Home. 48. Completion in the console input. 49. In game: action-bar message when a project reloaded.
+50. In game: a key to open the IDE on the project you last used.
+
+## 10. IntelliJ-style layout (asked 2026-10-16)
+
+Done in section 9 (1-8). Open: the Home and Modules pages still use cards; a Welcome-screen layout (left list of
+"Projects / Customize / Learn" like IntelliJ) would match the rest.
 
 ## 8. Known limits (from the last "what is missing" list)
 

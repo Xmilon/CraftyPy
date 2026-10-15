@@ -723,6 +723,27 @@ def test_hover_uses_inferred_types():
     assert h["title"] == "event: EventContext", h
 
 
+def test_every_building_block_loads_as_a_file_of_a_project():
+    # what the editor's "New file" does: code/<module>.py from the template, "import <module>" in main.py
+    root = os.path.join(HERE, "..", "..", "main", "resources", "craftpy_blocks")
+    index = [line.strip() for line in open(os.path.join(root, "index.txt"), encoding="utf-8")
+             if line.strip() and not line.startswith("#")]
+    assert len(index) >= 25, index
+    for number, rel in enumerate(index):
+        text = open(os.path.join(root, rel), encoding="utf-8").read()
+        meta = dict(line[2:].strip().split(":", 1) for line in text.splitlines() if line.startswith("#:"))
+        module = meta["module"].strip()
+        body = "\n".join(line for line in text.splitlines() if not line.startswith("#:"))
+        project = "bb%d" % number
+        filled = body.replace("{{name}}", module).replace("{{id}}", project)
+        main = "from craftpy import *\nimport " + module + "\n"
+        result = w._handle("run_main", {"project": project, "code": main, "file": "code/main.py",
+                                        "sources": {"code/" + module + ".py": filled}})
+        assert not result.get("error"), (rel, result.get("error"))
+        compile(filled.replace("from craftpy import *", ""), rel, "exec")  # the Insert snippet parses alone too
+        w._handle("unload_owner", {"owner": project})
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

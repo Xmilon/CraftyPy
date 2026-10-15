@@ -42,6 +42,7 @@ public final class EditorSettings {
     public boolean bottomVisible = true;
     /** Share of the width the main editor keeps while the editor is split. */
     public float splitWeight = 0.5f;
+    public int blocksWidth = 320;
     public Set<String> wrapped = new TreeSet<>();
     public Set<String> pinned = new LinkedHashSet<>();
     public Map<String, TreeSet<Integer>> bookmarks = new LinkedHashMap<>();

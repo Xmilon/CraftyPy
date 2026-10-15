@@ -380,4 +380,35 @@ public final class PyImports {
         }
         return offset;
     }
+
+    /**
+     * {@code source} with {@code import module} added after its last top-level import (or after the leading comments when
+     * it has none), unchanged when the module is already imported. Used to connect a new file to {@code main.py}.
+     */
+    public static String addImport(String source, String module) {
+        String[] lines = source.split("\n", -1);
+        Pattern already = Pattern.compile("^(import\\s+(.*,\\s*)?" + Pattern.quote(module) + "(\\s*(,|as\\b).*)?"
+                + "|from\\s+" + Pattern.quote(module) + "\\s+import\\b.*)\\s*(#.*)?$");
+        int lastImport = -1;
+        int afterComments = 0;
+        boolean header = true;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].stripTrailing();
+            if (already.matcher(line).matches()) {
+                return source;
+            }
+            if (line.startsWith("import ") || line.startsWith("from ")) {
+                lastImport = i;
+            }
+            if (header && (line.isEmpty() || line.startsWith("#"))) {
+                afterComments = i + 1;
+            } else {
+                header = false;
+            }
+        }
+        int at = lastImport >= 0 ? lastImport + 1 : afterComments;
+        List<String> out = new ArrayList<>(List.of(lines));
+        out.add(at, "import " + module);
+        return String.join("\n", out);
+    }
 }
