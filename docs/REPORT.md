@@ -205,6 +205,15 @@
   sessions with file locks, 52 project change log.
 - Unbatched quick ones: 11 LF/CRLF switcher in a status bar, 12 encoding display/conversion.
 
+### In-game session 2026-10-15 (dev server + client, M13-M18 step 1)
+
+First time the mod was run with Create, Mekanism, Iron's Spells, Curios and Modern UI. The PC block opened, `welcome` was built and loaded on the server ("Applied module welcome declarations: 2 block(s), 4 item(s)"), the catalog dump wrote one file per mod. Found:
+- Fixed: `SlottedBlockEntity` sent `pos` as a string, so every `block_tick` / `block_interact` failed in the worker (`property 'pos' ... has no setter`) and handlers with a `block=` filter never matched. It now sends x/y/z + dimension + `block` + `player` like the other block events (`EventBridge.addPosition/wrapBlock` are public). Test in `test_worker.py`.
+- Fixed: `/craftpy give` reported `Gave 0` (the count was read after `Inventory.add`).
+- Open: textures are not applied to CraftPy content; complex syntax is not completed in the editor (both in `docs/TODO.md` section 1).
+- Environment: one client crash was the JVM running out of memory (not CraftPy); server console input needs RCON (`enable-rcon=true` was set in `run/server.properties`).
+- The full to-do list (this session, the two plans and the roadmap) is `docs/TODO.md`.
+
 ### Milestone M18 (in progress): standalone IDE, step 1 of the decoupling
 
 `gradlew --no-daemon test` green. Nothing was clicked in game; the edited call sites are mechanical (same calls, now behind `IdeHost`).

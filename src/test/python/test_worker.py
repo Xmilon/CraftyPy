@@ -633,6 +633,29 @@ def test_params_and_extensions_for_completion():
     assert not any(i["n"] == "Vampiric" for i in items), items
 
 
+def test_block_tick_and_interact_context_from_a_block_entity():
+    # the shape SlottedBlockEntity sends: x/y/z + dimension + block dict (+ player dict); event.pos is built from x/y/z
+    run_main("bt", """
+from craftpy import *
+box = Block("box", texture="box.png")
+seen = []
+
+@on.block_tick(block=box)
+def tick(event):
+    seen.append((event.pos.x, event.pos.y, event.pos.z, event.block.id))
+
+@on.block_interact(block=box)
+def touch(event):
+    seen.append(("touch", event.player.name, event.pos.y))
+""")
+    block = {"id": "bt:box", "name": "Box", "craftpy": True}
+    ctx = {"x": 4, "y": 70, "z": -2, "dimension": "minecraft:overworld", "block": block, "block_id": "bt:box", "state": {}}
+    assert w._handle("trigger_event", {"event": "block_tick", "context": ctx})["handlers"] == 1
+    player = {"name": "Dev", "uuid": "00000000-0000-0000-0000-000000000000"}
+    assert w._handle("trigger_event", {"event": "block_interact", "context": dict(ctx, player=player)})["handlers"] == 1
+    w._handle("unload_owner", {"owner": "bt"})
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

@@ -162,6 +162,7 @@ public final class CraftPyCommand {
                 ? ModItems.SLOT_BLOCK_ITEMS.get(index).get()
                 : ModItems.SLOT_ITEMS.get(index).get();
         ItemStack stack = new ItemStack(item, Math.min(count, item.getDefaultMaxStackSize()));
+        final int giveCount = stack.getCount(); // Inventory.add uses the stack up, so read the number first
 
         boolean added = target.getInventory().add(stack);
         if (!added) {
@@ -173,7 +174,7 @@ public final class CraftPyCommand {
                 .map(java.util.Map.Entry::getKey)
                 .findFirst()
                 .orElse(id.toString());
-        ctx.getSource().sendSuccess(() -> Component.literal("Gave " + stack.getCount() + " [" + holder + " ("
+        ctx.getSource().sendSuccess(() -> Component.literal("Gave " + giveCount + " [" + holder + " ("
                 + given.name().toLowerCase(java.util.Locale.ROOT) + ")] to " + target.getName().getString()), true);
         return 1;
     }

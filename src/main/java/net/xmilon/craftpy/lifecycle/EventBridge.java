@@ -345,7 +345,7 @@ public class EventBridge {
         return obj;
     }
 
-    static JsonObject wrapBlock(BlockState state) {
+    public static JsonObject wrapBlock(BlockState state) {
         JsonObject obj = new JsonObject();
         obj.addProperty("name", state.getBlock().getName().getString());
         if (state.getBlock() instanceof SlottedBlock slotted) {
@@ -387,7 +387,7 @@ public class EventBridge {
         return holder;
     }
 
-    private static void addPosition(JsonObject context, BlockPos pos, Level level) {
+    public static void addPosition(JsonObject context, BlockPos pos, Level level) {
         context.addProperty("x", pos.getX());
         context.addProperty("y", pos.getY());
         context.addProperty("z", pos.getZ());

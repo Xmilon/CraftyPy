@@ -12,6 +12,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.xmilon.craftpy.lifecycle.EventBridge;
 import net.xmilon.craftpy.python.PyRuntime;
 import net.xmilon.craftpy.registry.ModBlockEntities;
 import net.xmilon.craftpy.registry.SlotRegistry;
@@ -35,7 +36,9 @@ public class SlottedBlockEntity extends BlockEntity {
         if (holder == null) return;
 
         JsonObject context = new JsonObject();
-        context.addProperty("pos", pos.getX() + "," + pos.getY() + "," + pos.getZ());
+        // the same shape as every other block event: x/y/z (event.pos is built from them) and the block
+        EventBridge.addPosition(context, pos, level);
+        context.add("block", EventBridge.wrapBlock(state));
         context.addProperty("block_id", holder);
         context.add("state", NbtJson.nbtToJson(pythonState));
 
@@ -53,10 +56,12 @@ public class SlottedBlockEntity extends BlockEntity {
         if (holder == null) return;
 
         JsonObject context = new JsonObject();
-        context.addProperty("pos", pos.getX() + "," + pos.getY() + "," + pos.getZ());
+        // the same shape as every other block event: x/y/z (event.pos is built from them) and the block
+        EventBridge.addPosition(context, pos, player.level());
+        context.add("block", EventBridge.wrapBlock(state));
         context.addProperty("block_id", holder);
         context.add("state", NbtJson.nbtToJson(pythonState));
-        context.addProperty("player", player.getName().getString());
+        context.add("player", EventBridge.wrapPlayer(player));
 
         PyRuntime.get().triggerEvent("block_interact", context).thenAccept(result -> {
             if (result.has("state") && result.get("state").isJsonObject()) {
