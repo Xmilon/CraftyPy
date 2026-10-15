@@ -98,7 +98,7 @@ public final class AssetPreview {
         if (rl == null) {
             return "";
         }
-        Optional<Resource> res = mc().getResourceManager().getResource(rl);
+        Optional<Resource> res = GameResources.manager().getResource(rl);
         if (res.isEmpty()) {
             return "";
         }
@@ -139,7 +139,7 @@ public final class AssetPreview {
                     continue;
                 }
                 ResourceLocation rl = textureResource(ref);
-                if (rl != null && mc().getResourceManager().getResource(rl).isPresent()) {
+                if (rl != null && GameResources.manager().getResource(rl).isPresent()) {
                     return rl;
                 }
             }
@@ -204,7 +204,7 @@ public final class AssetPreview {
                 return null;
             }
             ResourceLocation path = sound.getPath();
-            if (path == null || mc().getResourceManager().getResource(path).isEmpty()) {
+            if (path == null || GameResources.manager().getResource(path).isEmpty()) {
                 return null;
             }
             return path;
@@ -218,7 +218,7 @@ public final class AssetPreview {
         if (rl == null) {
             return null;
         }
-        Optional<Resource> res = mc().getResourceManager().getResource(rl);
+        Optional<Resource> res = GameResources.manager().getResource(rl);
         if (res.isEmpty()) {
             return null;
         }

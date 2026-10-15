@@ -64,6 +64,17 @@ public final class AssetIndex implements ResourceManagerReloadListener {
             }
         }
 
+        if (!GameResources.inGame()) { // the registries need the game; the catalog of the game folder lists them
+            var view = net.xmilon.craftpy.catalog.ModCatalog.get().view();
+            sounds = catalogIds(view, "sound_event", ns);
+            items = catalogIds(view, "item", ns);
+            blocks = catalogIds(view, "block", ns);
+            textures = List.copyOf(tex);
+            models = List.copyOf(mdl);
+            namespaces = Collections.unmodifiableSet(new LinkedHashSet<>(ns));
+            built = true;
+            return;
+        }
         Set<String> snd = new TreeSet<>();
         for (ResourceLocation rl : BuiltInRegistries.SOUND_EVENT.keySet()) {
             snd.add(rl.toString());
@@ -97,6 +108,18 @@ public final class AssetIndex implements ResourceManagerReloadListener {
         built = true;
     }
 
+    private static List<String> catalogIds(net.xmilon.craftpy.catalog.CatalogView view, String kind, Set<String> ns) {
+        Set<String> out = new TreeSet<>();
+        for (var entry : view.all(kind)) {
+            out.add(entry.id());
+            int colon = entry.id().indexOf(':');
+            if (colon > 0) {
+                ns.add(entry.id().substring(0, colon));
+            }
+        }
+        return List.copyOf(out);
+    }
+
     /** True once the first build has finished (the lists are empty until then). */
     public boolean isBuilt() {
         return built;
@@ -112,8 +135,7 @@ public final class AssetIndex implements ResourceManagerReloadListener {
             return;
         }
         building = true;
-        Minecraft mc = Minecraft.getInstance();
-        ResourceManager resourceManager = mc == null ? null : mc.getResourceManager();
+        ResourceManager resourceManager = GameResources.manager();
         // Enumerating every texture/model + registry entry is expensive; never
         // block the render thread. Results simply appear once ready.
         net.xmilon.craftpy.util.CraftPyExecutors.runAsync(() -> {

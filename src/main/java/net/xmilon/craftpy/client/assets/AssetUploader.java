@@ -71,10 +71,10 @@ public final class AssetUploader {
                     }
                     byte[] bytes = Files.readAllBytes(path);
                     String target = targetPath(path, kind);
-                    Minecraft.getInstance().execute(() -> store.uploadAsset(projectId, target, bytes));
+                    net.xmilon.craftpy.client.IdeHost.get().execute(() -> store.uploadAsset(projectId, target, bytes));
                 } catch (IOException e) {
                     CraftPyLog.LOGGER.warn("Failed to read dropped file {}", path, e);
-                    Minecraft.getInstance().execute(() -> store.append("Failed to read " + path.getFileName()));
+                    net.xmilon.craftpy.client.IdeHost.get().execute(() -> store.append("Failed to read " + path.getFileName()));
                 }
             }, CraftPyExecutors.forProject(projectId));
         }

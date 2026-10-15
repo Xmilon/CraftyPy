@@ -46,6 +46,11 @@ public final class McHost implements IdeHost {
     }
 
     @Override
+    public boolean inGame() {
+        return true;
+    }
+
+    @Override
     public void closeScreen() {
         var screen = Minecraft.getInstance().screen;
         if (screen != null) {

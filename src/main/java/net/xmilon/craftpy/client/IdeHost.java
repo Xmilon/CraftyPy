@@ -30,6 +30,11 @@ public interface IdeHost {
     /** Closes the screen or window the editor is shown in. */
     void closeScreen();
 
+    /** True inside the running game: sounds play, the 3D preview screens open, worlds can run projects. */
+    default boolean inGame() {
+        return false;
+    }
+
     /** Used until a host is installed (unit tests): runs inline, keeps the clipboard in memory. */
     IdeHost PLAIN = new IdeHost() {
         private String clipboard = "";

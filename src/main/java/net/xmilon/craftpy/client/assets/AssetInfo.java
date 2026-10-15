@@ -33,8 +33,7 @@ public final class AssetInfo {
         String namespace = id.contains(":") ? id.substring(0, id.indexOf(':')) : "minecraft";
         ResourceLocation resource = resourceLocation(kind, id);
         if (resource != null) {
-            Minecraft mc = Minecraft.getInstance();
-            ResourceManager rm = mc == null ? null : mc.getResourceManager();
+            ResourceManager rm = GameResources.manager();
             if (rm != null) {
                 Optional<Resource> found = rm.getResource(resource);
                 if (found.isPresent()) {

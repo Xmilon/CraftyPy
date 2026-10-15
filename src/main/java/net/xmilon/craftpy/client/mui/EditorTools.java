@@ -803,6 +803,10 @@ final class EditorTools {
 
     private void openPreview(String kind, int slot, String id, List<String> details) {
         store(s -> {
+            if (!net.xmilon.craftpy.client.assets.GameResources.inGame()) {
+                host.toast("The 3D preview needs the game");
+                return;
+            }
             ItemStack stack = ItemStack.EMPTY;
             try {
                 if (kind.equals("block") && slot >= 0 && slot < SlotRegistry.slotBlocks().size()) {

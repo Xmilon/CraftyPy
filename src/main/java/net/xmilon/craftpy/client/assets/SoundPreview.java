@@ -14,7 +14,11 @@ public final class SoundPreview {
     private SoundPreview() {
     }
 
+    /** False when nothing plays: unknown sound, or the standalone IDE (no sound engine, no registries). */
     public static boolean play(String soundId, float pitch, float volume) {
+        if (!GameResources.inGame()) {
+            return false;
+        }
         SoundEvent event = resolve(soundId);
         if (event == null) {
             return false;
@@ -27,13 +31,15 @@ public final class SoundPreview {
 
     public static void stop() {
         if (current != null) {
-            Minecraft.getInstance().getSoundManager().stop(current);
+            if (GameResources.inGame()) {
+                Minecraft.getInstance().getSoundManager().stop(current);
+            }
             current = null;
         }
     }
 
     public static boolean isPlaying() {
-        return current != null && Minecraft.getInstance().getSoundManager().isActive(current);
+        return current != null && GameResources.inGame() && Minecraft.getInstance().getSoundManager().isActive(current);
     }
 
     private static SoundEvent resolve(String soundId) {

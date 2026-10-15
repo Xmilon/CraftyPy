@@ -28,7 +28,7 @@ public final class ModelResources {
             return null;
         }
         try {
-            var resource = Minecraft.getInstance().getResourceManager().getResource(location);
+            var resource = GameResources.manager().getResource(location);
             if (resource.isEmpty()) {
                 return null;
             }
@@ -46,7 +46,7 @@ public final class ModelResources {
             ResourceLocation location = location(key, "textures/", ".png");
             if (location != null) {
                 try {
-                    var resource = Minecraft.getInstance().getResourceManager().getResource(location);
+                    var resource = GameResources.manager().getResource(location);
                     if (resource.isPresent()) {
                         try (InputStream in = resource.get().open()) {
                             PixelBuffer full = TextureCodec.decode(in.readAllBytes());
