@@ -11,6 +11,8 @@ welcome/code/extensions.py
 welcome/code/items.py
 welcome/code/main.py
 welcome/code/recipes.py
+welcome/code/rewards.py
+welcome/code/test_rewards.py
 welcome/code/timers.py
 welcome/code/windows.py
 welcome/project.json

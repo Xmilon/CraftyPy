@@ -4,6 +4,7 @@ import random
 from craftpy import *
 from items import gem, gem_apple, gem_sword, gem_wand
 from blocks import gem_ore, gem_block
+from rewards import apple_due
 
 
 @on.player_join
@@ -14,10 +15,10 @@ def greet(event):
 
 @on.block_break(block=gem_ore)
 def mined_gem(event):
-    mined = storage.get("ores_mined", 0) + 1            # storage is shared by all handlers
+    mined = storage.get("ores_mined", 0) + 1            # storage is shared by all handlers and saved with the world
     storage["ores_mined"] = mined
     event.player.actionbar(f"Gem ores mined: {mined}")
-    if mined % 5 == 0:
+    if apple_due(mined):                                # rewards.py, checked by test_rewards.py
         event.player.give(gem_apple)
         say(f"{event.player.name} found a gem apple after {mined} ores!")
 
