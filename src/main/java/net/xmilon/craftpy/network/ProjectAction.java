@@ -32,6 +32,8 @@ public enum ProjectAction {
     MODULE_SET_ALL,
     MODULE_RELOAD,
     MODULE_DELETE,
+    /** The module debuilder: a .cpm (by path) back into a project; the module is disabled. */
+    MODULE_UNPACK,
     /** Editor tools: symbols, usage, rename... (JSON request, JSON reply). */
     TOOL,
     /** An in-game window sent to the player (server to client). */

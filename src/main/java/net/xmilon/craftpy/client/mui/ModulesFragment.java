@@ -294,6 +294,11 @@ public class ModulesFragment extends Fragment {
         actions.addView(button(context, "Reload", R.attr.buttonTonalStyle,
                 v -> store(s -> s.reloadModule(selected.id))));
         actions.addView(button(context, "Open folder", R.attr.borderlessButtonStyle, v -> openFolder(selected.path)));
+        actions.addView(button(context, "Open as project", R.attr.borderlessButtonStyle,
+                v -> prompt(v, "Open " + Path.of(selected.path).getFileName() + " as a project to edit? A new project is made"
+                                + " (nothing existing is replaced), the module is disabled, and nothing runs until you press Run."
+                                + " Code from others: read it first.", null, "Open as project",
+                        ignored -> store(s -> s.unpackModule(selected.path)))));
         actions.addView(button(context, "Delete", R.attr.borderlessButtonStyle,
                 v -> prompt(v, "Delete " + Path.of(selected.path).getFileName() + " from disk?", null, "Delete",
                         ignored -> {

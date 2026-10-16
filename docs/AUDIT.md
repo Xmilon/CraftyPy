@@ -142,3 +142,19 @@ UI strings are English literals, not lang keys.
 - `recipe("mod:type")` accepts any fields and writes them as given; a bad layout fails in the mod's own recipe loader, not in CraftPy. The `mod_loaded` condition keeps the pack loading without the mod.
 - Raw datapack `namespace` is limited to `[a-z0-9_][a-z0-9_.-]*` and the path stays inside that namespace folder.
 
+## 9. Security assessment of modules (2026-10-16)
+
+Modules are files people share, so a `.cpm` is untrusted input. Found and fixed:
+
+| Risk | Was | Now |
+|---|---|---|
+| Install writes outside the module folder (zip slip) | entry names were used as given: a module could place a jar in `mods/` (Java code outside the Python sandbox on the next start) | `ModuleArchive.safeName`: no `..`, absolute paths, drive letters, `:` streams, NUL, device names, trailing dots; only `code/ assets/ data/ ui/`, `module.json`, README |
+| Module id names folders | `module.json` id used for `system/cache/<id>`; reload deleted that folder | ids must match the project id rule (install, reload, list) |
+| IDE requests name any file | Delete removed any file path the client sent; README opened any zip | `ModuleLoader.knownModuleFile`: only modules CraftPy found under `pyforge/modules` |
+| Zip bombs | unbounded | real bytes counted: 64 MB per file, 256 MB per module, 10 000 entries |
+| Debuilder overwrites or smuggles | (new) | free project id, never overwrites; only project file types (no scripts, programs, `.mcfunction`); `project.json` written by CraftPy from cleaned values; nothing runs; the module is disabled |
+| Client modules | (new) | `ClientModulePack.target` applies the same path rules |
+
+Not a risk today: project/module `data/` folders are not copied into the datapack (only declarations are).
+Open: the Python sandbox itself (see section 10).
+

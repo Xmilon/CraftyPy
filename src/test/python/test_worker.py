@@ -926,6 +926,8 @@ def test_lint_checks():
                      "18 warning No event 'block_brake'"]:
         assert expected in joined, (expected, joined)
     assert "'used' is assigned" not in joined and "'captured' is assigned" not in joined, joined
+    spec = w._handle("validate", {"file": "code/a.py", "code": "x = 3" + NL + "print(f'{x:02d}')" + NL})["problems"]
+    assert spec == [], spec
     clean = w._handle("validate", {"file": "code/main.py", "code": SIMPLE})["problems"]
     assert clean == [], clean
 

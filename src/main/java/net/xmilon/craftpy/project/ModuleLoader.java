@@ -70,6 +70,9 @@ public final class ModuleLoader {
 
     /** Re-loads a single module from its original .cpm file (drop + re-import). */
     public static boolean reload(String id) throws IOException {
+        if (!ProjectManager.isValidId(id)) {
+            return false; // the id names a cache folder that is deleted below
+        }
         synchronized (LOCK) {
             Path file = MODULE_FILES.get(id);
             if (file == null || !Files.isRegularFile(file)) {
@@ -232,6 +235,10 @@ public final class ModuleLoader {
                     meta.id = fileNameId(path);
                     meta.name = meta.id;
                 }
+                if (!ProjectManager.isValidId(meta.id)) {
+                    // it names the cache folder (and its namespace): "../x" would point outside pyforge/
+                    throw new IOException("'" + meta.id + "' is not a valid module id (lowercase letters, digits, _)");
+                }
 
                 if (LOADED_MODULES.containsKey(meta.id)) {
                     CraftPyLog.LOGGER.info("Module {} already loaded, skipping.", meta.id);
@@ -379,6 +386,9 @@ public final class ModuleLoader {
             info.id = fileNameId(path);
         }
         info.enabled = isEnabledState(info.id);
+        if (!ProjectManager.isValidId(info.id)) {
+            info.error = "'" + info.id + "' is not a valid module id: this module is not loaded";
+        }
         return info;
     }
 
@@ -493,21 +503,34 @@ public final class ModuleLoader {
         }
     }
 
+    /** A module is untrusted: names that leave the folder, devices, oversized content are refused (ModuleArchive). */
     private static void extractZip(ZipFile zip, Path target) throws IOException {
-        Files.createDirectories(target);
-        Enumeration<? extends ZipEntry> entries = zip.entries();
-        while (entries.hasMoreElements()) {
-            ZipEntry entry = entries.nextElement();
-            Path file = target.resolve(entry.getName());
-            if (entry.isDirectory()) {
-                Files.createDirectories(file);
-            } else {
-                Files.createDirectories(file.getParent());
-                try (InputStream is = zip.getInputStream(entry)) {
-                    Files.copy(is, file, StandardCopyOption.REPLACE_EXISTING);
-                }
+        ModuleArchive.Report report = ModuleArchive.extract(zip, target, name -> true);
+        if (!report.skipped().isEmpty()) {
+            CraftPyLog.LOGGER.warn("Module {}: left out {}", target.getFileName(), report.skipped());
+        }
+    }
+
+    /**
+     * The module file at {@code raw} when it is one of the modules CraftPy found under pyforge/ - requests from the IDE
+     * name modules by path, and a path that is not one of them (any other file on the computer) is refused.
+     */
+    public static Path knownModuleFile(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        Path wanted;
+        try {
+            wanted = Path.of(raw).toAbsolutePath().normalize();
+        } catch (RuntimeException invalid) {
+            return null;
+        }
+        for (Path file : scanAll()) {
+            if (file.toAbsolutePath().normalize().equals(wanted)) {
+                return file;
             }
         }
+        return null;
     }
 
     private static String sourceOf(Path file) {

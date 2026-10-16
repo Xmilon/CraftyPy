@@ -507,6 +507,16 @@ public final class ClientProjectStore {
         }
     }
 
+    /** The module debuilder: the server makes a project from the .cpm; the reply opens it in the editor. */
+    public void unpackModule(String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        JsonObject params = new JsonObject();
+        params.addProperty("path", path);
+        request(ProjectAction.MODULE_UNPACK, null, Json.COMPACT.toJson(params));
+    }
+
     public void deleteModule(String path) {
         if (path == null || path.isBlank()) {
             return;
@@ -818,6 +828,16 @@ public final class ClientProjectStore {
                     }
                 }
                 return;
+            }
+            case MODULE_UNPACK -> {
+                if (payload.message() != null && !payload.message().isBlank()) {
+                    append(payload.message());
+                }
+                refreshModules();
+                if (payload.success() && payload.json() != null && !payload.json().isBlank()) {
+                    setPendingIdeProject(payload.json()); // opened in the editor once the project list has it
+                    refresh();
+                }
             }
             case MODULE_SET_ENABLED, MODULE_SET_ALL, MODULE_RELOAD, MODULE_DELETE -> {
                 if (payload.message() != null && !payload.message().isBlank()) {

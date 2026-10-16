@@ -329,7 +329,9 @@ public final class ProjectRequestHandler {
                 return CraftPyExecutors.supplyAsync(() -> {
                     com.google.gson.JsonObject obj = new com.google.gson.JsonObject();
                     obj.addProperty("path", requestedPath);
-                    obj.addProperty("readme", net.xmilon.craftpy.project.ModuleLoader.readmeFor(requestedPath));
+                    // only the README of a module CraftPy found, never of another file on the computer
+                    var known = net.xmilon.craftpy.project.ModuleLoader.knownModuleFile(requestedPath);
+                    obj.addProperty("readme", known == null ? "" : net.xmilon.craftpy.project.ModuleLoader.readmeFor(known.toString()));
                     return ResponsePayload.success(ProjectAction.MODULE_README, "", Json.COMPACT.toJson(obj));
                 }, CraftPyExecutors.io());
             }
@@ -383,11 +385,41 @@ public final class ProjectRequestHandler {
                 }
                 return CraftPyExecutors.supplyAsync(() -> {
                     try {
-                        boolean ok = net.xmilon.craftpy.project.ModuleLoader.delete(java.nio.file.Path.of(path));
+                        // a path from the client: only a module CraftPy found under pyforge/ can be deleted
+                        var known = net.xmilon.craftpy.project.ModuleLoader.knownModuleFile(path);
+                        boolean ok = known != null && net.xmilon.craftpy.project.ModuleLoader.delete(known);
                         return ok ? ResponsePayload.success(action, "Deleted " + path, "")
-                                : fail(action, "Module file not found: " + path);
+                                : fail(action, "Not a module CraftPy knows: " + path);
                     } catch (java.io.IOException e) {
                         return fail(action, "Delete failed: " + e.getMessage());
+                    }
+                }, CraftPyExecutors.io());
+            }
+            case MODULE_UNPACK: {
+                ModulePath modulePath = Json.COMPACT.fromJson(request.data(), ModulePath.class);
+                final String path = modulePath == null ? null : modulePath.path;
+                return CraftPyExecutors.supplyAsync(() -> {
+                    var known = net.xmilon.craftpy.project.ModuleLoader.knownModuleFile(path);
+                    if (known == null) {
+                        return fail(action, "Not a module CraftPy knows: " + path);
+                    }
+                    try {
+                        var result = net.xmilon.craftpy.project.ModuleUnpacker.unpack(known, manager.projectsDir(),
+                                net.xmilon.craftpy.project.PyForgePaths.system().resolve("unpacking"));
+                        if (result.moduleId() != null) {
+                            // the project and the module must not both run
+                            net.xmilon.craftpy.project.ModuleLoader.setEnabled(result.moduleId(), false);
+                        }
+                        String skipped = result.report().skipped().isEmpty() ? ""
+                                : "; left out " + result.report().skipped().size() + " file(s): "
+                                + String.join(", ", result.report().skipped().stream().limit(8).toList());
+                        net.xmilon.craftpy.network.CraftPyNetwork.broadcastProjectList(caller.server());
+                        return ResponsePayload.success(action, "Opened " + known.getFileName() + " as project '"
+                                + result.projectId() + "' (" + result.report().written().size() + " files"
+                                + (result.moduleId() == null ? "" : ", module " + result.moduleId() + " disabled") + skipped
+                                + "). Nothing ran: review the code, then press Run.", result.projectId());
+                    } catch (java.io.IOException | RuntimeException e) {
+                        return fail(action, "Could not open the module as a project: " + e.getMessage());
                     }
                 }, CraftPyExecutors.io());
             }
