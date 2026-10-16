@@ -4886,7 +4886,7 @@ def _complete(params):
     return {"prefix": prefix, "items": items, "suggestions": [i["n"] for i in items]}
 
 
-_COMPLETION_LIMIT = 250
+_COMPLETION_LIMIT = 5000  # the popup draws only the rows in view
 
 
 def _signature_help(params):

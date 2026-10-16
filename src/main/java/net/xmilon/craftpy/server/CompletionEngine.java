@@ -20,7 +20,8 @@ import net.xmilon.craftpy.catalog.CatalogView;
  * {@link CatalogView}.
  */
 public final class CompletionEngine {
-    private static final int LIMIT = 120;
+    /** Every match is sent (the popup only draws the rows in view, so a long list costs nothing to show). */
+    private static final int LIMIT = 5000;
 
     private CompletionEngine() {
     }

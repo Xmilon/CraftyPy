@@ -29,8 +29,8 @@ import net.xmilon.craftpy.util.Json;
  * below the 32k-character packet string limit.
  */
 public final class ProjectTools {
-    /** ByteBufCodecs.STRING_UTF8 allows 32767 characters; stay well below. */
-    private static final int MAX_JSON = 30_000;
+    /** ResponsePayload's json field takes 400 000 characters; stay below (completion lists can be thousands long). */
+    private static final int MAX_JSON = 380_000;
 
     private ProjectTools() {
     }
