@@ -30,7 +30,7 @@ import net.xmilon.craftpy.util.Json;
  */
 public final class ProjectTools {
     /** ResponsePayload's json field takes 400 000 characters; stay below (completion lists can be thousands long). */
-    private static final int MAX_JSON = 380_000;
+    private static final int MAX_JSON = 4_000_000; // well below ResponsePayload.MAX_JSON_BYTES
 
     private ProjectTools() {
     }

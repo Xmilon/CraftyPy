@@ -1,7 +1,6 @@
 package net.xmilon.craftpy.network;
 
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -30,10 +29,13 @@ public record RequestPayload(ProjectAction action, String projectId, String data
         action = action == null ? ProjectAction.LIST : action;
     }
 
+    /** Largest data text of one request (UTF-8 bytes); big uploads are sent in parts below it. */
+    public static final int MAX_DATA_BYTES = 4 * 1024 * 1024;
+
     public static final StreamCodec<FriendlyByteBuf, RequestPayload> STREAM_CODEC = StreamCodec.composite(
             ACTION_CODEC, RequestPayload::action,
-            ByteBufCodecs.STRING_UTF8, RequestPayload::projectId,
-            ByteBufCodecs.STRING_UTF8, RequestPayload::data,
+            PayloadText.codec(1024), RequestPayload::projectId,
+            PayloadText.codec(MAX_DATA_BYTES), RequestPayload::data,
             RequestPayload::new);
 
     public static RequestPayload of(ProjectAction action, String projectId, String data) {

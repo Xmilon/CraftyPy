@@ -17,12 +17,16 @@ public record ResponsePayload(ProjectAction action, boolean success, String mess
     public static final CustomPacketPayload.Type<ResponsePayload> TYPE = new CustomPacketPayload.Type<>(
             ResourceLocation.fromNamespaceAndPath(CraftPyLog.MODID, "response"));
 
+    /** Largest json text of one reply (UTF-8 bytes, before compression). */
+    public static final int MAX_JSON_BYTES = 16 * 1024 * 1024;
+    private static final int MAX_MESSAGE_BYTES = 256 * 1024;
+
     public static final StreamCodec<FriendlyByteBuf, ResponsePayload> STREAM_CODEC = StreamCodec.composite(
             RequestPayload.ACTION_CODEC, ResponsePayload::action,
             ByteBufCodecs.BOOL, ResponsePayload::success,
-            ByteBufCodecs.STRING_UTF8, ResponsePayload::message,
-            // The default 32767 char limit would disconnect a client on a big file or the generated API stub.
-            ByteBufCodecs.stringUtf8(400_000), ResponsePayload::json,
+            PayloadText.codec(MAX_MESSAGE_BYTES), ResponsePayload::message,
+            // Vanilla string codecs throw while encoding a longer string, which disconnects the player.
+            PayloadText.codec(MAX_JSON_BYTES), ResponsePayload::json,
             ResponsePayload::new);
 
     /**
@@ -33,6 +37,18 @@ public record ResponsePayload(ProjectAction action, boolean success, String mess
         action = action == null ? ProjectAction.LIST : action;
         message = message == null ? "" : message;
         json = json == null ? "" : json;
+        if (!PayloadText.fits(message, MAX_MESSAGE_BYTES)) {
+            message = message.substring(0, MAX_MESSAGE_BYTES / 4) + " ... (cut)";
+        }
+        if (!PayloadText.fits(json, MAX_JSON_BYTES)) {
+            // every reply of the project passes here: an oversized one becomes a readable failure, never a disconnect
+            long size = PayloadText.utf8Length(json);
+            message = "The reply was too big to send (" + size / 1024 / 1024 + " MiB, the limit is "
+                    + MAX_JSON_BYTES / 1024 / 1024 + " MiB)" + (message.isEmpty() ? "" : ": " + message);
+            json = "";
+            success = false;
+            net.xmilon.craftpy.CraftPyLog.LOGGER.warn("CraftPy reply {} dropped: {} bytes", action, size);
+        }
     }
 
     public static ResponsePayload success(ProjectAction action, String message, String json) {

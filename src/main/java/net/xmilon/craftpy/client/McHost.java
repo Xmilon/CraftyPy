@@ -21,6 +21,13 @@ public final class McHost implements IdeHost {
 
     @Override
     public void send(ProjectAction action, String projectId, String data) {
+        if (data != null && !net.xmilon.craftpy.network.PayloadText.fits(data, RequestPayload.MAX_DATA_BYTES)) {
+            // encoding it would throw and disconnect: answer locally instead
+            net.xmilon.craftpy.client.ClientProjectStore.getInstance().onResponse(
+                    net.xmilon.craftpy.network.ResponsePayload.failure(action, "Too big to send to the server ("
+                            + data.length() / 1024 + " KiB)"));
+            return;
+        }
         PacketDistributor.sendToServer(RequestPayload.of(action, projectId, data));
     }
 

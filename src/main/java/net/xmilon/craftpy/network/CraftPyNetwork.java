@@ -17,7 +17,7 @@ import net.xmilon.craftpy.server.ProjectRequestHandler;
 import net.xmilon.craftpy.util.Json;
 
 public final class CraftPyNetwork {
-    public static final String PROTOCOL_VERSION = "1";
+    public static final String PROTOCOL_VERSION = "2"; // 2: compressed text fields (PayloadText)
 
     private CraftPyNetwork() {
     }
