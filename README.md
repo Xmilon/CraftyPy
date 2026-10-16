@@ -38,17 +38,26 @@ The result is a tight authoring loop:
 
 ## Features
 
-### In-game UI (built on Modern UI)
-One screen with a navigation rail, styled like Modern UI's own settings center:
-- **Home**: create projects; open, run, stop, rename, duplicate or delete them; recent files.
-- **Modules**: every built `.cpm`, with search, enable/disable switches, Reload all, details and the rendered README.
-- **Editor**:
-  - explorer (preview on click, keep open on double click; right click for new / rename / delete), pinned and preview tabs, a tab overflow menu, quick open (`Ctrl+P`)
-  - code area with themes (Dark, Light, Monokai, Dracula, Solarized Dark, High Contrast), zoom, per-file word wrap, current-line and same-word highlight, a ruler, line numbers with bookmarks
-  - editing helpers: auto-closing brackets and quotes, surround selection, `else:`/`except:` dedent, smart Home, sort / dedupe / join / split lines, trim trailing whitespace on save
-  - find and replace with history and "in selection"; Console (Python REPL), Problems and Bookmarks panels; resizable explorer and bottom panel; zen mode
-  - toolbar: Edit, View, Save, Validate, Assets, Build, Stop, **Reload** (re-run the project and reload every module), Run
-- **Docs**: the offline API reference, rendered as Markdown.
+### An IntelliJ-style IDE, in game and on its own (built on Modern UI)
+The same IDE runs inside Minecraft and as its own window (`./gradlew runIde`, no game needed). It looks like IntelliJ's
+New UI in dark, with CraftPy's green as the accent:
+- **Activity bar** (Home, Editor, Modules, Docs) and a **main toolbar**: project widget with recent projects, menus,
+  Search Everywhere, and the Run / Reload / Stop widget.
+- **Tool windows** on both edges, opened and closed from their stripes or with `Alt+1..9`: Project tree, Bookmarks,
+  Python console, Problems, Event tracer, **Building blocks**, Assets, Preview, Texture and Sound editors. All of them are
+  resizable; the layout is remembered.
+- **Editor**: tabs with file icons and unsaved dots, a **resizable split editor** (`Ctrl+\`), indent guides, bracket pairs,
+  minimap with error marks, sticky scroll, focus mode, six color schemes, breadcrumbs, signature help.
+- **Smart completion** that infers types without running code (`Item("a").extends(`, `event.player.`, your own classes
+  and functions), fuzzy matching (`gb` finds `get_block`), keyword arguments, and ids of every installed mod inside strings.
+- **IntelliJ commands**: Find Action (`Ctrl+Shift+A`), Find in Files, TODO list, rename in file (`Shift+F6`), reformat
+  (`Ctrl+Alt+L`), comment, duplicate and move lines, live templates (`onj` + `Tab`), go to definition, extract variable /
+  function, organise imports, run the selection in the console (`Alt+Shift+E`).
+- **Building blocks**: 30 ready-made pieces (windows and other UI elements, items, blocks, events, commands, timers,
+  recipes, world actions). Each one opens its docs, inserts its code at the cursor, or becomes a new file that `main.py`
+  already imports.
+- **Modules** page: every built `.cpm` with search, enable/disable, reload and the rendered README. **Docs**: the offline
+  guide, API reference and Java bridge reference.
 
 ### Asset management
 - **Click-to-view asset files** from the explorer: textures render on a checkerboard backdrop with zoom and a one-click jump into the built-in **pixel editor**; sounds resolve their sound event for playback.
@@ -109,21 +118,31 @@ Modern UI is a compile-only dependency. Before `runClient`, put `ModernUI-NeoFor
 
 ### Keyboard shortcuts (code area)
 
-Press `F1` (or `Ctrl+/`) in the editor for the full list. The main ones:
+Press `F1` in the editor for the full list, or `Ctrl+Shift+A` to find any command by name. The main ones:
 
 | Shortcut | Action |
 |---|---|
 | `Ctrl+S` | Save (trims trailing whitespace if enabled) |
 | `Ctrl+R` / `F5` | Run the project / run it and reload every module |
 | `Ctrl+Enter` | Validate the file on the Python worker |
-| `Ctrl+F` / `Ctrl+H`, `F3` | Find / replace, next match |
-| `Ctrl+P` | Quick open |
-| `Ctrl+W` | Close tab |
-| `Ctrl+J`, `Ctrl+Shift+Enter` | Join lines, split line |
-| `Ctrl+F2`, `F2` / `Shift+F2` | Toggle bookmark, next / previous |
-| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom (also `Ctrl` + mouse wheel) |
-| `F11` | Zen mode |
-| `Esc` | Close the screen (unsaved edits stay in memory until you save or close the tab) |
+| `Ctrl+Space`, `Ctrl+Q` | Completion, documentation |
+| `Ctrl+click`, `Ctrl+B` | Go to definition (`Alt+Left` back) |
+| `Ctrl+F` / `Ctrl+H` / `Ctrl+Shift+F` | Find / replace / find in files |
+| `Ctrl+P`, `Ctrl+T`, `Ctrl+G` | Go to file, symbol, line |
+| `Ctrl+Shift+A` | Find action |
+| `Ctrl+/`, `Ctrl+D`, `Ctrl+Shift+K` | Comment, duplicate, delete line |
+| `Alt+Shift+Up` / `Down` | Move lines |
+| `Ctrl+Alt+L`, `Shift+F6` | Reformat, rename in file |
+| `Ctrl+\` | Split the editor |
+| `Alt+1` / `4` / `6` / `8` / `9` | Project / Console / Problems / Building blocks / Assets |
+| `Ctrl+Alt+S` | Settings |
+| `F11`, `Ctrl+Shift+F12` | Zen mode, hide all tool windows |
+
+### The IDE without the game
+
+`./gradlew runIde` opens the IDE in its own window on the `run/` folder (`-PcraftpyHome=<game folder>` for another
+instance). Editing, completion, validation, the console, building modules and the asset browser (vanilla assets) work;
+running a project in a world, sounds and the 3D preview need the game.
 
 ### Console (bottom panel)
 
