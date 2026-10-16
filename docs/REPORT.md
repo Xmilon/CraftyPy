@@ -233,6 +233,11 @@ window was opened several times without errors. **Nothing was clicked in game**;
   dialog; remembered folders and tabs; recent projects; tips; in-game action-bar notices; the IDE key opens the editor.
 - Fixed: a save reply cleared the unsaved mark of whatever tab was active (edits typed during a save were shown as saved);
   `__pycache__` was tracked and shipped in the jar; warnings were drawn in the success green.
+- Later in M19: recipe field check (`IdChecker.recipeFields`); `@extension` classes shared by name across projects;
+  `Item(effect="mod:effect")` fixed (it was read as the id `mod`); Home is a welcome screen (search, New Project dialog);
+  mod metadata and README; the standalone window closes properly (Modern UI's own `stop()`; the GLFW flag alone never
+  ended the loop, so *Leave* did nothing there); `runIde -Pcraftpy.ide.page=... -Pcraftpy.ide.exitAfter=...` opened and
+  closed every page without errors; `run/pyforge` reset (backup in the scratchpad).
 - Decisions: delete line is Ctrl+Shift+K because Ctrl+Y is the editor's redo; balloons were not built (Modern UI toasts
   already look the same in game and standalone); the old M18 plan steps (plain Response record, interfaces for HostBridge
   and SlotRegistry) were not needed because the game jar stays on the classpath.

@@ -68,34 +68,32 @@ Remaining:
 - [ ] Optional later: the decoupling steps of the old plan (plain `Response` record, `HostBridge`/`SlotRegistry` interfaces)
   only matter for an IDE without the game jar on the classpath.
 
-## 3. M16 gaps (mod catalog / completion), from the plan but not confirmed done
+## 3. M16 gaps (mod catalog / completion)
 
-- [ ] Replace the silent `minecraft:` prefix in `_ref` by a lint warning.
-- [ ] Extension registry that modules can append to (`_EXTENSION_NAMES` is still a fixed dict; user `@extension` classes are completed).
-- [ ] Effect helpers using catalog ids.
-- [ ] Field check of `recipe("mod:type", ...)` against the recipe-type schema (warning).
-- [ ] Project context for `hover` (own content and imports), cap on completion items raised, filtering in Java.
-- [ ] Verify the catalog dump on a server with Create, Mekanism, Iron's Spells, Curios (first run wrote
-  `create, curios, flywheel, geckolib, irons_lib, irons_spellbooks, mekanism, minecraft, neoforge, playeranimator, ponder` files; contents not inspected).
+- [x] Silent `minecraft:` prefix: `IdChecker` already warns about a bare name no installed mod has ("a bare name means
+  minecraft:x"), so a typo is reported.
+- [x] Extension registry: `@extension` classes of a module (or project) can be used by name in every project.
+- [x] Effect helpers with catalog ids: `Item(effect="mod:effect")` was broken (read as id `mod`); fixed on both sides.
+- [x] Field check of `recipe("mod:type", ...)` against the fields the dump saw (warning).
+- [x] Completion cap raised to 250 and ranked (prefix, then initials).
+- [ ] Hover and completion of names imported from the project's other files (`from items import gem`): the worker only
+  sees the open file. Needs the project's sources in the assist request (cost per keystroke).
+- [ ] Verify the catalog dump on a server with Create, Mekanism, Iron's Spells, Curios (needs the game).
 
 ## 4. M17 gaps (installer)
 
-- [ ] Run a real install on a clean profile (NeoForge installer, Modern UI download, copy). Only the plan, the hash check and
-  `--dry-run` were run.
-- [ ] Linux and macOS commands (`apt`, `dnf`, `pacman`, `brew`), the Swing window.
+- [ ] Run a real install on a clean profile (NeoForge installer, Modern UI download, copy). Not run: it changes the user's
+  `.minecraft`; do it together with the user.
+- [x] Linux and macOS commands (`apt`, `dnf`, `pacman`, `brew`) and the Swing window were already there (this item was stale).
 - [ ] Embedded Python download (only package managers are supported now).
 
-## 5. Earlier plan, batch 5 (mod metadata and clean push) - still open
+## 5. Earlier plan, batch 5 (mod metadata and clean push)
 
-Batches 1-4 of that plan (extensions, build overwrite/new, docs, asset dock with texture/sound editors, editor font) are in
-REPORT M8-M15. Open:
-- [ ] `neoforge.mods.toml`: `logoFile`, `displayURL`, `issueTrackerURL`, `authors`, `credits` are still the template placeholders;
-  `mod_description` in `gradle.properties`; copy `CraftPyLogo.png` into `src/main/resources/` (the root copy is untracked/unused).
-- [ ] Rewrite `README.md` as a project page (what it is, features, quick start, examples, extension syntax, config, licence).
-- [ ] The clean push: that plan wanted `src/test`, `logs`, `.claudemem`, `run`, `bin`, `docs`, `AUDIT.md`,
-  `instructions.txt`, `TEMPLATE_LICENSE.txt` untracked and ignored for the public push. Today `docs/`, `src/test` and `logs/` are
-  tracked and the branch is **8+ commits ahead of `origin/Updates`, not pushed**. Decide before pushing: keep tests/docs public or
-  strip them as planned. Never force-push; review `git status` / `git diff --stat` first.
+- [x] `neoforge.mods.toml`: logo (`craftpy_logo.png`, 256 px, made from `CraftPyLogo.png`), `displayURL`,
+  `issueTrackerURL`, `credits`, description. Window icons in `assets/craftpy/icon/`.
+- [x] README: the new IDE, standalone IDE, shortcuts.
+- [ ] The clean push: decide whether `docs/`, `src/test`, `logs/` stay public. Never force-push; review `git status` /
+  `git diff --stat` first. **Nothing is pushed yet** (branch `Updates`).
 
 ## 6. Editor roadmap that was never started (from REPORT)
 
@@ -114,51 +112,11 @@ REPORT M8-M15. Open:
 ## 7. End-of-batch routine (standing request)
 
 At the end of a batch: remake the shipped example (`src/main/resources/craftpy_default/welcome`, listed in `files.txt`) and
-reset `run/pyforge` for the dev client (move it out of the repo, backup in the scratchpad, never a hard delete; re-seed `welcome`
-from the manifest; the game writes the marker on next start). **Not done for M16-M18**; the session built and installed the
-`welcome` module into `run/pyforge/modules/` while testing.
-
-## 9. The 50 new features (asked 2026-10-16: "IDE, UI, quality of life, actual coding; then refine everything")
-
-Done:
-1. IntelliJ New UI look in game and standalone: one palette (`IdeColors`), painted icons (`IdeIcon`), fading hover states.
-2. VS Code activity bar (Home / Editor / Modules / Docs).
-3. Main toolbar: project widget with colored initials, menus, Search Everywhere box, run widget (Run / Reload / Stop).
-4. Tool window stripes on both edges; Project, Bookmarks, Console, Problems, Events, Assets, Preview, Texture, Sound, Blocks.
-5. Alt+1/2/4/6/7/8/9 tool window shortcuts; open/closed state remembered.
-6. Resizable split editor (Ctrl+\, tab menu "Split right", View menu); never two editors on one file.
-7. IntelliJ editor tabs: file icons, accent underline, VS Code dot for unsaved files.
-8. Animated tool windows (LayoutTransition).
-9. Console: read-only editor view (scrolls sideways, selecting no longer jumps), colored errors / input / results.
-10. Building Blocks tool window (the user's idea): 30 ready-made pieces in 9 categories, each with Docs (its section of the
-    API docs), Insert at the cursor, New file (`code/<name>.py` + `import <name>` in main.py, also when main.py is open).
-11. Project avatars on the Home page.
-12. Standalone window: logo icon, dark caption.
-13. Save replies name their file (fixes a real data-loss risk: edits typed while saving were marked saved).
-Done in waves 2-6 (2026-10-16), each with tests where there is logic:
-14. Toggle line comment Ctrl+/ (the shortcut list stays on F1). 15. Duplicate line or selection Ctrl+D.
-16. Delete line Ctrl+Shift+K (Ctrl+Y stays redo). 17. Move lines Alt+Shift+Up/Down. 18. Reopen closed tab Ctrl+Shift+T.
-19. Tab menu: Close all, Close tabs to the right, Copy path. 20. Middle click closes a tab. 21. Hide all tool windows
-Ctrl+Shift+F12 and double click on a tab. 22. Find Action Ctrl+Shift+A. 23. Find in Files Ctrl+Shift+F (server tool grep).
-24. TODO list (Find Action > TODO list). 25. Console: Ctrl+click a traceback line opens the file at the line.
-26. Status bar error/warning counts (click: Problems). 27. Status bar indentation. 28. Bracket pair highlight.
-29. Indent guides (Settings can turn them off). 30. Caret line number brighter in the gutter. 31. Error/warning marks on
-the minimap. 32. Painted file icons in the explorer and the tabs. 33. Open folders remembered per project. 34. Open tabs
-restored per project. 35. Fuzzy completion (word initials) with prefix matches first. 36. Signature help on ( and ,
-with the argument being typed in bold. 37. Lint: undefined names and unused imports (was already in the worker; now
-surfaced in the status bar and minimap). 38. Live templates on Tab. 39. Reformat Ctrl+Alt+L (whitespace only).
-40. Rename in file Shift+F6. 41. Go to line Ctrl+G. 42. Smart backspace. 43. Hover on an id string: registry and mod.
-44. Settings dialog Ctrl+Alt+S. 45. Execute selection in console Alt+Shift+E (instead of notification balloons: Modern
-UI's toasts already work the same in game and standalone). 46. Recent projects in the project widget. 47. Tip of the
-day on Home. 48. Copy reference Ctrl+Alt+Shift+C (instead of completion in the console input, which would need the
-console line to become a code view). 49. In game: action-bar line when a project loads or fails. 50. In game: the IDE
-key opens the editor on the last project, also for singleplayer owners without cheats.
-Not checked in game yet: all of the above (unit tests and the standalone window only).
-
-## 10. IntelliJ-style layout (asked 2026-10-16)
-
-Done in section 9 (1-8). Open: the Home and Modules pages still use cards; a Welcome-screen layout (left list of
-"Projects / Customize / Learn" like IntelliJ) would match the rest.
+reset `run/pyforge` for the dev client (move it out of the repo, backup in the scratchpad, never a hard delete; re-seed
+`welcome` from the manifest; the game writes the marker on next start).
+- Done 2026-10-16 after M19: `welcome/code/main.py` describes the new layout; `run/pyforge` moved to the session
+  scratchpad (`pyforge-backup-2026-10-16`). Placed CraftPy blocks in `run/saves` may show other content until the projects
+  are loaded again (the slot map was in that folder).
 
 ## 8. Known limits (from the last "what is missing" list)
 
