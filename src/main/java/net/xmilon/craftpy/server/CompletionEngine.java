@@ -27,8 +27,8 @@ public final class CompletionEngine {
 
     /**
      * The reply for a cursor at {@code line}/{@code column} of {@code code}, or null when the cursor is not inside a plain
-     * string (the worker answers then). Inside a string whose kind is unknown the reply is empty, so no list of Python names
-     * pops up in the middle of text.
+     * string, or inside a string that holds no registry id: the worker answers then (outside strings with Python names,
+     * inside strings only with the fixed values the argument accepts, like {@code tier="diamond"}).
      *
      * @param own ids the project itself declares by kind ({@code item}, {@code block}), offered first
      */
@@ -41,6 +41,9 @@ public final class CompletionEngine {
         StringContext.Call call = context.get();
         String typed = call.typed();
         String kind = IdKinds.kindFor(call);
+        if (kind == null) {
+            return null;
+        }
         List<String[]> rows = new ArrayList<>(); // id, detail
         if (kind != null && kind.equals(IdKinds.CLASS)) {
             classes(view, typed, rows);

@@ -105,7 +105,30 @@ class PackBuilderDatagenTest {
         values.add("minecraft:zombie");
         raw.add("values", values);
         PackBuilder.writeTag(data, "testproj", raw);
-        assertTrue(Files.exists(data.resolve("tags/entity_types/test/mobs.json")));
+        assertTrue(Files.exists(data.resolve("tags/entity_type/test/mobs.json")));
+    }
+
+    @Test
+    void tagsOfOneIdAreMergedAndMayNameAnotherNamespace() throws Exception {
+        SlotRegistry.clearAll();
+        Path data = tmp().resolve("data").resolve("testproj");
+        for (String value : new String[]{"minecraft:stick", "minecraft:bone", "minecraft:stick"}) {
+            JsonObject raw = new JsonObject();
+            raw.addProperty("id", "minecraft:swords");
+            raw.addProperty("type", "item");
+            JsonArray values = new JsonArray();
+            values.add(value);
+            raw.add("values", values);
+            PackBuilder.writeTag(data, "testproj", raw);
+        }
+        var written = com.google.gson.JsonParser.parseString(Files.readString(
+                data.getParent().resolve("minecraft/tags/item/swords.json"))).getAsJsonObject();
+        assertEquals(2, written.getAsJsonArray("values").size(), "merged, without duplicates");
+        JsonObject bad = new JsonObject();
+        bad.addProperty("id", "../escape");
+        bad.add("values", new JsonArray());
+        PackBuilder.writeTag(data, "testproj", bad);
+        assertTrue(!Files.exists(data.getParent().resolve("escape.json")) && !Files.exists(data.resolve("tags/item/../escape.json")));
     }
 
     @Test

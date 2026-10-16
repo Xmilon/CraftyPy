@@ -735,10 +735,34 @@ public final class PackBuilder {
     }
 
     private static void writeTag(Path file, JsonArray values) throws Exception {
+        mergeTag(file, values, false);
+    }
+
+    /**
+     * Writes a tag file, or adds to the one already written in this build: the tool tags, several projects and every
+     * {@code tags=[...]} of an item can name the same tag ({@code minecraft:swords}), and the last one used to replace the
+     * others. Values stay unique and in order; {@code replace} is kept once any of them asks for it.
+     */
+    static void mergeTag(Path file, JsonArray values, boolean replace) throws Exception {
         JsonObject tag = new JsonObject();
-        tag.addProperty("replace", false);
-        tag.add("values", values);
-        writeJson(tag, file);
+        JsonArray merged = new JsonArray();
+        boolean replaceAll = replace;
+        if (Files.isRegularFile(file)) {
+            JsonObject existing = com.google.gson.JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+            replaceAll |= existing.has("replace") && existing.get("replace").getAsBoolean();
+            if (existing.has("values")) {
+                merged.addAll(existing.getAsJsonArray("values"));
+            }
+        }
+        for (JsonElement value : values) {
+            if (!merged.contains(value)) {
+                merged.add(value);
+            }
+        }
+        tag.addProperty("replace", replaceAll);
+        tag.add("values", merged);
+        Files.createDirectories(file.getParent());
+        writeString(file, Json.GSON.toJson(tag));
     }
 
     /** needs_tool: every pool only drops when the block is mined with the declared tool (like vanilla ores). */
@@ -820,8 +844,6 @@ public final class PackBuilder {
     }
 
     static void writeTag(Path data, String projectId, JsonObject raw) throws Exception {
-        JsonObject tag = new JsonObject();
-        tag.addProperty("replace", jsonBool(raw, "replace", false));
         String type = jsonString(raw, "type", "item");
         SlotRegistry.Kind kind = switch (type) {
             case "block", "blocks" -> SlotRegistry.Kind.BLOCK;
@@ -848,9 +870,28 @@ public final class PackBuilder {
                 }
             }
         }
-        tag.add("values", values);
-        String id = fileName(jsonString(raw, "id", "example"));
-        writeJson(tag, data.resolve("tags/" + tagFolder(type) + "/" + id + ".json"));
+        // "gems" is the project's tag (<project>:gems); "minecraft:swords" adds to another namespace's tag
+        String id = jsonString(raw, "id", "example").toLowerCase(java.util.Locale.ROOT);
+        if (id.startsWith("project:")) { // "project:x" means this project, like in item references
+            id = id.substring("project:".length());
+        }
+        Path base = data;
+        int colon = id.indexOf(':');
+        if (colon > 0) {
+            String namespace = id.substring(0, colon);
+            if (!namespace.matches("[a-z0-9_.-]+")) {
+                CraftPyLog.LOGGER.warn("Project {}: tag '{}' has an invalid namespace", projectId, id);
+                return;
+            }
+            base = data.getParent().resolve(namespace);
+            id = id.substring(colon + 1);
+        }
+        id = id.replaceAll("[^a-z0-9_./-]", "_");
+        if (id.isEmpty() || id.contains("..") || id.startsWith("/")) {
+            CraftPyLog.LOGGER.warn("Project {}: tag '{}' is not a valid id", projectId, id);
+            return;
+        }
+        mergeTag(base.resolve("tags/" + tagFolder(type) + "/" + id + ".json"), values, jsonBool(raw, "replace", false));
     }
 
     private static JsonArray countFunction(int count) {
@@ -864,14 +905,16 @@ public final class PackBuilder {
 
     private static String tagFolder(String type) {
         String clean = type.contains(":") ? type.substring(type.indexOf(':') + 1) : type;
+        // 1.21 names tag folders after the registry (tags/item, tags/block, tags/worldgen/biome); the plural folders of
+        // older versions are ignored by the game, which silently dropped every tag a script declared
         return switch (clean) {
-            case "item", "items" -> "items";
-            case "block", "blocks" -> "blocks";
-            case "entity_type", "entity_types" -> "entity_types";
-            case "fluid", "fluids" -> "fluids";
-            case "game_event", "game_events" -> "game_events";
-            case "function", "functions" -> "functions";
-            default -> clean.endsWith("s") ? clean : clean + "s";
+            case "items" -> "item";
+            case "blocks" -> "block";
+            case "entity_types" -> "entity_type";
+            case "fluids" -> "fluid";
+            case "game_events" -> "game_event";
+            case "functions" -> "function";
+            default -> clean;
         };
     }
 

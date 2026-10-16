@@ -9,11 +9,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import icyllis.modernui.R;
 import icyllis.modernui.core.Context;
-import icyllis.modernui.text.Typeface;
 import icyllis.modernui.graphics.drawable.ShapeDrawable;
 import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.Layout;
-import icyllis.modernui.view.Gravity;
 import icyllis.modernui.view.KeyEvent;
 import icyllis.modernui.view.MotionEvent;
 import icyllis.modernui.widget.LinearLayout;
@@ -86,6 +84,11 @@ final class CodeAssist {
                 && !insideString(text, start + 1)) {
             hideList();
             code.postDelayed(signatureTask, TYPE_DELAY_MS); // signature help: the call and the argument being typed
+            return;
+        }
+        if (added == 1 && start < text.length() && (text.charAt(start) == '"' || text.charAt(start) == '\'')
+                && insideString(text, start + 1)) {
+            code.postDelayed(typeTask, TYPE_DELAY_MS); // an opening quote: ids or accepted values right away
             return;
         }
         if (added == 1 && start < text.length()) {
@@ -161,7 +164,8 @@ final class CodeAssist {
             return false;
         }
         char c = text.charAt(caret - 1);
-        return Character.isLetterOrDigit(c) || c == '_' || c == '.' || ((c == ':' || c == '/') && insideString(text, caret));
+        return Character.isLetterOrDigit(c) || c == '_' || c == '.'
+                || ((c == ':' || c == '/' || c == '"' || c == '\'') && insideString(text, caret));
     }
 
     /** True when an odd number of quotes precede the position on its line: it is probably inside a string. */

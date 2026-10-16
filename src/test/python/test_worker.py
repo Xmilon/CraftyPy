@@ -795,6 +795,40 @@ def test_completion_follows_imports_between_project_files():
     assert w._ASSIST_SOURCES == {}, "the sources are dropped after the request"
 
 
+def test_items_and_blocks_join_tags():
+    d = run_main("tg", "from craftpy import *" + chr(10)
+                 + "Item('blade', tags=['minecraft:swords', '#gems'])" + chr(10)
+                 + "Block('ore', tags='minecraft:mineable/pickaxe')" + chr(10))
+    tags = [(t["id"], t["type"], t["values"]) for t in d["tags"]]
+    assert ("minecraft:swords", "item", ["tg:blade"]) in tags, tags
+    assert ("gems", "item", ["tg:blade"]) in tags, tags
+    assert ("minecraft:mineable/pickaxe", "block", ["tg:ore"]) in tags, tags
+    result = w._handle("run_main", {"project": "tg2", "code": "from craftpy import *" + chr(10) + "Item('x', tags=['a b'])",
+                                    "file": "code/main.py", "sources": {}})
+    assert result.get("error"), "a tag id with a space is refused"
+
+
+def test_extensions_and_fixed_values_are_offered_where_they_fit():
+    names = _names('Item("blade").extends(')
+    assert names[0] in ("Armor", "Attributes"), names[:5]
+    assert "Sword" in names and "Durability" in names and "Redstone" not in names[:20], names[:20]
+    block = _names('Block("ore").extends(')
+    assert "Redstone" in block and "MineableBy" in block and "Sword" not in block[:15], block[:15]
+    assigned = _names('ore = Block("ore")' + chr(10) + "ore.extends(")
+    assert "Redstone" in assigned[:15], assigned[:15]
+    in_list = _names('Item("x", extensions=[Du')
+    assert in_list[0] == "Durability", in_list[:3]
+    run_main("ext_owner", "from craftpy import *\n@extension\nclass Shiny(Extension):\n    applies_to = ('item',)\n")
+    assert "Shiny" in _names('Item("x").extends(Sh')
+    w._handle("unload_owner", {"owner": "ext_owner"})
+    assert _names('Sword(tier="di') == ["diamond"]
+    assert "mainhand" in _names('Attributes("minecraft:generic.armor", 2, slot="')
+    assert "multiply_base" in _names('Attributes("minecraft:generic.armor", 2, "')
+    assert "metal" in _names('Block("x", sound="')
+    assert _names('Label("hel') == []
+    assert _names('x = 1  # "tier') == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

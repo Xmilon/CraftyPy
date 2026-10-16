@@ -107,9 +107,9 @@ class CompletionEngineTest {
     }
 
     @Test
-    void outsideStringsTheWorkerAnswersAndUnknownStringsOfferNothing() {
+    void outsideStringsAndInStringsWithoutAnIdTheWorkerAnswers() {
         assertNull(at("p.eff"));
-        assertEquals(0, at("print(\"hel").getAsJsonArray("items").size());
+        assertNull(at("print(\"hel"), "the worker offers the accepted values, if the argument has any");
     }
 
     @Test

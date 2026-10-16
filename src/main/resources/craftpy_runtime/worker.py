@@ -400,10 +400,11 @@ def Food(hunger=4, saturation=0.6, always_eat=False, fast=False):
 
 
 def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None,
-          needs_tool=False, sound=None, drops=None, extensions=(), **extra) -> "Content":
+          needs_tool=False, sound=None, drops=None, extensions=(), tags=(), **extra) -> "Content":
     """Declares a block and returns it (usable anywhere an id is expected).
 
-    ``extensions=[...]`` or ``.extends(...)`` adds behaviour (MineableBy, Redstone, Flammable, your own...)."""
+    ``extensions=[...]`` or ``.extends(...)`` adds behaviour (MineableBy, Redstone, Flammable, your own...).
+    ``tags=["minecraft:mineable/pickaxe", "gems"]`` puts the block in block tags (a bare name is this project's tag)."""
     _check_id(id)
     _reject_unknown("Block", id, extra, extensions)
     definition = {}
@@ -422,6 +423,7 @@ def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, t
         definition["sound"] = sound
     _DECLS["blocks"].append({"id": id, "definition": definition})
     block = Content("%s:%s" % (_namespace(), id), "block", id, definition["name"], definition)
+    _content_tags(tags, "block", str(block))
     if drops is not None:
         _block_drops(id, drops)
     return block.extends(*extensions)
@@ -443,8 +445,11 @@ def _block_drops(block_id, drops):
     loot_table(block_id, entries)
 
 
-def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), **extra) -> "Content":
+def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(),
+         **extra) -> "Content":
     """Declares an item and returns it.
+
+    ``tags=["minecraft:swords", "gems"]`` puts the item in item tags (a bare name is this project's tag).
 
     ``extensions=[...]`` or ``.extends(...)`` adds behaviour (Sword, Durability, Armor, your own...).
 
@@ -467,7 +472,20 @@ def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, e
     if effect:
         definition["use_effect"] = _effect_spec(effect)
     _DECLS["items"].append({"id": id, "definition": definition})
-    return Content("%s:%s" % (_namespace(), id), "item", id, definition["name"], definition).extends(*extensions)
+    item = Content("%s:%s" % (_namespace(), id), "item", id, definition["name"], definition)
+    _content_tags(tags, "item", str(item))
+    return item.extends(*extensions)
+
+
+def _content_tags(tags, kind, full_id):
+    """Item(..., tags=[...]) / Block(..., tags=[...]): one tag entry per tag; the pack merges entries of the same tag."""
+    for name in ([tags] if isinstance(tags, str) else list(tags or ())):
+        name = str(name).strip().lstrip("#")
+        if not name:
+            continue
+        if not all(c.isalnum() or c in "_:./-" for c in name) or name.count(":") > 1:
+            raise ValueError("tags: %r is not a tag id (like 'minecraft:swords' or 'gems')" % name)
+        _DECLS["tags"].append({"id": name.lower(), "values": [full_id], "replace": False, "type": kind})
 
 
 def _effect_spec(effect):
@@ -509,10 +527,14 @@ _TIERS = {"wood": (0, 2.0, 59, 0.0, 15), "stone": (1, 4.0, 131, 1.0, 5), "iron":
 # kind: (base damage, attacks per second)
 _TOOL_KINDS = {"sword": (3.0, 1.6), "axe": (5.0, 1.0), "pickaxe": (1.0, 1.2), "shovel": (1.5, 1.0), "hoe": (0.0, 2.0)}
 _SLOTS = ("head", "chest", "legs", "feet")
+_MINEABLE_TOOLS = ("pickaxe", "axe", "shovel", "hoe")
+_PISTON_REACTIONS = ("normal", "destroy", "block", "ignore", "push_only")
+_BLOCK_SOUNDS = ("stone", "wood", "grass", "glass", "gravel", "sand", "wool", "metal", "anvil", "snow")
+_SMELTERS = ("furnace", "blast_furnace", "smoker", "campfire")
 _COLORS = ("black", "dark_blue", "dark_green", "dark_aqua", "dark_red", "dark_purple", "gold", "gray", "dark_gray",
            "blue", "green", "aqua", "red", "light_purple", "yellow", "white")
-_ITEM_ATTRS = ("name", "texture", "stack", "glow", "food", "fuel", "effect")
-_BLOCK_ATTRS = ("name", "texture", "hardness", "resistance", "light", "tool", "needs_tool", "sound", "drops")
+_ITEM_ATTRS = ("name", "texture", "stack", "glow", "food", "fuel", "effect", "tags")
+_BLOCK_ATTRS = ("name", "texture", "hardness", "resistance", "light", "tool", "needs_tool", "sound", "drops", "tags")
 
 
 def _reject_unknown(what, ident, extra, extensions):
@@ -785,7 +807,7 @@ class MineableBy(Extension):
     applies_to = ("block",)
 
     def __init__(self, tool="pickaxe", tier=None, required=True):
-        self.tool = _choice("MineableBy tool", tool, ("pickaxe", "axe", "shovel", "hoe"))
+        self.tool = _choice("MineableBy tool", tool, _MINEABLE_TOOLS)
         self.tier = None if tier is None else _choice("MineableBy tier", tier, tuple(_TIERS))
         self.required = bool(required)
 
@@ -853,7 +875,7 @@ class Piston(_Data):
     type = "piston"
 
     def __init__(self, reaction="normal"):
-        self.reaction = _choice("Piston reaction", reaction, ("normal", "destroy", "block", "ignore", "push_only"))
+        self.reaction = _choice("Piston reaction", reaction, _PISTON_REACTIONS)
 
     def data(self):
         return {"reaction": self.reaction}
@@ -1064,7 +1086,7 @@ def shapeless(result, *ingredients, count=1):
 
 def smelt(ingredient, result, xp=0.1, seconds=10, using="furnace"):
     """smelt(ruby_ore, ruby) - using: "furnace", "blast_furnace", "smoker" or "campfire"."""
-    kinds = {"furnace": "smelting", "blast_furnace": "blasting", "smoker": "smoking", "campfire": "campfire"}
+    kinds = dict(zip(_SMELTERS, ("smelting", "blasting", "smoking", "campfire")))
     if using not in kinds:
         raise ValueError("smelt(using=...) must be one of %s" % ", ".join(kinds))
     _recipe(kinds[using], result=_ref(result), ingredient=_ref(ingredient), xp=float(xp),
@@ -3755,13 +3777,179 @@ def _infer_span(code, line_idx, masked, start, end):
     return _infer(node, _scope_for(tree, line_idx + 1), line_idx + 1)
 
 
+def _string_choices(callee, param):
+    """The fixed values a string argument accepts (tier="diamond", slot="mainhand"...), or None."""
+    name = getattr(callee.fn if isinstance(callee, _Method) else callee, "__name__", "")
+    if param == "slot":
+        return Attributes._SLOTS if name == "Attributes" else _SLOTS if name == "Armor" else None
+    if param == "operation" and name == "Attributes":
+        return tuple(Attributes._OPERATIONS)
+    if param == "tool":
+        return _MINEABLE_TOOLS + ("sword",) if name == "Block" else _MINEABLE_TOOLS if name == "MineableBy" else None
+    if param == "sound" and name == "Block":
+        return _BLOCK_SOUNDS
+    if param == "color" and name == "Tooltip":
+        return _COLORS
+    return {"tier": tuple(_TIERS), "kind": tuple(_TOOL_KINDS), "reaction": _PISTON_REACTIONS,
+            "using": _SMELTERS}.get(param)
+
+
+def _open_string(text):
+    """Where the content of the string the text ends inside starts, or -1 (outside strings, also in comments)."""
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "#":
+            j = text.find("\n", i)
+            if j < 0:
+                return -1
+            i = j
+            continue
+        if c in "\"'":
+            quote = text[i:i + 3] if text[i:i + 3] in ('"""', "'''") else c
+            j = start = i + len(quote)
+            while j < n and not text.startswith(quote, j):
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == "\n" and len(quote) == 1:
+                    break
+                j += 1
+            if j >= n:
+                return start
+            i = j + len(quote) if text.startswith(quote, j) else j
+            continue
+        i += 1
+    return -1
+
+
+def _call_argument(masked, span):
+    """(positional index, keyword or None) of the argument being typed in the call whose callee is at span."""
+    import re
+    open_at = masked.find("(", span[1])
+    depth, index, segment = 0, 0, open_at + 1
+    for i in range(open_at + 1, len(masked)):
+        ch = masked[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            index += 1
+            segment = i + 1
+    keyword = re.match(r"\s*([A-Za-z_]\w*)\s*=(?!=)", masked[segment:])
+    return index, keyword.group(1) if keyword else None
+
+
+def _param_at(callee, index, keyword):
+    """The parameter name an argument fills: its keyword, or the positional parameter at index."""
+    if keyword:
+        return keyword
+    fn, skip = (callee.fn, True) if isinstance(callee, _Method) else (callee, False)
+    try:
+        parameters = [p for p in inspect.signature(fn).parameters.values()
+                      if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    except (TypeError, ValueError):
+        return None
+    if skip:
+        parameters = parameters[1:]
+    return parameters[index].name if index < len(parameters) else None
+
+
+def _complete_in_string(code, line_idx, before, start):
+    """Inside a string: the fixed values the argument accepts (ids of mods are answered by the host before this)."""
+    typed = before[start:]
+    masked = _mask(before[:start])
+    span = _open_call(masked.rstrip("\"'rbuf"))
+    if span is None:
+        return []
+    callee = _infer_span(code, line_idx, masked, span[0], span[1])
+    if callee is None:
+        return []
+    index, keyword = _call_argument(masked.rstrip("\"'rbuf"), span)
+    choices = _string_choices(callee, _param_at(callee, index, keyword)) or ()
+    return [{"n": value, "k": "id", "s": "", "d": "accepted value"} for value in choices
+            if value.startswith(typed) and value != typed]
+
+
+def _extension_classes():
+    """name -> class of every extension that can be added: the built-in ones, the project's and the modules' own."""
+    out = {name: value for name, value in _EXTENSION_NAMES.items()
+           if isinstance(value, type) and issubclass(value, Extension)
+           and value not in (Extension, ItemType, BlockType, _Data, _TypeBase)}
+    for name, (owner, cls) in _USER_EXTENSIONS.items():
+        out.setdefault(name, cls)
+    return out
+
+
+def _content_kind(node, scope, line, depth=0):
+    """'item' or 'block' when the expression is (or is assigned from) Item(...) / Block(...), else None."""
+    import ast
+    if node is None or depth > 6:
+        return None
+    if isinstance(node, ast.Call):
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in ("Item", "Block"):
+            return func.id.lower()
+        if isinstance(func, ast.Attribute):
+            return _content_kind(func.value, scope, line, depth + 1)
+        return None
+    if isinstance(node, ast.Name) and scope is not None:
+        binding = scope.lookup(node.id, line)
+        if binding is not None and binding[1] == "expr":
+            return _content_kind(binding[2], binding[3], binding[0], depth + 1)
+    return None
+
+
+def _extension_target(code, line_idx, masked):
+    """Inside extends(...) or extensions=[...] of Item/Block: 'item', 'block' or 'any'; None anywhere else."""
+    import ast
+    import re
+    depth = 0
+    for i in range(len(masked) - 1, -1, -1):
+        ch = masked[i]
+        if ch in ")]}":
+            depth += 1
+        elif ch in "([{":
+            if depth > 0:
+                depth -= 1
+                continue
+            if ch == "(":
+                span = _open_call(masked[:i + 1])
+                text = masked[span[0]:span[1]].strip() if span else ""
+                if not text.endswith(".extends"):
+                    return None
+                receiver = text[:-len(".extends")]
+            elif ch == "[":
+                if not re.search(r"extensions\s*=\s*$", masked[:i]):
+                    return None
+                span = _open_call(masked[:i])
+                if span is None:
+                    return None
+                name = masked[span[0]:span[1]].strip()
+                return name.lower() if name in ("Item", "Block") else "any"
+            else:
+                return None
+            tree = _parse_lenient(code, line_idx)
+            try:
+                node = ast.parse("(" + receiver + ")", mode="eval").body
+            except SyntaxError:
+                return "any"
+            return _content_kind(node, _scope_for(tree, line_idx + 1), line_idx + 1) or "any"
+    return None
+
+
 def _complete(params):
     import re
     code, line_idx, before = _cursor(params)
     if before is None:
         return {"prefix": "", "items": [], "suggestions": []}
+    string_start = _open_string(before)
+    if string_start >= 0:
+        items = _complete_in_string(code, line_idx, before, string_start)
+        return {"prefix": before[string_start:], "items": items, "suggestions": [i["n"] for i in items]}
     if before and _mask(before)[-1] != before[-1]:
-        return {"prefix": "", "items": [], "suggestions": []}  # in a comment or a string
+        return {"prefix": "", "items": [], "suggestions": []}  # in a comment
     word = re.search(r'[A-Za-z_]\w*$', before)
     prefix = word.group(0) if word else ""
     masked = _mask(before[:len(before) - len(prefix)])
@@ -3777,6 +3965,15 @@ def _complete(params):
             if rank is not None:
                 items.append({"n": name, "k": kind, "s": sig, "d": _first_line(doc), "r": rank})
     else:
+        target = _extension_target(code, line_idx, masked)
+        if target is not None:  # extends( / extensions=[: the extensions that fit, before everything else
+            for name, cls in sorted(_extension_classes().items()):
+                fits = target == "any" or target in getattr(cls, "applies_to", ("item", "block"))
+                if fits and _rank(name, prefix) is not None:
+                    owner = _USER_EXTENSIONS.get(name, (None,))[0]
+                    about = _first_line(inspect.getdoc(cls) or "")
+                    arguments.append({"n": name, "k": "class", "s": _signature(cls),
+                                      "d": ("from " + owner + ": " if owner else "") + about})
         if stripped.endswith(("(", ",")):
             span = _open_call(masked)
             if span is not None:
@@ -4237,6 +4434,7 @@ def _load_docs():
             "fuel": "Furnace burn time in seconds (0 = not a fuel). Same as .extends(Fuel(seconds)).",
             "effect": "Right click applies an effect: 'speed' or (name, level, seconds), level 1 = normal.",
             "extensions": "List of extensions (Sword(...), Durability(...), your own); same as .extends(...).",
+            "tags": "Item tags to join: ['minecraft:swords', 'gems'] (a bare name is this project's tag).",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The item (a string 'project:id' with .extends(...))."),
         "Block": ("Declares a block and returns it; usable anywhere a block or item id is expected.", {
@@ -4250,6 +4448,7 @@ def _load_docs():
             "sound": "Sound type: 'stone', 'wood', 'grass', 'glass', 'gravel', 'sand', 'wool', 'metal', 'anvil' or 'snow'.",
             "drops": "What it drops: an item, a list, (item, count) / (item, count, weight), 'self' or [] for nothing. Default: the block itself.",
             "extensions": "List of extensions (MineableBy(...), Redstone(...), your own); same as .extends(...).",
+            "tags": "Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag).",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The block."),
         "Food": ("Food values for Item(food=...).", {

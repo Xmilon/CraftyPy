@@ -368,7 +368,7 @@ shaped(RubyBlade, "R", "R", R=ruby)           # the class can be used wherever a
 
 ## Items and blocks
 
-### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), **extra) -> 'Content'`
+### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(), **extra) -> 'Content'`
 
 Declares an item and returns it; the result can be used anywhere an item id is expected.
 
@@ -383,11 +383,12 @@ Declares an item and returns it; the result can be used anywhere an item id is e
 | `fuel` | `0` | Furnace burn time in seconds (0 = not a fuel). Same as .extends(Fuel(seconds)). |
 | `effect` | `None` | Right click applies an effect: 'speed' or (name, level, seconds), level 1 = normal. |
 | `extensions` | `()` | List of extensions (Sword(...), Durability(...), your own); same as .extends(...). |
+| `tags` | `()` | Item tags to join: ['minecraft:swords', 'gems'] (a bare name is this project's tag). |
 | `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
 
 Returns: The item (a string 'project:id' with .extends(...)).
 
-### `Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None, needs_tool=False, sound=None, drops=None, extensions=(), **extra) -> 'Content'`
+### `Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None, needs_tool=False, sound=None, drops=None, extensions=(), tags=(), **extra) -> 'Content'`
 
 Declares a block and returns it; usable anywhere a block or item id is expected.
 
@@ -404,6 +405,7 @@ Declares a block and returns it; usable anywhere a block or item id is expected.
 | `sound` | `None` | Sound type: 'stone', 'wood', 'grass', 'glass', 'gravel', 'sand', 'wool', 'metal', 'anvil' or 'snow'. |
 | `drops` | `None` | What it drops: an item, a list, (item, count) / (item, count, weight), 'self' or [] for nothing. Default: the block itself. |
 | `extensions` | `()` | List of extensions (MineableBy(...), Redstone(...), your own); same as .extends(...). |
+| `tags` | `()` | Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag). |
 | `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
 
 Returns: The block.

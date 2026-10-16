@@ -140,7 +140,7 @@ class PackBuilderRecipesTest {
         Path data = root.resolve("data").resolve("testproj");
         PackBuilder.writeTag(data, "testproj", raw);
 
-        JsonObject written = readJson(data.resolve("tags/blocks/project_bb_example.json"));
+        JsonObject written = readJson(data.resolve("tags/block/bb_example.json"));
         assertTrue(written.get("replace").getAsBoolean());
         JsonArray vals = written.getAsJsonArray("values");
         assertEquals("craftpy:pcblock_2", vals.get(0).getAsString());

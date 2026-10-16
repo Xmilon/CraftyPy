@@ -118,6 +118,20 @@ public class SlottedBlock extends Block implements EntityBlock {
         super.appendHoverText(stack, context, lines, flags);
     }
 
+    /**
+     * Holding a block: place it against this one, like against any plain block. Without this the click went to
+     * {@link #useWithoutItem}, which always takes it (for block_interact), so nothing could be placed on these blocks'
+     * faces. Other items still interact.
+     */
+    @Override
+    protected net.minecraft.world.ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
+            Player player, net.minecraft.world.InteractionHand hand, BlockHitResult hitResult) {
+        if (stack.getItem() instanceof net.minecraft.world.item.BlockItem) {
+            return net.minecraft.world.ItemInteractionResult.SKIP_DEFAULT_BLOCK_INTERACTION;
+        }
+        return super.useItemOn(stack, state, level, pos, player, hand, hitResult);
+    }
+
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
         if (!level.isClientSide) {

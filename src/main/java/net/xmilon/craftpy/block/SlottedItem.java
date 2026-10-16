@@ -202,6 +202,14 @@ public class SlottedItem extends Item {
         return def.tool.speed();
     }
 
+    /** Like vanilla swords: a sword or weapon does not break blocks in creative (it would make building impossible). */
+    @Override
+    public boolean canAttackBlock(BlockState state, Level level, BlockPos pos, Player player) {
+        Defs.ItemDef def = definition();
+        boolean weapon = def != null && (def.weapon != null || def.tool != null && "sword".equals(def.tool.kind()));
+        return !(weapon && player.isCreative());
+    }
+
     @Override
     public boolean isCorrectToolForDrops(ItemStack stack, BlockState state) {
         Defs.ItemDef def = definition();
