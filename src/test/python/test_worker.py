@@ -1103,6 +1103,97 @@ def test_memory_limit_stops_runaway_allocation():
     assert run.stdout.strip() == "limited", (run.stdout, run.stderr[-500:])
 
 
+def test_client_mode_hud_keys_events_and_windows():
+    calls = []
+
+    def host(method, params=None, timeout=10.0):
+        calls.append((method, params))
+        if method == "client.player":
+            return {"ok": True, "player": {"name": "Dev", "uuid": "u-1", "health": 18.0, "x": 1.5, "y": 64.0, "z": -3.0,
+                                           "held_item": "minecraft:diamond"}}
+        if method == "client.looking_at":
+            return {"ok": True, "target": {"block": "minecraft:stone", "pos": [1, 63, -3]}}
+        return {"ok": True}
+
+    old_call, old_try, old_mode = w._host_call, w._try_host, w._MODE[0]
+    w._host_call = lambda method, params=None, timeout=10.0: host(method, params)
+    w._try_host = lambda method, params=None, timeout=10.0, default=None: host(method, params)
+    w._MODE[0] = "client"
+    try:
+        code = NL.join([
+            "from craftpy import *",
+            "seen = []",
+            "@on.client_tick",
+            "def tick(event):",
+            "    hud.text('clock', 'tick %d' % event.tick, anchor='top_right', x=-4, y=4, color='gold')",
+            "    hud.bar('mana', 30, max=100, anchor='bottom_center', y=-40, label='Mana')",
+            "@on.chat_received",
+            "def chat(event):",
+            "    seen.append(event.message)",
+            "    client.toast('Chat', event.message)",
+            "@keys.bind('Ctrl+K')",
+            "def pressed(ctx):",
+            "    p = client.player()",
+            "    client.chat('%s looks at %s' % (p.name, client.looking_at()['block']))",
+            "    client.open_window('panel')",
+            "@window('panel', title='Panel')",
+            "class Panel(Window):",
+            "    def build(self, ctx):",
+            "        return Label('hello ' + client.player().name)",
+            ""])
+        result = w._handle("run_main", {"project": "cm", "code": code, "file": "code/main.py"})
+        assert not result.get("error"), result
+        assert ("keys.set", {"owner": "cm", "combos": ["ctrl+k"]}) in calls, calls
+        w._handle("tick", {"tick": 5})
+        w._handle("tick", {"tick": 6})
+        sets = [params for method, params in calls if method == "hud.set"]
+        assert len(sets) == 3 and sets[0]["text"] == "tick 5" and sets[2]["text"] == "tick 6", sets  # the bar was sent once
+        assert sets[0]["owner"] == "cm" and sets[1]["kind"] == "bar" and sets[1]["label"] == "Mana", sets
+        w._handle("trigger_event", {"event": "chat_received", "context": {"message": "hi there"}})
+        assert ("client.toast", {"title": "Chat", "message": "hi there"}) in calls
+        w._handle("trigger_event", {"event": "key", "context": {"combo": "ctrl+k"}})
+        assert ("client.chat", {"text": "Dev looks at minecraft:stone"}) in calls, calls
+        assert any(m == "ui.open" and "hello Dev" in str(p) for m, p in calls), calls
+        # the server-side API is not there on the client
+        for server_only in ["Item", "Block", "recipe", "world", "player", "run"]:
+            assert server_only not in w._api_names(), server_only
+        for bad in [lambda: w.hud.text("x" * 70, "t"), lambda: w.hud.text("a", "t", anchor="middle"),
+                    lambda: w.hud.text("a", "t", color="#12"), lambda: w.hud.text("a", "t", scale=100),
+                    lambda: w.hud.text("a", "z" * 300), lambda: w.keys.bind("ctrl+nothing"),
+                    lambda: w.hud.bar("b", 1, width=0)]:
+            try:
+                bad()
+                assert False, "accepted"
+            except ValueError:
+                pass
+        assert w._normalize_combo("SHIFT + Ctrl + F6") == "ctrl+shift+f6"
+        # unloading removes what the module drew and bound
+        calls.clear()
+        w._handle("unload_owner", {"owner": "cm"})
+        assert ("hud.clear", {"owner": "cm"}) in calls and ("keys.set", {"owner": "cm", "combos": []}) in calls, calls
+        assert not [k for k in w._KEYS if k[0] == "cm"]
+    finally:
+        w._host_call, w._try_host, w._MODE[0] = old_call, old_try, old_mode
+
+
+def test_client_names_say_so_on_the_server():
+    old = w._MODE[0]
+    w._MODE[0] = "server"
+    try:
+        for use in [lambda: w.hud.text("a", "b"), lambda: w.keys.bind("r", lambda c: None), lambda: w.client.player()]:
+            try:
+                use()
+                assert False, "worked on the server"
+            except RuntimeError as exc:
+                assert "client-side" in str(exc), exc
+        assert "hud" in w._api_names() and "Item" in w._api_names()
+        problems = w._handle("validate", {"file": "code/main.py", "code": "hud.text('a', 'b')" + NL + "@on.client_tick" + NL
+                                          + "def t(event): pass" + NL})["problems"]
+        assert not [p for p in problems if "Undefined" in p["message"] or "No event" in p["message"]], problems
+    finally:
+        w._MODE[0] = old
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

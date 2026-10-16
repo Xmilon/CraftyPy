@@ -528,11 +528,16 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.2** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.3** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.3 (2026-10-16)
+
+- **Added:** Client-side modules and projects (`side: client`): Python that runs on the player's own computer, in its own sandbox, and never touches the server: `hud` (text, bars, item icons on the screen), `keys.bind(...)`, `client` (the local player, what you look at, local chat, sounds, toasts), client events (`client_tick`, `chat_received`, `screen_open`, `client_join`, `client_leave`) and local windows.
+- **Added:** The checks while you type know the client events.
 
 ### 2.2 (2026-10-16)
 
@@ -2199,6 +2204,139 @@ A scrolling area.
 | `**p` |  | padding. |
 
 Returns: A widget.
+
+### Client side
+
+#### `hud.text(id, text, anchor='top_left', x=0, y=0, color='white', scale=1.0, shadow=True)`
+
+Shows text on your screen (client-side code only). Calling it again with the same id updates it.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `id` |  | Name of this element (letters, digits, _ . -); the same id replaces it. |
+| `text` |  | The text (at most 256 characters). |
+| `anchor` | `'top_left'` | Where on the screen: top_left, top_center, top_right, center_left, center, center_right, bottom_left, bottom_center, bottom_right. |
+| `x` | `0` | Pixels to the right of the anchor (negative = left). |
+| `y` | `0` | Pixels below the anchor (negative = above). |
+| `color` | `'white'` | One of the 16 chat colors ('gold', 'aqua'...) or '#rrggbb'. |
+| `scale` | `1.0` | Size, 0.25 to 8. |
+| `shadow` | `True` | Draw a shadow behind the text. |
+
+#### `hud.bar(id, value, max=100, anchor='top_left', x=0, y=0, width=80, height=6, color='green', background='dark_gray', label=None)`
+
+Shows a bar (health, mana, progress) on your screen.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `id` |  | Name of this element. |
+| `value` |  | Current value. |
+| `max` | `100` | Value when the bar is full. |
+| `anchor` | `'top_left'` | Where on the screen (see hud.text). |
+| `x` | `0` | Pixels right of the anchor. |
+| `y` | `0` | Pixels below the anchor. |
+| `width` | `80` | Width in pixels, 1 to 600. |
+| `height` | `6` | Height in pixels, 1 to 60. |
+| `color` | `'green'` | Color of the filled part. |
+| `background` | `'dark_gray'` | Color of the empty part. |
+| `label` | `None` | Text drawn on the bar (at most 64 characters), or None. |
+
+#### `hud.item(id, item, anchor='top_left', x=0, y=0, count=None, scale=1.0)`
+
+Shows an item icon on your screen.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `id` |  | Name of this element. |
+| `item` |  | Item id such as 'minecraft:diamond' or 'welcome:gem'. |
+| `anchor` | `'top_left'` | Where on the screen (see hud.text). |
+| `x` | `0` | Pixels right of the anchor. |
+| `y` | `0` | Pixels below the anchor. |
+| `count` | `None` | A number drawn in the corner, or None. |
+| `scale` | `1.0` | Size, 0.25 to 8. |
+
+#### `hud.remove(id)`
+
+Takes one element off the screen.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `id` |  | Name of the element. |
+
+#### `hud.clear()`
+
+Takes every element of this module off the screen.
+
+#### `keys.bind(combo, fn=None)`
+
+Runs a function when you press a key (while no screen is open). Use it as @keys.bind('ctrl+k').
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `combo` |  | One key with optional ctrl / shift / alt: 'r', 'f6', 'ctrl+shift+k'. Letters, digits, f1-f12, space, enter, tab, arrows, home, end, pageup, pagedown, insert, delete, backspace, minus, equals, comma, period, slash, semicolon, grave, bracket_left, bracket_right. |
+| `fn` | `None` | The function; leave out to use as a decorator. |
+
+Returns: the function
+
+#### `client.player()`
+
+The local player as the client knows it (read only).
+
+Returns: an object with name, uuid, health, max_health, food, level, x, y, z, pos, dimension, gamemode, held_item, held_count, on_ground
+
+#### `client.looking_at()`
+
+The block you are looking at.
+
+Returns: {'block': 'minecraft:stone', 'pos': [x, y, z]}, or None
+
+#### `client.fps()`
+
+Frames per second right now.
+
+Returns: number
+
+#### `client.chat(text)`
+
+Writes a line in your own chat; nobody else sees it and the server is not told.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `text` |  | The text (at most 512 characters). |
+
+#### `client.sound(sound, volume=1.0, pitch=1.0)`
+
+Plays a sound only you hear.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `sound` |  | Sound event id. |
+| `volume` | `1.0` | 1.0 = normal. |
+| `pitch` | `1.0` | 1.0 = normal. |
+
+#### `client.toast(title, message='')`
+
+Shows a small pop-up in the corner of the screen.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `title` |  | Title (at most 64 characters). |
+| `message` | `''` | Second line (at most 128 characters). |
+
+#### `client.open_window(window_id)`
+
+Opens one of your windows (see window) on this computer.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `window_id` |  | Id of a @window class or ui/<id>.json. |
+
+#### `client.close_window(window_id=None)`
+
+Closes a window of yours.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `window_id` | `None` | Which one; omit to close any. |
 
 ### Java bridge
 

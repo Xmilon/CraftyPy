@@ -453,6 +453,16 @@ def _profile_report():
 
 def _drop_owner(owner):
     """Forgets everything ``owner`` registered: declarations, handlers and timers."""
+    for key in [k for k in _KEYS if k[0] == owner]:
+        del _KEYS[key]
+    for key in [k for k in _HUD_LAST if k[0] == owner]:
+        del _HUD_LAST[key]
+    if _MODE[0] == "client" and owner != "__console__":
+        try:
+            _host_call("hud.clear", {"owner": owner})
+            _host_call("keys.set", {"owner": owner, "combos": []})
+        except HostError:
+            pass
     for name in [n for n, o in _USER_EXTENSIONS.items() if o[0] == owner]:
         del _USER_EXTENSIONS[name]
     _OWNERS.pop(owner, None)
@@ -1383,7 +1393,7 @@ class _On:
         return deco
 
     def __dir__(self):
-        return list(_EVENT_NAMES)  # the IDE completes `on.` from this
+        return list(_EVENT_NAMES) + list(_CLIENT_EVENT_NAMES)  # the IDE completes `on.` from this
 
     def __getattr__(self, event):
         if event.startswith("_"):
@@ -1545,6 +1555,15 @@ def _on_tick(params):
                 entry["next"] = _TICK[0] + max(1, task.interval)
             elif entry in _SCHEDULE:
                 _SCHEDULE.remove(entry)
+    if _client_mode() and any(state["handlers"].get("client_tick") for state in _OWNERS.values()):
+        ctx = _EventContext(log)
+        ctx.event = "client_tick"
+        ctx.tick = _TICK[0]
+        _LOG_TARGET[0] = log
+        try:
+            _dispatch_event("client_tick", ctx, log, [])
+        finally:
+            _LOG_TARGET[0] = None
     return {"log": log, "scheduled": len(_SCHEDULE)}
 
 
@@ -2613,9 +2632,15 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.2"
+API_VERSION = "2.3"
 
 API_CHANGES = [
+    {"version": "2.3", "date": "2026-10-16",
+     "added": ["Client-side modules and projects (`side: client`): Python that runs on the player's own computer, in its own "
+               "sandbox, and never touches the server: `hud` (text, bars, item icons on the screen), `keys.bind(...)`, "
+               "`client` (the local player, what you look at, local chat, sounds, toasts), client events "
+               "(`client_tick`, `chat_received`, `screen_open`, `client_join`, `client_leave`) and local windows.",
+               "The checks while you type know the client events."]},
     {"version": "2.2", "date": "2026-10-16",
      "changed": ["`run(\"...\")` and `server.run_command(...)` return what the command answered, as text "
                  "(before: a status object)."],
@@ -2695,7 +2720,235 @@ def _api_notes(folder, meta_file):
     return notes
 
 
+# ---------------------------------------------------------------------------
+# Client side. A module or project with side "client" runs in a second worker on the player's computer (CRAFTPY_MODE=client).
+# It can draw on the screen, listen to keys and client events and open windows, and it can read what the client knows;
+# it cannot change the world or reach the server. In the server's worker these names exist but say so when used.
+# ---------------------------------------------------------------------------
+
+_MODE = [None]
+_CLIENT_EVENT_NAMES = ("client_tick", "chat_received", "screen_open", "client_join", "client_leave")
+_ALL_EVENT_NAMES = _EVENT_NAMES + _CLIENT_EVENT_NAMES
+_HUD_ANCHORS = ("top_left", "top_center", "top_right", "center_left", "center", "center_right",
+                "bottom_left", "bottom_center", "bottom_right")
+_HUD_LAST = {}   # (owner, id) -> the last element sent, so an unchanged element costs nothing
+_KEYS = {}       # (owner, combo) -> function
+_KEY_NAMES = frozenset("abcdefghijklmnopqrstuvwxyz0123456789") | frozenset("f%d" % n for n in range(1, 13)) | frozenset({
+    "space", "enter", "tab", "up", "down", "left", "right", "home", "end", "pageup", "pagedown", "insert", "delete",
+    "backspace", "minus", "equals", "comma", "period", "slash", "semicolon", "grave", "bracket_left", "bracket_right"})
+
+
+def _client_mode():
+    if _MODE[0] is None:
+        import os
+        _MODE[0] = os.environ.get("CRAFTPY_MODE", "server")
+    return _MODE[0] == "client"
+
+
+def _require_client(what):
+    if not _client_mode():
+        raise RuntimeError("%s only works in client-side code: use a project or module whose side is 'client' "
+                           "(the server has no screen, keys or HUD)" % what)
+
+
+def _normalize_combo(text):
+    """'Ctrl+K' -> 'ctrl+k'; modifiers in a fixed order. Raises ValueError for a key that does not exist."""
+    parts = [p.strip().lower() for p in str(text).split("+") if p.strip()]
+    mods = [m for m in ("ctrl", "shift", "alt") if m in parts]
+    keys = [p for p in parts if p not in ("ctrl", "shift", "alt")]
+    if len(keys) != 1 or keys[0] not in _KEY_NAMES:
+        raise ValueError("keys.bind(%r): use one key such as 'r', 'f6', 'space', with ctrl / shift / alt in front: "
+                         "'ctrl+shift+k'" % (text,))
+    return "+".join(mods + keys)
+
+
+def _hud_color(color):
+    import re
+    if color in _COLORS or (isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color)):
+        return color
+    raise ValueError("HUD color %r: one of %s or '#rrggbb'" % (color, ", ".join(_COLORS)))
+
+
+def _hud_number(name, value, low, high):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or not low <= value <= high:
+        raise ValueError("hud %s must be a number from %s to %s" % (name, low, high))
+    return value
+
+
+class _Hud:
+    """Text, bars and item icons on the player's screen. ``hud.text("fps", "Hello", anchor="top_right")``."""
+
+    def _put(self, element_id, kind, fields):
+        import re
+        _require_client("hud")
+        if not isinstance(element_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", element_id):
+            raise ValueError("hud id must be 1 to 64 letters, digits, _ . -")
+        if fields.get("anchor") not in _HUD_ANCHORS:
+            raise ValueError("hud anchor %r: one of %s" % (fields.get("anchor"), ", ".join(_HUD_ANCHORS)))
+        fields["x"] = _hud_number("x", fields["x"], -4000, 4000)
+        fields["y"] = _hud_number("y", fields["y"], -4000, 4000)
+        fields["scale"] = _hud_number("scale", fields["scale"], 0.25, 8)
+        owner = _OWNER[0]
+        element = dict(fields, owner=owner, id=element_id, kind=kind)
+        if _HUD_LAST.get((owner, element_id)) == element:
+            return
+        _HUD_LAST[(owner, element_id)] = element
+        _ok(_host_call("hud.set", element))
+
+    def text(self, id, text, anchor="top_left", x=0, y=0, color="white", scale=1.0, shadow=True):
+        if len(str(text)) > 256:
+            raise ValueError("hud.text: at most 256 characters")
+        self._put(id, "text", {"text": str(text), "anchor": anchor, "x": x, "y": y, "color": _hud_color(color),
+                               "scale": scale, "shadow": bool(shadow)})
+
+    def bar(self, id, value, max=100, anchor="top_left", x=0, y=0, width=80, height=6, color="green",
+            background="dark_gray", label=None):
+        self._put(id, "bar", {"value": _hud_number("value", value, -1e9, 1e9), "max": _hud_number("max", max, 1e-9, 1e9),
+                              "width": _hud_number("width", width, 1, 600), "height": _hud_number("height", height, 1, 60),
+                              "anchor": anchor, "x": x, "y": y, "color": _hud_color(color),
+                              "background": _hud_color(background), "scale": 1.0,
+                              "label": None if label is None else str(label)[:64]})
+
+    def item(self, id, item, anchor="top_left", x=0, y=0, count=None, scale=1.0):
+        self._put(id, "item", {"item": str(item), "anchor": anchor, "x": x, "y": y, "scale": scale,
+                               "count": None if count is None else int(_hud_number("count", count, 0, 999))})
+
+    def remove(self, id):
+        _require_client("hud")
+        _HUD_LAST.pop((_OWNER[0], id), None)
+        _ok(_host_call("hud.remove", {"owner": _OWNER[0], "id": str(id)}))
+
+    def clear(self):
+        _require_client("hud")
+        for key in [k for k in _HUD_LAST if k[0] == _OWNER[0]]:
+            del _HUD_LAST[key]
+        _ok(_host_call("hud.clear", {"owner": _OWNER[0]}))
+
+
+hud = _Hud()
+
+
+class _Keys:
+    """Your own key bindings: ``@keys.bind("ctrl+k")`` or ``keys.bind("f6", fn)``. They work while no screen is open."""
+
+    def bind(self, combo, fn=None):
+        _require_client("keys")
+        name = _normalize_combo(combo)
+
+        def register(function):
+            _KEYS[(_OWNER[0], name)] = function
+            self._publish()
+            return function
+        return register(fn) if callable(fn) else register
+
+    def _publish(self):
+        _ok(_host_call("keys.set", {"owner": _OWNER[0], "combos": sorted(c for (o, c) in _KEYS if o == _OWNER[0])}))
+
+
+keys = _Keys()
+
+
+def _key_event(data):
+    """A key the player pressed: runs the function bound to it (by the owner that bound it)."""
+    combo = data.get("combo", "")
+    log = []
+    ran = 0
+    _LOG_TARGET[0] = log
+    try:
+        for (owner, bound), fn in list(_KEYS.items()):
+            if bound != combo:
+                continue
+            _use_owner(owner)
+            ran += 1
+            try:
+                _call_flexible(fn, _TickContext(_TICK[0]))
+            except Exception as exc:  # noqa: BLE001
+                log.append("[%s] key %s: %s: %s" % (owner, combo, type(exc).__name__, exc))
+    finally:
+        _LOG_TARGET[0] = None
+    return {"log": log, "handlers": ran, "scheduled": len(_SCHEDULE)}
+
+
+class _ClientPlayer:
+    """The local player as the client knows it (read only): name, health, pos, held_item..."""
+
+    def __init__(self, data):
+        self.name = data.get("name", "")
+        self.uuid = data.get("uuid", "")
+        self.health = data.get("health", 0.0)
+        self.max_health = data.get("max_health", 20.0)
+        self.food = data.get("food", 20)
+        self.level = data.get("level", 0)
+        self.x, self.y, self.z = data.get("x", 0.0), data.get("y", 0.0), data.get("z", 0.0)
+        self.dimension = data.get("dimension", "")
+        self.gamemode = data.get("gamemode", "")
+        self.held_item = data.get("held_item", "minecraft:air")
+        self.held_count = data.get("held_count", 0)
+        self.on_ground = data.get("on_ground", True)
+
+    @property
+    def pos(self):
+        return Pos(self.x, self.y, self.z)
+
+    def __repr__(self):
+        return "ClientPlayer(%r)" % self.name
+
+
+class _Client:
+    """What the client can do: read the local player, show things only this player sees, open local windows."""
+
+    def player(self):
+        _require_client("client")
+        return _ClientPlayer((_ok(_host_call("client.player", {})) or {}).get("player") or {})
+
+    def looking_at(self):
+        _require_client("client")
+        return (_ok(_host_call("client.looking_at", {})) or {}).get("target")
+
+    def fps(self):
+        _require_client("client")
+        return (_ok(_host_call("client.fps", {})) or {}).get("fps", 0)
+
+    def chat(self, text):
+        _require_client("client")
+        _ok(_host_call("client.chat", {"text": str(text)[:512]}))
+
+    def sound(self, sound, volume=1.0, pitch=1.0):
+        _require_client("client")
+        _ok(_host_call("client.sound", {"sound": str(sound), "volume": float(volume), "pitch": float(pitch)}))
+
+    def toast(self, title, message=""):
+        _require_client("client")
+        _ok(_host_call("client.toast", {"title": str(title)[:64], "message": str(message)[:128]}))
+
+    def open_window(self, window_id):
+        _require_client("client")
+        return ui.open(self.player().name, window_id)
+
+    def close_window(self, window_id=None):
+        _require_client("client")
+        return ui.close(self.player().name, window_id)
+
+
+client = _Client()
+
+
+_CLIENT_NAMES = frozenset({
+    "on", "every", "after", "run_later", "run_every", "run_next_tick", "scheduler", "storage", "Pos", "has",
+    "window", "Window", "ui", "action", "Label", "Button", "TextInput", "TextArea", "Checkbox", "Slider", "Dropdown",
+    "ListView", "ProgressBar", "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView",
+    "hud", "keys", "client", "API_VERSION",
+})
+
+
 def _api_names():
+    names = _server_api_names()
+    if _client_mode():
+        return {k: v for k, v in names.items() if k in _CLIENT_NAMES}
+    return names
+
+
+def _server_api_names():
     names = {
         "block": block, "item": item, "entity": entity, "effect": effect,
         "enchantment": enchantment, "potion": potion,
@@ -2711,6 +2964,7 @@ def _api_names():
         "advancement": advancement, "raw_json": raw_json, "recipe": recipe,
         "window": window, "Window": Window, "ui": ui, "cp": cp, "action": action,
         "world": world, "players": players, "server": server,
+        "hud": hud, "keys": keys, "client": client,
         "storage": storage, "scheduler": scheduler,
         "run_later": run_later, "run_every": run_every, "run_next_tick": run_next_tick,
         "Label": Label, "Button": Button, "TextInput": TextInput, "TextArea": TextArea,
@@ -3413,6 +3667,8 @@ def _trigger_event(params):
     ctx_data = params.get("context", {}) or {}
     if event_name == "ui_event":
         return _ui_event(ctx_data)
+    if event_name == "key":
+        return _key_event(ctx_data)
     if event_name.startswith("java:"):
         return _trigger_java_event(event_name, ctx_data)
     log = []
@@ -4909,8 +5165,8 @@ def _lint_more(tree, warn, error):
                 elif isinstance(deco, ast.Call) and isinstance(target, ast.Name) and target.id == "on" and deco.args \
                         and isinstance(deco.args[0], ast.Constant) and isinstance(deco.args[0].value, str):
                     event = deco.args[0].value
-                if event is not None and event not in _EVENT_NAMES:
-                    warn(deco, "No event '%s': this handler never runs%s" % (event, suggest(event, _EVENT_NAMES)))
+                if event is not None and event not in _ALL_EVENT_NAMES:
+                    warn(deco, "No event '%s': this handler never runs%s" % (event, suggest(event, _ALL_EVENT_NAMES)))
             # mutable default arguments are shared between calls
             for default in list(node.args.defaults) + [d for d in node.args.kw_defaults if d is not None]:
                 if isinstance(default, (ast.List, ast.Dict, ast.Set)) or (
@@ -5247,6 +5503,34 @@ def _load_docs():
         "TabView": ("Tabs; each child is one tab.", {"children": "Widgets.", "p": "selected (index)."}, "A widget."),
         "ScrollView": ("A scrolling area.", {"children": "Widgets.", "p": "padding."}, "A widget."),
         "Window.build": ("Returns the widgets of the window. Called again after every callback.", {"ctx": "Window context: ctx.player, ctx.values, ctx.close."}, "A widget."),
+        "hud.text": ("Shows text on your screen (client-side code only). Calling it again with the same id updates it.", {
+            "id": "Name of this element (letters, digits, _ . -); the same id replaces it.", "text": "The text (at most 256 characters).",
+            "anchor": "Where on the screen: top_left, top_center, top_right, center_left, center, center_right, bottom_left, bottom_center, bottom_right.",
+            "x": "Pixels to the right of the anchor (negative = left).", "y": "Pixels below the anchor (negative = above).",
+            "color": "One of the 16 chat colors ('gold', 'aqua'...) or '#rrggbb'.", "scale": "Size, 0.25 to 8.",
+            "shadow": "Draw a shadow behind the text."}, ""),
+        "hud.bar": ("Shows a bar (health, mana, progress) on your screen.", {
+            "id": "Name of this element.", "value": "Current value.", "max": "Value when the bar is full.",
+            "anchor": "Where on the screen (see hud.text).", "x": "Pixels right of the anchor.", "y": "Pixels below the anchor.",
+            "width": "Width in pixels, 1 to 600.", "height": "Height in pixels, 1 to 60.", "color": "Color of the filled part.",
+            "background": "Color of the empty part.", "label": "Text drawn on the bar (at most 64 characters), or None."}, ""),
+        "hud.item": ("Shows an item icon on your screen.", {
+            "id": "Name of this element.", "item": "Item id such as 'minecraft:diamond' or 'welcome:gem'.",
+            "anchor": "Where on the screen (see hud.text).", "x": "Pixels right of the anchor.", "y": "Pixels below the anchor.",
+            "count": "A number drawn in the corner, or None.", "scale": "Size, 0.25 to 8."}, ""),
+        "hud.remove": ("Takes one element off the screen.", {"id": "Name of the element."}, ""),
+        "hud.clear": ("Takes every element of this module off the screen.", {}, ""),
+        "keys.bind": ("Runs a function when you press a key (while no screen is open). Use it as @keys.bind('ctrl+k').", {
+            "combo": "One key with optional ctrl / shift / alt: 'r', 'f6', 'ctrl+shift+k'. Letters, digits, f1-f12, space, enter, tab, arrows, home, end, pageup, pagedown, insert, delete, backspace, minus, equals, comma, period, slash, semicolon, grave, bracket_left, bracket_right.",
+            "fn": "The function; leave out to use as a decorator."}, "the function"),
+        "client.player": ("The local player as the client knows it (read only).", {}, "an object with name, uuid, health, max_health, food, level, x, y, z, pos, dimension, gamemode, held_item, held_count, on_ground"),
+        "client.looking_at": ("The block you are looking at.", {}, "{'block': 'minecraft:stone', 'pos': [x, y, z]}, or None"),
+        "client.fps": ("Frames per second right now.", {}, "number"),
+        "client.chat": ("Writes a line in your own chat; nobody else sees it and the server is not told.", {"text": "The text (at most 512 characters)."}, ""),
+        "client.sound": ("Plays a sound only you hear.", {"sound": "Sound event id.", "volume": "1.0 = normal.", "pitch": "1.0 = normal."}, ""),
+        "client.toast": ("Shows a small pop-up in the corner of the screen.", {"title": "Title (at most 64 characters).", "message": "Second line (at most 128 characters)."}, ""),
+        "client.open_window": ("Opens one of your windows (see window) on this computer.", {"window_id": "Id of a @window class or ui/<id>.json."}, ""),
+        "client.close_window": ("Closes a window of yours.", {"window_id": "Which one; omit to close any."}, ""),
         "Window.state": ("A value remembered between redraws.", {"default": "Initial value."}, "A holder with .value."),
         # ---------------------------------------------------------------- extensions
         "Extension": ("Base class of every extension, built in or your own. Methods named like a hook run for the item or block it is attached to: "

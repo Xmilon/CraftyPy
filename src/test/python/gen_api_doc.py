@@ -46,6 +46,9 @@ CHAPTERS = [
     ("Windows", ["window", "action", "Window.build", "Window.state", "ui.open", "ui.close", "ui.windows", "ui.refresh", "Label",
                  "Button", "TextInput", "TextArea", "Checkbox", "Slider", "Dropdown", "ListView", "ProgressBar",
                  "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView"]),
+    ("Client side", ["hud.text", "hud.bar", "hud.item", "hud.remove", "hud.clear", "keys.bind", "client.player",
+                     "client.looking_at", "client.fps", "client.chat", "client.sound", "client.toast",
+                     "client.open_window", "client.close_window"]),
     ("Java bridge", ["java.available", "java.cls", "java.new", "java.on", "java.items", "java.members", "java.mods",
                      "java.server", "java.level", "java.entity"]),
 ]
