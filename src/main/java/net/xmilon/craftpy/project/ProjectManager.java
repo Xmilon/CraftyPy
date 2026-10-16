@@ -892,7 +892,7 @@ public final class ProjectManager {
                 + "\n"
                 + "> CraftPy module `" + id + "`\n"
                 + "\n"
-                + "Describe what this module adds here. This Markdown file is bundled into the\n"
+                + ModuleReadme.TEMPLATE_MARK + " This Markdown file is bundled into the\n"
                 + "built `.cpm` and shown as the extended description on the Modules page.\n"
                 + "\n"
                 + "## Features\n"

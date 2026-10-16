@@ -4689,6 +4689,8 @@ def _lint_more(tree, warn, error):
         close = difflib.get_close_matches(name, choices, n=1)
         return " - did you mean '%s'?" % close[0] if close else ""
 
+    # the "02d" of f"{x:02d}" is an f-string of its own without placeholders: not a mistake
+    specs = {id(n.format_spec) for n in ast.walk(tree) if isinstance(n, ast.FormattedValue) and n.format_spec}
     for node in ast.walk(tree):
         # the sandbox refuses these when the code runs; say so while typing
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -4733,7 +4735,7 @@ def _lint_more(tree, warn, error):
                     if key.value in keys:
                         warn(key, "Key %r appears twice in this dict: the first value is lost" % (key.value,))
                     keys[key.value] = True
-        if isinstance(node, ast.JoinedStr) and not any(isinstance(v, ast.FormattedValue) for v in node.values):
+        if isinstance(node, ast.JoinedStr) and id(node) not in specs                 and not any(isinstance(v, ast.FormattedValue) for v in node.values):
             warn(node, "f-string without {placeholders}: the f does nothing")
         for field in ("body", "orelse", "finalbody"):
             block = getattr(node, field, None)

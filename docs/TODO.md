@@ -240,8 +240,13 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
   namespace.)
 - [x] IDE console: `/command` lines (vanilla, other mods', the project's own like `/welcome:gift`) run as the player and
   their output shows in the console. (`server/CommandOutput`; `run()` now returns the answer too, API 2.2.)
-- [ ] Two personal examples, not shipped (in `run/pyforge/projects/`): several mods working together, and something not
-  Minecraft-like (a music player window).
+- [x] Two personal examples, not shipped (in `run/pyforge/projects/`, git-ignored): `mod_mashup` (Create mixer + press,
+  Mekanism enrichment, Iron's materials and spell power attributes, Curios ring tag, a cross-mod mining event) and
+  `jukebox` (a music player window: songs, play/pause/stop/skip, instruments, tempo, progress, visualizer; uses the new
+  `ui.refresh`). Both run on the worker without errors; the jukebox playback was simulated (19 notes in 10 s).
+- [x] Every module carries a README.md: the project's own, or one written from the code when it has none
+  (`project/ModuleReadme`: info table, items/blocks, commands, events, windows, other mods used). README.md added to
+  welcome, ruby_rush and both personal projects.
 
 ## 8. Known limits (from the last "what is missing" list)
 

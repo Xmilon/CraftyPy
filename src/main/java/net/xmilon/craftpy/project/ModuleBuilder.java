@@ -6,6 +6,7 @@ import net.xmilon.craftpy.util.Json;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -119,12 +120,15 @@ public final class ModuleBuilder {
                     zipDirectory(dir, subDir, zos, from, moduleId);
                 }
             }
+            // every module says what is inside: the project's README, or one written from its code
             Path readme = projectDir.resolve("README.md");
-            if (Files.isRegularFile(readme)) {
-                zos.putNextEntry(new ZipEntry("README.md"));
-                zos.write(Files.readAllBytes(readme));
-                zos.closeEntry();
-            }
+            String own = Files.isRegularFile(readme) ? Files.readString(readme, java.nio.charset.StandardCharsets.UTF_8) : null;
+            String text = !ModuleReadme.needsGenerating(own) ? own
+                    : ModuleReadme.generate(moduleId, displayName, meta.description, meta.author, version, meta.apiVersion,
+                    request.side(), pythonFiles(projectDir));
+            zos.putNextEntry(new ZipEntry("README.md"));
+            zos.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zos.closeEntry();
         } catch (IOException | RuntimeException e) {
             Files.deleteIfExists(temp);
             throw e instanceof IOException io ? io : new IOException(e.getMessage(), e);
@@ -144,6 +148,21 @@ public final class ModuleBuilder {
         CraftPyLog.LOGGER.info("Exported module {} {} to {}{}", moduleId, version, outputFile,
                 installed == null ? "" : (replaced ? ", replaced " : ", installed as ") + installed);
         return new Result(outputFile, installed, moduleId, version, replaced);
+    }
+
+    private static Map<String, String> pythonFiles(Path projectDir) throws IOException {
+        Map<String, String> out = new java.util.TreeMap<>();
+        Path code = projectDir.resolve("code");
+        if (!Files.isDirectory(code)) {
+            return out;
+        }
+        try (var walk = Files.walk(code)) {
+            for (Path file : walk.filter(p -> Files.isRegularFile(p) && p.toString().endsWith(".py")).toList()) {
+                out.put(projectDir.relativize(file).toString().replace('\\', '/'),
+                        Files.readString(file, java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+        return out;
     }
 
     private static void zipDirectory(Path folder, String parentFolder, ZipOutputStream zos, String from, String to)

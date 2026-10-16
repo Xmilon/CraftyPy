@@ -16,4 +16,5 @@ welcome/code/test_rewards.py
 welcome/code/timers.py
 welcome/code/windows.py
 welcome/project.json
+welcome/README.md
 welcome/ui/settings.json
