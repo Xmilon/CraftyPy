@@ -632,3 +632,14 @@ across restarts (fixed in M19: saved with the world); only `code/main.py` runs; 
 - [ ] Export/save the built module to a user-chosen location
 - [ ] Better tutorials: an easy one, a complex multi-file one, and a Python-only one
 - [ ] Overall professional polish pass
+
+### M19 (continued, 2026-10-16): storage, audit gaps, tests, bundled Python, API versions
+
+- `storage` saved with the world (`lifecycle/StorageData`); `storage.clear()` keeps other scopes.
+- Audit gaps 8, 29 and the multi-variant sound copy closed (`util/Debouncer`, `ModuleBuilder.entryName/content`).
+- Test runner: worker `run_tests`, tool `run_tests`, `Ctrl+Shift+F10`, results dialog with failures first.
+- CPython 3.13.15 (python-build-standalone 20260929) for five platforms inside the jar, unpacked by `BundledPython` /
+  `TarGz`; installer without Python. Verified here: Windows runtime unpacked from the real jar and the worker tests pass
+  on it; the Linux archive unpacks. **Not verified**: macOS and Linux machines, in-game.
+- Python API 2.1 with a generated changelog and deprecation notes (`PyApi`, `API_CHANGES`, `_DEPRECATED`).
+

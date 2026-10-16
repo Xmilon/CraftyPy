@@ -285,7 +285,8 @@ public final class PyRuntime {
         return CraftPyExecutors.supplyAsync(() -> {
             try {
                 JsonObject result = client().call("ping", new JsonObject(), DEFAULT_TIMEOUT_MS);
-                return "Python " + result.get("version").getAsString() + " OK";
+                return "Python " + result.get("version").getAsString() + " OK, CraftPy Python API "
+                        + (result.has("api") ? result.get("api").getAsString() : "?");
             } catch (Exception e) {
                 CraftPyLog.LOGGER.error("Python ping failed", e);
                 return "Python unavailable: " + e.getMessage();

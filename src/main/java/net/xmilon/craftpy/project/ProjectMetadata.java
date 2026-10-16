@@ -14,7 +14,8 @@ public class ProjectMetadata {
     public String author = "";
     public String description = "";
     public String mcVersion = "1.21.1";
-    public String apiVersion = "1";
+    /** The Python API version the project was written for; new projects get the current one. */
+    public String apiVersion = net.xmilon.craftpy.python.PyApi.version();
     public boolean requiresRestart = false;
     public Map<String, Integer> slotUsage = new LinkedHashMap<>();
 

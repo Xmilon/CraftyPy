@@ -562,7 +562,8 @@ def test_api_reference_is_complete_and_current():
     assert gen.merged(current, text) == current, "api.md is out of date: python src/test/python/gen_api_doc.py"
     covered = {key.partition(".")[0] for _, keys in gen.CHAPTERS for key in keys}
     legacy = {"block", "item", "entity", "effect", "enchantment", "potion", "block_logic", "cp", "JavaError", "Content",
-              "Entity", "Player", "Window", "players", "world", "storage", "scheduler", "server", "ui", "java"}
+              "Entity", "Player", "Window", "players", "world", "storage", "scheduler", "server", "ui", "java",
+              "API_VERSION"}  # API_VERSION is in the generated "API versions" part
     uncovered = sorted(n for n in w._api_names() if not n.startswith("_") and n not in covered and n not in legacy)
     assert uncovered == [], "public names without documentation: %s" % uncovered
 
@@ -857,6 +858,34 @@ def test_run_tests():
     assert "test:tp" not in w._OWNERS and w._OWNER[0] == previous, (list(w._OWNERS), w._OWNER)
     only = w._handle("run_tests", {"project": "tp", "sources": sources, "file": "code/test_broken.py"})
     assert only["files"] == ["code/test_broken.py"], only
+
+
+def test_api_versions():
+    assert w.API_CHANGES[0]["version"] == w.API_VERSION, "the newest API_CHANGES entry must be API_VERSION"
+    versions = [w._api_tuple(c["version"]) for c in w.API_CHANGES]
+    assert versions == sorted(versions, reverse=True) and len(set(versions)) == len(versions), versions
+    assert w._api_tuple("2") == (2, 0) and w._api_tuple("2.1") == (2, 1) and w._api_tuple("x") == (0, 0)
+    for name, (since, use) in w._DEPRECATED.items():
+        assert name in w._api_names() and w._api_tuple(since) <= w._api_tuple(w.API_VERSION), name
+    assert w._handle("ping", {})["api"] == w.API_VERSION
+
+    import tempfile, json as _json
+    with tempfile.TemporaryDirectory() as folder:
+        with open(os.path.join(folder, "project.json"), "w") as handle:
+            _json.dump({"apiVersion": "9.0"}, handle)
+        old = ("from craftpy import *\n"
+               "@block('ore', texture=tex('ore.png'))\nclass Ore:\n    pass\n"
+               "recipe_smelting('apiv:ore', {'item': 'minecraft:stone'})\n"
+               "assert API_VERSION == '%s'\n" % w.API_VERSION)
+        result = w._handle("run_main", {"project": "apiv", "code": old, "file": "code/main.py", "dir": folder})
+        assert not result.get("error"), result
+        notes = [line for line in result["log"] if line.startswith("[api]")]
+        assert any("written for Python API 9.0" in n for n in notes), notes
+        assert [n.split("()")[0][6:] for n in notes[1:]] == ["block", "recipe_smelting", "tex"], notes
+        assert len(result["declarations"]["blocks"]) == 1  # old code still works
+        clean = w._handle("run_main", {"project": "apiv", "code": "from craftpy import *\nItem('x')\n",
+                                       "file": "code/main.py"})
+        assert not [line for line in clean["log"] if line.startswith("[api]")], clean["log"]
 
 
 if __name__ == "__main__":

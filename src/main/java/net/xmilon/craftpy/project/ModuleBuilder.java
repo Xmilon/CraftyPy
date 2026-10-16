@@ -104,6 +104,7 @@ public final class ModuleBuilder {
             modMeta.author = meta.author;
             modMeta.description = meta.description;
             modMeta.version = version;
+            modMeta.apiVersion = meta.apiVersion;
             zos.putNextEntry(new ZipEntry("module.json"));
             zos.write(Json.GSON.toJson(modMeta).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             zos.closeEntry();
@@ -185,6 +186,8 @@ public final class ModuleBuilder {
         public String author;
         public String description;
         public String version;
+        /** The Python API version the module was written for (checked when it loads). */
+        public String apiVersion;
         public String[] dependencies = new String[0];
     }
 }

@@ -78,7 +78,7 @@ def build(worker=None):
     worker = worker or load_worker()
     docs = worker._DOCS
     missing = []
-    out = [START, "", "## Reference", "",
+    out = [START, ""] + versions(worker) + ["## Reference", "",
            "Every function, class and method with all its parameters, by topic. Use the search of this page, or hover a "
            "name in the editor (`Ctrl+Q`).", ""]
     for chapter, keys in CHAPTERS:
@@ -97,6 +97,9 @@ def build(worker=None):
                 sig = None
             shown = key if member else key
             out += ["#### `%s%s`" % (shown, sig if sig is not None else "()"), "", summary, ""]
+            if key in worker._DEPRECATED:
+                since, use = worker._DEPRECATED[key]
+                out += ["Old API (replaced in %s, still works): use %s." % (since, use), ""]
             rows = []
             if sig is not None:
                 for p in sig.parameters.values():
@@ -114,6 +117,26 @@ def build(worker=None):
                 out += ["Returns: " + returns, ""]
     out.append(END)
     return "\n".join(out) + "\n", missing
+
+
+def versions(worker):
+    """The "API versions" part: the rules, the current version and what each version changed."""
+    out = ["## API versions", "",
+           "This page describes Python API **%s** (`API_VERSION` in your code). `apiVersion` in `project.json` says which "
+           "version a project was written for." % worker.API_VERSION, "",
+           "- A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.",
+           "- A **major** version (1 to 2) may rename things. The old names keep working; after a run the console "
+           "says `[api] ... is the old API` and what to write instead.",
+           "- A project written for a newer API than your CraftPy gets a note to update CraftPy.", ""]
+    labels = [("added", "Added"), ("changed", "Changed"), ("deprecated", "Old names (still work)"), ("removed", "Removed")]
+    for change in worker.API_CHANGES:
+        title = "### " + change["version"] + (" (" + change["date"] + ")" if change.get("date") else "")
+        out += [title, ""]
+        for key, label in labels:
+            for line in change.get(key, []):
+                out.append("- **%s:** %s" % (label, line))
+        out.append("")
+    return out
 
 
 def current_text():

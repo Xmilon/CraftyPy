@@ -2301,6 +2301,90 @@ def requires_restart(flag=True):
         _DECLS["meta"].setdefault("core", True)
 
 
+# ---------------------------------------------------------------------------
+# API versions. MAJOR.MINOR. A minor version only adds: every project of the same major keeps working. A major version
+# may rename or remove: the old names keep working (as deprecated aliases, with a note in the console) for at least
+# one more major version. project.json / module.json "apiVersion" says which version a project was written for.
+# Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
+# ---------------------------------------------------------------------------
+
+API_VERSION = "2.1"
+
+API_CHANGES = [
+    {"version": "2.1", "date": "2026-10-16",
+     "added": ["Tests: `code/test_*.py` files with `test...` functions, run with `Ctrl+Shift+F10`.",
+               "`Item(..., tags=[...])` and `Block(..., tags=[...])`.",
+               "`API_VERSION`: the version of the API your code runs on."],
+     "changed": ["`storage` is saved with the world (before, it was lost when the server stopped).",
+                 "`storage.clear()` without a key clears only its `scope` (before, it cleared every scope)."]},
+    {"version": "2.0",
+     "added": ["Content as objects: `Block()`, `Item()`, `Food()`.",
+               "Short recipes: `shaped()`, `shapeless()`, `smelt()`, `stonecut()`, `recipe()` for any mod's type.",
+               "Events with filters (`@on.block_break(block=...)`), `@every`, `after()`, `@command` with typed arguments.",
+               "Extensions (`Sword`, `Tool`, `Armor`, `Fuel`, ...) and your own with `@extension`.",
+               "`player()`, `world`, `Player` / `Entity` / `Pos` objects, windows, the Java bridge (`java`)."],
+     "deprecated": ["`@block` / `@item` decorators, `recipe_*()` functions, `tex()` / `snd()` / `mdl()`: they still work; "
+                    "the console says what replaces them."]},
+    {"version": "1.0",
+     "added": ["The first API: `@block` / `@item` decorators, `recipe_*()` functions, `loot_table()`, timers in ticks."]},
+]
+
+# old name: (the version that replaced it, what to write instead). Calling one still works and adds a console note.
+_DEPRECATED = {
+    "block": ("2.0", 'Block("id", ...)'),
+    "item": ("2.0", 'Item("id", ...)'),
+    "recipe_shaped": ("2.0", 'shaped(result, " R ", " R ", " S ", R=ingredient, S="stick")'),
+    "recipe_shapeless": ("2.0", "shapeless(result, ingredient, ...)"),
+    "recipe_smelting": ("2.0", "smelt(ingredient, result, xp=..., seconds=...)"),
+    "recipe_blasting": ("2.0", 'smelt(ingredient, result, using="blast_furnace")'),
+    "recipe_smoking": ("2.0", 'smelt(ingredient, result, using="smoker")'),
+    "recipe_campfire": ("2.0", 'smelt(ingredient, result, using="campfire")'),
+    "recipe_stonecutting": ("2.0", "stonecut(ingredient, result, count=...)"),
+    "tex": ("2.0", 'the file name as text, like texture="ruby.png"'),
+    "snd": ("2.0", "the sound id as text"),
+    "mdl": ("2.0", "the model name as text"),
+}
+_DEPRECATION_HITS = set()
+
+
+def _api_tuple(text):
+    """"2" -> (2, 0), "2.1" -> (2, 1); anything else -> (0, 0)."""
+    parts = str(text or "").strip().split(".")
+    try:
+        return int(parts[0]), int(parts[1]) if len(parts) > 1 and parts[1] else 0
+    except ValueError:
+        return 0, 0
+
+
+def _deprecated(name, fn):
+    import functools
+
+    @functools.wraps(fn)
+    def call(*args, **kwargs):
+        _DEPRECATION_HITS.add(name)
+        return fn(*args, **kwargs)
+    return call
+
+
+def _api_notes(folder, meta_file):
+    """Console notes after a run: a project written for a newer API than this one, old names that were used."""
+    import os
+    notes = []
+    declared = None
+    try:
+        with open(os.path.join(folder or "", meta_file), encoding="utf-8") as handle:
+            declared = json.load(handle).get("apiVersion")
+    except (OSError, ValueError, AttributeError):
+        pass
+    if declared and _api_tuple(declared) > _api_tuple(API_VERSION):
+        notes.append("[api] This project was written for Python API %s, this CraftPy has %s: names added after %s "
+                     "are missing. Update CraftPy." % (declared, API_VERSION, API_VERSION))
+    for name in sorted(_DEPRECATION_HITS):
+        since, use = _DEPRECATED[name]
+        notes.append("[api] %s() is the old API (replaced in %s). It still works; the new way: %s" % (name, since, use))
+    return notes
+
+
 def _api_names():
     names = {
         "block": block, "item": item, "entity": entity, "effect": effect,
@@ -2330,6 +2414,9 @@ def _api_names():
         "after": after, "Pos": Pos, "Player": Player, "Entity": Entity,
         "player": player, "say": say, "run": run, "java": java, "JavaError": JavaError,
     }
+    for name, (since, use) in _DEPRECATED.items():
+        names[name] = _deprecated(name, names[name])
+    names["API_VERSION"] = API_VERSION
     names.update(_EXTENSION_NAMES)
     for name, (owner, cls) in list(_USER_EXTENSIONS.items()):
         names.setdefault(name, cls)  # the built-in API always wins over a same-named extension
@@ -2419,8 +2506,10 @@ def _load_module(params):
     owner = "module:%s" % module_id
     _drop_owner(owner)
     _read_ui_dir(base_dir, owner)
-    return _run_code(code, main_file, "module_%s" % module_id, persistent=True, owner=owner,
-                     sources=_read_sources(base_dir))
+    result = _run_code(code, main_file, "module_%s" % module_id, persistent=True, owner=owner,
+                       sources=_read_sources(base_dir))
+    result["log"].extend(_api_notes(base_dir, "module.json"))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -2754,6 +2843,7 @@ def _run_code(code, filename, module_name, debug=False, persistent=False, owner=
         return _combined_tracer
 
     sys.modules["craftpy"] = sandbox_module
+    _DEPRECATION_HITS.clear()
     compiled = compile(code, filename, "exec")
     finder = ProjectFinder(sources, log)
     sys.meta_path.insert(0, finder)
@@ -2875,7 +2965,7 @@ def _handle(method, params):
     global _INTERRUPT
     if method == "ping":
         return {"version": "%d.%d" % sys.version_info[:2],
-                "implementation": "CPython", "hello": "craftpy"}
+                "implementation": "CPython", "hello": "craftpy", "api": API_VERSION}
     if method == "interrupt":
         _INTERRUPT = True
         return {"ok": True}
@@ -2957,6 +3047,7 @@ def _handle(method, params):
             _drop_owner(owner)
             _read_ui_dir(params.get("dir"), owner)
             result = _run_code(code, name, "__craftpy_main__", debug=debug, owner=owner, sources=sources)
+            result["log"].extend(_api_notes(params.get("dir"), "project.json"))
             _PREVIOUS[owner] = snapshot  # kept until the host confirms it could apply this run (revert_owner)
             return result
         except Exception as exc:  # noqa: BLE001

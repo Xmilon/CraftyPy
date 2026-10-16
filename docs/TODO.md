@@ -197,6 +197,16 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
   the properties file, the Minecraft folder if CraftPy ran there, the current folder.
 - [ ] A shared Java runtime is not bundled: the shortcut uses the JDK this project builds with.
 
+## 9d. Asked 2026-10-16: Python in the jar, API versions - done
+
+- [x] Python ships in the mod jar (see section 4).
+- [x] Python API versions: `API_VERSION` / `API_CHANGES` / `_DEPRECATED` in `worker.py` (the one place; Java reads it via
+  `python/PyApi`). New projects and built modules get `apiVersion`; after each run the console notes old names used
+  (`[api] ...`, they still work) and a project written for a newer API. api.md "API versions" is generated.
+  `/craftpy module info` shows a module's API version. Rule: minor = additions only, major = renames with aliases kept.
+- [ ] Old timer names (`run_later`, `run_every`, `run_next_tick`) are not deprecated: they return cancellable handles that
+  `after()` / `@every` do not replace one to one.
+
 ## 8. Known limits (from the last "what is missing" list)
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.

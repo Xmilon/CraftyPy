@@ -88,6 +88,14 @@ New UI in dark, with CraftPy's green as the accent:
 | **Python** | **Nothing to install**: the mod ships CPython 3.13 for Windows x64, macOS (Intel and Apple silicon) and Linux x64 / ARM64 |
 | **Modern UI** | 3.13+ for NeoForge 1.21.1, **client only** (servers do not need it) |
 
+### Python API versions
+
+The Python API has a version (`API_VERSION`, now 2.1; `apiVersion` in `project.json` and `module.json`). A minor
+version only adds, so everything written for 2.0 keeps working on 2.1; a major version may rename, and the old names keep
+working with an `[api]` note in the console saying what replaces them. A project written for a newer API than the
+installed CraftPy gets a note to update. What changed in each version: **API versions** in the API docs (generated from
+`API_CHANGES` in `worker.py`, the one place the version is written).
+
 ### Python is included
 
 You do not install Python. The mod jar carries CPython 3.13 (python-build-standalone, pinned by release and SHA-256) for
