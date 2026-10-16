@@ -260,7 +260,7 @@ def _profile_report():
 
 def _drop_owner(owner):
     """Forgets everything ``owner`` registered: declarations, handlers and timers."""
-    for name in [n for n, o in _USER_EXTENSIONS.items() if o == owner]:
+    for name in [n for n, o in _USER_EXTENSIONS.items() if o[0] == owner]:
         del _USER_EXTENSIONS[name]
     _OWNERS.pop(owner, None)
     for key in [k for k in _PROFILE if k[0] == owner]:
@@ -471,10 +471,17 @@ def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, e
 
 
 def _effect_spec(effect):
+    """"id:amplifier:seconds" for the host. Always three parts, so a namespaced id ("irons_spellbooks:evasion") is never
+    read as an id plus an amplifier; a plain name lasts 5 seconds at level 1."""
     if isinstance(effect, (tuple, list)):
         name, level, seconds = (list(effect) + [1, 10])[:3]
-        return "%s:%d:%d" % (name, max(0, int(level) - 1), int(seconds))
-    return str(effect)
+        return "%s:%d:%d" % (_ref_effect(name), max(0, int(level) - 1), int(seconds))
+    return "%s:0:5" % _ref_effect(effect)
+
+
+def _ref_effect(name):
+    name = str(name).strip()
+    return name if ":" in name else "minecraft:" + name
 
 
 
@@ -561,7 +568,9 @@ class Extension:
         """Change the target here. Nothing to do by default."""
 
 
-_USER_EXTENSIONS = {}  # name of an @extension class -> owner that declared it, for completion
+# name of an @extension class -> (owner that declared it, the class). Completion offers them, and every project can use
+# them by name (`from craftpy import *` brings them in), so a module can add extensions for other projects.
+_USER_EXTENSIONS = {}
 
 
 def extension(cls):
@@ -570,7 +579,7 @@ def extension(cls):
         raise TypeError("@extension goes on a class")
     if not issubclass(cls, Extension):
         cls = type(cls.__name__, (cls, Extension), {})
-    _USER_EXTENSIONS[cls.__name__] = _OWNER[0]
+    _USER_EXTENSIONS[cls.__name__] = (_OWNER[0], cls)
     for name in dir(cls):
         if name.startswith("on_") and name not in _ALL_HOOKS and name not in ("on_load", "on_unload"):
             raise TypeError("%s.%s is not a hook. Hooks: %s" % (cls.__name__, name, ", ".join(sorted(_ALL_HOOKS))))
@@ -2299,6 +2308,8 @@ def _api_names():
         "player": player, "say": say, "run": run, "java": java, "JavaError": JavaError,
     }
     names.update(_EXTENSION_NAMES)
+    for name, (owner, cls) in list(_USER_EXTENSIONS.items()):
+        names.setdefault(name, cls)  # the built-in API always wins over a same-named extension
     return names
 
 

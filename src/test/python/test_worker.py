@@ -73,7 +73,7 @@ def test_simple_declarations():
     assert blocks["ruby_ore"]["texture"] == "ruby_ore.png"
     assert items["ruby"]["glow"] is True
     assert items["ruby_sword"]["max_stack"] == 1
-    assert items["ruby_sword"]["use_effect"] == "strength:1:10"
+    assert items["ruby_sword"]["use_effect"] == "minecraft:strength:1:10"
     assert items["ruby_apple"]["food"] == {"hunger": 6, "saturation": 1.2, "always_eat": True, "fast": False}
 
     shaped_r = [r for r in d["recipes"] if r["type"] == "shaped"][0]
@@ -760,6 +760,25 @@ def test_fuzzy_completion_and_signature_help():
     sig = w._handle("signature", {"code": code, "line": 2, "column": 22})
     assert sig["title"].startswith("event.player.give(>>item<<"), sig
     assert w._handle("signature", {"code": "x = 1", "line": 0, "column": 5}) == {}
+
+
+
+def test_extensions_of_a_module_can_be_used_by_other_projects():
+    run_main("ext_mod", "from craftpy import *\n@extension\nclass Glowing(Extension):\n    pass\n")
+    decls = run_main("ext_user", "from craftpy import *\nItem('wand').extends(Glowing())\n")
+    assert any(i["id"] == "wand" for i in decls["items"]), decls
+    w._handle("unload_owner", {"owner": "ext_mod"})
+    result = w._handle("run_main", {"project": "ext_user2", "code": "from craftpy import *\nGlowing()\n",
+                                    "file": "code/main.py", "sources": {}})
+    assert result.get("error"), "gone with the module that declared it"
+    w._handle("unload_owner", {"owner": "ext_user"})
+
+
+def test_effect_specs_keep_namespaced_ids_whole():
+    assert w._effect_spec("speed") == "minecraft:speed:0:5"
+    assert w._effect_spec("irons_spellbooks:evasion") == "irons_spellbooks:evasion:0:5"
+    assert w._effect_spec(("strength", 2, 8)) == "minecraft:strength:1:8"
+    assert w._effect_spec(("irons_spellbooks:evasion", 1, 3)) == "irons_spellbooks:evasion:0:3"
 
 
 if __name__ == "__main__":

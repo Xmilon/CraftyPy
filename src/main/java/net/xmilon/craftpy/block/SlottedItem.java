@@ -284,6 +284,9 @@ public class SlottedItem extends Item {
             return null;
         }
         String[] parts = spec.split(":");
+        if (parts.length == 2 && !parts[1].trim().matches("\\d+")) {
+            parts = new String[]{spec}; // "mod:effect" written by an older worker: an id, not id:amplifier
+        }
         String id = parts.length >= 3
                 ? String.join(":", java.util.Arrays.copyOf(parts, parts.length - 2))
                 : parts[0];

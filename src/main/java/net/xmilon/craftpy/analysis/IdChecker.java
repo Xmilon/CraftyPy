@@ -51,6 +51,9 @@ public final class IdChecker {
                 continue;
             }
             String problem = kind.equals("recipe_type") ? recipeType(view, value) : id(view, kind, value, projectId, own);
+            if (problem == null && kind.equals("recipe_type") && call.argument() == 0 && call.callee().equals("recipe")) {
+                problem = recipeFields(view, value, text, string.end());
+            }
             if (problem != null) {
                 int line = 0;
                 int lineStart = 0;
@@ -93,6 +96,50 @@ public final class IdChecker {
             return "recipe type '" + value + "' needs the mod '" + namespace + "', which is not installed (the recipe is skipped without it)";
         }
         return "unknown recipe type '" + value + "'";
+    }
+
+    /**
+     * {@code recipe("mod:type", field=...)}: keywords the recipe type was never seen with (the dump records the fields of
+     * every recipe of the type). Null when they all fit, or nothing is known about the type's fields.
+     */
+    static String recipeFields(CatalogView view, String type, String text, int stringEnd) {
+        var known = view.recipeType(type);
+        if (known == null || known.fields == null || known.fields.isEmpty()) {
+            return null;
+        }
+        String masked = PyLex.maskNonCode(text);
+        java.util.List<String> unknown = new java.util.ArrayList<>();
+        int depth = 0;
+        int segment = stringEnd + 1;
+        for (int i = stringEnd + 1; i < masked.length(); i++) {
+            char c = masked.charAt(i);
+            if (c == '(' || c == '[' || c == '{') {
+                depth++;
+            } else if (c == ')' || c == ']' || c == '}') {
+                if (depth == 0) {
+                    keyword(masked.substring(segment, i), known.fields, unknown);
+                    break;
+                }
+                depth--;
+            } else if (c == ',' && depth == 0) {
+                keyword(masked.substring(segment, i), known.fields, unknown);
+                segment = i + 1;
+            }
+        }
+        if (unknown.isEmpty()) {
+            return null;
+        }
+        return "recipe type '" + type + "' was never seen with " + (unknown.size() == 1 ? "the field " : "the fields ")
+                + String.join(", ", unknown) + " (known: " + String.join(", ", known.fields) + ")";
+    }
+
+    private static final java.util.regex.Pattern KEYWORD = java.util.regex.Pattern.compile("^\\s*([A-Za-z_]\\w*)\\s*=(?!=)");
+
+    private static void keyword(String argument, java.util.List<String> fields, java.util.List<String> unknown) {
+        var m = KEYWORD.matcher(argument);
+        if (m.find() && !m.group(1).equals("id") && !fields.contains(m.group(1))) {
+            unknown.add(m.group(1));
+        }
     }
 
     private static String label(String kind) {

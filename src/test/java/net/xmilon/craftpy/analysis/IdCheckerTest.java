@@ -68,4 +68,22 @@ class IdCheckerTest {
     void anEmptyCatalogSaysNothing() {
         assertEquals(List.of(), IdChecker.check("f.py", "p.give(\"zzz\")", CatalogView.EMPTY, "demo", Set.of()));
     }
+
+    @org.junit.jupiter.api.Test
+    void recipeKeywordsAreCheckedAgainstTheFieldsOfTheType() {
+        var mixing = new net.xmilon.craftpy.catalog.Catalog.RecipeType();
+        mixing.fields = java.util.List.of("ingredients", "results", "heat_requirement");
+        var create = new net.xmilon.craftpy.catalog.Catalog();
+        create.namespace = "create";
+        create.mod = "create";
+        create.recipeTypes.put("create:mixing", mixing);
+        var view = net.xmilon.craftpy.catalog.CatalogView.of(java.util.List.of(create), java.util.Map.of(), java.util.Set.of("create"));
+        String good = "recipe(\"create:mixing\", ingredients=[\"a\"], results=[{\"id\": \"b\"}], id=\"x\")";
+        String typed = "recipe(\"create:mixing\", ingredient=[\"a\"], results=f(heat=1))";
+        org.junit.jupiter.api.Assertions.assertNull(IdChecker.recipeFields(view, "create:mixing", good, good.indexOf("\",") ));
+        String problem = IdChecker.recipeFields(view, "create:mixing", typed, typed.indexOf("\","));
+        // only the recipe's own keyword is reported, not heat= of the nested call
+        org.junit.jupiter.api.Assertions.assertTrue(problem != null && problem.contains("the field ingredient (known:"),
+                String.valueOf(problem));
+    }
 }
