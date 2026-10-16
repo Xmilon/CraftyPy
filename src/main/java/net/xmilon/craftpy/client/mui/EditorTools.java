@@ -409,8 +409,11 @@ final class EditorTools {
                 host.toast("Use only a-z, 0-9 and _");
                 return;
             }
-            store(s -> s.createEntry("ui/" + clean + ".json", "file"));
-            host.toast("Created ui/" + clean + ".json - open it, then Tools > UI designer");
+            String path = "ui/" + clean + ".json";
+            store(s -> s.createEntry(path, "file"));
+            // open it once the server made it: the UI maker then designs it (an empty file starts a new window)
+            host.anchor().postDelayed(() -> host.openAt(path, 0), 700);
+            host.toast("Created " + path + " - add widgets in the UI maker");
         });
     }
 

@@ -2,23 +2,21 @@ package net.xmilon.craftpy.client.mui;
 
 import java.util.List;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-
 import icyllis.modernui.R;
 import icyllis.modernui.core.Context;
 import icyllis.modernui.graphics.drawable.ColorDrawable;
 import icyllis.modernui.view.View;
 import icyllis.modernui.widget.LinearLayout;
-import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 
 /**
- * The UI maker tool window: the windows of the project ({@code ui/*.json}) with a live preview of the one open in the
- * editor, New to make one, Design to open the visual designer. Python opens them with {@code ui.open(player, "id")}.
+ * The UI maker tool window: the windows of the project ({@code ui/*.json}) and, for the one open in the editor, the
+ * designer itself: a palette of widgets, the widget tree, their properties and the window drawn live. Every change
+ * goes straight into the editor tab (undo with Ctrl+Z, save with Ctrl+S); typing in the JSON updates the designer.
+ * Python opens a window with {@code ui.open(player, "id")}.
  */
 final class UiMakerPanel {
     interface Host {
@@ -30,7 +28,8 @@ final class UiMakerPanel {
 
         void open(String path);
 
-        void design();
+        /** Replaces the text of the open editor tab (one undoable edit). */
+        void write(String text);
 
         void newWindow();
 
@@ -40,9 +39,11 @@ final class UiMakerPanel {
     private final Host host;
     private final LinearLayout view;
     private final LinearLayout list;
-    private final LinearLayout preview;
+    private final LinearLayout designer;
     private final TextView hint;
-    private String lastPreview = "";
+    /** The designer was built for this file and this text; the text it wrote itself does not rebuild it. */
+    private String designedPath;
+    private String designedText;
 
     UiMakerPanel(Context context, Host host) {
         this.host = host;
@@ -55,8 +56,7 @@ final class UiMakerPanel {
         var title = CraftPyFragment.label(context, "UI maker", R.attr.textAppearanceLabelLarge);
         title.setTextColor(IdeColors.TEXT);
         header.addView(title, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-        header.addView(EditorFragment.action(context, IdeIcon.Glyph.PLUS, "New window (ui/<id>.json)", v -> host.newWindow()));
-        header.addView(EditorFragment.action(context, IdeIcon.Glyph.BRUSH, "Design the open window visually", v -> host.design()));
+        header.addView(CraftPyFragment.button(context, "+ New window", R.attr.borderlessButtonStyle, v -> host.newWindow()));
         header.addView(EditorFragment.action(context, IdeIcon.Glyph.MINUS, "Hide", v -> host.hide()));
         view.addView(header, new LinearLayout.LayoutParams(MATCH_PARENT, header.dp(36)));
 
@@ -69,20 +69,18 @@ final class UiMakerPanel {
         hint.setPadding(view.dp(10), view.dp(4), view.dp(10), view.dp(4));
         view.addView(hint);
 
-        preview = new LinearLayout(context);
-        preview.setOrientation(LinearLayout.VERTICAL);
-        preview.setPadding(view.dp(10), view.dp(6), view.dp(10), view.dp(6));
-        var scroll = new ScrollView(context);
-        scroll.setBackground(new ColorDrawable(IdeColors.EDITOR));
-        scroll.addView(preview, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        view.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+        designer = new LinearLayout(context);
+        designer.setOrientation(LinearLayout.VERTICAL);
+        designer.setPadding(view.dp(6), 0, view.dp(6), view.dp(6));
+        designer.setBackground(new ColorDrawable(IdeColors.EDITOR));
+        view.addView(designer, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
     }
 
     View view() {
         return view;
     }
 
-    /** Called when files or the editor text change: the list, and the preview of the open window. */
+    /** Called when the panel opens, another file opens or the editor text changed (debounced). */
     void refresh() {
         Context context = list.getContext();
         list.removeAllViews();
@@ -99,25 +97,26 @@ final class UiMakerPanel {
             list.addView(row);
         }
         boolean open = active != null && active.startsWith("ui/") && active.endsWith(".json");
-        hint.setText(windows.isEmpty() ? "No windows yet: + makes ui/<id>.json, then the brush opens the designer."
-                : open ? "Preview of " + active + " - Python opens it with ui.open(player, \"" + active.substring(3, active.length() - 5) + "\")"
-                : "Click a window to open it; its preview shows here.");
-        String text = open ? host.activeText() : "";
-        if (!text.equals(lastPreview)) {
-            lastPreview = text;
-            preview.removeAllViews();
-            if (open) {
-                try {
-                    JsonObject window = JsonParser.parseString(text).getAsJsonObject();
-                    if (window.has("root") && window.get("root").isJsonObject()) {
-                        preview.addView(WindowFragment.previewView(context, window.getAsJsonObject("root")));
-                    }
-                } catch (RuntimeException broken) {
-                    var error = CraftPyFragment.label(context, "Not a valid window yet: " + broken.getMessage(), R.attr.textAppearanceBodySmall);
-                    error.setTextColor(IdeColors.ERROR);
-                    preview.addView(error);
-                }
-            }
+        String id = open ? active.substring(3, active.length() - 5) : "";
+        hint.setText(windows.isEmpty() ? "No windows yet: + New window makes ui/<id>.json and opens it here."
+                : open ? "Designing " + active + " - Python opens it with ui.open(player, \"" + id + "\")"
+                : "Click a window to design it.");
+        if (!open) {
+            designer.removeAllViews();
+            designedPath = null;
+            designedText = null;
+            return;
         }
+        String text = host.activeText();
+        if (active.equals(designedPath) && text.equals(designedText)) {
+            return; // the designer's own edit came back, or nothing changed: keep its state (selection, focus)
+        }
+        designedPath = active;
+        designedText = text;
+        designer.removeAllViews();
+        designer.addView(UiDesigner.docked(context, id, text, json -> {
+            designedText = json;
+            host.write(json);
+        }), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
     }
 }

@@ -40,29 +40,60 @@ final class UiDesigner {
             "selected");
     private static final Set<String> LISTS = Set.of("options", "items");
 
-    private final View anchor;
+    private final Context context;
     private final JsonObject window;
+    /** Receives the window's JSON text: after every change when {@link #live}, else on Apply. */
     private final Consumer<String> onApply;
+    private final boolean live;
     private JsonObject selected;
 
     private LinearLayout treeColumn;
     private LinearLayout previewHolder;
     private LinearLayout props;
-    private Overlays.Dialog popup;
 
-    private UiDesigner(View anchor, JsonObject window, Consumer<String> onApply) {
-        this.anchor = anchor;
+    private UiDesigner(Context context, JsonObject window, Consumer<String> onApply, boolean live) {
+        this.context = context;
         this.window = window;
         this.onApply = onApply;
+        this.live = live;
         this.selected = window.getAsJsonObject("root");
     }
 
     /**
-     * Opens the designer on {@code text} (the JSON of a window; blank or broken text starts a new window).
-     * {@code onApply} receives the new JSON text.
+     * Opens the designer as a dialog on {@code text} (the JSON of a window; blank or broken text starts a new window).
+     * {@code onApply} receives the new JSON text when Apply is pressed.
      */
     static void open(View anchor, String windowId, String text, Consumer<String> onApply) {
-        new UiDesigner(anchor, parse(windowId, text), onApply).show();
+        var designer = new UiDesigner(anchor.getContext(), parse(windowId, text), onApply, false);
+        var popup = Overlays.dialog(anchor, "UI designer - " + windowId, 1000, -1);
+        popup.body.addView(designer.build(false), new LinearLayout.LayoutParams(MATCH_PARENT, popup.body.dp(520)));
+        var buttons = row(anchor.getContext());
+        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        buttons.addView(button(anchor.getContext(), "Apply to editor", R.attr.buttonTonalStyle, v -> {
+            onApply.accept(designer.json());
+            popup.dismiss();
+        }));
+        popup.body.addView(buttons);
+        popup.show();
+    }
+
+    /**
+     * The designer as a view for a narrow tool window: every change goes to {@code onChange} at once (the editor tab
+     * holds the text, so Ctrl+Z and Ctrl+S work as usual).
+     */
+    static View docked(Context context, String windowId, String text, Consumer<String> onChange) {
+        return new UiDesigner(context, parse(windowId, text), onChange, true).build(true);
+    }
+
+    String json() {
+        return new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(window) + "\n";
+    }
+
+    /** After every edit: the live designer writes the JSON back right away. */
+    private void changed() {
+        if (live) {
+            onApply.accept(json());
+        }
     }
 
     static JsonObject parse(String windowId, String text) {
@@ -88,64 +119,90 @@ final class UiDesigner {
         return fresh;
     }
 
-    private void show() {
-        Context context = anchor.getContext();
-        popup = Overlays.dialog(anchor, "UI designer - " + WindowFragment.str(window, "id", ""), 0, -1);
-        var content = popup.body;
-        var hint = label(context, "Add widgets on the left, edit them on the right. Buttons call a Python function by "
-                + "name: write @action(\"name\") in main.py and type that name in on_click. Apply puts the JSON into the editor tab; "
-                + "save it with Ctrl+S.", R.attr.textAppearanceBodySmall);
-        hint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
-        content.addView(hint);
-
-        var body = new LinearLayout(context);
-        body.setOrientation(LinearLayout.HORIZONTAL);
+    /** Palette, tree, properties and the live window; {@code narrow} stacks them for a side panel. */
+    private View build(boolean narrow) {
         treeColumn = new LinearLayout(context);
         treeColumn.setOrientation(LinearLayout.VERTICAL);
         previewHolder = new LinearLayout(context);
         previewHolder.setOrientation(LinearLayout.VERTICAL);
-        previewHolder.setGravity(Gravity.CENTER);
+        previewHolder.setGravity(Gravity.CENTER_HORIZONTAL);
         props = new LinearLayout(context);
         props.setOrientation(LinearLayout.VERTICAL);
 
-        var left = new LinearLayout(context);
-        left.setOrientation(LinearLayout.VERTICAL);
+        var palette = new LinearLayout(context);
+        palette.setOrientation(LinearLayout.VERTICAL);
+        var hint = label(context, "Click a widget to add it to the selected box. Buttons call @action(\"name\") in Python:"
+                + " type the name in on_click.", R.attr.textAppearanceBodySmall);
+        hint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        palette.addView(hint);
+        LinearLayout line = null;
+        for (int i = 0; i < TYPES.size(); i++) {
+            if (i % 4 == 0) {
+                line = row(context);
+                palette.addView(line);
+            }
+            String type = TYPES.get(i);
+            var add = button(context, type.replace('_', ' '), R.attr.borderlessButtonStyle, v -> add(type));
+            line.addView(add, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        }
         var treeButtons = row(context);
-        treeButtons.addView(button(context, "Add", R.attr.buttonTonalStyle, this::addMenu));
         treeButtons.addView(button(context, "Delete", R.attr.borderlessButtonStyle, v -> delete()));
         treeButtons.addView(button(context, "Up", R.attr.borderlessButtonStyle, v -> move(-1)));
         treeButtons.addView(button(context, "Down", R.attr.borderlessButtonStyle, v -> move(1)));
-        left.addView(treeButtons);
+        treeButtons.addView(button(context, "Copy Python", R.attr.borderlessButtonStyle, v -> {
+            net.xmilon.craftpy.client.IdeHost.get().setClipboard(pythonStub());
+        }));
+        palette.addView(treeButtons);
+
         var treeScroll = new ScrollView(context);
         treeScroll.addView(treeColumn);
-        left.addView(treeScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
-        body.addView(left, new LinearLayout.LayoutParams(content.dp(260), MATCH_PARENT));
-
-        var previewScroll = new ScrollView(context);
-        previewScroll.addView(previewHolder, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        var lpMid = new LinearLayout.LayoutParams(0, MATCH_PARENT, 1);
-        lpMid.leftMargin = content.dp(8);
-        lpMid.rightMargin = content.dp(8);
-        body.addView(previewScroll, lpMid);
-
         var propsScroll = new ScrollView(context);
         propsScroll.addView(props);
-        body.addView(propsScroll, new LinearLayout.LayoutParams(content.dp(280), MATCH_PARENT));
+        var previewScroll = new ScrollView(context);
+        previewScroll.addView(previewHolder, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
-        var lpBody = new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1);
-        lpBody.topMargin = content.dp(8);
-        content.addView(body, lpBody);
-
-        var buttons = row(context);
-        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        buttons.addView(button(context, "Apply to editor", R.attr.buttonTonalStyle, v -> {
-            onApply.accept(new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(window) + "\n");
-            popup.dismiss();
-        }));
-        content.addView(buttons);
-
+        LinearLayout root = new LinearLayout(context);
+        if (narrow) {
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.addView(palette);
+            root.addView(previewScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 4));
+            root.addView(treeScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 2));
+            root.addView(propsScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 3));
+        } else {
+            root.setOrientation(LinearLayout.HORIZONTAL);
+            var left = new LinearLayout(context);
+            left.setOrientation(LinearLayout.VERTICAL);
+            left.addView(palette);
+            left.addView(treeScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+            root.addView(left, new LinearLayout.LayoutParams(root.dp(300), MATCH_PARENT));
+            var lpMid = new LinearLayout.LayoutParams(0, MATCH_PARENT, 1);
+            lpMid.leftMargin = lpMid.rightMargin = root.dp(8);
+            root.addView(previewScroll, lpMid);
+            root.addView(propsScroll, new LinearLayout.LayoutParams(root.dp(280), MATCH_PARENT));
+        }
         refreshAll();
-        popup.show();
+        return root;
+    }
+
+    /** {@code @action} functions for every action name the window uses (close is built in). */
+    String pythonStub() {
+        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        for (Entry entry : entries()) {
+            for (String key : new String[]{"on_click", "on_change", "on_select", "on_submit"}) {
+                String name = WindowFragment.str(entry.node, key, "").trim();
+                if (name.matches("[A-Za-z_][A-Za-z0-9_]*") && !name.equals("close")) {
+                    names.add(name);
+                }
+            }
+        }
+        String id = WindowFragment.str(window, "id", "window");
+        StringBuilder out = new StringBuilder("from craftpy import *\n\n# ui.open(player, \"").append(id)
+                .append("\") shows this window. ctx.values holds every input by its id.\n");
+        for (String name : names) {
+            out.append("\n\n@action(\"").append(name).append("\")\ndef ").append(name)
+                    .append("(ctx):\n    ctx.player.say(\"").append(name).append(": \", ctx.values)\n");
+        }
+        return out.toString();
     }
 
     // ------------------------------------------------------------------
@@ -179,7 +236,6 @@ final class UiDesigner {
     }
 
     private void refreshTree() {
-        Context context = treeColumn.getContext();
         treeColumn.removeAllViews();
         for (Entry entry : entries()) {
             String type = WindowFragment.str(entry.node, "type", "?");
@@ -199,7 +255,6 @@ final class UiDesigner {
     }
 
     private void refreshPreview() {
-        Context context = previewHolder.getContext();
         previewHolder.removeAllViews();
         int[] size = {320, 220};
         if (window.has("size") && window.get("size").isJsonArray() && window.getAsJsonArray("size").size() >= 2) {
@@ -222,18 +277,6 @@ final class UiDesigner {
     // Structure edits
     // ------------------------------------------------------------------
 
-    private void addMenu(View from) {
-        var menu = Overlays.menu(from);
-        for (int i = 0; i < TYPES.size(); i++) {
-            menu.getMenu().add(0, i, i, TYPES.get(i));
-        }
-        menu.setOnMenuItemClickListener(item -> {
-            add(TYPES.get(item.getItemId()));
-            return true;
-        });
-        menu.show();
-    }
-
     private void add(String type) {
         Entry target = entryOf(selected);
         JsonObject container = selected;
@@ -247,6 +290,7 @@ final class UiDesigner {
         container.getAsJsonArray("children").add(node);
         selected = node;
         refreshAll();
+        changed();
     }
 
     private void delete() {
@@ -261,6 +305,7 @@ final class UiDesigner {
         }
         selected = entry.parent;
         refreshAll();
+        changed();
     }
 
     private void move(int delta) {
@@ -282,6 +327,7 @@ final class UiDesigner {
         }
         all.forEach(siblings::add);
         refreshAll();
+        changed();
     }
 
     @Nullable
@@ -381,7 +427,6 @@ final class UiDesigner {
     }
 
     private void refreshProps() {
-        Context context = props.getContext();
         props.removeAllViews();
         boolean isRoot = selected == window.getAsJsonObject("root");
         if (isRoot) {
@@ -457,6 +502,7 @@ final class UiDesigner {
             window.addProperty(key, value);
         }
         refreshPreview();
+        changed();
     }
 
     private static int parseInt(String text, int fallback) {
@@ -510,6 +556,7 @@ final class UiDesigner {
         if (key.equals("text") || key.equals("label") || key.equals("id")) {
             refreshTree();
         }
+        changed();
     }
 
     private boolean isNumberWidget() {

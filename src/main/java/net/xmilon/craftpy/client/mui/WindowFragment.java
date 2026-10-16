@@ -110,6 +110,45 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
     }
 
     /** The views of one widget tree without a screen around it (UI editor preview; nothing is sent). */
+    private static McCanvas.Painter itemPainter(String id) {
+        return (g, w, h, mx, my, partial) -> {
+            net.minecraft.world.item.ItemStack stack = McPainters.stack(id);
+            if (stack == null) {
+                return;
+            }
+            float k = Math.min(w, h) / 16f;
+            g.pose().scale(k, k, 1);
+            g.renderItem(stack, 0, 0);
+            if (mx >= 0) {
+                g.pose().scale(1 / k, 1 / k, 1);
+                g.renderTooltip(net.minecraft.client.Minecraft.getInstance().font, stack, mx, my);
+            }
+        };
+    }
+
+    /** "minecraft:item/diamond", "ns:textures/gui/x.png" or a project texture name ("ruby.png"). */
+    static net.minecraft.resources.ResourceLocation textureOf(String source, String project) {
+        String clean = source.strip();
+        String ns = clean.contains(":") ? clean.substring(0, clean.indexOf(':')) : (project == null ? "minecraft" : project);
+        String path = clean.contains(":") ? clean.substring(clean.indexOf(':') + 1) : "item/" + clean;
+        if (!path.startsWith("textures/")) {
+            path = "textures/" + path;
+        }
+        if (!path.endsWith(".png")) {
+            path += ".png";
+        }
+        return net.minecraft.resources.ResourceLocation.tryBuild(ns, path.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private static McCanvas.Painter imagePainter(String source) {
+        var location = textureOf(source, net.xmilon.craftpy.client.ClientProjectStore.getInstance().activeProjectId());
+        return (g, w, h, mx, my, partial) -> {
+            if (location != null) {
+                g.blit(location, 0, 0, w, h, 0f, 0f, 1, 1, 1, 1); // the whole texture, stretched to the widget
+            }
+        };
+    }
+
     static View previewView(Context context, JsonObject root) {
         JsonObject wrapper = new JsonObject();
         wrapper.add("root", root);
@@ -412,11 +451,14 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 return track;
             }
             case "image", "item_icon" -> {
-                // Textures and item models are not drawn inside Modern UI views yet: show what would appear.
-                var tv = label(context, "[" + type.replace('_', ' ') + ": "
-                        + str(node, "image".equals(type) ? "source" : "item", "?") + "]", R.attr.textAppearanceBodyMedium);
-                tv.setTextColor(CraftPyFragment.color(context, R.attr.colorOnSurfaceVariant));
-                return tv;
+                // drawn by Minecraft itself (McCanvas): the real item model / texture
+                boolean icon = "item_icon".equals(type);
+                String ref = str(node, icon ? "item" : "source", "");
+                McCanvas canvas = new McCanvas(context, icon ? itemPainter(ref) : imagePainter(ref));
+                canvas.setFallback(ref);
+                int size = node.has("size") && node.get("size").isJsonPrimitive() ? node.get("size").getAsInt() : (icon ? 32 : 64);
+                canvas.setLayoutParams(new LinearLayout.LayoutParams(canvas.dp(size), canvas.dp(size)));
+                return canvas;
             }
             case "vbox", "hbox" -> {
                 return linear(context, node, "hbox".equals(type), nextServer);

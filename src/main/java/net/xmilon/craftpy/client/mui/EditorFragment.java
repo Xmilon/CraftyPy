@@ -464,8 +464,10 @@ public class EditorFragment extends Fragment {
             }
 
             @Override
-            public void design() {
-                tools.uiDesigner();
+            public void write(String text) {
+                if (code != null) {
+                    applyEdit(new TextOps.Edit(0, code.getText().length(), text, 0, 0));
+                }
             }
 
             @Override
@@ -2863,6 +2865,9 @@ public class EditorFragment extends Fragment {
 
     /** Keeps the dock's preview in step with the model file being edited (only while that tab is showing). */
     private void refreshPreview() {
+        if (uiMaker != null && sidePanelShown(uiMaker.view())) {
+            uiMaker.refresh();
+        }
         if (dock != null && dock.visible() && dock.tab() == AssetDock.PREVIEW && isModelJson(shownPath)) {
             dock.previewModel(shownPath, code.getText().toString());
         }
