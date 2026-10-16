@@ -288,3 +288,91 @@ tasks.register('ideSmokeTest', JavaExec) {
     systemProperty 'craftpy.home', layout.buildDirectory.dir('ide-smoke').get().asFile.absolutePath
     systemProperty 'craftpy.ide.smoke', 'true'
 }
+
+// One-click IDE: build/ide/ holds "CraftPy IDE.jar" (a launcher whose manifest lists lib/), the libraries, a .bat / .sh
+// that start it with the right Java and craftpy-ide.properties (home = the game folder). ideShortcut adds a desktop
+// shortcut on Windows.
+def ideDistDir = layout.buildDirectory.dir('ide')
+def ideLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+
+def ideLibs = tasks.register('ideLibs', Sync) {
+    group = 'craftpy'
+    description = 'Copies the libraries of the standalone IDE into build/ide/lib.'
+    into ideDistDir.map { it.dir('lib') }
+    from(tasks.named('jar'))
+    from(sourceSets.main.runtimeClasspath.filter { it.isFile() && it.name.endsWith('.jar') })
+    from(configurations.ideRuntime)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.register('ideDist') {
+    group = 'craftpy'
+    description = 'Builds build/ide: double-click "CraftPy IDE.bat" (or the jar) to open the IDE without the game.'
+    dependsOn ideLibs
+    def out = ideDistDir.get().asFile
+    def runHome = file('run').absolutePath
+    def icon = file('src/main/resources/assets/craftpy/icon/craftpy.ico')
+    def java = ideLauncher.map { it.executablePath.asFile.absolutePath }
+    outputs.dir(out)
+    doLast {
+        def lib = new File(out, 'lib')
+        def jars = (lib.listFiles() ?: new File[0]).findAll { it.name.endsWith('.jar') }.sort { it.name }
+        def manifest = new java.util.jar.Manifest()
+        manifest.mainAttributes.putValue('Manifest-Version', '1.0')
+        manifest.mainAttributes.putValue('Main-Class', 'net.xmilon.craftpy.ide.IdeMain')
+        manifest.mainAttributes.putValue('Class-Path', jars.collect { 'lib/' + it.name.replace(' ', '%20') }.join(' '))
+        new File(out, 'CraftPy IDE.jar').withOutputStream { stream ->
+            new java.util.jar.JarOutputStream(stream, manifest).close()
+        }
+        def properties = new File(out, 'craftpy-ide.properties')
+        if (!properties.exists()) { // kept when you changed it
+            properties.text = "# The game folder the IDE works on (the folder that has pyforge/ in it).\n" +
+                    "# Your Minecraft folder is used when this line is removed and CraftPy has run there.\n" +
+                    "home=" + runHome.replace('\\', '/') + "\n"
+        }
+        def javaw = new File(new File(java.get()).parentFile, 'javaw.exe')
+        def windowsJava = javaw.exists() ? javaw.absolutePath : 'javaw'
+        new File(out, 'CraftPy IDE.bat').text = "@echo off\r\n" +
+                "rem Starts the CraftPy IDE without a console window. Built by gradlew ideDist.\r\n" +
+                "start \"CraftPy IDE\" \"" + windowsJava + "\" -Xmx1G -jar \"%~dp0CraftPy IDE.jar\" %*\r\n"
+        def sh = new File(out, 'craftpy-ide.sh')
+        sh.text = "#!/bin/sh\n# Starts the CraftPy IDE. Built by gradlew ideDist.\n" +
+                "cd \"\$(dirname \"\$0\")\" && exec \"" + java.get().replace('\\', '/') + "\" -Xmx1G -jar \"CraftPy IDE.jar\" \"\$@\"\n"
+        sh.setExecutable(true)
+        java.nio.file.Files.copy(icon.toPath(), new File(out, 'craftpy.ico').toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        println "CraftPy IDE ready in " + out + "  -  double-click \"CraftPy IDE.bat\""
+    }
+}
+
+tasks.register('ideShortcut') {
+    group = 'craftpy'
+    description = 'Windows: puts a "CraftPy IDE" shortcut with the CraftPy icon on the desktop (runs ideDist first).'
+    dependsOn 'ideDist'
+    def out = ideDistDir.get().asFile
+    def java = ideLauncher.map { it.executablePath.asFile.absolutePath }
+    doLast {
+        if (!System.getProperty('os.name', '').startsWith('Windows')) {
+            println 'Desktop shortcuts are made on Windows only; start build/ide/craftpy-ide.sh instead.'
+            return
+        }
+        def javaw = new File(new File(java.get()).parentFile, 'javaw.exe').absolutePath
+        def jar = new File(out, 'CraftPy IDE.jar').absolutePath
+        def ico = new File(out, 'craftpy.ico').absolutePath
+        // a script file: quotes inside -Command arguments do not survive Windows' command line rules
+        def ps1 = new File(out, 'make-shortcut.ps1')
+        ps1.text = '$s = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath("Desktop") + "\\CraftPy IDE.lnk")\r\n' +
+                '$s.TargetPath = "' + javaw + '"\r\n' +
+                '$s.Arguments = \'-Xmx1G -jar "' + jar + '"\'\r\n' +
+                '$s.WorkingDirectory = "' + out.absolutePath + '"\r\n' +
+                '$s.IconLocation = "' + ico + '"\r\n' +
+                '$s.Description = "CraftPy IDE"\r\n' +
+                '$s.Save()\r\n'
+        def process = new ProcessBuilder('powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                '-File', ps1.absolutePath).inheritIO().start()
+        if (process.waitFor() != 0) {
+            throw new GradleException('Could not create the desktop shortcut')
+        }
+        println 'Desktop shortcut "CraftPy IDE" created'
+    }
+}

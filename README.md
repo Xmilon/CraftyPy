@@ -140,8 +140,10 @@ Press `F1` in the editor for the full list, or `Ctrl+Shift+A` to find any comman
 
 ### The IDE without the game
 
-`./gradlew runIde` opens the IDE in its own window on the `run/` folder (`-PcraftpyHome=<game folder>` for another
-instance). Editing, completion, validation, the console, building modules and the asset browser (vanilla assets) work;
+One click: `./gradlew ideShortcut` builds `build/ide/` and puts a **CraftPy IDE** shortcut with the logo on the desktop.
+`./gradlew ideDist` only builds the folder: double-click `build/ide/CraftPy IDE.bat` (or `craftpy-ide.sh`); the folder can
+be moved anywhere. The game folder it works on is `home=` in `build/ide/craftpy-ide.properties` (the dev `run/` folder at
+first; remove the line to use your Minecraft folder). From the sources: `./gradlew runIde` (`-PcraftpyHome=<game folder>`). Editing, completion, validation, the console, building modules and the asset browser (vanilla assets) work;
 running a project in a world, sounds and the 3D preview need the game.
 
 ### Console (bottom panel)

@@ -177,6 +177,18 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
   the Project tree and the Edit menu. Texture and sound editors keep their own undo.
 - [ ] In game: check all of the above.
 
+## 9c. Asked 2026-10-16: catalog browser, one-click IDE - done
+
+- [x] **Mod catalog** tool window (`Alt+0`, right stripe): all registries of the installed mods (items, blocks, attributes,
+  effects, sounds, their own registries such as `irons_spellbooks:spells`), tags, recipe types with fields, Java events and
+  classes. Virtualised list, word search, kind chips with counts, mod filter; follows the cursor like completion; a click
+  replaces the string under the cursor (or inserts a quoted id). Server tool `catalog`.
+- [x] **One-click IDE**: `gradlew ideDist` builds `build/ide/` (launcher jar listing `lib/`, `CraftPy IDE.bat` /
+  `craftpy-ide.sh` with the build's Java 21, `craftpy-ide.properties`); `gradlew ideShortcut` adds a desktop shortcut with
+  the CraftPy icon (done once on this PC). `IdeMain` picks the game folder: argument, `-Dcraftpy.home`, `CRAFTPY_HOME`,
+  the properties file, the Minecraft folder if CraftPy ran there, the current folder.
+- [ ] A shared Java runtime is not bundled: the shortcut uses the JDK this project builds with.
+
 ## 8. Known limits (from the last "what is missing" list)
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.

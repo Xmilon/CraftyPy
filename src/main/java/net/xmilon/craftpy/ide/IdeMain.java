@@ -24,16 +24,70 @@ public final class IdeMain {
     private IdeMain() {
     }
 
+    /**
+     * The game folder the IDE works on: the first argument, {@code -Dcraftpy.home}, the {@code CRAFTPY_HOME} environment
+     * variable, {@code home=} in {@code craftpy-ide.properties} next to the IDE's jar (written by {@code gradlew ideDist}),
+     * the Minecraft folder of this computer when CraftPy has been used there, and the current folder last.
+     */
+    static Path chooseHome(String[] args) {
+        if (args.length > 0 && !args[0].isBlank()) {
+            return Path.of(args[0]).toAbsolutePath();
+        }
+        for (String value : new String[]{System.getProperty("craftpy.home"), System.getenv("CRAFTPY_HOME"), propertiesHome()}) {
+            if (value != null && !value.isBlank()) {
+                return Path.of(value.trim()).toAbsolutePath();
+            }
+        }
+        Path minecraft = minecraftFolder();
+        if (minecraft != null && java.nio.file.Files.isDirectory(minecraft.resolve("pyforge"))) {
+            return minecraft;
+        }
+        return Path.of("").toAbsolutePath();
+    }
+
+    private static String propertiesHome() {
+        try {
+            var source = IdeMain.class.getProtectionDomain().getCodeSource();
+            if (source == null) {
+                return null;
+            }
+            Path jar = Path.of(source.getLocation().toURI());
+            Path dir = java.nio.file.Files.isDirectory(jar) ? jar : jar.getParent();
+            for (Path candidate : new Path[]{dir, dir.getParent()}) { // the jar's folder, or the one above lib/
+                Path file = candidate == null ? null : candidate.resolve("craftpy-ide.properties");
+                if (file != null && java.nio.file.Files.isRegularFile(file)) {
+                    var properties = new java.util.Properties();
+                    try (var in = java.nio.file.Files.newBufferedReader(file)) {
+                        properties.load(in);
+                    }
+                    return properties.getProperty("home");
+                }
+            }
+        } catch (Exception ignored) {
+            // no properties: the next choice applies
+        }
+        return null;
+    }
+
+    private static Path minecraftFolder() {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        String user = System.getProperty("user.home", "");
+        if (os.startsWith("windows")) {
+            String appData = System.getenv("APPDATA");
+            return appData == null ? null : Path.of(appData, ".minecraft");
+        }
+        if (os.contains("mac")) {
+            return Path.of(user, "Library", "Application Support", "minecraft");
+        }
+        return Path.of(user, ".minecraft");
+    }
+
     static Path home() {
         return Path.of(System.getProperty("craftpy.home", "")).toAbsolutePath();
     }
 
     public static void main(String[] args) {
-        if (args.length > 0 && !args[0].isBlank()) {
-            System.setProperty("craftpy.home", args[0]);
-        } else if (System.getProperty("craftpy.home") == null) {
-            System.setProperty("craftpy.home", Path.of("").toAbsolutePath().toString());
-        }
+        System.setProperty("craftpy.home", chooseHome(args).toString());
         PyForgePaths.ensureLayout();
         ProjectManager.init();
         IdeHost.install(new LocalHost());
