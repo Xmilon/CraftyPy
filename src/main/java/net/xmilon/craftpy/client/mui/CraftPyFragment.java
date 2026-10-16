@@ -269,7 +269,7 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
     }
 
     static TextView label(Context context, String text, ResourceId appearance) {
-        var tv = new TextView(context);
+        var tv = new PlainText(context);
         tv.setText(text);
         tv.setTextAppearance(appearance);
         return tv;

@@ -13,7 +13,7 @@ import icyllis.modernui.view.View;
 public class IdeIcon extends View {
     public enum Glyph {
         HOME, MODULES, CODE, BOOK, FOLDER, STRUCTURE, PLAY, STOP, RELOAD, CHECK, HAMMER, SAVE, SEARCH, GEAR, TERMINAL,
-        WARNING, BOOKMARK, PULSE, IMAGE, MENU, CLOSE, MINUS, SPLIT, CHEVRON_DOWN, PLUS, PYTHON, BRUSH, SOUND, EYE, CATALOG
+        WARNING, BOOKMARK, PULSE, IMAGE, MENU, CLOSE, MINUS, SPLIT, CHEVRON_DOWN, PLUS, PYTHON, BRUSH, SOUND, EYE, CATALOG, BUG, GRAPH, LAYOUT
     }
 
     private final Paint paint = new Paint();
@@ -47,7 +47,7 @@ public class IdeIcon extends View {
     /** Run is green and stop red everywhere, like in IntelliJ; everything else follows the text color. */
     static int ownColor(Glyph glyph) {
         return switch (glyph) {
-            case PLAY -> IdeColors.SUCCESS;
+            case PLAY, BUG -> IdeColors.SUCCESS;
             case STOP -> IdeColors.ERROR;
             case WARNING -> IdeColors.WARNING;
             default -> IdeColors.TEXT_SECONDARY;
@@ -129,19 +129,46 @@ public class IdeIcon extends View {
                 line(c, u, 9.5f, 12, 14, 12);
             }
             case PLAY -> {
-                // the canvas has no paths: a filled triangle is its outline plus horizontal strokes
-                line(c, u, 4.5f, 3, 12.5f, 8);
-                line(c, u, 12.5f, 8, 4.5f, 13);
-                line(c, u, 4.5f, 13, 4.5f, 3);
-                for (float y = 3.75f; y <= 12.25f; y += 0.75f) {
-                    float reach = (y <= 8 ? y - 3 : 13 - y) / 5f * 8;
+                // a filled, slightly rounded triangle: outline plus dense strokes (the canvas has no paths)
+                paint.setStrokeWidth(1.6f * u);
+                line(c, u, 4.5f, 2.8f, 12.6f, 8);
+                line(c, u, 12.6f, 8, 4.5f, 13.2f);
+                line(c, u, 4.5f, 13.2f, 4.5f, 2.8f);
+                paint.setStrokeWidth(0.9f * u);
+                for (float y = 3.4f; y <= 12.6f; y += 0.45f) {
+                    float reach = (y <= 8 ? y - 2.8f : 13.2f - y) / 5.2f * 8.1f;
                     line(c, u, 4.5f, y, 4.5f + reach, y);
                 }
             }
             case STOP -> {
                 paint.setStyle(Paint.FILL);
-                rect(c, u, 3.5f, 3.5f, 12.5f, 12.5f, 1.5f);
+                rect(c, u, 3.5f, 3.5f, 12.5f, 12.5f, 2f);
                 paint.setStyle(Paint.STROKE);
+            }
+            case BUG -> { // a ladybug: round body, head, legs; the line down the back is the debugger's mark
+                c.drawCircle(8 * u, 9.3f * u, 4.1f * u, paint);
+                c.drawCircle(8 * u, 4.2f * u, 1.7f * u, paint);
+                line(c, u, 8, 5.9f, 8, 13.4f);
+                line(c, u, 3.9f, 7.6f, 1.8f, 6.4f);
+                line(c, u, 3.9f, 10, 1.6f, 10);
+                line(c, u, 4.3f, 12.2f, 2.3f, 13.8f);
+                line(c, u, 12.1f, 7.6f, 14.2f, 6.4f);
+                line(c, u, 12.1f, 10, 14.4f, 10);
+                line(c, u, 11.7f, 12.2f, 13.7f, 13.8f);
+            }
+            case GRAPH -> { // three nodes and their links: the mod map
+                c.drawCircle(4 * u, 4.5f * u, 2 * u, paint);
+                c.drawCircle(12 * u, 5 * u, 2 * u, paint);
+                c.drawCircle(8 * u, 12 * u, 2 * u, paint);
+                line(c, u, 6, 4.6f, 10, 4.9f);
+                line(c, u, 5, 6.3f, 7, 10.2f);
+                line(c, u, 11, 6.8f, 9, 10.2f);
+            }
+            case LAYOUT -> { // a window with a title bar and two panes: the UI maker
+                rect(c, u, 2, 2.5f, 14, 13.5f, 1.5f);
+                line(c, u, 2, 5.5f, 14, 5.5f);
+                line(c, u, 6.5f, 5.5f, 6.5f, 13.5f);
+                rect(c, u, 8.5f, 7.5f, 12, 9.5f, 0.5f);
             }
             case RELOAD -> {
                 c.drawArc(8 * u, 8 * u, 5 * u, 30, 300, paint);

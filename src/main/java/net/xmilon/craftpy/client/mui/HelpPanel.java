@@ -38,7 +38,7 @@ final class HelpPanel {
 
         var chips = row(context);
         chips.setPadding(column.dp(8), column.dp(6), column.dp(8), column.dp(6));
-        var text = new TextView(context);
+        var text = new PlainText(context);
         text.setTextIsSelectable(true);
         int pad = text.dp(16);
         text.setPadding(pad, pad / 2, pad, pad);
@@ -82,7 +82,7 @@ final class HelpPanel {
     /** One section of a bundled document (from its heading to the next one of the same level) in a dialog. */
     static void openSection(View anchor, String title, String file, String heading) {
         var dialog = Overlays.dialog(anchor, title + " - Esc closes", 640, 24);
-        var text = new TextView(anchor.getContext());
+        var text = new PlainText(anchor.getContext());
         text.setTextIsSelectable(true);
         int pad = text.dp(12);
         text.setPadding(pad, pad / 2, pad, pad);

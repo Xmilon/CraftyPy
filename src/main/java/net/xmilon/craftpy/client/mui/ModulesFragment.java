@@ -165,7 +165,7 @@ public class ModulesFragment extends Fragment {
         }
         {
             details = card(context);
-            readme = new TextView(context);
+            readme = new PlainText(context);
             readme.setTextIsSelectable(true);
             var scroll = new ScrollView(context);
             scroll.addView(details, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));

@@ -1166,7 +1166,7 @@ final class EditorTools {
         header.addView(traceStatus);
         pane.addView(header);
 
-        traceText = new TextView(context);
+        traceText = new PlainText(context);
         traceText.setTypeface(Typeface.MONOSPACED);
         traceText.setTextSize(12);
         traceText.setTextColor(0xFFBCBEC4);
@@ -1240,6 +1240,14 @@ final class EditorTools {
         sendDebug("sync");
     }
 
+    /** A plain Run mutes the breakpoints (nothing records); Debug turns them on. */
+    void syncBreakpoints(boolean active) {
+        breakpointsActive = active;
+        sendDebug("sync");
+    }
+
+    private boolean breakpointsActive = true;
+
     private void sendDebug(String cmd) {
         if (host.projectId() == null || debugList == null) {
             return;
@@ -1248,7 +1256,7 @@ final class EditorTools {
         args.addProperty("cmd", cmd);
         args.addProperty("since", debugLast);
         JsonObject points = new JsonObject();
-        host.breakpoints().forEach((file, lines) -> {
+        (breakpointsActive ? host.breakpoints() : java.util.Map.<String, java.util.TreeSet<Integer>>of()).forEach((file, lines) -> {
             JsonArray list = new JsonArray();
             lines.forEach(list::add);
             points.add(file, list);

@@ -571,10 +571,8 @@ public class EditorFragment extends Fragment {
         bar.addView(search, new LinearLayout.LayoutParams(bar.dp(300), bar.dp(28)));
         bar.addView(new View(context), new LinearLayout.LayoutParams(0, 1, 1));
 
-        bar.addView(action(context, IdeIcon.Glyph.SAVE, "Save (Ctrl+S)", v -> save()));
-        bar.addView(action(context, IdeIcon.Glyph.CHECK, "Validate on the Python worker (Ctrl+Enter)", v -> validate()));
-        bar.addView(action(context, IdeIcon.Glyph.HAMMER, "Build: pack the project into a .cpm module", this::build));
-        bar.addView(separator(context, true), toolbarSeparator(bar));
+        // Run, Debug, Stop: the three things a toolbar is for. Save (Ctrl+S), Validate (Ctrl+Enter), Reload (F5) and
+        // Build module are in the project menu and Find action.
         var runWidget = row(context);
         runWidget.setPadding(runWidget.dp(8), 0, runWidget.dp(10), 0);
         runWidget.setClickable(true);
@@ -587,8 +585,8 @@ public class EditorFragment extends Fragment {
         runWidget.addView(runLabel);
         runWidget.setOnClickListener(hidingTooltip(runWidget.getTooltipText(), v -> run()));
         bar.addView(runWidget, new LinearLayout.LayoutParams(WRAP_CONTENT, bar.dp(30)));
-        bar.addView(action(context, IdeIcon.Glyph.RELOAD, "Reload: save, re-run this project and every loaded module (F5)",
-                v -> reloadAll()));
+        bar.addView(action(context, IdeIcon.Glyph.BUG, "Debug: run with breakpoints and show the Debug panel (Shift+F9)",
+                v -> debugRun()));
         bar.addView(action(context, IdeIcon.Glyph.STOP, "Stop the running Python code", v -> store(ClientProjectStore::interrupt)));
         return bar;
     }
@@ -974,6 +972,7 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Save", "Ctrl+S", this::save));
         a.add(new ActionEntry("Validate", "Ctrl+Enter", this::validate));
         a.add(new ActionEntry("Run", "Ctrl+R", this::run));
+        a.add(new ActionEntry("Debug: run with breakpoints", "Shift+F9", this::debugRun));
         a.add(new ActionEntry("Run tests (code/test_*.py)", "Ctrl+Shift+F10", () -> tools.runTests(false)));
         a.add(new ActionEntry("Run tests of this file", "", () -> tools.runTests(true)));
         a.add(new ActionEntry("Reload project and modules", "F5", this::reloadAll));
@@ -3510,6 +3509,13 @@ public class EditorFragment extends Fragment {
                 reloadAll();
                 return true;
             }
+            case KeyEvent.KEY_F9 -> {
+                if (!shift) {
+                    return false;
+                }
+                debugRun();
+                return true;
+            }
             case KeyEvent.KEY_F6 -> {
                 if (shift) {
                     return false; // Shift+F6 is rename, handled with the other shortcuts
@@ -4158,7 +4164,17 @@ public class EditorFragment extends Fragment {
         openPanel(PANEL_PROBLEMS);
     }
 
+    /** Run with breakpoints: they record hits, and the Debug panel opens. A plain Run ignores breakpoints. */
+    private void debugRun() {
+        run(true);
+        openPanel(PANEL_DEBUG);
+    }
+
     private void run() {
+        run(false);
+    }
+
+    private void run(boolean debug) {
         prepareSave();
         store(s -> {
             String id = s.activeProjectId();
@@ -4174,11 +4190,13 @@ public class EditorFragment extends Fragment {
                 net.xmilon.craftpy.client.ClientPython.get().runProject(id);
                 return;
             }
-            tools.syncBreakpoints(); // before the run, so lines of main.py and its imports record too
+            tools.syncBreakpoints(debug); // before the run, so lines of main.py and its imports record too
             s.request(ProjectAction.LOAD, id, s.debugMode() ? "{\"debug\":true}" : "");
-            s.append("Running '" + id + "' ...");
+            s.append((debug ? "Debugging '" : "Running '") + id + "' ...");
         });
-        openPanel(PANEL_CONSOLE);
+        if (!debug) {
+            openPanel(PANEL_CONSOLE);
+        }
     }
 
     /** Run + reload all modules, so new content and handlers are live immediately. */
