@@ -4549,7 +4549,106 @@ def _lint(source, filename):
             if node.name in seen:
                 warn(node, "'%s' is already defined on line %d" % (node.name, seen[node.name]))
             seen[node.name] = node.lineno
+    _lint_more(tree, warn, lambda node, message: out.append(
+        {"file": filename, "line": max(0, node.lineno - 1), "column": node.col_offset + 1,
+         "message": message, "severity": "error"}))
+    out.sort(key=lambda p: (p["line"], p["column"]))
     return out[:60]
+
+
+def _lint_more(tree, warn, error):
+    """The checks of ruff / pyflakes that catch real mistakes in mod code, plus CraftPy's own (sandbox, event names).
+    Pure ast: nothing to install, runs on every save."""
+    import ast
+    import difflib
+
+    def suggest(name, choices):
+        close = difflib.get_close_matches(name, choices, n=1)
+        return " - did you mean '%s'?" % close[0] if close else ""
+
+    for node in ast.walk(tree):
+        # the sandbox refuses these when the code runs; say so while typing
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+            for name in names:
+                top = name.split(".")[0]
+                if top in _BLOCKED:
+                    error(node, "'%s' is blocked in CraftPy's sandbox (no files, network or OS access): this import"
+                                " fails when the code runs" % name)
+        # @on("player_jion") / @on.player_jion never runs
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for deco in node.decorator_list:
+                target = deco.func if isinstance(deco, ast.Call) else deco
+                event = None
+                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "on":
+                    event = target.attr
+                elif isinstance(deco, ast.Call) and isinstance(target, ast.Name) and target.id == "on" and deco.args \
+                        and isinstance(deco.args[0], ast.Constant) and isinstance(deco.args[0].value, str):
+                    event = deco.args[0].value
+                if event is not None and event not in _EVENT_NAMES:
+                    warn(deco, "No event '%s': this handler never runs%s" % (event, suggest(event, _EVENT_NAMES)))
+            # mutable default arguments are shared between calls
+            for default in list(node.args.defaults) + [d for d in node.args.kw_defaults if d is not None]:
+                if isinstance(default, (ast.List, ast.Dict, ast.Set)) or (
+                        isinstance(default, ast.Call) and isinstance(default.func, ast.Name)
+                        and default.func.id in ("list", "dict", "set") and not default.args):
+                    warn(default, "A list/dict/set default is shared by every call: use None and create it inside")
+            _lint_unused_locals(node, warn)
+        if isinstance(node, ast.ExceptHandler) and node.type is None:
+            warn(node, "'except:' also catches the stop button (KeyboardInterrupt): use 'except Exception:'")
+        if isinstance(node, ast.Compare):
+            for op, right in zip(node.ops, node.comparators):
+                if isinstance(op, (ast.Eq, ast.NotEq)) and isinstance(right, ast.Constant) and right.value is None:
+                    warn(node, "Compare with None using 'is None' / 'is not None'")
+                if isinstance(op, (ast.Is, ast.IsNot)) and isinstance(right, ast.Constant) \
+                        and isinstance(right.value, (str, bytes, int, float)) and not isinstance(right.value, bool):
+                    warn(node, "'is' checks identity, not value: use '==' with %r" % (right.value,))
+        if isinstance(node, ast.Dict):
+            keys = {}
+            for key in node.keys:
+                if isinstance(key, ast.Constant) and isinstance(key.value, (str, int, float, bool)):
+                    if key.value in keys:
+                        warn(key, "Key %r appears twice in this dict: the first value is lost" % (key.value,))
+                    keys[key.value] = True
+        if isinstance(node, ast.JoinedStr) and not any(isinstance(v, ast.FormattedValue) for v in node.values):
+            warn(node, "f-string without {placeholders}: the f does nothing")
+        for field in ("body", "orelse", "finalbody"):
+            block = getattr(node, field, None)
+            if isinstance(block, list):
+                for index, stmt in enumerate(block[:-1]):
+                    if isinstance(stmt, (ast.Return, ast.Raise, ast.Continue, ast.Break)):
+                        warn(block[index + 1], "This code never runs (it comes after %s)"
+                             % type(stmt).__name__.lower())
+                        break
+
+
+def _lint_unused_locals(function, warn):
+    """A local assigned with ``name = ...`` and never read anywhere in the function (ruff F841)."""
+    import ast
+    assigned = {}
+    loaded = set()
+    declared = set()
+    for node in ast.walk(function):
+        if node is not function and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            # names read by nested code count as read (closures); their own assignments are theirs
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Load):
+                    loaded.add(inner.id)
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            declared.update(node.names)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            loaded.add(node.id)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("locals", "vars"):
+            return
+    for stmt in ast.walk(function):
+        if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    assigned.setdefault(target.id, target)
+    for name, node in assigned.items():
+        if name not in loaded and name not in declared and not name.startswith("_"):
+            warn(node, "'%s' is assigned but never used" % name)
 
 
 def _validate(params):

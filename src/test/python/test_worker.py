@@ -583,11 +583,11 @@ def test_definition_and_stub():
 
 
 def test_lint_warnings():
-    src = NL.join(["import os", "from craftpy import *", "def a(): pass", "def a(): pass",
+    src = NL.join(["import json", "from craftpy import *", "def a(): pass", "def a(): pass",
                    "x = Item('i')", "print(missing_name, x)", ""])
     r = w._handle("validate", {"code": src, "file": "main.py"})
     msgs = [p["message"] for p in r["problems"]]
-    assert "'os' is imported but never used" in msgs, msgs
+    assert "'json' is imported but never used" in msgs, msgs
     assert "Undefined name 'missing_name'" in msgs, msgs
     assert any("already defined" in m for m in msgs), msgs
     assert not any("Item" in m or "print" in m for m in msgs), msgs
@@ -886,6 +886,46 @@ def test_api_versions():
         clean = w._handle("run_main", {"project": "apiv", "code": "from craftpy import *\nItem('x')\n",
                                        "file": "code/main.py"})
         assert not [line for line in clean["log"] if line.startswith("[api]")], clean["log"]
+
+
+def test_lint_checks():
+    code = NL.join([
+        "import os",
+        "from craftpy import *",
+        "",
+        "@on('player_jion')",
+        "def hello(event, seen=[]):",
+        "    unused = 1",
+        "    used = 2",
+        "    if event == None:",
+        "        return used",
+        "        say('never')",
+        "    try:",
+        "        pass",
+        "    except:",
+        "        pass",
+        "    x = {'a': 1, 'a': 2}",
+        "    print(f'plain', x, event is 'steve')",
+        "",
+        "@on.block_brake",
+        "def broke(event):",
+        "    def inner():",
+        "        return captured",
+        "    captured = 3",
+        "    return inner",
+        ""])
+    problems = w._handle("validate", {"file": "code/main.py", "code": code})["problems"]
+    text = [(p["line"] + 1, p["severity"], p["message"]) for p in problems]
+    joined = NL.join("%d %s %s" % t for t in text)
+    for expected in ["1 error 'os' is blocked", "4 warning No event 'player_jion'", "did you mean 'player_join'",
+                     "5 warning A list/dict/set default", "6 warning 'unused' is assigned but never used",
+                     "8 warning Compare with None", "10 warning This code never runs", "13 warning 'except:'",
+                     "15 warning Key 'a' appears twice", "16 warning f-string without", "16 warning 'is' checks identity",
+                     "18 warning No event 'block_brake'"]:
+        assert expected in joined, (expected, joined)
+    assert "'used' is assigned" not in joined and "'captured' is assigned" not in joined, joined
+    clean = w._handle("validate", {"file": "code/main.py", "code": SIMPLE})["problems"]
+    assert clean == [], clean
 
 
 if __name__ == "__main__":

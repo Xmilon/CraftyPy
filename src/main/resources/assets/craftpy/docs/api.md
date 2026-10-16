@@ -434,6 +434,9 @@ print("debug")                # shows in the IDE console
   `Alt+Shift+E` runs the selected lines there.
 - Errors show the file and line; `Ctrl+click` the line in the console to jump there.
 - **Validate** (`Ctrl+Enter`) checks a file without running it; the event tracer and handler profiler are in **Tools**.
+- The checks while you type (Problems, `Alt+6`): typos in names, imports nobody uses, imports the sandbox blocks (`os`,
+  `socket`...), event names that do not exist (`@on.block_brake`), variables never used, `== None`, list/dict defaults,
+  bare `except:`, code after `return`, a dict key written twice, `is "text"`, f-strings without `{}`.
 
 ## Tests
 
