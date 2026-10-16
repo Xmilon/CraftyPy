@@ -62,6 +62,16 @@ public final class ProjectTools {
             case "changes" -> done(changes(projectId));
             case "add_part" -> addPart(manager, projectId, request);
             case "catalog" -> done(catalog(ModCatalog.get().view(), request));
+            case "set_side" -> manager.setSide(projectId, string(request, "side")).thenApply(result -> {
+                if (!result.success()) {
+                    return error(op, result.message());
+                }
+                JsonObject body = new JsonObject();
+                body.addProperty("op", op);
+                body.addProperty("side", net.xmilon.craftpy.project.ModuleSide.of(string(request, "side")).id());
+                body.addProperty("before", result.message());
+                return ok(body);
+            });
             case "recipe_book" -> RecipeBook.recipes(request).thenApply(body -> reply(op, body));
             case "loot_book" -> RecipeBook.drops(request).thenApply(body -> reply(op, body));
             case "modmap" -> net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(ProjectTools::modMap, net.xmilon.craftpy.util.CraftPyExecutors.io());

@@ -310,6 +310,12 @@ public final class PyRuntime {
     /** Runs compile() over the supplied source files on the worker. */
     public CompletableFuture<List<ValidationProblem>> validateProject(String projectId, List<String> pyFiles,
             List<String> contents) {
+        return validateProject(projectId, "both", pyFiles, contents);
+    }
+
+    /** {@code side}: the project's side, so API names of the other side are reported. */
+    public CompletableFuture<List<ValidationProblem>> validateProject(String projectId, String side, List<String> pyFiles,
+            List<String> contents) {
         return CraftPyExecutors.supplyAsync(() -> {
             List<ValidationProblem> problems = new ArrayList<>();
             int count = Math.min(pyFiles.size(), contents.size());
@@ -318,6 +324,7 @@ public final class PyRuntime {
                     JsonObject params = new JsonObject();
                     params.addProperty("file", pyFiles.get(i));
                     params.addProperty("code", contents.get(i));
+                    params.addProperty("side", side);
                     JsonObject result = client().call("validate", params, DEFAULT_TIMEOUT_MS);
                     JsonArray raw = result.getAsJsonArray("problems");
                     for (JsonElement element : raw) {

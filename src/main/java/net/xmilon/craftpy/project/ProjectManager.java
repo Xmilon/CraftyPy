@@ -111,6 +111,30 @@ public final class ProjectManager {
         }
     }
 
+    /** Changes where a project works (Tools > Project side); the old side is returned so it can be switched back. */
+    public CompletableFuture<OpResult> setSide(String id, String side) {
+        ModuleSide next = ModuleSide.of(side);
+        return CraftPyExecutors.supplyAsync(() -> {
+            if (!isValidId(id) || !Files.isDirectory(projectsDir.resolve(id))) {
+                return OpResult.fail("Unknown project " + id);
+            }
+            try {
+                Path dir = projectsDir.resolve(id);
+                ProjectMetadata metadata = loadMetadata(id, dir);
+                String before = ModuleSide.of(metadata.side).id();
+                metadata.side = next.id();
+                Json.write(dir.resolve("project.json"), metadata);
+                Project project = projects.get(id);
+                if (project != null) {
+                    project.metadata(metadata);
+                }
+                return OpResult.ok(id, before);
+            } catch (IOException e) {
+                return OpResult.fail("Could not change the side: " + e.getMessage());
+            }
+        }, CraftPyExecutors.io());
+    }
+
     public ModuleSide sideOf(String id) {
         try {
             return ModuleSide.of(loadMetadata(id, projectsDir.resolve(id)).side);
@@ -224,6 +248,15 @@ public final class ProjectManager {
 
     /** @param template one of {@link ProjectTemplates#ALL} (unknown ids fall back to the default). */
     public CompletableFuture<OpResult> createProject(String rawName, String template) {
+        return createProject(rawName, template, "both");
+    }
+
+    /**
+     * @param side {@code both}, {@code client} or {@code server} ({@link ModuleSide}); chosen once here, changed later
+     *             with {@link #setSide}, never at build time. A client project starts from the client template.
+     */
+    public CompletableFuture<OpResult> createProject(String rawName, String template, String side) {
+        ModuleSide chosenSide = ModuleSide.of(side);
         return CraftPyExecutors.supplyAsync(() -> {
             String id = sanitizeId(rawName);
             if (id.isEmpty()) {
@@ -236,8 +269,10 @@ public final class ProjectManager {
             try {
                 createDirectories(dir);
                 ProjectMetadata metadata = new ProjectMetadata(id, rawName == null || rawName.isBlank() ? id : rawName.trim());
+                metadata.side = chosenSide.id();
                 Json.write(dir.resolve("project.json"), metadata);
-                Json.writeString(dir.resolve("code").resolve("main.py"), ProjectTemplates.source(template, id));
+                String starter = chosenSide == ModuleSide.CLIENT ? "client" : template;
+                Json.writeString(dir.resolve("code").resolve("main.py"), ProjectTemplates.source(starter, id));
                 Json.writeString(dir.resolve("README.md"), templateReadme(id, metadata.name));
                 return OpResult.ok(id, "Created project " + id);
             } catch (IOException e) {

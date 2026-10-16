@@ -530,7 +530,8 @@ public final class ProjectRequestHandler {
                 com.google.gson.JsonObject object = com.google.gson.JsonParser.parseString(data).getAsJsonObject();
                 String name = object.has("name") ? object.get("name").getAsString() : "";
                 String template = object.has("template") ? object.get("template").getAsString() : "";
-                return manager.createProject(name, template);
+                String side = object.has("side") ? object.get("side").getAsString() : "both";
+                return manager.createProject(name, template, side);
             } catch (RuntimeException ignored) {
                 // not JSON after all: treat the whole text as a name
             }
@@ -630,7 +631,7 @@ public final class ProjectRequestHandler {
                     ProjectManager.FileRead result = read.join();
                     contents.add(result.success() ? result.content() : "");
                 }
-                return PyRuntime.get().validateProject(projectId, pyFiles, contents)
+                return PyRuntime.get().validateProject(projectId, manager.sideOf(projectId).id(), pyFiles, contents)
                         .thenApply(problems -> {
                             List<net.xmilon.craftpy.python.ValidationProblem> all = new ArrayList<>(problems);
                             // ids no installed mod provides (typos, content of a mod that is gone)

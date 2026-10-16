@@ -24,7 +24,8 @@ public final class ProjectTemplates {
             new Template("command", "Command", "Slash commands with typed arguments."),
             new Template("window", "Window app", "A window with a click counter, described in Python and drawn in game."),
             new Template("hud", "HUD", "A status line in the action bar: health, food and coordinates."),
-            new Template("empty", "Empty", "Only the import line."));
+            new Template("empty", "Empty", "Only the import line."),
+            new Template("client", "Client HUD", "Client side only: a HUD line and a key, on the player's own computer."));
 
     private ProjectTemplates() {
     }

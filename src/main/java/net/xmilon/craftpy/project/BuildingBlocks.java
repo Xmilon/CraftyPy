@@ -28,7 +28,13 @@ import net.xmilon.craftpy.CraftPyLog;
  * In the text {@code {{name}}} becomes the module name and {@code {{id}}} the project id. Pure: no game, no UI.
  */
 public final class BuildingBlocks {
-    public record Block(String file, String title, String category, String about, String doc, String module, String template) {
+    public record Block(String file, String title, String category, String about, String doc, String module, String template,
+                        String side) {
+        /** True when the block works in a project of {@code projectSide} ({@code #: side:} client, server or any). */
+        public boolean fits(String projectSide) {
+            return side.equals("any") || side.equals("client") == "client".equals(projectSide);
+        }
+
         /** The template filled in for {@code module} of {@code project}. */
         public String fill(String module, String project) {
             return template.replace("{{name}}", module).replace("{{id}}", project == null ? "" : project);
@@ -145,7 +151,8 @@ public final class BuildingBlocks {
         String body = template.toString().strip() + "\n";
         String fallback = file.substring(file.lastIndexOf('/') + 1).replace(".py", "");
         return new Block(file, meta.getOrDefault("title", fallback), meta.getOrDefault("category", "Other"),
-                meta.getOrDefault("about", ""), meta.getOrDefault("doc", "api.md"), meta.getOrDefault("module", fallback), body);
+                meta.getOrDefault("about", ""), meta.getOrDefault("doc", "api.md"), meta.getOrDefault("module", fallback), body,
+                meta.getOrDefault("side", "server"));
     }
 
     /** A filled template without its {@code from craftpy import *} line and the blank lines around it. */

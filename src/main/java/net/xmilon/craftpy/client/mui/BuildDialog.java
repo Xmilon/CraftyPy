@@ -38,7 +38,6 @@ final class BuildDialog {
     private final LinearLayout newFields;
     private final Set<String> installedIds = new HashSet<>();
     private boolean asNew;
-    private final View[] sideChips = new View[3];
     private final TextView sideHint;
     private net.xmilon.craftpy.project.ModuleSide side = net.xmilon.craftpy.project.ModuleSide.BOTH;
 
@@ -75,17 +74,8 @@ final class BuildDialog {
         version.setText(projectVersion);
         body.addView(version, spaced(body));
 
-        // where the module works: both (default), only resources for the players, only behaviour on the server
+        // where the module works is the project's side: chosen when the project was made (Tools > Project side)
         body.addView(label(context, "Works on", R.attr.textAppearanceLabelMedium), spaced(body));
-        var sides = row(context);
-        var values = net.xmilon.craftpy.project.ModuleSide.values();
-        String[] names = {"Client and server", "Client only", "Server only"};
-        for (int i = 0; i < values.length; i++) {
-            var value = values[i];
-            sideChips[i] = button(context, names[i], R.attr.borderlessButtonStyle, v -> setSide(value));
-            sides.addView(sideChips[i]);
-        }
-        body.addView(sides);
         sideHint = label(context, "", R.attr.textAppearanceBodySmall);
         sideHint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         body.addView(sideHint);
@@ -140,16 +130,21 @@ final class BuildDialog {
 
     private void setSide(net.xmilon.craftpy.project.ModuleSide chosen) {
         side = chosen;
-        for (int i = 0; i < sideChips.length; i++) {
-            styleChip(sideChips[i], net.xmilon.craftpy.project.ModuleSide.values()[i] == chosen);
-        }
-        sideHint.setText(switch (chosen) {
+        sideHint.setText(sideName(chosen) + " (the project's side; change it in Tools > Project side). " + switch (chosen) {
             case BOTH -> "Code, recipes and loot run on the server; textures, models, sounds and names go to the players.";
             case CLIENT -> "assets/, code/ and ui/: the resources become a resource pack and the Python runs on each"
                     + " player's own computer (HUD, keys, windows), on any server. Nothing runs on the server.";
             case SERVER -> "Only behaviour (code, recipes, loot, tags, commands): players need nothing. Blocks and items"
                     + " would show without textures.";
         });
+    }
+
+    static String sideName(net.xmilon.craftpy.project.ModuleSide side) {
+        return switch (side) {
+            case BOTH -> "Client and server";
+            case CLIENT -> "Client only";
+            case SERVER -> "Server only";
+        };
     }
 
     private static EditText field(Context context, String hint) {

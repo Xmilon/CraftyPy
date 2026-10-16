@@ -5615,7 +5615,51 @@ def _validate(params):
                              "severity": "error"})
         else:
             problems.extend(_lint(source, filename))
+            problems.extend(_side_problems(source, filename, params.get("side") or "both"))
     return {"problems": problems}
+
+
+# names that only exist on the player's computer (a client project), and what a client project cannot use
+_CLIENT_ONLY_NAMES = frozenset({"hud", "keys", "client"})
+
+
+def _side_problems(source, filename, side):
+    """Warns about API names of the other side: a client project cannot add blocks or run world code, a server
+    project has no HUD or keys. The side is the project's (chosen when it was made, Tools > Project side)."""
+    import ast
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    server_names = set(_server_api_names()) - _CLIENT_NAMES
+    # a name the file binds itself (a variable, parameter, function or import) is not the API's
+    own = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            own.add(node.id)
+        elif isinstance(node, ast.arg):
+            own.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            own.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            own.update((alias.asname or alias.name).split(".")[0] for alias in node.names if alias.name != "*")
+    out = []
+    seen = set(own)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Name) or not isinstance(node.ctx, ast.Load) or node.id in seen:
+            continue
+        if side == "client" and node.id in server_names:
+            message = ("'%s' runs on the server, but this is a client-side project (it runs on each player's computer)."
+                       " Use hud, keys, windows and client, or switch the side in Tools > Project side." % node.id)
+        elif side != "client" and node.id in _CLIENT_ONLY_NAMES:
+            message = ("'%s' only works in a client-side project (it runs on the player's computer)."
+                       " Switch the side in Tools > Project side." % node.id)
+        else:
+            continue
+        seen.add(node.id)
+        out.append({"file": filename, "line": node.lineno - 1, "column": node.col_offset,
+                    "message": message, "severity": "warning"})
+    return out
 
 
 # ---------------------------------------------------------------------------

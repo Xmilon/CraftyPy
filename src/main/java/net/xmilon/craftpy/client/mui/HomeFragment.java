@@ -94,6 +94,12 @@ public class HomeFragment extends Fragment {
         name.setHint("Project name");
         dialog.body.addView(name, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         dialog.body.addView(templateGallery(context, dialog.body));
+        var clientOnly = new icyllis.modernui.widget.CheckBox(context);
+        clientOnly.setText("Client side only: runs on each player's own computer (HUD, keys, windows), on any server;"
+                + " no blocks, items or world code. You can switch later in Tools > Project side.");
+        var clientLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        clientLp.topMargin = clientOnly.dp(8);
+        dialog.body.addView(clientOnly, clientLp);
         Runnable create = () -> {
             String value = name.getText().toString().trim();
             if (value.isEmpty()) {
@@ -103,8 +109,9 @@ public class HomeFragment extends Fragment {
             dialog.dismiss();
             openAfterCreate = true;
             String chosen = template;
+            String side = clientOnly.isChecked() ? "client" : "both";
             store(s -> s.request(ProjectAction.CREATE, "",
-                    net.xmilon.craftpy.util.Json.COMPACT.toJson(new CreateRequest(value, chosen))));
+                    net.xmilon.craftpy.util.Json.COMPACT.toJson(new CreateRequest(value, chosen, side))));
         };
         name.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEY_ENTER) {
@@ -126,8 +133,8 @@ public class HomeFragment extends Fragment {
         name.requestFocus();
     }
 
-    /** CREATE request body: the project name and the starter script to write. */
-    private record CreateRequest(String name, String template) {
+    /** CREATE request body: the project name, the starter script to write and where the project works. */
+    private record CreateRequest(String name, String template, String side) {
     }
 
     /** Chips for the starter templates (50) with the description of the selected one. */

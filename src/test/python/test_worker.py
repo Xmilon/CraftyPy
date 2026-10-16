@@ -317,10 +317,14 @@ TEMPLATES = os.path.join(HERE, "..", "..", "main", "resources", "craftpy_templat
 
 def test_project_templates_run():
     names = sorted(n for n in os.listdir(TEMPLATES) if n.endswith(".py"))
-    assert len(names) == 8, names
+    assert len(names) == 9, names
     for name in names:
         code = open(os.path.join(TEMPLATES, name), encoding="utf-8").read().replace("{{id}}", "tpl")
-        run_main("tpl_" + name[:-3], code)
+        w._MODE[0] = "client" if name == "client.py" else "server"  # the client template runs on the player's computer
+        try:
+            run_main("tpl_" + name[:-3], code)
+        finally:
+            w._MODE[0] = "server"
     block = run_main("tpl_b", open(os.path.join(TEMPLATES, "block.py"), encoding="utf-8").read().replace("{{id}}", "tpl"))
     assert [b["id"] for b in block["blocks"]] == ["gem_ore"] and block["recipes"], block
 
@@ -740,8 +744,12 @@ def test_every_building_block_loads_as_a_file_of_a_project():
         project = "bb%d" % number
         filled = body.replace("{{name}}", module).replace("{{id}}", project)
         main = "from craftpy import *\nimport " + module + "\n"
-        result = w._handle("run_main", {"project": project, "code": main, "file": "code/main.py",
-                                        "sources": {"code/" + module + ".py": filled}})
+        w._MODE[0] = "client" if meta.get("side", "").strip() == "client" else "server"
+        try:
+            result = w._handle("run_main", {"project": project, "code": main, "file": "code/main.py",
+                                            "sources": {"code/" + module + ".py": filled}})
+        finally:
+            w._MODE[0] = "server"
         assert not result.get("error"), (rel, result.get("error"))
         compile(filled.replace("from craftpy import *", ""), rel, "exec")  # the Insert snippet parses alone too
         w._handle("unload_owner", {"owner": project})
@@ -1281,6 +1289,38 @@ def test_console_tools():
     assert "No handler" in ev("fire('item_use')")["value"]
     assert "per call" in ev("bench(lambda: 1, 10)")["value"]
     assert "me (Alex)" in ev("me")["value"]
+
+
+def test_side_checks_report_the_other_side():
+    code = NL.join(["from craftpy import *", "Block('x')", "hud.text('a', 'b')", ""])
+    client = w._handle("validate", {"file": "main.py", "code": code, "side": "client"})["problems"]
+    assert any("'Block' runs on the server" in p["message"] for p in client), client
+    assert not any("'hud'" in p["message"] for p in client), client
+    server = w._handle("validate", {"file": "main.py", "code": code, "side": "both"})["problems"]
+    assert any("'hud' only works in a client-side project" in p["message"] for p in server), server
+    assert not any("'Block'" in p["message"] for p in server), server
+
+
+def test_every_building_block_runs_on_its_side():
+    root = os.path.join(os.path.dirname(TEMPLATES), "craftpy_blocks")
+    files = [line.strip() for line in open(os.path.join(root, "index.txt"), encoding="utf-8")
+             if line.strip() and not line.startswith("#")]
+    assert len(files) >= 50, len(files)
+    for i, rel in enumerate(files):
+        text = open(os.path.join(root, rel), encoding="utf-8").read()
+        side = "client" if "#: side: client" in text else "server"
+        code = NL.join(l for l in text.split(NL) if not l.startswith("#:"))
+        code = code.replace("{{name}}", "demo%d" % i).replace("{{id}}", "blocks")
+        w.reset()
+        w._MODE[0] = side
+        try:
+            result = w._handle("run_main", {"project": "blocks", "code": code, "file": "code/main.py"})
+            assert not result.get("error"), (rel, result.get("error"))
+            problems = w._handle("validate", {"file": "main.py", "code": code, "side": "client" if side == "client" else "both"})
+            bad = [p for p in problems["problems"] if p["severity"] in ("error", "warning")]
+            assert not bad, (rel, bad)
+        finally:
+            w._MODE[0] = "server"
 
 
 if __name__ == "__main__":

@@ -669,6 +669,7 @@ public class EditorFragment extends Fragment {
         bar.addView(action(context, IdeIcon.Glyph.BUG, "Debug: run with breakpoints and show the Debug panel (Shift+F9)",
                 v -> debugRun()));
         bar.addView(action(context, IdeIcon.Glyph.STOP, "Stop the running Python code", v -> store(ClientProjectStore::interrupt)));
+        bar.addView(action(context, IdeIcon.Glyph.HAMMER, "Build module: pack this project into a .cpm to share", v -> build(v)));
         return bar;
     }
 
@@ -740,6 +741,7 @@ public class EditorFragment extends Fragment {
         m.add("Reload project and modules   F5").setOnMenuItemClickListener(i -> run(this::reloadAll));
         m.add("Run tests   Ctrl+Shift+F10").setOnMenuItemClickListener(i -> run(() -> tools.runTests(false)));
         m.add("Build module...").setOnMenuItemClickListener(i -> run(() -> build(anchor)));
+        m.add("Project side (client / server)...").setOnMenuItemClickListener(i -> run(tools::projectSide));
         m.add("Installed modules").setOnMenuItemClickListener(i -> run(() -> CraftPyFragment.navigate(this, CraftPyFragment.PAGE_MODULES)));
         menu.show();
     }
@@ -1065,6 +1067,7 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Reload project and modules", "F5", this::reloadAll));
         a.add(new ActionEntry("Stop", "", () -> store(ClientProjectStore::interrupt)));
         a.add(new ActionEntry("Build module", "", () -> build(code)));
+        a.add(new ActionEntry("Project side: client only, server only, or both", "", tools::projectSide));
         a.add(new ActionEntry("Find", "Ctrl+F", () -> openFind(false)));
         a.add(new ActionEntry("Replace", "Ctrl+H", () -> openFind(true)));
         a.add(new ActionEntry("Find in files", "Ctrl+Shift+F", this::findInFiles));

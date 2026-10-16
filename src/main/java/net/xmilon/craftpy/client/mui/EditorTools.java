@@ -401,6 +401,48 @@ final class EditorTools {
                 json -> host.replace(0, host.text().length(), json, 0, 0));
     }
 
+    /**
+     * Where the project works, chosen when it was made: switch it here (and back: the dialog names the old side).
+     * Building uses this side; the building blocks and the code checks follow it.
+     */
+    void projectSide() {
+        String project = host.projectId();
+        if (project == null) {
+            host.toast("Open a project first");
+            return;
+        }
+        var store = net.xmilon.craftpy.client.ClientProjectStore.getInstance();
+        var summary = store.find(project);
+        var current = net.xmilon.craftpy.project.ModuleSide.of(summary == null ? null : summary.side);
+        var dialog = ListDialog.open(host.anchor(), "Project side of " + project, false, 560, 260);
+        dialog.setMessage("Now: " + BuildDialog.sideName(current) + ". Client only = Python on each player's computer"
+                + " (HUD, keys, windows), on any server, no blocks or items. Server only = behaviour, players need nothing."
+                + " Client and server = the usual project. Nothing in your files changes; the checks and building follow.");
+        List<ListDialog.Row> rows = new ArrayList<>();
+        for (var side : net.xmilon.craftpy.project.ModuleSide.values()) {
+            String text = (side == current ? "\u2713 " : "   ") + BuildDialog.sideName(side);
+            rows.add(ListDialog.Row.link(text, side == current ? "current" : "switch", () -> {
+                dialog.dismiss();
+                if (side == current) {
+                    return;
+                }
+                JsonObject args = new JsonObject();
+                args.addProperty("side", side.id());
+                store(s -> s.tool("set_side", args, reply -> postUi(() -> {
+                    if (reply.has("error")) {
+                        host.toast(reply.get("error").getAsString());
+                        return;
+                    }
+                    var before = net.xmilon.craftpy.project.ModuleSide.of(reply.get("before").getAsString());
+                    host.toast("Now " + BuildDialog.sideName(side) + " - Tools > Project side switches back to "
+                            + BuildDialog.sideName(before));
+                    store(net.xmilon.craftpy.client.ClientProjectStore::refresh);
+                })));
+            }));
+        }
+        dialog.setRows(rows);
+    }
+
     /** Creates {@code ui/<name>.json}; open it and start the designer from the Tools menu. */
     void newWindow() {
         prompt(host.anchor(), "New window id (letters, digits, _)", "main", "Create", name -> {

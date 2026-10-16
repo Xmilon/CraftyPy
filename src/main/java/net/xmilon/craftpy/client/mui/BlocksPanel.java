@@ -95,8 +95,12 @@ final class BlocksPanel {
     private void render(String query) {
         list.removeAllViews();
         Context context = list.getContext();
-        List<BuildingBlocks.Block> blocks = query.isBlank() ? BuildingBlocks.all()
-                : BuildingBlocks.search(BuildingBlocks.all(), query);
+        var store = net.xmilon.craftpy.client.ClientProjectStore.getInstance();
+        var project = store.activeProjectId() == null ? null : store.find(store.activeProjectId());
+        String projectSide = project == null ? "both" : project.side;
+        // only the blocks that work on this project's side (a client project has no blocks or items, a server one no HUD)
+        List<BuildingBlocks.Block> fitting = BuildingBlocks.all().stream().filter(b -> b.fits(projectSide)).toList();
+        List<BuildingBlocks.Block> blocks = query.isBlank() ? fitting : BuildingBlocks.search(fitting, query);
         if (blocks.isEmpty()) {
             var empty = CraftPyFragment.label(context, "Nothing matches \"" + query.strip() + "\"",
                     R.attr.textAppearanceBodySmall);
