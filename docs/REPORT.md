@@ -290,7 +290,7 @@ First time the mod was run with Create, Mekanism, Iron's Spells, Curios and Mode
 - 27 `AssetDrop.validTarget` (tested) is the one rule for names typed into the texture and sound editors: under `assets/`, lower case, no empty or dot segments.
 - 28 New projects no longer get empty `assets/animations` and `assets/other` folders (they would ship as namespaces).
 - 30 Dead code removed: `ModelViewerScreen`, `InspectorScreen`, `SoundPreview.playLooping/tick/setPitchVolume`.
-Still open: 8 (every asset save rebuilds the pack and reloads clients), 29 (*New module* builds keep the old namespace), a sound copied from a multi-variant event is a random variant.
+Closed in M19: 8 (one debounced rebuild, `util/Debouncer`), 29 (`ModuleBuilder` renames the namespace), the multi-variant sound copy (fixed variant).
 
 ### Milestone M14: OGG export, menu keys, upload hardening
 

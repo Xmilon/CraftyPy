@@ -190,7 +190,10 @@ public final class AssetPreview {
     // Sound resolution
     // ------------------------------------------------------------------
 
-    /** The physical .ogg resource for a sound event id, or null if unresolved. */
+    /**
+     * The physical .ogg resource for a sound event id, or null if unresolved. An event with several variants (stone
+     * breaking has four) always gives the same one, so copying it twice copies the same file.
+     */
     public static ResourceLocation soundFile(String id) {
         try {
             SoundManager manager = mc().getSoundManager();
@@ -199,7 +202,7 @@ public final class AssetPreview {
             if (events == null) {
                 return null;
             }
-            Sound sound = events.getSound(RandomSource.create());
+            Sound sound = events.getSound(RandomSource.create(0L));
             if (sound == null) {
                 return null;
             }

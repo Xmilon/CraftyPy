@@ -108,10 +108,12 @@ public final class ModuleBuilder {
             zos.write(Json.GSON.toJson(modMeta).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             zos.closeEntry();
 
+            // a new module is another namespace: assets/<old id>/ and "<old id>:name" ids move with it
+            String from = asNew && !moduleId.equals(meta.id) ? meta.id : null;
             for (String subDir : new String[]{"code", "assets", "data", "ui"}) {
                 Path dir = projectDir.resolve(subDir);
                 if (Files.isDirectory(dir)) {
-                    zipDirectory(dir, subDir, zos);
+                    zipDirectory(dir, subDir, zos, from, moduleId);
                 }
             }
             Path readme = projectDir.resolve("README.md");
@@ -141,19 +143,40 @@ public final class ModuleBuilder {
         return new Result(outputFile, installed, moduleId, version, replaced);
     }
 
-    private static void zipDirectory(Path folder, String parentFolder, ZipOutputStream zos) throws IOException {
+    private static void zipDirectory(Path folder, String parentFolder, ZipOutputStream zos, String from, String to)
+            throws IOException {
         try (var stream = Files.walk(folder)) {
             stream.filter(path -> !Files.isDirectory(path)).forEach(path -> {
-                ZipEntry zipEntry = new ZipEntry(parentFolder + "/" + folder.relativize(path).toString().replace("\\", "/"));
+                String name = entryName(parentFolder, folder.relativize(path).toString().replace("\\", "/"), from, to);
                 try {
-                    zos.putNextEntry(zipEntry);
-                    Files.copy(path, zos);
+                    zos.putNextEntry(new ZipEntry(name));
+                    zos.write(content(name, Files.readAllBytes(path), from, to));
                     zos.closeEntry();
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
             });
         }
+    }
+
+    /** {@code assets/<from>/...} and {@code data/<from>/...} become {@code <to>}; everything else keeps its path. */
+    static String entryName(String parentFolder, String relative, String from, String to) {
+        if (from != null && (parentFolder.equals("assets") || parentFolder.equals("data"))
+                && (relative.startsWith(from + "/"))) {
+            relative = to + relative.substring(from.length());
+        }
+        return parentFolder + "/" + relative;
+    }
+
+    /** Text files: quoted {@code "<from>:id"} and {@code '<from>:id'} become {@code <to>:id}; other bytes are copied. */
+    static byte[] content(String name, byte[] bytes, String from, String to) {
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        if (from == null || !(lower.endsWith(".py") || lower.endsWith(".json") || lower.endsWith(".mcmeta"))) {
+            return bytes;
+        }
+        String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        String changed = text.replace("\"" + from + ":", "\"" + to + ":").replace("'" + from + ":", "'" + to + ":");
+        return changed.equals(text) ? bytes : changed.getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
 
     public static class ModuleMetadata {

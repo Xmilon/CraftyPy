@@ -240,22 +240,44 @@ public final class ProjectController {
     }
 
     private void afterChange(MinecraftServer server) {
-        // Rebuild generated packs off-thread, then trigger reloads.
-        CraftPyExecutors.runAsync(PackBuilder::rebuild).thenRun(() -> {
-            if (server != null) {
-                server.execute(() -> {
-                    server.reloadResources(server.getPackRepository().getSelectedIds())
-                            .thenRun(() -> {
-                                CraftPyNetwork.broadcastActive(server);
-                                CraftPyNetwork.broadcastProjectList(server);
-                            })
-                            .exceptionally(error -> {
-                                CraftPyLog.LOGGER.error("Datapack reload failed", error);
-                                return null;
-                            });
+        refreshPacks(server);
+    }
+
+    private static volatile MinecraftServer packServer;
+    private static final net.xmilon.craftpy.util.Debouncer PACKS =
+            new net.xmilon.craftpy.util.Debouncer("pack-refresh", 300, ProjectController::rebuildAndReload);
+
+    /**
+     * Rebuilds the generated packs off-thread, reloads the server's data and tells the clients to reload theirs. Requests
+     * close together (a load per active project at start, several asset uploads) are folded into one rebuild.
+     */
+    public static void refreshPacks(MinecraftServer server) {
+        if (server == null) {
+            CraftPyExecutors.runAsync(PackBuilder::rebuild);
+            return;
+        }
+        packServer = server;
+        PACKS.request();
+    }
+
+    private static CompletableFuture<?> rebuildAndReload() {
+        MinecraftServer server = packServer;
+        if (server == null || !server.isRunning()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return CraftPyExecutors.runAsync(PackBuilder::rebuild)
+                .thenCompose(ignored -> server.submit(() -> server.reloadResources(server.getPackRepository().getSelectedIds())))
+                .thenCompose(reload -> reload)
+                .whenComplete((ignored, error) -> {
+                    if (error != null) {
+                        CraftPyLog.LOGGER.error("Pack rebuild or datapack reload failed", error);
+                        return;
+                    }
+                    server.execute(() -> {
+                        CraftPyNetwork.broadcastActive(server);
+                        CraftPyNetwork.broadcastProjectList(server);
+                    });
                 });
-            }
-        });
     }
 
     public static void startup(MinecraftServer server) {

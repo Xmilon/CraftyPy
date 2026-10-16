@@ -106,8 +106,12 @@ Remaining:
 - Batch E (design first): 34-35 pyright / mypy / ruff in the worker, 38-39 debugger + call stack, 51 shared sessions with file locks.
 - More than 4096 slots / no restart: data-component items + variant blocks (design in REPORT M12 "Not done").
 - Model viewer, content preview and inspector are still vanilla screens (`ContentPreviewScreen`); drag is only from the Assets tab.
-- Audit gaps: 8 (every asset save rebuilds the pack and reloads clients), 29 (*New module* builds keep the old namespace), a sound
-  copied from a multi-variant event is a random variant.
+- [x] Audit gaps (2026-10-16): 8 pack rebuilds after asset uploads and project loads are folded into one (`util/Debouncer`,
+  `ProjectController.refreshPacks`, 300 ms); 29 a *New module* build moves `assets/<id>/`, `data/<id>/` and quoted
+  `"<id>:name"` ids in `.py` / `.json` / `.mcmeta` to the new id (`ModuleBuilder.entryName/content`); a sound copied from a
+  multi-variant event is always the same variant (fixed seed).
+- [x] `storage` is saved with the world (`lifecycle/StorageData`, `data/craftpy_storage.dat`); `storage.clear()` without a
+  key clears only its scope.
 - Old unchecked items of the REPORT checklist (texture editor hex input / palette, generated-content summary in the preview,
   underline problems, resizable panels, export to a chosen folder, better tutorials, polish) - most were redone in the Modern UI
   rewrite; re-check before doing any.

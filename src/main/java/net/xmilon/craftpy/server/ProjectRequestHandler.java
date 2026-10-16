@@ -219,7 +219,7 @@ public final class ProjectRequestHandler {
                         .thenApply(result -> {
                             if (result.success() && caller.server() != null
                                     && net.xmilon.craftpy.registry.SlotRegistry.isProjectActive(id)) {
-                                refreshPacksAfterAssetChange(caller.server());
+                                net.xmilon.craftpy.lifecycle.ProjectController.refreshPacks(caller.server());
                             }
                             return uploadReply(result.success(), result.message(), upload.path);
                         });
@@ -556,24 +556,4 @@ public final class ProjectRequestHandler {
         return new ResponsePayload(action, false, message, "");
     }
 
-    /**
-     * After a project asset changes, rebuild the dynamic packs off-thread and
-     * reload resources so the new texture/model/sound takes effect immediately.
-     */
-    private static void refreshPacksAfterAssetChange(MinecraftServer server) {
-        if (server == null) {
-            return;
-        }
-        CraftPyExecutors.runAsync(net.xmilon.craftpy.dynamics.PackBuilder::rebuild).thenRun(() -> server.execute(() -> {
-            server.reloadResources(server.getPackRepository().getSelectedIds())
-                    .thenRun(() -> {
-                        net.xmilon.craftpy.network.CraftPyNetwork.broadcastActive(server);
-                        net.xmilon.craftpy.network.CraftPyNetwork.broadcastProjectList(server);
-                    })
-                    .exceptionally(error -> {
-                        CraftPyLog.LOGGER.error("Resource reload after asset change failed", error);
-                        return null;
-                    });
-        }));
-    }
 }
