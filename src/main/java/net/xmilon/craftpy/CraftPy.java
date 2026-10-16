@@ -48,6 +48,8 @@ public class CraftPy {
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.RestartManager.class);
 
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+        // what Python may reach outside the game (sites, keys, data folders): the server owner's lists
+        modContainer.registerConfig(ModConfig.Type.COMMON, net.xmilon.craftpy.security.AccessConfig.SPEC, "craftpy-access.toml");
         
         net.xmilon.craftpy.project.PyForgePaths.ensureLayout();
         // the first start unpacks the Python shipped in the jar (a few seconds) while the game loads
