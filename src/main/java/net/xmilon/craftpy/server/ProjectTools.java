@@ -410,6 +410,18 @@ public final class ProjectTools {
     }
 
     /** {@code name=} entries for the arguments the call accepts and the typed part matches, in front of the other items. */
+    /** The project's .py files (at most 1 MB in total) for the worker to follow imports with. */
+    static JsonObject pythonSources(ProjectManager.Snapshot snapshot) {
+        JsonObject out = new JsonObject();
+        long total = 0;
+        for (var entry : snapshot.texts().entrySet()) {
+            if (entry.getKey().endsWith(".py") && (total += entry.getValue().length()) <= 1_000_000) {
+                out.addProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        return out;
+    }
+
     /** Items and blocks the project declares (as {@code project:id}), by kind; blocks also exist as items. */
     private static Map<String, List<String>> ownIds(String projectId) {
         Map<String, List<String>> own = new java.util.HashMap<>();
@@ -462,8 +474,12 @@ public final class ProjectTools {
         if (!PyRuntime.available()) {
             return done(error(op, "No Python runtime"));
         }
-        // the worker infers types (chained calls, event handlers, keyword arguments of the call being typed)
-        return PyRuntime.get().assist(op, code, line, column).thenApply(result -> {
+        // the worker infers types (chained calls, event handlers, keyword arguments, names imported from the other files)
+        ProjectManager manager = ProjectManager.get();
+        CompletableFuture<JsonObject> sources = manager == null || projectId == null || projectId.isBlank()
+                ? CompletableFuture.completedFuture(null)
+                : manager.snapshot(projectId).thenApply(ProjectTools::pythonSources).exceptionally(e -> null);
+        return sources.thenCompose(files -> PyRuntime.get().assist(op, code, line, column, files)).thenApply(result -> {
             result.addProperty("op", op);
             if (request.has("seq")) {
                 result.add("seq", request.get("seq"));

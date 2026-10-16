@@ -2787,12 +2787,17 @@ def _handle(method, params):
     if method == "validate":
         _INTERRUPT = False
         return _validate(params)
-    if method == "complete":
-        return _complete(params)
-    if method == "hover":
-        return _hover(params)
-    if method == "signature":
-        return _signature_help(params)
+    if method in ("complete", "hover", "signature"):
+        _ASSIST_SOURCES.clear()
+        _ASSIST_SOURCES.update(params.get("sources") or {})
+        try:
+            if method == "complete":
+                return _complete(params)
+            if method == "hover":
+                return _hover(params)
+            return _signature_help(params)
+        finally:
+            _ASSIST_SOURCES.clear()
     if method == "definition":
         return _definition(params)
     if method == "stub":
@@ -3243,6 +3248,16 @@ def _collect(body, scope):
             scope.bind(node.target.id, node.lineno, "ann", node.annotation)
         elif isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(node.target, ast.Name):
             scope.bind(node.target.id, node.lineno, "iter", node.iter)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.module != "craftpy" and not node.level:
+            for alias in node.names:
+                if alias.name != "*":
+                    scope.bind(alias.asname or alias.name, node.lineno, "from", (node.module, alias.name))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    scope.bind(alias.asname, node.lineno, "module", alias.name)
+                else:
+                    scope.bind(alias.name.split(".")[0], node.lineno, "module", alias.name.split(".")[0])
         elif isinstance(node, (ast.With, ast.AsyncWith)):
             for item in node.items:
                 if isinstance(item.optional_vars, ast.Name):
@@ -3437,7 +3452,58 @@ def _binding_value(binding, depth):
     if kind == "iter":
         iterable = _infer(value, scope, line, depth)
         return iterable.elem if isinstance(iterable, _Inst) else None
+    if kind == "module":
+        return _LocalModule(value) if _module_scope(value) is not None else None
+    if kind == "from":
+        module, name = value
+        return _module_member(module, name, depth)
     return None
+
+
+# Other files of the project, for completion and hover across imports: path -> text, set for the duration of a request.
+_ASSIST_SOURCES = {}
+_MODULE_SCOPES = {}  # (module, text hash) -> scope
+
+
+class _LocalModule:
+    """A file of the project, imported by name (`import items`)."""
+
+    def __init__(self, name):
+        self.name = name
+
+
+def _module_scope(module):
+    """The module-level scope of a project file (code/<module>.py or a package __init__), or None when there is none."""
+    import ast
+    base = "code/" + module.replace(".", "/")
+    text = _ASSIST_SOURCES.get(base + ".py")
+    if text is None:
+        text = _ASSIST_SOURCES.get(base + "/__init__.py")
+    if text is None:
+        return None
+    key = (module, hash(text))
+    scope = _MODULE_SCOPES.get(key)
+    if scope is None:
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return None
+        scope = _Scope()
+        _collect(tree.body, scope)
+        if len(_MODULE_SCOPES) > 64:
+            _MODULE_SCOPES.clear()
+        _MODULE_SCOPES[key] = scope
+    return scope
+
+
+def _module_member(module, name, depth=0):
+    if depth > _MAX_DEPTH:
+        return None
+    scope = _module_scope(module)
+    if scope is None:
+        return None
+    binding = scope.lookup(name, 10 ** 9)
+    return _binding_value(binding, depth + 1) if binding is not None else None
 
 
 def _call(value, depth=0):
@@ -3500,6 +3566,8 @@ def _member(value, name, depth=0):
     """value.name as an inferred value."""
     if value is None or depth > _MAX_DEPTH or name.startswith("_"):
         return None
+    if isinstance(value, _LocalModule):
+        return _module_member(value.name, name, depth + 1)
     if isinstance(value, (_LocalInst, _LocalClass)):
         entry = _local_class_members(value.node, value.scope).get(name)
         if entry is not None:
@@ -3571,6 +3639,20 @@ def _members(value, depth=0):
     import ast
     out = {}
     if value is None or depth > 4:
+        return out
+    if isinstance(value, _LocalModule):
+        scope = _module_scope(value.name)
+        for name, entries in (scope.bindings.items() if scope else []):
+            if name.startswith("_"):
+                continue
+            kind = entries[-1][1]
+            node = entries[-1][2]
+            if kind == "def":
+                out[name] = ("fn", "(" + ", ".join(a.arg for a in node.args.args) + ")", _docstring(node))
+            elif kind == "class":
+                out[name] = ("class", "", _docstring(node))
+            else:
+                out[name] = ("field", "", "")
         return out
     if isinstance(value, (_LocalInst, _LocalClass)):
         for name, (kind, data) in _local_class_members(value.node, value.scope).items():

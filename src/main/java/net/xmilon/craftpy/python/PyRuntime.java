@@ -124,12 +124,20 @@ public final class PyRuntime {
 
     /** Editor assist: runs a read-only worker query ("complete" or "hover") with a short timeout. */
     public CompletableFuture<JsonObject> assist(String method, String code, int line, int column) {
+        return assist(method, code, line, column, null);
+    }
+
+    /** As above; {@code sources} (path to text of the project's other .py files) lets it follow imports between files. */
+    public CompletableFuture<JsonObject> assist(String method, String code, int line, int column, JsonObject sources) {
         return CraftPyExecutors.supplyAsync(() -> {
             try {
                 JsonObject params = new JsonObject();
                 params.addProperty("code", code);
                 params.addProperty("line", line);
                 params.addProperty("column", column);
+                if (sources != null) {
+                    params.add("sources", sources);
+                }
                 return client().call(method, params, 2000);
             } catch (Exception e) {
                 return new JsonObject();

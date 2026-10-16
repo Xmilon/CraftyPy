@@ -781,6 +781,20 @@ def test_effect_specs_keep_namespaced_ids_whole():
     assert w._effect_spec(("irons_spellbooks:evasion", 1, 3)) == "irons_spellbooks:evasion:0:3"
 
 
+def test_completion_follows_imports_between_project_files():
+    sources = {"code/items.py": "from craftpy import *" + chr(10) + "gem = Item('gem')" + chr(10) + "def helper(a):" + chr(10)
+               + "    return gem" + chr(10)}
+    def ask(code):
+        lines = code.split(chr(10))
+        reply = w._handle("complete", {"code": code, "line": len(lines) - 1, "column": len(lines[-1]), "sources": sources})
+        return [i["n"] for i in reply["items"]]
+    assert "extends" in ask("from items import gem" + chr(10) + "gem.")
+    assert "gem" in ask("import items" + chr(10) + "items.") and "helper" in ask("import items" + chr(10) + "items.")
+    assert "extends" in ask("import items" + chr(10) + "items.helper(1).")
+    assert ask("from nothing import x" + chr(10) + "x.") == []
+    assert w._ASSIST_SOURCES == {}, "the sources are dropped after the request"
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):
