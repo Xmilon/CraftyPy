@@ -235,8 +235,9 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
   (`/recipe give` works?), does JEI/EMI reload after a project run (their reload follows the recipe sync), and are the
   slot items hidden or shown under `craftpy:pcitem_N`? Then a JEI plugin / EMI entrypoint that refreshes after
   `ProjectController.refreshPacks` and names the items by their project id.
-- [ ] Item tooltip like a normal mod item: the project's name (blue italic, where mods show theirs), `namespace:id` with
-  advanced tooltips (F3+H) instead of `craftpy:pcitem_N`, and a "Created with CraftPy" line.
+- [x] Item tooltip like a normal mod item: the project's name (blue italic, where mods show theirs), `namespace:id` with
+  advanced tooltips (F3+H) instead of `craftpy:pcitem_N`, and a "Created with CraftPy" line. (`client/ContentTooltip`; JEI/EMI still add "CraftPy" as the mod name from the slot's
+  namespace.)
 - [ ] IDE console: `/command` lines (vanilla, other mods', the project's own like `/welcome:gift`) run as the player and
   their output shows in the console.
 - [ ] Two personal examples, not shipped (in `run/pyforge/projects/`): several mods working together, and something not

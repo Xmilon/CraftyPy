@@ -39,6 +39,11 @@ public class CraftPyClient {
     }
 
     @SubscribeEvent
+    static void onTooltip(net.neoforged.neoforge.event.entity.player.ItemTooltipEvent event) {
+        net.xmilon.craftpy.client.ContentTooltip.onTooltip(event);
+    }
+
+    @SubscribeEvent
     static void onClientSetup(FMLClientSetupEvent event) {
         CraftPyLog.LOGGER.info("CraftPy client setup for {}", Minecraft.getInstance().getUser().getName());
         net.xmilon.craftpy.client.IdeHost.install(new net.xmilon.craftpy.client.McHost());

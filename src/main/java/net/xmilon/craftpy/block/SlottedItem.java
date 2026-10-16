@@ -70,8 +70,7 @@ public class SlottedItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> lines, TooltipFlag flags) {
         Defs.ItemDef def = definition();
-        String holder = SlotRegistry.holderForItem(slotIndex);
-        lines.add(Component.literal(holder).withStyle(ChatFormatting.DARK_GRAY));
+        // the id and the project's name are added like a mod item's (client/ContentTooltip)
         if (def == null) {
             lines.add(Component.literal("Unloaded - load the project to activate.").withStyle(ChatFormatting.GRAY));
         } else {

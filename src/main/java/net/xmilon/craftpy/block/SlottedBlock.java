@@ -110,8 +110,7 @@ public class SlottedBlock extends Block implements EntityBlock {
     public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> lines,
             TooltipFlag flags) {
         Defs.BlockDef def = definition();
-        String holder = SlotRegistry.holderForBlock(slotIndex);
-        lines.add(Component.literal(holder).withStyle(ChatFormatting.DARK_GRAY));
+        // the id and the project's name are added like a mod item's (client/ContentTooltip)
         if (def == null) {
             lines.add(Component.literal("Unloaded - load the project to activate.").withStyle(ChatFormatting.GRAY));
         }
