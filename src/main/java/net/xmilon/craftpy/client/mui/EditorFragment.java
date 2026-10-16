@@ -125,6 +125,8 @@ public class EditorFragment extends Fragment {
     private CatalogPanel catalog;
     private ModMapPanel modMap;
     private UiMakerPanel uiMaker;
+    private RecipeBookPanel recipeBook;
+    private Splitter recipeBookSplitter;
     private Splitter modMapSplitter;
     private Splitter uiMakerSplitter;
     private View catalogSplitter;
@@ -424,6 +426,22 @@ public class EditorFragment extends Fragment {
         body.addView(modMapSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
         body.addView(modMap.view(), new LinearLayout.LayoutParams(body.dp(settings.blocksWidth + 120), MATCH_PARENT));
         setSidePanel(modMap.view(), modMapSplitter, false);
+        recipeBook = new RecipeBookPanel(context, new RecipeBookPanel.Host() {
+            @Override
+            public void request(String op, com.google.gson.JsonObject args, java.util.function.Consumer<com.google.gson.JsonObject> reply) {
+                View anchor = recipeBook.view();
+                store(s -> s.tool(op, args, answer -> anchor.post(() -> reply.accept(answer))));
+            }
+
+            @Override
+            public void hide() {
+                setSidePanel(recipeBook.view(), recipeBookSplitter, false);
+            }
+        });
+        recipeBookSplitter = new Splitter(context, true, dx -> dragPanel(recipeBook.view(), dx), this::saveLayout);
+        body.addView(recipeBookSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
+        body.addView(recipeBook.view(), new LinearLayout.LayoutParams(body.dp(settings.blocksWidth + 120), MATCH_PARENT));
+        setSidePanel(recipeBook.view(), recipeBookSplitter, false);
         uiMaker = new UiMakerPanel(context, new UiMakerPanel.Host() {
             @Override
             public List<String> files() {
@@ -747,6 +765,8 @@ public class EditorFragment extends Fragment {
                 this::catalogVisible, v -> setCatalogVisible(!catalogVisible()));
         stripe.add(IdeIcon.Glyph.GRAPH, "Mod map: mods, modules and projects, and what ties them together",
                 () -> sidePanelShown(modMap.view()), v -> toggleSidePanel(modMap.view(), modMapSplitter));
+        stripe.add(IdeIcon.Glyph.HAMMER, "Recipes & drops: every recipe and every mob drop of the game and its mods (Ctrl+Shift+R)",
+                () -> sidePanelShown(recipeBook.view()), v -> toggleSidePanel(recipeBook.view(), recipeBookSplitter));
         stripe.add(IdeIcon.Glyph.LAYOUT, "UI maker: the windows of this project, with a live preview",
                 () -> sidePanelShown(uiMaker.view()), v -> toggleSidePanel(uiMaker.view(), uiMakerSplitter));
         stripe.add(IdeIcon.Glyph.IMAGE, "Assets: every texture, model and sound (Alt+9)", () -> dockShows(AssetDock.ASSETS),
@@ -1096,6 +1116,7 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Assets", "Alt+9", () -> toggleDock(AssetDock.ASSETS)));
         a.add(new ActionEntry("Mod map: mods, modules, projects and their links", "",
                 () -> setSidePanel(modMap.view(), modMapSplitter, true)));
+        a.add(new ActionEntry("Recipes & drops: every recipe and mob drop", "Ctrl+Shift+R", this::recipesAtCaret));
         a.add(new ActionEntry("UI maker: windows of this project with a preview", "",
                 () -> setSidePanel(uiMaker.view(), uiMakerSplitter, true)));
         a.add(new ActionEntry("Hide all tool windows", "Ctrl+Shift+F12", this::hideAllToolWindows));
@@ -1103,11 +1124,8 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Word wrap (this file)", "", this::toggleWrap));
         a.add(new ActionEntry("Zoom in", "Ctrl+=", () -> zoom(1)));
         a.add(new ActionEntry("Zoom out", "Ctrl+-", () -> zoom(-1)));
-        a.add(new ActionEntry("Recipes", "", tools::recipes));
-        a.add(new ActionEntry("Loot tables", "", tools::loot));
         a.add(new ActionEntry("Handler profiler", "", tools::profiler));
         a.add(new ActionEntry("Why isn't my block showing?", "", tools::explain));
-        a.add(new ActionEntry("Recipes & loot of the item at the cursor", "Ctrl+Shift+R", tools::visualize));
         a.add(new ActionEntry("Asset usage report", "", tools::assetUsage));
         a.add(new ActionEntry("Change log", "", tools::changeLog));
         a.add(new ActionEntry("UI designer", "", tools::uiDesigner));
@@ -1239,6 +1257,12 @@ public class EditorFragment extends Fragment {
             if (uiMaker != null && panel != uiMaker.view()) {
                 setSidePanel(uiMaker.view(), uiMakerSplitter, false);
             }
+            if (recipeBook != null && panel != recipeBook.view()) {
+                setSidePanel(recipeBook.view(), recipeBookSplitter, false);
+            }
+            if (recipeBook != null && panel == recipeBook.view()) {
+                recipeBook.focusSearch();
+            }
             if (modMap != null && panel == modMap.view()) {
                 modMap.refresh();
                 modMap.focusSearch();
@@ -1259,6 +1283,18 @@ public class EditorFragment extends Fragment {
         }
         if (uiMaker != null && sidePanelShown(uiMaker.view())) {
             setSidePanel(uiMaker.view(), uiMakerSplitter, false);
+        }
+        if (recipeBook != null && sidePanelShown(recipeBook.view())) {
+            setSidePanel(recipeBook.view(), recipeBookSplitter, false);
+        }
+    }
+
+    /** Opens Recipes & drops, on the item id under the caret when there is one. */
+    private void recipesAtCaret() {
+        setSidePanel(recipeBook.view(), recipeBookSplitter, true);
+        String id = tools.contentIdAtCaret();
+        if (id != null && !id.isBlank()) {
+            recipeBook.showItem(id.contains(":") || projectId() == null ? id : projectId() + ":" + id);
         }
     }
 
@@ -2821,7 +2857,8 @@ public class EditorFragment extends Fragment {
     /** True for model, block state and item files, which the dock can draw. */
     private static boolean isModelJson(@Nullable String path) {
         return path != null && path.startsWith("assets/") && path.endsWith(".json")
-                && (path.contains("/models/") || path.contains("/blockstates/") || path.contains("/items/"));
+                && (path.contains("/models/") || path.contains("/blockstates/") || path.contains("/items/")
+                || path.endsWith(".geo.json"));
     }
 
     /** Keeps the dock's preview in step with the model file being edited (only while that tab is showing). */
@@ -3585,7 +3622,7 @@ public class EditorFragment extends Fragment {
                 case KeyEvent.KEY_Y -> undoText(true);
                 case KeyEvent.KEY_R -> {
                     if (shift) {
-                        tools.visualize();
+                        recipesAtCaret();
                     } else {
                         run();
                     }
@@ -4089,9 +4126,6 @@ public class EditorFragment extends Fragment {
         m.add("Move function / class to another file...   F6").setOnMenuItemClickListener(i -> run(tools::moveSymbol));
         m.add("Asset usage report...").setOnMenuItemClickListener(i -> run(tools::assetUsage));
         m.add("Why isn't my block showing?...").setOnMenuItemClickListener(i -> run(tools::explain));
-        m.add("Recipes & loot of the item at the cursor...   Ctrl+Shift+R").setOnMenuItemClickListener(i -> run(tools::visualize));
-        m.add("Recipes...").setOnMenuItemClickListener(i -> run(tools::recipes));
-        m.add("Loot tables...").setOnMenuItemClickListener(i -> run(tools::loot));
         m.add("Handler profiler...").setOnMenuItemClickListener(i -> run(tools::profiler));
         m.add("Event tracer").setOnMenuItemClickListener(i -> run(() -> openPanel(PANEL_EVENTS)));
         m.add("Debugger   Alt+5").setOnMenuItemClickListener(i -> run(() -> openPanel(PANEL_DEBUG)));

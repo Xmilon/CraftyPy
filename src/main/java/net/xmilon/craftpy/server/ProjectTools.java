@@ -43,7 +43,8 @@ public final class ProjectTools {
             return done(error("", "Malformed tool request"));
         }
         String op = string(request, "op");
-        if (!ProjectManager.isValidId(projectId) && !op.equals("trace") && !op.equals("profile") && !op.equals("modmap")) {
+        if (!ProjectManager.isValidId(projectId) && !op.equals("trace") && !op.equals("profile") && !op.equals("modmap")
+                && !op.equals("recipe_book") && !op.equals("loot_book")) {
             return done(error(op, "Invalid project id"));
         }
         return switch (op) {
@@ -61,6 +62,8 @@ public final class ProjectTools {
             case "changes" -> done(changes(projectId));
             case "add_part" -> addPart(manager, projectId, request);
             case "catalog" -> done(catalog(ModCatalog.get().view(), request));
+            case "recipe_book" -> RecipeBook.recipes(request).thenApply(body -> reply(op, body));
+            case "loot_book" -> RecipeBook.drops(request).thenApply(body -> reply(op, body));
             case "modmap" -> net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(ProjectTools::modMap, net.xmilon.craftpy.util.CraftPyExecutors.io());
             case "restore_entry" -> manager.restoreEntry(projectId, string(request, "path")).thenApply(result -> {
                 JsonObject out = new JsonObject();
@@ -808,6 +811,11 @@ public final class ProjectTools {
 
     private static ResponsePayload ok(JsonObject body) {
         return new ResponsePayload(ProjectAction.TOOL, true, "", Json.COMPACT.toJson(body));
+    }
+
+    /** A tool body that carries {@code "error"} is sent as a failure with that message. */
+    private static ResponsePayload reply(String op, JsonObject body) {
+        return body.has("error") ? error(op, body.get("error").getAsString()) : ok(body);
     }
 
     private static ResponsePayload error(String op, String message) {

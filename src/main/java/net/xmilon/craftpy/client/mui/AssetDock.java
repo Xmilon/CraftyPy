@@ -245,9 +245,9 @@ final class AssetDock {
             openResource(project, kind, id);
             return;
         }
-        if ((kind == AssetKind.BLOCK || kind == AssetKind.ITEM) && net.xmilon.craftpy.client.assets.GameRender.available()) {
-            preview.showRender(id, kind == AssetKind.BLOCK ? net.xmilon.craftpy.client.assets.GameRender.Kind.BLOCK
-                    : net.xmilon.craftpy.client.assets.GameRender.Kind.ITEM, net.xmilon.craftpy.client.assets.AssetIndex.normalize(kind, id));
+        if ((kind == AssetKind.BLOCK || kind == AssetKind.ITEM) && ResourcePreviewPanel.canRender()) {
+            preview.showRender(id, kind == AssetKind.BLOCK ? McPainters.Kind.BLOCK : McPainters.Kind.ITEM,
+                    net.xmilon.craftpy.client.assets.AssetIndex.normalize(kind, id));
             show(PREVIEW);
             return;
         }

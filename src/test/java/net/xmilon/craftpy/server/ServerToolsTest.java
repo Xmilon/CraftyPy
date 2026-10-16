@@ -28,14 +28,14 @@ class ServerToolsTest {
     void fitDropsRowsUntilTheReplyFits() {
         JsonObject body = new JsonObject();
         JsonArray rows = new JsonArray();
-        for (int i = 0; i < 20000; i++) {
+        for (int i = 0; i < 100000; i++) {
             rows.add("row number " + i + " with some padding text to make it longer");
         }
         body.add("rows", rows);
         ProjectTools.fit(body, "rows");
-        assertTrue(body.toString().length() <= 380_000, "length " + body.toString().length());
+        assertTrue(body.toString().length() <= 4_000_000, "length " + body.toString().length());
         assertTrue(body.get("rowsCut").getAsInt() > 0);
-        assertEquals(20000, rows.size() + body.get("rowsCut").getAsInt());
+        assertEquals(100000, rows.size() + body.get("rowsCut").getAsInt());
     }
 
     @Test

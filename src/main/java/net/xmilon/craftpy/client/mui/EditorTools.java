@@ -852,186 +852,6 @@ final class EditorTools {
     // 43 block/item preview, 46 recipes, 47 loot
     // ------------------------------------------------------------------
 
-    /**
-     * Recipes and loot of one item (the one at the cursor, or one you type): what makes it, what it is used in and what
-     * drops it, as recipe cards. A click on a card shows that recipe's result the same way.
-     */
-    void visualize() {
-        String id = contentIdAtCaret();
-        if (id == null || id.isBlank()) {
-            prompt(host.anchor(), "Recipes and loot of which item?", "", "Show", this::visualize);
-            return;
-        }
-        visualize(id);
-    }
-
-    void visualize(String item) {
-        String wanted = item.strip();
-        String project = host.projectId();
-        String shortName = RecipePreview.shortId(wanted.contains(":") ? wanted : (project == null ? "" : project + ":") + wanted, project);
-        loadDecls("Recipes & loot: " + shortName, true, (dialog, reply) -> {
-            List<ListDialog.Row> makes = new ArrayList<>();
-            List<ListDialog.Row> uses = new ArrayList<>();
-            List<ListDialog.Row> drops = new ArrayList<>();
-            for (JsonElement e : reply.getAsJsonArray("recipes")) {
-                RecipePreview.View view = RecipePreview.describe(e.getAsJsonObject(), project);
-                String result = view.result().replaceAll(" x\\d+$", "");
-                List<String> inputs = new ArrayList<>(view.inputs());
-                if (view.grid() != null) {
-                    for (String[] cells : view.grid()) {
-                        inputs.addAll(List.of(cells));
-                    }
-                }
-                ListDialog.Row card = ListDialog.Row.card(view.title(), String.join(" ", inputs) + " " + view.result(),
-                        context -> recipeCard(context, view));
-                if (result.equals(shortName)) {
-                    makes.add(card);
-                } else if (inputs.contains(shortName)) {
-                    uses.add(card);
-                }
-            }
-            for (JsonElement e : reply.getAsJsonArray("loot")) {
-                LootPreview.View view = LootPreview.describe(e.getAsJsonObject(), project);
-                for (LootPreview.Entry entry : view.entries()) {
-                    if (entry.item().equals(shortName) || (entry.item().equals("the block itself") && view.title().endsWith(shortName))) {
-                        drops.add(ListDialog.Row.info(view.title(), String.format(Locale.ROOT, "%d x %s   %.0f%% per roll",
-                                entry.count(), entry.item(), entry.percent())));
-                    }
-                }
-            }
-            List<ListDialog.Row> rows = new ArrayList<>();
-            section(rows, "Made by", makes);
-            section(rows, "Used in", uses);
-            section(rows, "Dropped by", drops);
-            dialog.setMessage(rows.isEmpty() ? "No recipe or loot of this project makes, uses or drops " + shortName
-                    + " (after the last Run). Recipes of other mods are in JEI / EMI."
-                    : makes.size() + " made by, " + uses.size() + " used in, " + drops.size() + " dropped by");
-            dialog.setRows(rows);
-            dialog.addAction("Show another item", () -> {
-                dialog.dismiss();
-                prompt(host.anchor(), "Recipes and loot of which item?", "", "Show", this::visualize);
-            });
-        });
-    }
-
-    private static void section(List<ListDialog.Row> rows, String title, List<ListDialog.Row> items) {
-        if (!items.isEmpty()) {
-            rows.add(ListDialog.Row.info(title + " (" + items.size() + ")").colored(R.attr.colorPrimary));
-            rows.addAll(items);
-        }
-    }
-
-    void recipes() {
-        loadDecls("Recipes", true, (dialog, reply) -> {
-            String project = host.projectId();
-            List<ListDialog.Row> rows = new ArrayList<>();
-            for (JsonElement e : reply.getAsJsonArray("recipes")) {
-                RecipePreview.View view = RecipePreview.describe(e.getAsJsonObject(), project);
-                rows.add(ListDialog.Row.card(view.title(), String.join(" ", view.inputs()) + " " + view.result(),
-                        context -> recipeCard(context, view)));
-            }
-            dialog.setMessage(rows.isEmpty() ? "This project declares no recipes."
-                    : rows.size() + " recipe(s) from the last Run. Type an item name to filter.");
-            dialog.setRows(rows);
-        });
-    }
-
-    private static View recipeCard(Context context, RecipePreview.View view) {
-        var card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.addView(label(context, view.title(), R.attr.textAppearanceLabelLarge));
-        var body = row(context);
-        body.setPadding(0, card.dp(4), 0, card.dp(2));
-        if (view.grid() != null) {
-            var grid = new LinearLayout(context);
-            grid.setOrientation(LinearLayout.VERTICAL);
-            for (String[] cells : view.grid()) {
-                var line = row(context);
-                for (String cell : cells) {
-                    line.addView(cell(context, cell), cellParams(line));
-                }
-                grid.addView(line);
-            }
-            body.addView(grid);
-        } else {
-            for (String input : view.inputs()) {
-                body.addView(cell(context, input), cellParams(body));
-            }
-        }
-        var arrow = label(context, "  →  ", R.attr.textAppearanceTitleMedium);
-        body.addView(arrow);
-        body.addView(cell(context, view.result()), cellParams(body));
-        card.addView(body);
-        if (!view.note().isEmpty()) {
-            var note = label(context, view.note(), R.attr.textAppearanceBodySmall);
-            note.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
-            card.addView(note);
-        }
-        return card;
-    }
-
-    private static TextView cell(Context context, String text) {
-        var view = label(context, text, R.attr.textAppearanceBodySmall);
-        view.setGravity(Gravity.CENTER);
-        view.setSingleLine();
-        view.setPadding(view.dp(4), view.dp(4), view.dp(4), view.dp(4));
-        var bg = new ShapeDrawable();
-        bg.setCornerRadius(view.dp(4));
-        bg.setColor(color(context, text.isEmpty() ? R.attr.colorSurfaceContainerLow : R.attr.colorSurfaceContainerHighest));
-        view.setBackground(bg);
-        return view;
-    }
-
-    private static LinearLayout.LayoutParams cellParams(View parent) {
-        var lp = new LinearLayout.LayoutParams(parent.dp(84), parent.dp(26));
-        lp.setMargins(parent.dp(1), parent.dp(1), parent.dp(1), parent.dp(1));
-        return lp;
-    }
-
-    void loot() {
-        loadDecls("Loot tables", true, (dialog, reply) -> {
-            String project = host.projectId();
-            List<ListDialog.Row> rows = new ArrayList<>();
-            for (JsonElement e : reply.getAsJsonArray("loot")) {
-                LootPreview.View view = LootPreview.describe(e.getAsJsonObject(), project);
-                StringBuilder lines = new StringBuilder();
-                for (LootPreview.Entry entry : view.entries()) {
-                    if (lines.length() > 0) {
-                        lines.append('\n');
-                    }
-                    lines.append(String.format(Locale.ROOT, "%d × %s   %.0f%% (weight %d)", entry.count(), entry.item(),
-                            entry.percent(), entry.weight()));
-                }
-                if (view.entries().isEmpty()) {
-                    lines.append("drops nothing");
-                }
-                rows.add(ListDialog.Row.info(view.title() + (view.rolls() > 1 ? "  (" + view.rolls() + " rolls)" : ""),
-                        lines.toString()));
-            }
-            dialog.setMessage(rows.isEmpty() ? "This project declares no loot tables or drops."
-                    : "Chance is per roll: weight divided by the total weight.");
-            dialog.setRows(rows);
-        });
-    }
-
-    private void loadDecls(String title, boolean filterable, java.util.function.BiConsumer<ListDialog, JsonObject> onReply) {
-        if (host.projectId() == null) {
-            host.toast("Open a project first");
-            return;
-        }
-        var dialog = ListDialog.open(host.anchor(), title, filterable, 620, 320);
-        dialog.setMessage("Loading ...");
-        store(s -> s.tool("decls", new JsonObject(), reply -> postUi(() -> {
-            if (reply.has("error")) {
-                dialog.setMessage(reply.get("error").getAsString());
-            } else if (!reply.has("loaded") || !reply.get("loaded").getAsBoolean()) {
-                dialog.setMessage("Run the project first (Ctrl+R): this shows what the last Run declared.");
-            } else {
-                onReply.accept(dialog, reply);
-            }
-        })));
-    }
-
     /** 52: what was saved, created, renamed or deleted in this project, newest first. */
     void changeLog() {
         if (host.projectId() == null) {
@@ -1052,16 +872,6 @@ final class EditorTools {
             dialog.setMessage(rows.isEmpty() ? "Nothing recorded yet." : rows.size() + " change(s), newest first.");
             dialog.setRows(rows);
         })));
-    }
-
-    private static String flat(JsonElement element) {
-        if (element.isJsonPrimitive()) {
-            return element.getAsString();
-        }
-        if (element.isJsonObject() && element.getAsJsonObject().has("value")) {
-            return element.getAsJsonObject().get("value").getAsString();
-        }
-        return element.toString();
     }
 
     // ------------------------------------------------------------------
@@ -1456,7 +1266,7 @@ final class EditorTools {
     }
 
     /** The content id on the caret line or under the caret ({@code ruby_ore = Block("ruby_ore"...)} -> ruby_ore). */
-    private String contentIdAtCaret() {
+    String contentIdAtCaret() {
         String text = host.text();
         int caret = Math.max(0, Math.min(host.caret(), text.length()));
         int line = TextOps.lineOf(text, caret);

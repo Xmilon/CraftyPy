@@ -32,6 +32,8 @@ repositories {
     mavenCentral()
     // Modern UI artifacts
     maven { url 'https://maven.izzel.io/releases/' }
+    // JEI API (optional: the Recipes & drops window draws JEI's own recipe layouts when JEI is installed)
+    maven { url 'https://maven.blamejared.com/' }
 }
 
 base {
@@ -136,6 +138,10 @@ dependencies {
     compileOnly("dev.icyllis:arc3d-sketch:2026.2.0") { transitive = false }
     compileOnly("icyllis.modernui:ModernUI-Markflow:3.12.0") { transitive = false }
     compileOnly("org.commonmark:commonmark:0.25.0") { transitive = false }
+
+    // JEI: compile against its API only; at runtime CraftPy uses it only when the JEI mod is installed
+    compileOnly("mezz.jei:jei-1.21.1-common-api:19.64.0.455") { transitive = false }
+    compileOnly("mezz.jei:jei-1.21.1-neoforge-api:19.64.0.455") { transitive = false }
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime

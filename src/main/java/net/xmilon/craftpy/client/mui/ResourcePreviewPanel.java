@@ -24,7 +24,6 @@ import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.TextView;
 import net.xmilon.craftpy.client.ModelScene;
 import net.xmilon.craftpy.client.PixelBuffer;
-import net.xmilon.craftpy.client.assets.GameRender;
 import net.xmilon.craftpy.client.assets.ModelResources;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
@@ -35,8 +34,9 @@ import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
  * The resource preview tab of the asset dock: models and block states as a 3D picture you can turn (orthographic, drawn
  * with Modern UI; an approximation of the game's own renderer - no lighting, tint colours or animation), the display
  * transforms of a model (gui, ground, fixed, hands, head), and a flat view of textures. Resources are read on the client
- * thread, the picture is drawn on the UI thread. In game, blocks, items and mobs are drawn by the game's own renderer
- * instead ({@link GameRender}): the real look of vanilla and mod models, turned by dragging.
+ * thread, the picture is drawn on the UI thread. In game, blocks, items and mobs are drawn live by the game's own
+ * renderers inside the tab instead ({@link McCanvas}, {@link McPainters}): the real look of vanilla and mod models,
+ * GeckoLib included, turned by dragging.
  */
 final class ResourcePreviewPanel implements DockPanel {
     private final Context context;
@@ -47,6 +47,7 @@ final class ResourcePreviewPanel implements DockPanel {
     private final FrameLayout stage;
     private final ModelView modelView;
     private final PixelCanvas flat;
+    private final McCanvas live;
     private int generation;
     private static final String HINT = "Double click a texture, use Preview in the explorer menu on a model or block state,"
             + " or open a block or item in the browser tab. Mobs shows any mob of the game and its mods.";
@@ -74,6 +75,9 @@ final class ResourcePreviewPanel implements DockPanel {
         flat.setTool(PixelCanvas.Tool.PICKER);
         stage.addView(modelView, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
         stage.addView(flat, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        live = new McCanvas(context, null);
+        live.setVisibility(View.GONE);
+        stage.addView(live, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
         var stageLp = new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1);
         stageLp.topMargin = root.dp(4);
         root.addView(stage, stageLp);
@@ -110,12 +114,18 @@ final class ResourcePreviewPanel implements DockPanel {
         flat.setBuffer(new PixelBuffer(1, 1));
     }
 
+    private void hideLive() {
+        live.setPainter(null);
+        live.setVisibility(View.GONE);
+    }
+
     void showMessage(String name, String text) {
         generation++;
         title.setText(name);
         info.setText(text);
         modelView.setVisibility(View.GONE);
         flat.setVisibility(View.GONE);
+        hideLive();
         presets.removeAllViews();
     }
 
@@ -125,34 +135,44 @@ final class ResourcePreviewPanel implements DockPanel {
         title.setText(name);
         presets.removeAllViews();
         modelView.setVisibility(View.GONE);
+        hideLive();
         flat.setVisibility(View.VISIBLE);
         flat.setBuffer(texture);
         info.setText(texture.width() + "x" + texture.height() + ", " + texture.palette(4096).size() + " colours");
     }
 
-    /** A block, item or mob drawn by the game itself (in game only; see {@link GameRender#available}). */
-    void showRender(String name, GameRender.Kind kind, String id) {
-        generation++;
+    /** True when the game can draw blocks, items and mobs in the tab (in game, in a world). */
+    static boolean canRender() {
+        return McCanvas.live() && net.minecraft.client.Minecraft.getInstance().level != null;
+    }
+
+    /** A block, item or mob drawn live by the game itself (in game only; see {@link #canRender}). */
+    void showRender(String name, McPainters.Kind kind, String id) {
+        final int mine = ++generation;
         title.setText(name);
         presets.removeAllViews();
         flat.setVisibility(View.GONE);
-        modelView.setVisibility(View.VISIBLE);
-        info.setText("Drawn by the game. Drag to turn, wheel to zoom.");
-        modelView.render((yaw, pitch) -> GameRender.render(kind, id, yaw, pitch),
-                problem -> info.setText("The game could not draw " + id + ": " + problem));
+        modelView.setVisibility(View.GONE);
+        live.setVisibility(View.VISIBLE);
+        info.setText("Drawn by Minecraft. Drag to turn, wheel to zoom.");
+        live.setPainter(McPainters.turntable(kind, id, problem -> root.post(() -> {
+            if (mine == generation) {
+                info.setText("The game could not draw " + id + ": " + problem);
+            }
+        })));
     }
 
     private void pickMob() {
-        if (!GameRender.available()) {
+        if (!canRender()) {
             showMessage("Mobs", "Mobs are drawn by the game: join a world first (the standalone IDE has no renderer).");
             return;
         }
         var dialog = ListDialog.open(root, "Mobs of the game and its mods", true);
         List<ListDialog.Row> rows = new java.util.ArrayList<>();
-        for (String id : GameRender.mobIds()) {
+        for (String id : McPainters.mobIds()) {
             rows.add(ListDialog.Row.link(id, "", () -> {
                 dialog.dismiss();
-                showRender(id, GameRender.Kind.MOB, id);
+                showRender(id, McPainters.Kind.MOB, id);
             }));
         }
         dialog.setMessage(rows.size() + " mob types").setRows(rows);
@@ -173,7 +193,7 @@ final class ResourcePreviewPanel implements DockPanel {
         info.setText("Loading...");
         IdeHost.get().execute(() -> {
             try {
-                buildModel(mine, parsed);
+                buildModel(mine, name, parsed);
             } catch (RuntimeException e) { // a model that cannot be drawn must not leave the panel on "Loading..."
                 root.post(() -> {
                     if (mine == generation) {
@@ -185,10 +205,10 @@ final class ResourcePreviewPanel implements DockPanel {
     }
 
     /** Client thread: resolves the model and its textures, then hands the scene to the view. */
-    private void buildModel(int mine, JsonObject parsed) {
-        JsonObject modelJson = blockStateModel(parsed);
-        ModelScene scene = ModelScene.build(modelJson, ModelResources::model);
+    private void buildModel(int mine, String name, JsonObject parsed) {
         ModelResources resources = new ModelResources();
+        ModelScene scene = ModelScene.isGeo(parsed) ? ModelScene.geo(parsed, geoTexture(name, resources))
+                : ModelScene.build(blockStateModel(parsed), ModelResources::model);
         Map<String, PixelBuffer> textures = new HashMap<>();
         for (String id : scene.textures()) {
             textures.put(id, resources.texture(id));
@@ -209,11 +229,43 @@ final class ResourcePreviewPanel implements DockPanel {
                 return; // a newer file was opened meanwhile
             }
             flat.setVisibility(View.GONE);
+            hideLive();
             modelView.setVisibility(View.VISIBLE);
             modelView.set(scene, textures);
             info.setText(report.toString());
             rebuildPresets(scene);
         });
+    }
+
+    /**
+     * The texture of a GeckoLib model: GeckoLib keeps {@code geo/<path>.geo.json} next to {@code textures/<path>.png},
+     * mods also use {@code textures/entity|item|armor/<name>.png}. The first that exists, else the first guess.
+     */
+    static String geoTexture(String name, ModelResources resources) {
+        String clean = name.replace('\\', '/');
+        String namespace = "minecraft";
+        int colon = clean.indexOf(':');
+        if (colon > 0) {
+            namespace = clean.substring(0, colon);
+            clean = clean.substring(colon + 1);
+        } else {
+            String project = net.xmilon.craftpy.client.ClientProjectStore.getInstance().activeProjectId();
+            if (project != null) {
+                namespace = project;
+            }
+        }
+        int geo = clean.indexOf("geo/");
+        String path = (geo >= 0 ? clean.substring(geo + 4) : clean.substring(clean.lastIndexOf('/') + 1)).replace(".geo.json", "");
+        String base = path.substring(path.lastIndexOf('/') + 1);
+        List<String> guesses = List.of(path, "entity/" + base, "item/" + base, "armor/" + base, "block/" + base, base);
+        for (String guess : guesses) {
+            String id = namespace + ":" + guess;
+            resources.texture(id);
+            if (resources.found(id)) {
+                return id;
+            }
+        }
+        return namespace + ":" + guesses.get(0);
     }
 
     /** A block state file points at models; the first one found is shown. A model file is returned unchanged. */
@@ -274,12 +326,6 @@ final class ResourcePreviewPanel implements DockPanel {
         private ModelScene scene;
         private Map<String, PixelBuffer> textures = Map.of();
         private ModelScene.Display display = ModelScene.Display.NONE;
-        /** Set while the game draws the picture: (yaw, pitch) to a future picture. */
-        private java.util.function.BiFunction<Double, Double, java.util.concurrent.CompletableFuture<PixelBuffer>> renderer;
-        private java.util.function.Consumer<String> onProblem;
-        private PixelBuffer shot;
-        private boolean busy;
-        private boolean again;
         private double yaw = 35;
         private double pitch = 25;
         private double zoom = 1;
@@ -293,75 +339,8 @@ final class ResourcePreviewPanel implements DockPanel {
         void set(ModelScene scene, Map<String, PixelBuffer> textures) {
             this.scene = scene;
             this.textures = textures;
-            renderer = null;
-            shot = null;
             zoom = 1;
             useDisplay("", scene);
-        }
-
-        void render(java.util.function.BiFunction<Double, Double, java.util.concurrent.CompletableFuture<PixelBuffer>> renderer,
-                    java.util.function.Consumer<String> onProblem) {
-            scene = null;
-            shot = null;
-            zoom = 1;
-            yaw = 35 + 180; // mobs and item fronts face south; turn them towards the viewer
-            pitch = 25;
-            this.renderer = renderer;
-            this.onProblem = onProblem;
-            requestShot();
-        }
-
-        /** One picture at a time; a drag during a render asks for one more afterwards. */
-        private void requestShot() {
-            if (renderer == null) {
-                return;
-            }
-            if (busy) {
-                again = true;
-                return;
-            }
-            busy = true;
-            var mine = renderer;
-            renderer.apply(yaw, pitch).whenComplete((picture, error) -> post(() -> {
-                busy = false;
-                if (mine != renderer) {
-                    return; // something else is shown now
-                }
-                if (error != null) {
-                    renderer = null;
-                    Throwable cause = error instanceof java.util.concurrent.CompletionException && error.getCause() != null ? error.getCause() : error;
-                    onProblem.accept(cause.getMessage() == null ? cause.toString() : cause.getMessage());
-                    return;
-                }
-                shot = picture;
-                invalidate();
-                if (again) {
-                    again = false;
-                    requestShot();
-                }
-            }));
-        }
-
-        /** The game's picture, runs of one colour per row drawn as one rectangle. */
-        private void drawShot(Canvas canvas) {
-            float s = (float) (Math.min(getWidth(), getHeight()) / (double) shot.width() * zoom);
-            float ox = (getWidth() - shot.width() * s) / 2f;
-            float oy = (getHeight() - shot.height() * s) / 2f;
-            for (int y = 0; y < shot.height(); y++) {
-                int x = 0;
-                while (x < shot.width()) {
-                    int argb = shot.get(x, y);
-                    int end = x + 1;
-                    while (end < shot.width() && shot.get(end, y) == argb) {
-                        end++;
-                    }
-                    if ((argb >>> 24) != 0) {
-                        paint.setColor(argb);
-                        canvas.drawRect(ox + x * s, oy + y * s, ox + end * s, oy + (y + 1) * s, paint);
-                    }
-                    x = end;
-                }
-            }
         }
 
         void useDisplay(String context, ModelScene scene) {
@@ -373,10 +352,6 @@ final class ResourcePreviewPanel implements DockPanel {
 
         @Override
         protected void onDraw(@NonNull Canvas canvas) {
-            if (shot != null) {
-                drawShot(canvas);
-                return;
-            }
             if (scene == null) {
                 return;
             }
@@ -459,7 +434,6 @@ final class ResourcePreviewPanel implements DockPanel {
                     lastX = event.getX();
                     lastY = event.getY();
                     invalidate();
-                    requestShot();
                 }
                 default -> {
                 }

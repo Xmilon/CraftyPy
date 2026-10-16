@@ -137,6 +137,171 @@ public final class ModelScene {
         return new ModelScene(faces, displays, problems, generated && elements == null);
     }
 
+    // ------------------------------------------------------------------ GeckoLib (.geo.json, Bedrock geometry)
+
+    /** True for a GeckoLib / Bedrock geometry file ({@code {"minecraft:geometry": [...]}}). */
+    public static boolean isGeo(JsonObject json) {
+        return json.has("minecraft:geometry") && json.get("minecraft:geometry").isJsonArray();
+    }
+
+    /**
+     * The first geometry of a .geo.json as a scene, every face using {@code texture}. Follows GeckoLib's baking:
+     * x is mirrored (origin {@code -(x + size.x)}, pivot {@code -x}, rotation {@code (-x, -y, z)}), box uv per face as in
+     * GeckoLib's {@code GeometryQuadUvs.ofBoxUv}, cube then bone then parent bone rotations. The result is centred and
+     * scaled into the 0..16 box the preview turns around.
+     */
+    public static ModelScene geo(JsonObject json, String texture) {
+        List<String> problems = new ArrayList<>();
+        List<Face> faces = new ArrayList<>();
+        JsonArray geometries = json.getAsJsonArray("minecraft:geometry");
+        if (geometries.isEmpty() || !geometries.get(0).isJsonObject()) {
+            problems.add("The file has no geometry.");
+            return new ModelScene(faces, Map.of(), problems, false);
+        }
+        JsonObject geometry = geometries.get(0).getAsJsonObject();
+        JsonObject description = geometry.has("description") && geometry.get("description").isJsonObject()
+                ? geometry.getAsJsonObject("description") : new JsonObject();
+        double texW = description.has("texture_width") ? description.get("texture_width").getAsDouble() : 64;
+        double texH = description.has("texture_height") ? description.get("texture_height").getAsDouble() : 64;
+        Map<String, JsonObject> bones = new java.util.LinkedHashMap<>();
+        if (geometry.has("bones") && geometry.get("bones").isJsonArray()) {
+            for (JsonElement element : geometry.getAsJsonArray("bones")) {
+                if (element.isJsonObject() && element.getAsJsonObject().has("name")) {
+                    bones.put(element.getAsJsonObject().get("name").getAsString(), element.getAsJsonObject());
+                }
+            }
+        }
+        for (JsonObject bone : bones.values()) {
+            if (!bone.has("cubes") || !bone.get("cubes").isJsonArray()) {
+                continue;
+            }
+            for (JsonElement element : bone.getAsJsonArray("cubes")) {
+                if (element.isJsonObject()) {
+                    geoCube(element.getAsJsonObject(), bone, bones, texW, texH, texture, faces);
+                }
+            }
+        }
+        if (faces.isEmpty()) {
+            problems.add("The geometry has no cubes.");
+        }
+        return new ModelScene(fitInto16(faces), Map.of(), problems, false);
+    }
+
+    private static void geoCube(JsonObject cube, JsonObject bone, Map<String, JsonObject> bones, double texW, double texH,
+                                String texture, List<Face> out) {
+        double[] origin = vec(cube, "origin", 0);
+        double[] size = vec(cube, "size", 0);
+        double inflate = cube.has("inflate") ? cube.get("inflate").getAsDouble() : 0;
+        boolean mirror = cube.has("mirror") ? cube.get("mirror").getAsBoolean()
+                : bone.has("mirror") && bone.get("mirror").getAsBoolean();
+        double[] from = {-(origin[0] + size[0]) - inflate, origin[1] - inflate, origin[2] - inflate};
+        double[] to = {-origin[0] + inflate, origin[1] + size[1] + inflate, origin[2] + size[2] + inflate};
+        JsonElement uvJson = cube.get("uv");
+        for (String direction : new String[]{"north", "south", "east", "west", "up", "down"}) {
+            double[] rect = geoUv(uvJson, direction, size, mirror);
+            if (rect == null) {
+                continue;
+            }
+            double[][] corner = corners(direction, from, to);
+            double u0 = rect[0] * 16 / texW, v0 = rect[1] * 16 / texH, u1 = rect[2] * 16 / texW, v1 = rect[3] * 16 / texH;
+            double[][] tex = {{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}};
+            if (cube.has("rotation")) {
+                rotateXyz(corner, mirroredPivot(cube, from, to), vec(cube, "rotation", 0));
+            }
+            // the bone and every parent bone above it
+            JsonObject current = bone;
+            for (int depth = 0; current != null && depth < 64; depth++) {
+                if (current.has("rotation")) {
+                    rotateXyz(corner, mirroredPivot(current, null, null), vec(current, "rotation", 0));
+                }
+                current = current.has("parent") ? bones.get(current.get("parent").getAsString()) : null;
+            }
+            out.add(new Face(direction, corner, tex, texture, -1));
+        }
+    }
+
+    /** The pivot with x mirrored; a cube without one turns around its centre. */
+    private static double[] mirroredPivot(JsonObject json, double[] from, double[] to) {
+        if (json.has("pivot")) {
+            double[] p = vec(json, "pivot", 0);
+            return new double[]{-p[0], p[1], p[2]};
+        }
+        return from == null ? new double[3] : new double[]{(from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2};
+    }
+
+    /** Texture rectangle {u0, v0, u1, v1} in texture pixels, or null when the face has none. */
+    static double[] geoUv(JsonElement uv, String direction, double[] size, boolean mirror) {
+        double[] rect;
+        if (uv != null && uv.isJsonArray() && uv.getAsJsonArray().size() >= 2) {
+            double u = uv.getAsJsonArray().get(0).getAsDouble();
+            double v = uv.getAsJsonArray().get(1).getAsDouble();
+            double x = Math.floor(size[0]), y = Math.floor(size[1]), z = Math.floor(size[2]);
+            rect = switch (direction) {
+                case "west" -> new double[]{u + z + x, v + z, u + z + x + z, v + z + y};
+                case "east" -> new double[]{u, v + z, u + z, v + z + y};
+                case "north" -> new double[]{u + z, v + z, u + z + x, v + z + y};
+                case "south" -> new double[]{u + z + x + z, v + z, u + z + x + z + x, v + z + y};
+                case "up" -> new double[]{u + z, v, u + z + x, v + z};
+                default -> new double[]{u + z + x, v + z, u + z + x + x, v}; // down: flipped, GeckoLib's -size.z
+            };
+        } else if (uv != null && uv.isJsonObject() && uv.getAsJsonObject().has(direction)
+                && uv.getAsJsonObject().get(direction).isJsonObject()) {
+            JsonObject face = uv.getAsJsonObject().getAsJsonObject(direction);
+            double[] at = vec(face, "uv", 0);
+            double[] span = vec(face, "uv_size", 0);
+            rect = new double[]{at[0], at[1], at[0] + span[0], at[1] + span[1]};
+        } else {
+            return null;
+        }
+        if (mirror) {
+            double swap = rect[0];
+            rect[0] = rect[2];
+            rect[2] = swap;
+        }
+        return rect;
+    }
+
+    /** Bedrock order: x first, then y, then z, all around {@code pivot}; x and y are mirrored like the cube. */
+    private static void rotateXyz(double[][] corners, double[] pivot, double[] degrees) {
+        double ax = Math.toRadians(-degrees[0]), ay = Math.toRadians(-degrees[1]), az = Math.toRadians(degrees[2]);
+        for (double[] c : corners) {
+            double x = c[0] - pivot[0], y = c[1] - pivot[1], z = c[2] - pivot[2];
+            double y1 = y * Math.cos(ax) - z * Math.sin(ax), z1 = y * Math.sin(ax) + z * Math.cos(ax);
+            double x2 = x * Math.cos(ay) + z1 * Math.sin(ay), z2 = -x * Math.sin(ay) + z1 * Math.cos(ay);
+            double x3 = x2 * Math.cos(az) - y1 * Math.sin(az), y3 = x2 * Math.sin(az) + y1 * Math.cos(az);
+            c[0] = x3 + pivot[0];
+            c[1] = y3 + pivot[1];
+            c[2] = z2 + pivot[2];
+        }
+    }
+
+    /** Moves and scales faces so their bounds sit centred in the 0..16 box (mobs are much larger than a block). */
+    private static List<Face> fitInto16(List<Face> faces) {
+        if (faces.isEmpty()) {
+            return faces;
+        }
+        double[] min = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE};
+        double[] max = {-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};
+        for (Face f : faces) {
+            for (double[] c : f.corners()) {
+                for (int i = 0; i < 3; i++) {
+                    min[i] = Math.min(min[i], c[i]);
+                    max[i] = Math.max(max[i], c[i]);
+                }
+            }
+        }
+        double extent = Math.max(max[0] - min[0], Math.max(max[1] - min[1], max[2] - min[2]));
+        double scale = extent > 0 ? 16 / extent : 1;
+        for (Face f : faces) {
+            for (double[] c : f.corners()) {
+                for (int i = 0; i < 3; i++) {
+                    c[i] = 8 + (c[i] - (min[i] + max[i]) / 2) * scale;
+                }
+            }
+        }
+        return faces;
+    }
+
     private static Display display(JsonObject json) {
         return new Display(vec(json, "rotation", 0), vec(json, "translation", 0), vec(json, "scale", 1));
     }
