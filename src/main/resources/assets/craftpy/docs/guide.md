@@ -212,6 +212,8 @@ See the *Java bridge* topic: `java.cls("net.minecraft...")`, `java.new(...)`, `@
 | `Ctrl+J` | Join lines |
 | `Ctrl+Shift+Enter` | Split line |
 | `Ctrl+F2` | Toggle bookmark |
+| `Shift+F9` | Debug: run with breakpoints on and open the Debug panel (a plain Run, `Ctrl+R`, ignores breakpoints) |
+| `Ctrl+Shift+R` | Recipes & loot of the item at the cursor: what makes it, what uses it, what drops it |
 | `Ctrl+F8` | Toggle breakpoint (red dot): each time the line runs, the Debug window (`Alt+5`) gets the call stack and the variables; the game never pauses |
 | `F2` / `Shift+F2` | Next / previous bookmark (in the explorer, `F2` renames) |
 | `Tab` / `Shift+Tab` | Indent / unindent |

@@ -33,7 +33,6 @@ import net.xmilon.craftpy.client.LootPreview;
 import net.xmilon.craftpy.client.RecipePreview;
 import net.xmilon.craftpy.client.Syntax;
 import net.xmilon.craftpy.client.TextOps;
-import net.xmilon.craftpy.client.screen.ContentPreviewScreen;
 import net.xmilon.craftpy.registry.SlotRegistry;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
@@ -853,51 +852,73 @@ final class EditorTools {
     // 43 block/item preview, 46 recipes, 47 loot
     // ------------------------------------------------------------------
 
-    void previewContent() {
-        loadDecls("Block / item preview", true, (dialog, reply) -> {
-            String project = host.projectId();
-            List<ListDialog.Row> rows = new ArrayList<>();
-            for (JsonElement e : reply.getAsJsonArray("contents")) {
-                JsonObject c = e.getAsJsonObject();
-                String kind = c.get("kind").getAsString();
-                String id = c.get("id").getAsString();
-                int slot = c.get("slot").getAsInt();
-                JsonObject def = c.getAsJsonObject("def");
-                List<String> details = new ArrayList<>();
-                details.add(project + ":" + id + " (" + kind + ", slot " + slot + ")");
-                for (String key : new String[] { "name", "texture", "hardness", "resistance", "light", "tool",
-                        "needs_tool", "sound", "max_stack", "glow", "burn_time" }) {
-                    if (def.has(key) && !def.get(key).isJsonNull()) {
-                        details.add(key + ": " + flat(def.get(key)));
+    /**
+     * Recipes and loot of one item (the one at the cursor, or one you type): what makes it, what it is used in and what
+     * drops it, as recipe cards. A click on a card shows that recipe's result the same way.
+     */
+    void visualize() {
+        String id = contentIdAtCaret();
+        if (id == null || id.isBlank()) {
+            prompt(host.anchor(), "Recipes and loot of which item?", "", "Show", this::visualize);
+            return;
+        }
+        visualize(id);
+    }
+
+    void visualize(String item) {
+        String wanted = item.strip();
+        String project = host.projectId();
+        String shortName = RecipePreview.shortId(wanted.contains(":") ? wanted : (project == null ? "" : project + ":") + wanted, project);
+        loadDecls("Recipes & loot: " + shortName, true, (dialog, reply) -> {
+            List<ListDialog.Row> makes = new ArrayList<>();
+            List<ListDialog.Row> uses = new ArrayList<>();
+            List<ListDialog.Row> drops = new ArrayList<>();
+            for (JsonElement e : reply.getAsJsonArray("recipes")) {
+                RecipePreview.View view = RecipePreview.describe(e.getAsJsonObject(), project);
+                String result = view.result().replaceAll(" x\\d+$", "");
+                List<String> inputs = new ArrayList<>(view.inputs());
+                if (view.grid() != null) {
+                    for (String[] cells : view.grid()) {
+                        inputs.addAll(List.of(cells));
                     }
                 }
-                rows.add(ListDialog.Row.link(kind + "  " + id, def.has("name") ? flat(def.get("name")) : "", () ->
-                        openPreview(kind, slot, id, details)));
+                ListDialog.Row card = ListDialog.Row.card(view.title(), String.join(" ", inputs) + " " + view.result(),
+                        context -> recipeCard(context, view));
+                if (result.equals(shortName)) {
+                    makes.add(card);
+                } else if (inputs.contains(shortName)) {
+                    uses.add(card);
+                }
             }
-            dialog.setMessage(rows.size() + " block(s) and item(s). Click one to see it as it renders in game.");
+            for (JsonElement e : reply.getAsJsonArray("loot")) {
+                LootPreview.View view = LootPreview.describe(e.getAsJsonObject(), project);
+                for (LootPreview.Entry entry : view.entries()) {
+                    if (entry.item().equals(shortName) || (entry.item().equals("the block itself") && view.title().endsWith(shortName))) {
+                        drops.add(ListDialog.Row.info(view.title(), String.format(Locale.ROOT, "%d x %s   %.0f%% per roll",
+                                entry.count(), entry.item(), entry.percent())));
+                    }
+                }
+            }
+            List<ListDialog.Row> rows = new ArrayList<>();
+            section(rows, "Made by", makes);
+            section(rows, "Used in", uses);
+            section(rows, "Dropped by", drops);
+            dialog.setMessage(rows.isEmpty() ? "No recipe or loot of this project makes, uses or drops " + shortName
+                    + " (after the last Run). Recipes of other mods are in JEI / EMI."
+                    : makes.size() + " made by, " + uses.size() + " used in, " + drops.size() + " dropped by");
             dialog.setRows(rows);
+            dialog.addAction("Show another item", () -> {
+                dialog.dismiss();
+                prompt(host.anchor(), "Recipes and loot of which item?", "", "Show", this::visualize);
+            });
         });
     }
 
-    private void openPreview(String kind, int slot, String id, List<String> details) {
-        store(s -> {
-            if (!net.xmilon.craftpy.client.assets.GameResources.inGame()) {
-                host.toast("The 3D preview needs the game");
-                return;
-            }
-            ItemStack stack = ItemStack.EMPTY;
-            try {
-                if (kind.equals("block") && slot >= 0 && slot < SlotRegistry.slotBlocks().size()) {
-                    stack = new ItemStack(SlotRegistry.slotBlocks().get(slot).asItem());
-                } else if (kind.equals("item") && slot >= 0 && slot < SlotRegistry.slotItems().size()) {
-                    stack = new ItemStack(SlotRegistry.slotItems().get(slot));
-                }
-            } catch (RuntimeException ignored) {
-                // leave the stack empty: the screen explains it
-            }
-            Minecraft.getInstance().setScreen(new ContentPreviewScreen(
-                    CraftPyFragment.createScreen(PAGE_EDITOR), stack, id + " (" + kind + ")", details));
-        });
+    private static void section(List<ListDialog.Row> rows, String title, List<ListDialog.Row> items) {
+        if (!items.isEmpty()) {
+            rows.add(ListDialog.Row.info(title + " (" + items.size() + ")").colored(R.attr.colorPrimary));
+            rows.addAll(items);
+        }
     }
 
     void recipes() {

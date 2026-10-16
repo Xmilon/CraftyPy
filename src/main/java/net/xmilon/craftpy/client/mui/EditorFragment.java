@@ -1107,7 +1107,7 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Loot tables", "", tools::loot));
         a.add(new ActionEntry("Handler profiler", "", tools::profiler));
         a.add(new ActionEntry("Why isn't my block showing?", "", tools::explain));
-        a.add(new ActionEntry("Preview block / item (3D)", "", tools::previewContent));
+        a.add(new ActionEntry("Recipes & loot of the item at the cursor", "Ctrl+Shift+R", tools::visualize));
         a.add(new ActionEntry("Asset usage report", "", tools::assetUsage));
         a.add(new ActionEntry("Change log", "", tools::changeLog));
         a.add(new ActionEntry("UI designer", "", tools::uiDesigner));
@@ -3583,7 +3583,13 @@ public class EditorFragment extends Fragment {
                 case KeyEvent.KEY_S -> save();
                 case KeyEvent.KEY_Z -> undoText(shift);
                 case KeyEvent.KEY_Y -> undoText(true);
-                case KeyEvent.KEY_R -> run();
+                case KeyEvent.KEY_R -> {
+                    if (shift) {
+                        tools.visualize();
+                    } else {
+                        run();
+                    }
+                }
                 case KeyEvent.KEY_ENTER, KeyEvent.KEY_KP_ENTER -> {
                     if (shift) {
                         applyEdit(TextOps.splitLine(code.getText().toString(), code.getSelectionStart()));
@@ -4083,7 +4089,7 @@ public class EditorFragment extends Fragment {
         m.add("Move function / class to another file...   F6").setOnMenuItemClickListener(i -> run(tools::moveSymbol));
         m.add("Asset usage report...").setOnMenuItemClickListener(i -> run(tools::assetUsage));
         m.add("Why isn't my block showing?...").setOnMenuItemClickListener(i -> run(tools::explain));
-        m.add("Preview block / item (3D)...").setOnMenuItemClickListener(i -> run(tools::previewContent));
+        m.add("Recipes & loot of the item at the cursor...   Ctrl+Shift+R").setOnMenuItemClickListener(i -> run(tools::visualize));
         m.add("Recipes...").setOnMenuItemClickListener(i -> run(tools::recipes));
         m.add("Loot tables...").setOnMenuItemClickListener(i -> run(tools::loot));
         m.add("Handler profiler...").setOnMenuItemClickListener(i -> run(tools::profiler));

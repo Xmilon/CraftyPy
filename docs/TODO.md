@@ -69,8 +69,7 @@ Remaining:
 - [x] Assets read `GameResources` (the game's resource manager, or in the standalone window one over the vanilla jar and the
   generated pack); sound files are found through `sounds.json` (`AssetPreview.soundFile`), not the game's sound manager.
   The 3D screens and playing sounds need the game and say so.
-- [ ] Standalone: vanilla sounds are not in the client jar (the launcher keeps them in `assets/objects`), so only project
-  and mod sounds show there.
+- [x] Standalone: vanilla sounds stay out (decided 2026-10-16).
 - [x] `ideJar`: replaced by `gradlew ideDist` / `ideShortcut` (launcher jar + lib/, section 9c).
 - [ ] Optional later: the decoupling steps of the old plan (plain `Response` record, `HostBridge`/`SlotRegistry` interfaces)
   only matter for an IDE without the game jar on the classpath.
@@ -272,6 +271,18 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
   shared read-only folders. `http` / `files` in Python (API 2.4), `permissions` in project.json / module.json, forced
   warning + Approve / Revoke on the Modules page, warning in the README and the console. AUDIT section 11.
 - [ ] Not shown yet: a project's own permissions in the editor (they count as approved for your own projects).
+
+## 9i. Asked 2026-10-16 (IDE round) - done
+
+- [x] Toolbar right: Run, Debug (breakpoints on + Debug panel, `Shift+F9`; plain Run mutes breakpoints), Stop; new icons
+  (play, bug, stop). Save / Validate / Reload / Build stay in the project menu and Find action.
+- [x] Arrow instead of the typing cursor over read-only selectable text (`PlainText`).
+- [x] Mod map tool window (right stripe): graph (zoom with the wheel, drag to pan) + list of mods, modules, projects;
+  links: requires, optional, module dependencies, uses (ids in the code), missing. Server tool `modmap`.
+- [x] UI maker tool window: the project's windows, live preview of the open one, New, Design.
+- [x] The 3D content preview became "Recipes & loot of the item at the cursor" (`Ctrl+Shift+R`); `ContentPreviewScreen` removed.
+- [x] Two downloads (`liteJar`: `-no-python.jar`) + `install-python.cmd` / `.sh` + `INSTALL.md` (in `dist/`, copied next to the jars).
+- [x] No vanilla sounds in the standalone IDE (decided).
 
 ## 8. Known limits (from the last "what is missing" list)
 
