@@ -314,6 +314,28 @@ tasks.named('jar', Jar) {
     }
 }
 
+// The small download: the same mod without the five Python runtimes (players install Python 3.13 themselves, see
+// dist/INSTALL.md). The install scripts and instructions are copied next to the jars.
+def liteJar = tasks.register('liteJar', Jar) {
+    group = 'build'
+    description = 'Builds craftpy-<version>-no-python.jar (no bundled Python) next to the normal jar.'
+    dependsOn tasks.named('jar')
+    archiveClassifier = 'no-python'
+    from(zipTree(tasks.named('jar').flatMap { it.archiveFile })) {
+        exclude 'craftpy_python/**'
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    finalizedBy 'distScripts'
+}
+tasks.register('distScripts', Copy) {
+    group = 'build'
+    description = 'Copies install-python.cmd / .sh and INSTALL.md next to the jars.'
+    from layout.projectDirectory.dir('dist')
+    include 'install-python.cmd', 'install-python.sh', 'INSTALL.md'
+    into layout.buildDirectory.dir('libs')
+}
+tasks.named('build') { dependsOn liteJar }
+
 tasks.register('installerJar', Jar) {
     group = 'build'
     archiveBaseName = 'craftpy-installer'

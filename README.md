@@ -99,6 +99,13 @@ working with an `[api]` note in the console saying what replaces them. A project
 installed CraftPy gets a note to update. What changed in each version: **API versions** in the API docs (generated from
 `API_CHANGES` in `worker.py`, the one place the version is written).
 
+### Two downloads
+
+`./gradlew build` makes both in `build/libs/`: `craftpy-<version>.jar` (about 140 MB, Python inside) and
+`craftpy-<version>-no-python.jar` (about 3 MB). For the small one, `install-python.cmd` (Windows: winget or the python.org
+installer, for the user only, added to PATH) and `install-python.sh` (macOS / Linux) install Python 3.13; `INSTALL.md`
+explains both. They are copied next to the jars from `dist/`.
+
 ### Python is included
 
 You do not install Python. The mod jar carries CPython 3.13 (python-build-standalone, pinned by release and SHA-256) for
