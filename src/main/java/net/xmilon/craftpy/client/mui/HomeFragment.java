@@ -80,6 +80,52 @@ public class HomeFragment extends Fragment {
             "gradlew runIde opens this IDE without starting Minecraft.",
     };
 
+    private String query = "";
+    private List<ProjectSummary> lastProjects = List.of();
+    private String lastSelected;
+    private String lastLog = "";
+
+    /** New Project (IntelliJ: a dialog with the name and the template to start from). */
+    private void newProjectDialog(View anchor) {
+        Context context = anchor.getContext();
+        var dialog = Overlays.dialog(anchor, "New Project", 520, -1);
+        var name = CraftPyFragment.field(context);
+        name.setSingleLine();
+        name.setHint("Project name");
+        dialog.body.addView(name, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        dialog.body.addView(templateGallery(context, dialog.body));
+        Runnable create = () -> {
+            String value = name.getText().toString().trim();
+            if (value.isEmpty()) {
+                name.requestFocus();
+                return;
+            }
+            dialog.dismiss();
+            openAfterCreate = true;
+            String chosen = template;
+            store(s -> s.request(ProjectAction.CREATE, "",
+                    net.xmilon.craftpy.util.Json.COMPACT.toJson(new CreateRequest(value, chosen))));
+        };
+        name.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEY_ENTER) {
+                create.run();
+                return true;
+            }
+            return false;
+        });
+        var buttons = row(context);
+        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        buttons.addView(button(context, "Cancel", R.attr.borderlessButtonStyle, v -> dialog.dismiss()));
+        var createLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        createLp.leftMargin = buttons.dp(6);
+        buttons.addView(button(context, "Create", R.attr.buttonStyle, v -> create.run()), createLp);
+        var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        lp.topMargin = buttons.dp(12);
+        dialog.body.addView(buttons, lp);
+        dialog.show();
+        name.requestFocus();
+    }
+
     /** CREATE request body: the project name and the starter script to write. */
     private record CreateRequest(String name, String template) {
     }
@@ -139,11 +185,90 @@ public class HomeFragment extends Fragment {
         int dp20 = page.dp(20);
         page.setPadding(dp20, dp20, dp20, dp20);
 
-        page.addView(label(context, "CraftPy", R.attr.textAppearanceHeadlineMedium));
-        var subtitle = label(context, "Write Python, build Minecraft content. Pick a project to start.",
+        // IntelliJ's welcome screen: a title, then a search box and the New Project button above the project list
+        var welcome = label(context, "Welcome to CraftPy", R.attr.textAppearanceHeadlineSmall);
+        welcome.setTextColor(IdeColors.TEXT);
+        page.addView(welcome);
+        var subtitle = label(context, "Write Python, build Minecraft content. Open a project or start a new one.",
                 R.attr.textAppearanceBodyMedium);
-        subtitle.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        subtitle.setTextColor(IdeColors.TEXT_SECONDARY);
         page.addView(subtitle);
+
+        var bar = row(context);
+        var search = CraftPyFragment.field(context);
+        search.setSingleLine();
+        search.setHint("Search projects");
+        search.addTextChangedListener(new icyllis.modernui.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(icyllis.modernui.text.Editable s) {
+                query = s.toString().trim().toLowerCase(Locale.ROOT);
+                render(lastProjects, lastSelected, lastLog);
+            }
+        });
+        bar.addView(search, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        var newLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        newLp.leftMargin = bar.dp(8);
+        bar.addView(button(context, "New Project", R.attr.buttonStyle, this::newProjectDialog), newLp);
+        var refreshLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        refreshLp.leftMargin = bar.dp(4);
+        bar.addView(button(context, "Refresh", R.attr.borderlessButtonStyle, v -> store(ClientProjectStore::refresh)), refreshLp);
+        var barLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        barLp.topMargin = page.dp(16);
+        page.addView(bar, barLp);
+
+        // Projects
+        projectList = card(context);
+        projectList.setPadding(0, page.dp(6), 0, page.dp(6));
+        projectList.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
+        projectList.setDividerDrawable(IdeColors.divider(projectList, false));
+        page.addView(projectList, cardParams(page));
+
+        // Recent files (opened in the editor)
+        {
+            var recent = net.xmilon.craftpy.client.EditorSettings.get().recent;
+            if (!recent.isEmpty()) {
+                page.addView(sectionTitle(context, "Recent files"));
+                var card = card(context);
+                card.setPadding(0, page.dp(6), 0, page.dp(6));
+                for (String key : recent.subList(0, Math.min(6, recent.size()))) {
+                    int slash = key.indexOf('/');
+                    if (slash <= 0) {
+                        continue;
+                    }
+                    String project = key.substring(0, slash);
+                    String path = key.substring(slash + 1);
+                    var row = row(context);
+                    int dp12 = row.dp(12);
+                    row.setPadding(dp12, row.dp(6), dp12, row.dp(6));
+                    var icon = new IdeIcon(context, EditorFragment.fileGlyph(path));
+                    var iconLp = new LinearLayout.LayoutParams(row.dp(16), row.dp(16));
+                    iconLp.rightMargin = row.dp(8);
+                    row.addView(icon, iconLp);
+                    var file = label(context, path, R.attr.textAppearanceBodyMedium);
+                    file.setTextColor(IdeColors.TEXT);
+                    row.addView(file, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+                    var where = label(context, project, R.attr.textAppearanceBodySmall);
+                    where.setTextColor(IdeColors.TEXT_SECONDARY);
+                    row.addView(where);
+                    row.setClickable(true);
+                    hoverBackground(row);
+                    row.setOnClickListener(v -> {
+                        store(s -> s.select(project, path));
+                        CraftPyFragment.navigate(this, PAGE_EDITOR);
+                    });
+                    card.addView(row);
+                }
+                page.addView(card, cardParams(page));
+            }
+        }
 
         // Tip of the day
         {
@@ -168,91 +293,13 @@ public class HomeFragment extends Fragment {
             head.addView(next);
             card.addView(head);
             card.addView(tip);
-            page.addView(card, cardParams(page));
-        }
-
-        // New project
-        page.addView(sectionTitle(context, "New project"));
-        {
-            var card = card(context);
-            var row = row(context);
-            var name = CraftPyFragment.field(context);
-            name.setSingleLine();
-            name.setHint("Project name");
-            row.addView(name, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-            Runnable create = () -> {
-                String value = name.getText().toString().trim();
-                if (value.isEmpty()) {
-                    name.requestFocus();
-                    return;
-                }
-                name.setText("");
-                openAfterCreate = true;
-                String chosen = template;
-                store(s -> s.request(ProjectAction.CREATE, "",
-                        net.xmilon.craftpy.util.Json.COMPACT.toJson(new CreateRequest(value, chosen))));
-            };
-            name.setOnKeyListener((v, keyCode, event) -> {
-                if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEY_ENTER) {
-                    create.run();
-                    return true;
-                }
-                return false;
-            });
-            var lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-            lp.leftMargin = row.dp(8);
-            row.addView(button(context, "Create", R.attr.buttonStyle, v -> create.run()), lp);
-            card.addView(row);
-            card.addView(templateGallery(context, card));
-            page.addView(card, cardParams(page));
-        }
-
-        // Recent files (opened in the editor)
-        {
-            var recent = net.xmilon.craftpy.client.EditorSettings.get().recent;
-            if (!recent.isEmpty()) {
-                page.addView(sectionTitle(context, "Recent files"));
-                var card = card(context);
-                card.setPadding(0, page.dp(6), 0, page.dp(6));
-                for (String key : recent.subList(0, Math.min(6, recent.size()))) {
-                    int slash = key.indexOf('/');
-                    if (slash <= 0) {
-                        continue;
-                    }
-                    String project = key.substring(0, slash);
-                    String path = key.substring(slash + 1);
-                    var row = label(context, path + "   ·   " + project, R.attr.textAppearanceBodyMedium);
-                    int dp12 = row.dp(12);
-                    row.setPadding(dp12, row.dp(6), dp12, row.dp(6));
-                    row.setClickable(true);
-                    hoverBackground(row);
-                    row.setOnClickListener(v -> {
-                        store(s -> s.select(project, path));
-                        CraftPyFragment.navigate(this, PAGE_EDITOR);
-                    });
-                    card.addView(row);
-                }
-                page.addView(card, cardParams(page));
-            }
-        }
-
-        // Projects
-        {
-            var header = row(context);
-            var title = sectionTitle(context, "Projects");
-            header.addView(title, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-            header.addView(button(context, "Refresh", R.attr.borderlessButtonStyle, v -> store(ClientProjectStore::refresh)));
-            page.addView(header, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-
-            projectList = card(context);
-            projectList.setPadding(0, page.dp(6), 0, page.dp(6));
-            projectList.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-            projectList.setDividerDrawable(IdeColors.divider(projectList, false));
-            page.addView(projectList, cardParams(page));
+            var tipLp = cardParams(page);
+            tipLp.topMargin = page.dp(16);
+            page.addView(card, tipLp);
         }
 
         status = label(context, "", R.attr.textAppearanceBodySmall);
-        status.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        status.setTextColor(IdeColors.TEXT_SECONDARY);
         page.addView(status);
 
         var scroll = new ClampingScrollView(context);
@@ -278,11 +325,18 @@ public class HomeFragment extends Fragment {
         if (projectList == null) {
             return;
         }
+        this.lastProjects = projects;
+        this.lastSelected = selected;
+        this.lastLog = lastLog;
+        if (!query.isEmpty()) {
+            projects = projects.stream().filter(p -> (p.id + " " + p.name).toLowerCase(Locale.ROOT).contains(query)).toList();
+        }
         status.setText(lastLog);
         projectList.removeAllViews();
         Context context = projectList.getContext();
         if (projects.isEmpty()) {
-            var empty = label(context, "No projects yet - create one above.", R.attr.textAppearanceBodyMedium);
+            var empty = label(context, query.isEmpty() ? "No projects yet - New Project starts one."
+                    : "No project matches \"" + query + "\"", R.attr.textAppearanceBodyMedium);
             empty.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
             int dp12 = projectList.dp(12);
             empty.setPadding(dp12, dp12, dp12, dp12);
