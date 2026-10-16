@@ -176,6 +176,12 @@ running a project in a world, sounds and the 3D preview need the game.
 
 Everything typed in the console is evaluated by the project's Python worker (persistent REPL: variables and imports survive between lines). `Up` / `Down` walk the input history. **Clear** empties the log.
 
+Console tools (only in the console, `tools()` lists them): `me` (you: `me.give("diamond")`), `here()` (position,
+biome, block under you), `content()` (what the project declares), `give_all()` (one of every item and block of the
+project), `showcase()` (every block of the project placed in a row), `fire("block_break", block="stone")` (runs the
+project's handlers now with test data), `timers()` / `stop_timers()`, `slowest()` (handler times), `bench(fn, n)`,
+`near(radius)` (entities around you by type), `docs(name)` (signature and description of any API name).
+
 ## Writing Content in Python
 
 ```python

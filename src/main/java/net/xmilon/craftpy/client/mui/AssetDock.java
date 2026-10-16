@@ -245,6 +245,12 @@ final class AssetDock {
             openResource(project, kind, id);
             return;
         }
+        if ((kind == AssetKind.BLOCK || kind == AssetKind.ITEM) && net.xmilon.craftpy.client.assets.GameRender.available()) {
+            preview.showRender(id, kind == AssetKind.BLOCK ? net.xmilon.craftpy.client.assets.GameRender.Kind.BLOCK
+                    : net.xmilon.craftpy.client.assets.GameRender.Kind.ITEM, net.xmilon.craftpy.client.assets.AssetIndex.normalize(kind, id));
+            show(PREVIEW);
+            return;
+        }
         final int mine = ++ticket;
         IdeHost.get().execute(() -> {
             String json = AssetFetch.modelJson(kind, id);

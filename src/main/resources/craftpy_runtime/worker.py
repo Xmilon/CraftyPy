@@ -3135,6 +3135,212 @@ def _server_api_names():
     return names
 
 
+# ---------------------------------------------------------------------------
+# Console tools: helpers that only exist in the console (not in project code).
+# They act on the project the console belongs to and on the player who typed.
+# ---------------------------------------------------------------------------
+_CONSOLE_PLAYER = [None]
+_CONSOLE_LOG = [None]  # the output list of the console line being run
+
+
+class _Me:
+    """You, the player typing in the console: ``me.give("diamond")``, ``me.pos``. Always fresh data."""
+
+    def _now(self):
+        name = _CONSOLE_PLAYER[0]
+        found = Player.named(name) if name else None
+        if found is None:
+            raise RuntimeError("me is the player typing in the console; there is none here (the IDE outside the game?)")
+        return found
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(self._now(), name)
+
+    def __repr__(self):
+        return "me (%s)" % (_CONSOLE_PLAYER[0] or "nobody")
+
+
+me = _Me()
+
+
+def _console_state():
+    return _OWNERS.get(_OWNER[0]) or {"decls": _new_decls(), "handlers": {}}
+
+
+def _content_ids(kind):
+    return ["%s:%s" % (_namespace(), d["id"]) for d in _console_state()["decls"][kind + "s"]]
+
+
+def tools():
+    """Lists the console tools with what they do."""
+    lines = []
+    for fn in (here, content, give_all, showcase, fire, timers, stop_timers, slowest, bench, near, docs):
+        doc = (fn.__doc__ or "").strip().splitlines()
+        lines.append("  %-14s %s" % (fn.__name__ + "()", doc[0] if doc else ""))
+    lines.append("  %-14s %s" % ("me", "you: me.give('diamond'), me.heal(), me.teleport(0, 80, 0)"))
+    return "\n".join(["Console tools (only here, not in project code):"] + lines)
+
+
+def here():
+    """Where you are: position, dimension, biome, the block under you, time of day."""
+    p = me._now()
+    x, y, z = int(p.x // 1), int(p.y // 1), int(p.z // 1)
+    under = world.get_block(x, y - 1, z, dimension=p.dimension)
+    return ("%s at %d %d %d in %s\n  biome %s, standing on %s, %s, health %s/%s"
+            % (p.name, x, y, z, p.dimension, world.biome(x, y, z, dimension=p.dimension),
+               getattr(under, "id", under), "day" if world.is_day(p.dimension) else "night", p.health, p.max_health))
+
+
+def content():
+    """Everything this project declares (after the last Run): blocks, items, mobs, recipes, handlers..."""
+    decls = _console_state()["decls"]
+    lines = []
+    for key in ("blocks", "items", "entities", "effects", "enchantments", "recipes", "loot_tables",
+                "commands", "sounds", "advancements"):
+        rows = decls.get(key) or []
+        if rows:
+            names = [str(r.get("id", r.get("name", "?"))) for r in rows if isinstance(r, dict)]
+            shown = ", ".join(names[:12]) + (" ..." if len(names) > 12 else "")
+            lines.append("  %-13s %3d  %s" % (key, len(rows), shown))
+    handlers = _console_state()["handlers"]
+    if handlers:
+        lines.append("  %-13s %3d  %s" % ("handlers", sum(len(v) for v in handlers.values()), ", ".join(sorted(handlers))))
+    if not lines:
+        return "This project declares nothing yet: press Run first."
+    return "\n".join(["%s declares:" % _OWNER[0]] + lines)
+
+
+def give_all(count=1):
+    """Gives you one (or count) of every item and block of this project, for testing."""
+    p = me._now()
+    ids = _content_ids("item") + _content_ids("block")
+    for ident in ids:
+        p.give(ident, count)
+    return "Gave %d thing(s) x%d to %s" % (len(ids), count, p.name) if ids else "No items or blocks: press Run first."
+
+
+def showcase(gap=1):
+    """Places every block of this project in a row 3 blocks south of you, going east (replaces what is there)."""
+    p = me._now()
+    blocks = _content_ids("block")
+    if not blocks:
+        return "No blocks: press Run first."
+    x, y, z = int(p.x // 1), int(p.y // 1), int(p.z // 1) + 3
+    for i, ident in enumerate(blocks):
+        world.set_block(x + i * (gap + 1), y, z, ident, dimension=p.dimension)
+    return "Placed %d block(s) from %d %d %d going east" % (len(blocks), x, y, z)
+
+
+def fire(event, **data):
+    """Runs this project's @on(event) handlers now with test data: fire("block_break", block="minecraft:stone").
+    The player is you and the position is yours unless you pass player= / x= y= z=."""
+    handlers = _console_state()["handlers"].get(event, [])
+    if not handlers:
+        known = ", ".join(sorted(_console_state()["handlers"])) or "none"
+        return "No handler for %r in this project (it has: %s)" % (event, known)
+    log = _CONSOLE_LOG[0] if _CONSOLE_LOG[0] is not None else []
+    ctx = _EventContext(log)
+    ctx.event = event
+    try:
+        p = me._now()
+        ctx.player = p
+        for axis in ("x", "y", "z"):
+            setattr(ctx, axis, int(getattr(p, axis) // 1))
+        ctx.dimension = p.dimension
+    except RuntimeError:
+        pass
+    for key, value in data.items():
+        if key in ("block", "item") and isinstance(value, str):
+            value = {"id": value if ":" in value else "minecraft:" + value, "name": value}
+        if key in _PLAYER_KEYS and isinstance(value, str):
+            value = Player.named(value)
+        setattr(ctx, key, value if isinstance(value, (Player, Entity)) else _wrap_data(value))
+    results = []
+    previous = _LOG_TARGET[0]
+    _LOG_TARGET[0] = log  # the handlers' print() lands in the console
+    try:
+        for fn, wanted in list(handlers):
+            if wanted and not _matches(ctx, wanted):
+                log.append("(skipped %s: its filter %s does not match)" % (getattr(fn, "__name__", "?"), wanted))
+                continue
+            results.append(_call_flexible(fn, ctx))
+    finally:
+        _LOG_TARGET[0] = previous
+    cancelled = " - it cancelled the event" if ctx.__dict__.get("_cancelled") else ""
+    return "Ran %d %s handler(s)%s" % (len(results), event, cancelled)
+
+
+def timers():
+    """This project's timers: what runs, how often and in how many ticks."""
+    rows = [e for e in _SCHEDULE if e["owner"] == _OWNER[0] and not e["task"].cancelled]
+    if not rows:
+        return "No timers running in this project."
+    lines = ["  %-24s %s, next in %d tick(s)" % (getattr(e["task"].fn, "__name__", "?"),
+                                                  "every %d ticks" % e["task"].interval if e["task"].repeat else "once",
+                                                  max(0, e["next"] - _TICK[0])) for e in rows]
+    return "\n".join(["%d timer(s):" % len(rows)] + lines)
+
+
+def stop_timers():
+    """Cancels every timer of this project (Run starts them again)."""
+    rows = [e for e in _SCHEDULE if e["owner"] == _OWNER[0] and not e["task"].cancelled]
+    for e in rows:
+        e["task"].cancel()
+    return "Stopped %d timer(s)" % len(rows)
+
+
+def slowest(n=10):
+    """The handlers and timers of this project that took the most time so far."""
+    rows = [r for r in _profile_report()["rows"] if r["owner"] == _OWNER[0]][:n]
+    if not rows:
+        return "Nothing ran yet."
+    lines = ["  %-32s %6d calls  avg %8.3f ms  max %8.3f ms%s"
+             % (r["name"], r["calls"], r["avg_ms"], r["max_ms"], "  %d errors" % r["errors"] if r["errors"] else "")
+             for r in rows]
+    return "\n".join(lines)
+
+
+def bench(fn, times=1000):
+    """Times a function: bench(lambda: my_math(5), 10000) -> average time per call."""
+    started = time.perf_counter()
+    for _ in range(int(times)):
+        fn()
+    total = time.perf_counter() - started
+    return "%d calls: %.3f ms total, %.4f ms per call" % (times, total * 1000, total * 1000 / max(1, times))
+
+
+def near(radius=16):
+    """Mobs and other entities around you, counted by type."""
+    p = me._now()
+    counts = {}
+    for e in world.entities(p.x, p.y, p.z, radius=radius, dimension=p.dimension):
+        kind = getattr(e, "type", None) or "?"
+        counts[kind] = counts.get(kind, 0) + 1
+    if not counts:
+        return "Nothing within %d blocks." % radius
+    return "\n".join("  %3d  %s" % (n, kind) for kind, n in sorted(counts.items(), key=lambda kv: -kv[1]))
+
+
+def docs(thing=None):
+    """What a name of the API does: docs(Block), docs(world.spawn); docs() lists every name."""
+    if thing is None:
+        names = sorted(n for n in _api_names() if not n.startswith("_"))
+        return "API names (docs(name) for one):\n  " + ", ".join(names)
+    try:
+        signature = str(inspect.signature(thing))
+    except (TypeError, ValueError):
+        signature = ""
+    name = getattr(thing, "__name__", type(thing).__name__)
+    return "%s%s\n%s" % (name, signature, inspect.getdoc(thing) or "(no description)")
+
+
+_CONSOLE_NAMES = {"me": me, "tools": tools, "here": here, "content": content, "give_all": give_all,
+                  "showcase": showcase, "fire": fire, "timers": timers, "stop_timers": stop_timers,
+                  "slowest": slowest, "bench": bench, "near": near, "docs": docs}
+
+
 def _get_session(session_id):
     if session_id not in _REPL_SESSIONS:
         log = []
@@ -3143,6 +3349,7 @@ def _get_session(session_id):
             "__builtins__": restricted_builtins(log),
         }
         ns.update(_api_names())
+        ns.update(_CONSOLE_NAMES)
         _REPL_SESSIONS[session_id] = {"ns": ns, "log": log}
     return _REPL_SESSIONS[session_id]
 
@@ -3158,11 +3365,13 @@ def _repl_eval(params):
     code = params.get("code", "")
     session_id = params.get("session", "default")
     _use_owner(params.get("project") or "__console__")
+    _CONSOLE_PLAYER[0] = params.get("player")
     session = _get_session(session_id)
     ns = session["ns"]
     log = session["log"]
 
     del log[:]
+    _CONSOLE_LOG[0] = log
 
     import types as _types
     api_module = _types.ModuleType("craftpy")

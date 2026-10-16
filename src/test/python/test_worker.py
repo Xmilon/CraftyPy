@@ -1260,6 +1260,29 @@ def test_item_components_and_curio_slots():
         assert result.get("error"), bad
 
 
+def test_console_tools():
+    run_main("tools", NL.join([
+        "from craftpy import *",
+        "Block('ruby_block')",
+        "Item('ruby')",
+        "@on('block_break')",
+        "def broke(event):",
+        "    print('broke', event.block.id, event.player.name)",
+        ""]))
+    def ev(code):
+        return w._handle("eval", {"code": code, "project": "tools", "player": "Alex"})
+    assert "ruby_block" in ev("content()")["value"]
+    del CALLS[:]
+    ev("give_all(2)")
+    gives = [p for m, p in CALLS if "give" in m]
+    assert len(gives) == 2, CALLS
+    r = ev("fire('block_break', block='stone')")
+    assert "Ran 1" in r["value"] and any("broke minecraft:stone Alex" in line for line in r["output"]), r
+    assert "No handler" in ev("fire('item_use')")["value"]
+    assert "per call" in ev("bench(lambda: 1, 10)")["value"]
+    assert "me (Alex)" in ev("me")["value"]
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

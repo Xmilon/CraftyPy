@@ -261,7 +261,8 @@ public final class ProjectRequestHandler {
                     if (obj.has("session")) session = obj.get("session").getAsString();
                 } catch (Exception ignored) {}
                 
-                return PyRuntime.get().evaluate(id, code, session).thenApply(ProjectRequestHandler::evalResponse);
+                return PyRuntime.get().evaluate(id, code, session, caller.server() == null ? null : caller.name())
+                        .thenApply(ProjectRequestHandler::evalResponse);
             }
             case CREATE_ENTRY: {
                 EntryOp op = Json.COMPACT.fromJson(request.data(), EntryOp.class);

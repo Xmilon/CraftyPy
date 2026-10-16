@@ -283,6 +283,18 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 - [x] Two downloads (`liteJar`: `-no-python.jar`) + `install-python.cmd` / `.sh` + `INSTALL.md` (in `dist/`, copied next to the jars).
 - [x] No vanilla sounds in the standalone IDE (decided).
 
+## 9j. Asked 2026-10-16 (last small features) - done
+
+- Preview tab: **Clear** button; **Mobs...** lists every mob type of the game and its mods.
+- Real models: in game, blocks and items from the asset browser and mobs are drawn by the game's own renderer
+  (`client/assets/GameRender`: offscreen target, read back, drag to turn). Block entity renderers, tints and mod
+  renderers show as in game. The standalone IDE keeps the JSON model view. Not checked in game yet.
+- Module **Dungeon Architect** (`run/pyforge/projects/dungeon_architect`, `modules/dungeon_architect.cpm`):
+  procedural sky dungeons, 5 themes, 4 difficulties, boss fight with boss bar, live map window, records, collapse.
+  Simulated through the worker with a fake host; not played in game yet.
+- Console tools: `me`, `here`, `content`, `give_all`, `showcase`, `fire`, `timers`, `stop_timers`, `slowest`,
+  `bench`, `near`, `docs`, `tools` (worker `_CONSOLE_NAMES`; test `test_console_tools`).
+
 ## 8. Known limits (from the last "what is missing" list)
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.

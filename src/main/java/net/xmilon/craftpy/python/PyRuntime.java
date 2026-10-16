@@ -373,12 +373,20 @@ public final class PyRuntime {
 
     /** Evaluates a console line in the persistent REPL namespace on the worker. */
     public CompletableFuture<EvalResult> evaluate(String projectId, String code, String session) {
+        return evaluate(projectId, code, session, null);
+    }
+
+    /** {@code player}: the name of who typed the line (the console's {@code me}); null outside the game. */
+    public CompletableFuture<EvalResult> evaluate(String projectId, String code, String session, String player) {
         return CraftPyExecutors.supplyAsync(() -> {
             JsonObject params = new JsonObject();
             params.addProperty("code", code == null ? "" : code);
             params.addProperty("session", session == null ? "default" : session);
             if (projectId != null) {
                 params.addProperty("project", projectId);
+            }
+            if (player != null) {
+                params.addProperty("player", player);
             }
             try {
                 JsonObject result = client().call("eval", params, DEFAULT_TIMEOUT_MS);
