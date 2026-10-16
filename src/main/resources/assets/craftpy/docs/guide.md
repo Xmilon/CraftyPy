@@ -34,14 +34,21 @@ its blocks, items and event handlers, and the error is shown with its file and l
 
 ## The editor
 
+The layout follows IntelliJ's New UI. The **main toolbar** has the project widget (switch project, run, build, settings),
+the menus, *Search Everywhere* and the Run / Reload / Stop buttons. The narrow **stripes** on the left and right edges open
+and close the tool windows (also `Alt+1`, `Alt+2`, `Alt+4`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`); drag the thin bars between
+the panels to resize them. `Ctrl+\` splits the editor in two, `Ctrl+Shift+F12` hides every tool window, and
+`Ctrl+Alt+S` opens the settings. The same IDE runs without the game: `gradlew runIde`.
+
 | Part | What it does |
 | --- | --- |
-| **Explorer** (left) | A folder tree like VS Code. Click a folder to open or close it; click a file to preview it, double click to keep it open. Textures and sounds: click selects, double click opens the viewer. Right click for *New file / folder, Rename, Delete, Copy path*. Arrow keys move, Enter opens, F2 renames, Delete deletes. `+` makes a new file in the selected folder, the other two buttons collapse and expand everything. |
-| **Tabs** | Preview tabs (italic) are replaced by the next click. Right click a tab for pin / close others. The arrow at the right lists every open tab. |
+| **Project** (left, `Alt+1`) | A folder tree like VS Code. Click a folder to open or close it; click a file to preview it, double click to keep it open. Textures and sounds: click selects, double click opens the viewer. Right click for *New file / folder, Rename, Delete, Copy path*. Arrow keys move, Enter opens, F2 renames, Delete deletes. `+` makes a new file in the selected folder, the other two buttons collapse and expand everything. |
+| **Tabs** | Preview tabs (italic) are replaced by the next click. A dot means unsaved changes. Right click a tab for pin, split right, close others / all / to the right, copy path; middle click closes it; double click hides the tool windows. The arrow at the right lists every open tab. |
 | **Breadcrumb** | Where the cursor is (file > class > function). Click it for the outline of the file. |
-| **Code area** | Syntax colours, line numbers, bookmarks, current-line and word highlights, a minimap at the right edge. |
-| **Console / Problems / Bookmarks** (bottom) | Output of runs and events, errors and warnings with their line, your bookmarks. Click a line to jump. |
-| **Dock** (right) | Four tabs: *Preview* (3D model or picture), *Texture* editor, *Sound* editor and *Assets*. *Assets* (toolbar button) lists every texture, item, block, model and sound the game has: type to search (`#tag`, `@namespace`). Click one to open it in the dock. Drag it onto the code to insert it (the id as a string, a sound as `event.player.play_sound("...")`) or onto a folder of the explorer to copy the file there (an existing file is never overwritten). Pressing Save on a texture or sound taken from the game writes your copy to `assets/<project>/textures/...` or `sounds/...`, the resources of the project and of the module built from it; the original stays untouched. |
+| **Code area** | Syntax colours, line numbers, bookmarks, indent guides, bracket pairs, current-line and word highlights, a minimap with error marks at the right edge. |
+| **Console / Problems / Bookmarks / Events** (bottom) | Output of runs and events (Ctrl+click a traceback line to open the file there), errors and warnings with their line, your bookmarks, the event tracer. Click a line to jump. |
+| **Building blocks** (right, `Alt+8`) | Ready-made pieces by category: Docs, Insert at the cursor, or New file imported by `main.py`. |
+| **Assets, Preview, Texture, Sound** (right, `Alt+9`) | *Preview* (3D model or picture), *Texture* editor, *Sound* editor and *Assets*. *Assets* lists every texture, item, block, model and sound the game has: type to search (`#tag`, `@namespace`). Click one to open it in the dock. Drag it onto the code to insert it (the id as a string, a sound as `event.player.play_sound("...")`) or onto a folder of the explorer to copy the file there (an existing file is never overwritten). Pressing Save on a texture or sound taken from the game writes your copy to `assets/<project>/textures/...` or `sounds/...`, the resources of the project and of the module built from it; the original stays untouched. |
 
 ### Esc
 
@@ -95,7 +102,7 @@ four tabs (Preview, Texture, Sound, Assets). Drag its edge to resize it; `x` hid
   `soundfile` package encodes it (if it is missing the editor offers *Install encoder*, which runs `pip install --user soundfile`,
   or *Save as .wav*, a file Minecraft cannot play).
 
-* **Assets** (also the toolbar button) is described above: click opens, drag inserts or copies.
+* **Assets** (`Alt+9`, right edge) is described above: click opens, drag inserts or copies.
 
 Menus close when you click outside, press Esc or move the pointer away from them. In a menu the arrow keys, Home, End and Enter work (Right opens a sub-menu, Left closes it, Esc closes the menu).
 

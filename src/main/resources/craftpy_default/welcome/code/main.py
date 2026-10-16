@@ -15,11 +15,14 @@
 # Get the content:  /craftpy give @s welcome:gem_ore 16     (block or item is detected for you)
 # Textures are PNG files in assets/textures/ and are referenced by file name.
 #
-# 9. Assets (no file; it is about the IDE). The Assets button (toolbar) opens a browser of every texture, model and sound the game has. Click one to open it
+# 9. Assets (no file; it is about the IDE). The Assets tool window (right edge, Alt+9) is a browser of every texture, model and sound the game has. Click one to open it
 #    in the dock next to your code; drag it onto the code to insert its id (a sound becomes event.player.play_sound("...")),
 #    or onto a folder in the explorer to copy the file into the project. Edit a game texture and press Save: the copy goes to
 #    assets/welcome/textures/..., the resources of this project and of the module you update from it. To replace the original
 #    for everyone instead, type assets/minecraft/textures/... in the name box (Help > Texture packs).
+# 10. Building blocks (no file either). The Building blocks tool window (right edge, Alt+8) has ready-made windows, items,
+#    blocks, events, commands, timers and recipes: Docs explains one, Insert puts it at the cursor, New file adds it as
+#    its own file and writes the "import" line below for you.
 from craftpy import *
 
 # Importing a file runs it, which is what registers its blocks, items, events... Keep the imports in
