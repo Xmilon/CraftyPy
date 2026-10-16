@@ -468,6 +468,8 @@ def _drop_owner(owner):
     for name in [n for n, o in _USER_EXTENSIONS.items() if o[0] == owner]:
         del _USER_EXTENSIONS[name]
     _OWNERS.pop(owner, None)
+    if owner.startswith("module:"):
+        _MODULE_EXPORTS.pop(owner[len("module:"):], None)
     for key in [k for k in _PROFILE if k[0] == owner]:
         del _PROFILE[key]
     _SCHEDULE[:] = [entry for entry in _SCHEDULE if entry["owner"] != owner]
@@ -3702,6 +3704,63 @@ class ProjectFinder:
         exec(_compile_user(code, path), module.__dict__)
 
 
+# ---------------------------------------------------------------------------
+# Using other modules: `from modules.jukebox import songs`, `import modules.jukebox as jb`.
+# A loaded module leaves its main.py names and its files behind as `modules.<id>`; a project (or another module)
+# imports them instead of copying code. The module must be installed and enabled; list it under "dependencies"
+# in project.json so it loads first and the built module says it needs it.
+# ---------------------------------------------------------------------------
+_MODULE_EXPORTS = {}   # module id -> a module object: main.py's public names, plus its own files as attributes
+
+
+def _export_module(module_id, globals_, finder):
+    import types as _types
+    export = _types.ModuleType("modules." + module_id)
+    export.__dict__.update({k: v for k, v in globals_.items() if not k.startswith("_")})
+    for name in finder.names():
+        top = name.split(".")[0]
+        if top in sys.modules and top not in export.__dict__:
+            export.__dict__[top] = sys.modules[top]
+    export.__path__ = []
+    _MODULE_EXPORTS[module_id] = export
+
+
+class ModulesFinder:
+    """Resolves `modules`, `modules.<id>` and `modules.<id>.<file>` to what installed modules exported."""
+
+    def find_spec(self, fullname, path=None, target=None):
+        parts = fullname.split(".")
+        if parts[0] != "modules":
+            return None
+        if len(parts) >= 2 and parts[1] not in _MODULE_EXPORTS:
+            raise ImportError("Module '%s' is not installed or not enabled (Modules page). List it under "
+                              "\"dependencies\" in project.json so it loads before this code." % parts[1])
+        if len(parts) == 3 and not hasattr(_MODULE_EXPORTS[parts[1]], parts[2]):
+            raise ImportError("Module '%s' has no file or name '%s'" % (parts[1], parts[2]))
+        if len(parts) > 3:
+            return None
+        import importlib.machinery
+        return importlib.machinery.ModuleSpec(fullname, self, is_package=len(parts) <= 2)
+
+    def create_module(self, spec):
+        parts = spec.name.split(".")
+        if len(parts) == 1:
+            import types as _types
+            root = _types.ModuleType("modules")
+            root.__path__ = []
+            return root
+        export = _MODULE_EXPORTS[parts[1]]
+        return export if len(parts) == 2 else getattr(export, parts[2])
+
+    def exec_module(self, module):
+        pass  # already executed when its module loaded
+
+
+def _forget_module_imports():
+    for name in [n for n in sys.modules if n == "modules" or n.startswith("modules.")]:
+        sys.modules.pop(name, None)
+
+
 def _read_sources(base_dir):
     """All code/**/*.py of a folder on disk (used by modules): relative path -> text."""
     import os
@@ -3771,6 +3830,8 @@ def _run_code(code, filename, module_name, debug=False, persistent=False, owner=
     _DEPRECATION_HITS.clear()
     compiled = _compile_user(code, filename)
     finder = ProjectFinder(sources, log)
+    modules_finder = ModulesFinder()
+    sys.meta_path.insert(0, modules_finder)
     sys.meta_path.insert(0, finder)
     try:
         sys.settrace(_combined_tracer)
@@ -3781,11 +3842,16 @@ def _run_code(code, filename, module_name, debug=False, persistent=False, owner=
             main_fn = globals_.get("main")
             if callable(main_fn):
                 main_fn(_Context(log, debug))
+        if owner.startswith("module:"):
+            _export_module(owner[len("module:"):], globals_, finder)
     except KeyboardInterrupt as exc:
         log.append("STOPPED: %s" % exc)
     finally:
         sys.settrace(None)
         sys.modules.pop("craftpy", None)
+        _forget_module_imports()  # a reloaded module must be imported fresh next time
+        if modules_finder in sys.meta_path:
+            sys.meta_path.remove(modules_finder)
         if finder in sys.meta_path:
             sys.meta_path.remove(finder)
         for name in finder.names():  # the next run must execute the files again

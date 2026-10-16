@@ -62,6 +62,15 @@ public final class ProjectTools {
             case "changes" -> done(changes(projectId));
             case "add_part" -> addPart(manager, projectId, request);
             case "catalog" -> done(catalog(ModCatalog.get().view(), request));
+            case "add_dependency" -> manager.addDependency(projectId, string(request, "module")).thenApply(result -> {
+                if (!result.success()) {
+                    return error(op, result.message());
+                }
+                JsonObject body = new JsonObject();
+                body.addProperty("op", op);
+                body.addProperty("message", result.message());
+                return ok(body);
+            });
             case "set_side" -> manager.setSide(projectId, string(request, "side")).thenApply(result -> {
                 if (!result.success()) {
                     return error(op, result.message());

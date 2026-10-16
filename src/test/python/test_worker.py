@@ -1323,6 +1323,27 @@ def test_every_building_block_runs_on_its_side():
             w._MODE[0] = "server"
 
 
+def test_projects_import_what_modules_export():
+    import tempfile
+    base = tempfile.mkdtemp()
+    os.makedirs(os.path.join(base, "code"))
+    with open(os.path.join(base, "code", "main.py"), "w", encoding="utf-8") as f:
+        f.write("from craftpy import *" + NL + "import songs" + NL + "VOLUME = 7" + NL)
+    with open(os.path.join(base, "code", "songs.py"), "w", encoding="utf-8") as f:
+        f.write("TRACKS = ['ode', 'twinkle']" + NL + "def first():" + NL + "    return TRACKS[0]" + NL)
+    loaded = w._handle("load_module", {"id": "jukebox", "dir": base})
+    assert not loaded.get("error"), loaded
+    code = NL.join(["from craftpy import *", "from modules.jukebox import songs, VOLUME", "import modules.jukebox as jb",
+                    "assert songs.first() == 'ode' and VOLUME == 7 and jb.songs.TRACKS[1] == 'twinkle'", ""])
+    result = w._handle("run_main", {"project": "uses", "code": code, "file": "code/main.py"})
+    assert not result.get("error"), result
+    missing = w._handle("run_main", {"project": "uses", "code": "from modules.nothing import x" + NL, "file": "code/main.py"})
+    assert "not installed or not enabled" in str(missing), missing
+    w._handle("unload_owner", {"owner": "module:jukebox"})
+    gone = w._handle("run_main", {"project": "uses", "code": "import modules.jukebox" + NL, "file": "code/main.py"})
+    assert "not installed" in str(gone), gone
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

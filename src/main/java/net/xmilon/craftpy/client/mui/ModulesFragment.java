@@ -119,7 +119,7 @@ public class ModulesFragment extends Fragment {
                     v -> store(ClientProjectStore::refreshModules)));
             page.addView(header);
         }
-        var subtitle = label(context, "Installed modules (.cpm) in pyforge/modules/ (drop new ones in pyforge/imports/). Toggle to enable or disable them.",
+        var subtitle = label(context, "Installed modules (.cpm) in pyforge/modules/: drop new ones there, built ones land there too. Toggle to enable or disable them.",
                 R.attr.textAppearanceBodyMedium);
         subtitle.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         page.addView(subtitle);
@@ -311,6 +311,7 @@ public class ModulesFragment extends Fragment {
         actions.addView(button(context, "Reload", R.attr.buttonTonalStyle,
                 v -> store(s -> s.reloadModule(selected.id))));
         actions.addView(button(context, "Open folder", R.attr.borderlessButtonStyle, v -> openFolder(selected.path)));
+        actions.addView(button(context, "Use in project", R.attr.borderlessButtonStyle, v -> useInProject(v, selected.id)));
         actions.addView(button(context, "Open as project", R.attr.borderlessButtonStyle,
                 v -> prompt(v, "Open " + Path.of(selected.path).getFileName() + " as a project to edit? A new project is made"
                                 + " (nothing existing is replaced), the module is disabled, and nothing runs until you press Run."
@@ -395,5 +396,26 @@ public class ModulesFragment extends Fragment {
         } catch (Exception e) {
             store(s -> s.append("Could not open folder: " + e.getMessage()));
         }
+    }
+
+    /** Adds the module to the open project's dependencies and copies the import line to use its code. */
+    private void useInProject(View anchor, String moduleId) {
+        var store = net.xmilon.craftpy.client.ClientProjectStore.getInstance();
+        if (store.activeProjectId() == null) {
+            prompt(anchor, "Open a project in the editor first: the module is added to that project.", null, "OK", ignored -> {
+            });
+            return;
+        }
+        com.google.gson.JsonObject args = new com.google.gson.JsonObject();
+        args.addProperty("module", moduleId);
+        store.tool("add_dependency", args, reply -> anchor.post(() -> {
+            String line = "from modules." + moduleId + " import *";
+            if (!reply.has("error")) {
+                net.xmilon.craftpy.client.IdeHost.get().setClipboard(line);
+            }
+            prompt(anchor, reply.has("error") ? reply.get("error").getAsString()
+                    : reply.get("message").getAsString() + "\n\nCopied to the clipboard: " + line, null, "OK", ignored -> {
+            });
+        }));
     }
 }

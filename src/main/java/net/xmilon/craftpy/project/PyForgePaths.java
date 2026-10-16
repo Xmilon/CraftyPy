@@ -50,14 +50,6 @@ public final class PyForgePaths {
         return root().resolve("modules");
     }
 
-    public static Path imports() {
-        return root().resolve("imports");
-    }
-
-    public static Path exports() {
-        return root().resolve("exports");
-    }
-
     /** Everything the mod manages itself. */
     public static Path system() {
         return root().resolve("system");
@@ -90,7 +82,7 @@ public final class PyForgePaths {
     }
 
     public static void ensureLayout() {
-        for (Path path : new Path[]{root(), projects(), modules(), imports(), exports(), system(), runtime(), logs()}) {
+        for (Path path : new Path[]{root(), projects(), modules(), system(), runtime(), logs()}) {
             try {
                 Files.createDirectories(path);
             } catch (IOException e) {

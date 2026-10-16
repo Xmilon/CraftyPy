@@ -21,7 +21,7 @@ public class ModuleInfo {
     public String readme = "";
     /** Absolute path of the .cpm file on disk. */
     public String path = "";
-    /** Folder (relative to pyforge/) the file lives in, e.g. "exports" or "imports/foo". */
+    /** Folder (relative to pyforge/) the file lives in, e.g. "modules" or "modules/foo". */
     public String source = "";
     public long sizeBytes = 0L;
     public long modified = 0L;

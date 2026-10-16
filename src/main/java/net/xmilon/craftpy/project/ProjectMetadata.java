@@ -21,6 +21,8 @@ public class ProjectMetadata {
     public String side = "both";
     /** Sites and the data folder the project asks for: {"net": ["wikipedia.org"], "files": true}. */
     public net.xmilon.craftpy.security.ModulePermissions permissions = new net.xmilon.craftpy.security.ModulePermissions();
+    /** Installed modules this project uses ({@code from modules.<id> import ...}); a built module lists them too. */
+    public java.util.List<String> dependencies = new java.util.ArrayList<>();
     public Map<String, Integer> slotUsage = new LinkedHashMap<>();
 
     public ProjectMetadata() {

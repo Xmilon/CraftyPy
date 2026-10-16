@@ -135,6 +135,36 @@ public final class ProjectManager {
         }, CraftPyExecutors.io());
     }
 
+    /** Adds an installed module to the project's dependencies (Modules page > Use in project). */
+    public CompletableFuture<OpResult> addDependency(String id, String moduleId) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            if (!isValidId(id) || !Files.isDirectory(projectsDir.resolve(id))) {
+                return OpResult.fail("Unknown project " + id);
+            }
+            if (moduleId == null || !moduleId.matches("[a-z0-9_.-]{1,64}")) {
+                return OpResult.fail("Not a module id: " + moduleId);
+            }
+            try {
+                Path dir = projectsDir.resolve(id);
+                ProjectMetadata metadata = loadMetadata(id, dir);
+                if (metadata.dependencies == null) {
+                    metadata.dependencies = new java.util.ArrayList<>();
+                }
+                if (!metadata.dependencies.contains(moduleId)) {
+                    metadata.dependencies.add(moduleId);
+                    Json.write(dir.resolve("project.json"), metadata);
+                    Project project = projects.get(id);
+                    if (project != null) {
+                        project.metadata(metadata);
+                    }
+                }
+                return OpResult.ok(id, "'" + id + "' now uses module " + moduleId + ": from modules." + moduleId + " import ...");
+            } catch (IOException e) {
+                return OpResult.fail("Could not update project.json: " + e.getMessage());
+            }
+        }, CraftPyExecutors.io());
+    }
+
     public ModuleSide sideOf(String id) {
         try {
             return ModuleSide.of(loadMetadata(id, projectsDir.resolve(id)).side);

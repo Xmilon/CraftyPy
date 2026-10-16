@@ -20,6 +20,32 @@ public final class ModuleGraph {
     private ModuleGraph() {
     }
 
+    /**
+     * The order to load modules in: every module after the modules it depends on ({@code id -> dependencies}, the
+     * keys in their scan order). Unknown dependencies are ignored; a cycle keeps the scan order for its members.
+     */
+    public static List<String> loadOrder(Map<String, List<String>> dependencies) {
+        List<String> out = new ArrayList<>();
+        Set<String> done = new HashSet<>();
+        Set<String> visiting = new HashSet<>();
+        for (String id : dependencies.keySet()) {
+            visit(id, dependencies, done, visiting, out);
+        }
+        return out;
+    }
+
+    private static void visit(String id, Map<String, List<String>> deps, Set<String> done, Set<String> visiting, List<String> out) {
+        if (done.contains(id) || !deps.containsKey(id) || !visiting.add(id)) {
+            return; // loaded, not installed, or a cycle: stop here
+        }
+        for (String dependency : deps.get(id)) {
+            visit(idOf(dependency), deps, done, visiting, out);
+        }
+        visiting.remove(id);
+        done.add(id);
+        out.add(id);
+    }
+
     /** "foo>=1.2" -> "foo". */
     static String idOf(String dependency) {
         return dependency.split("[<>=!~ ;]", 2)[0].trim();

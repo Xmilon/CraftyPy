@@ -20,8 +20,7 @@ import java.util.zip.ZipFile;
 /**
  * Loads .cpm (CraftPy Module) files into the game.
  *
- * Modules are discovered anywhere under {@code pyforge/} (imports/, modules/,
- * the build output in exports/, or any user folder). Each module can be
+ * Modules live in {@code pyforge/modules/} (installed ones and the ones the IDE builds). Each module can be
  * enabled or disabled from the IDE's Modules page; that choice is persisted in
  * {@code pyforge/system/modules.json} so it survives restarts.
  */
@@ -45,8 +44,10 @@ public final class ModuleLoader {
     public static void discoverAndLoad() {
         synchronized (LOCK) {
             loadState();
-            List<Path> files = scanAll();
-            for (Path file : files) {
+            // read every module first, so the ones others import (`from modules.<id> import ...`) load before them
+            Map<String, Path> fileOf = new java.util.LinkedHashMap<>();
+            Map<String, List<String>> dependencies = new java.util.LinkedHashMap<>();
+            for (Path file : scanAll()) {
                 try {
                     ModuleInfo info = readInfo(file);
                     if (info.error != null) {
@@ -56,13 +57,21 @@ public final class ModuleLoader {
                     if (!info.enabled) {
                         continue;
                     }
-                    if (LOADED_MODULES.containsKey(info.id)) {
+                    if (fileOf.containsKey(info.id) || LOADED_MODULES.containsKey(info.id)) {
                         CraftPyLog.LOGGER.info("Module {} already loaded from another file, skipping {}", info.id, file);
                         continue;
                     }
-                    loadModule(file);
+                    fileOf.put(info.id, file);
+                    dependencies.put(info.id, info.dependencies);
                 } catch (Exception e) {
-                    CraftPyLog.LOGGER.error("Failed to load module {}", file, e);
+                    CraftPyLog.LOGGER.error("Failed to read module {}", file, e);
+                }
+            }
+            for (String id : net.xmilon.craftpy.analysis.ModuleGraph.loadOrder(dependencies)) {
+                try {
+                    loadModule(fileOf.get(id));
+                } catch (Exception e) {
+                    CraftPyLog.LOGGER.error("Failed to load module {}", fileOf.get(id), e);
                 }
             }
         }
@@ -465,7 +474,7 @@ public final class ModuleLoader {
 
     /**
      * All .cpm files under pyforge/modules/, sorted by path for deterministic order. Files dropped in
-     * pyforge/imports/ are moved there first; exports/ and everything else is never a module source.
+     * the old pyforge/imports/ are moved there first; nothing else is ever a module source.
      */
     public static List<Path> scanAll() {
         collectImports();
@@ -475,26 +484,36 @@ public final class ModuleLoader {
         return out;
     }
 
-    /** Moves dropped .cpm files from imports/ into modules/; a name that already exists there stays put. */
+    /**
+     * pyforge/imports/ and pyforge/exports/ are gone (modules live in modules/, builds go there too). Worlds made before
+     * that: .cpm files dropped in imports/ are moved into modules/ (a name already there stays put) and the empty
+     * folders are removed. exports/ only held copies of built modules; a non-empty one is left alone, never deleted.
+     */
     private static void collectImports() {
-        Path imports = PyForgePaths.imports();
-        if (!Files.isDirectory(imports)) {
-            return;
-        }
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(imports, "*.cpm")) {
-            Files.createDirectories(PyForgePaths.modules());
-            for (Path file : stream) {
-                Path target = PyForgePaths.modules().resolve(file.getFileName());
-                if (Files.exists(target)) {
-                    CraftPyLog.LOGGER.warn("imports/{} left in place: modules/ already has a file with that name",
-                            file.getFileName());
-                } else {
-                    Files.move(file, target);
-                    CraftPyLog.LOGGER.info("Installed module {} from imports/", file.getFileName());
+        Path imports = PyForgePaths.root().resolve("imports");
+        if (Files.isDirectory(imports)) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(imports, "*.cpm")) {
+                Files.createDirectories(PyForgePaths.modules());
+                for (Path file : stream) {
+                    Path target = PyForgePaths.modules().resolve(file.getFileName());
+                    if (Files.exists(target)) {
+                        CraftPyLog.LOGGER.warn("imports/{} left in place: modules/ already has a file with that name",
+                                file.getFileName());
+                    } else {
+                        Files.move(file, target);
+                        CraftPyLog.LOGGER.info("Moved module {} from the old imports/ folder into modules/", file.getFileName());
+                    }
                 }
+            } catch (IOException e) {
+                CraftPyLog.LOGGER.error("Error moving modules out of {}", imports, e);
             }
-        } catch (IOException e) {
-            CraftPyLog.LOGGER.error("Error collecting dropped modules from {}", imports, e);
+        }
+        for (String old : new String[]{"imports", "exports"}) {
+            try {
+                Files.deleteIfExists(PyForgePaths.root().resolve(old)); // only succeeds when the folder is empty
+            } catch (IOException notEmpty) {
+                // files are still there: leave them for the user
+            }
         }
     }
 

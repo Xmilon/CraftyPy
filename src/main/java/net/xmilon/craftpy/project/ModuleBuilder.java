@@ -41,7 +41,7 @@ public final class ModuleBuilder {
     }
 
     /**
-     * @param export    the .cpm written to {@code exports/}
+     * @param export    the .cpm written into {@code modules/} (the same file as {@code installed})
      * @param installed the file in {@code modules/} (or where the module already lived), null when not installed
      * @param replaced  true when an installed module with this id was overwritten
      */
@@ -95,10 +95,11 @@ public final class ModuleBuilder {
         String displayName = asNew && !request.newName().isBlank() ? request.newName()
                 : asNew ? meta.name + " (copy)" : meta.name;
 
-        Path exportDir = PyForgePaths.exports();
-        Files.createDirectories(exportDir);
-        Path outputFile = exportDir.resolve(moduleId + "-" + version + ".cpm");
-        Path temp = exportDir.resolve(moduleId + "-" + version + ".cpm.tmp");
+        // a module lives in modules/ (where the game loads it from, and the file to share): no separate export copy
+        ModuleSide side = ModuleSide.of(meta.side); // the project's side, chosen when it was made, never at build time
+        Path outputFile = existing != null && !asNew ? existing : PyForgePaths.modules().resolve(moduleId + ".cpm");
+        Files.createDirectories(outputFile.getParent());
+        Path temp = outputFile.resolveSibling(outputFile.getFileName() + ".tmp");
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(temp.toFile()))) {
             ModuleMetadata modMeta = new ModuleMetadata();
             modMeta.id = moduleId;
@@ -107,7 +108,9 @@ public final class ModuleBuilder {
             modMeta.description = meta.description;
             modMeta.version = version;
             modMeta.apiVersion = meta.apiVersion;
-            modMeta.side = request.side().id();
+            modMeta.side = side.id();
+            modMeta.dependencies = meta.dependencies == null ? new String[0]
+                    : meta.dependencies.stream().filter(d -> d != null && !d.isBlank()).toArray(String[]::new);
             modMeta.permissions = net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions);
             zos.putNextEntry(new ZipEntry("module.json"));
             zos.write(Json.GSON.toJson(modMeta).getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -117,7 +120,7 @@ public final class ModuleBuilder {
             String from = asNew && !moduleId.equals(meta.id) ? meta.id : null;
             for (String subDir : new String[]{"code", "assets", "data", "ui"}) {
                 Path dir = projectDir.resolve(subDir);
-                if (Files.isDirectory(dir) && request.side().packs(subDir)) { // a client module is only its assets
+                if (Files.isDirectory(dir) && side.packs(subDir)) { // a client module is only its assets
                     zipDirectory(dir, subDir, zos, from, moduleId);
                 }
             }
@@ -126,7 +129,7 @@ public final class ModuleBuilder {
             String own = Files.isRegularFile(readme) ? Files.readString(readme, java.nio.charset.StandardCharsets.UTF_8) : null;
             String text = !ModuleReadme.needsGenerating(own) ? own
                     : ModuleReadme.generate(moduleId, displayName, meta.description, meta.author, version, meta.apiVersion,
-                    request.side(), pythonFiles(projectDir));
+                    side, pythonFiles(projectDir));
             // the warning is forced at the top, whoever wrote the README
             text = net.xmilon.craftpy.security.PermissionLabels.readmeBlock(
                     net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions)) + text;
@@ -137,21 +140,10 @@ public final class ModuleBuilder {
             Files.deleteIfExists(temp);
             throw e instanceof IOException io ? io : new IOException(e.getMessage(), e);
         }
+        boolean replaced = Files.exists(outputFile);
         Files.move(temp, outputFile, StandardCopyOption.REPLACE_EXISTING);
-
-        Path installed = null;
-        boolean replaced = false;
-        if (request.install()) {
-            installed = existing != null ? existing : PyForgePaths.modules().resolve(moduleId + ".cpm");
-            replaced = existing != null;
-            Files.createDirectories(installed.getParent());
-            Path staging = installed.resolveSibling(installed.getFileName() + ".tmp");
-            Files.copy(outputFile, staging, StandardCopyOption.REPLACE_EXISTING);
-            Files.move(staging, installed, StandardCopyOption.REPLACE_EXISTING);
-        }
-        CraftPyLog.LOGGER.info("Exported module {} {} to {}{}", moduleId, version, outputFile,
-                installed == null ? "" : (replaced ? ", replaced " : ", installed as ") + installed);
-        return new Result(outputFile, installed, moduleId, version, replaced);
+        CraftPyLog.LOGGER.info("Built module {} {} into {}{}", moduleId, version, outputFile, replaced ? " (replaced)" : "");
+        return new Result(outputFile, outputFile, moduleId, version, replaced);
     }
 
     private static Map<String, String> pythonFiles(Path projectDir) throws IOException {

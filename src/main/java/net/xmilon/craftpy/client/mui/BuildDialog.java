@@ -31,7 +31,6 @@ final class BuildDialog {
     private final EditText version;
     private final EditText newId;
     private final EditText newName;
-    private final CheckBox install;
     private final TextView problem;
     private final View updateChip;
     private final View newChip;
@@ -94,10 +93,6 @@ final class BuildDialog {
         newFields.addView(note, spaced(body));
         body.addView(newFields, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
-        install = new CheckBox(context);
-        install.setText("Install into the game (modules folder); off = only export to exports/");
-        install.setChecked(true);
-        body.addView(install, spaced(body));
 
         problem = label(context, "", R.attr.textAppearanceLabelMedium);
         problem.setTextColor(color(context, R.attr.colorError));
@@ -184,7 +179,7 @@ final class BuildDialog {
         }
         dialog.dismiss();
         onBuild.accept(BuildForm.request(asNew, version.getText().toString(), newId.getText().toString(),
-                newName.getText().toString(), install.isChecked(), side.id()));
+                newName.getText().toString(), true, side.id()));
     }
 
     static void open(View anchor, String projectId, String projectName, String projectVersion,

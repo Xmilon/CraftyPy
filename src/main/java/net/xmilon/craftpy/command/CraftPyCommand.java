@@ -478,7 +478,7 @@ public final class CraftPyCommand {
         List<ModuleBuilder.ModuleMetadata> modules = new ArrayList<>(ModuleLoader.loadedModules());
         if (modules.isEmpty()) {
             ctx.getSource().sendSuccess(() -> Component
-                    .literal("No modules loaded. Drop .cpm files into pyforge/modules/ or pyforge/imports/."), false);
+                    .literal("No modules loaded. Drop .cpm files into pyforge/modules/."), false);
             return 1;
         }
         StringBuilder sb = new StringBuilder();
@@ -536,8 +536,7 @@ public final class CraftPyCommand {
             try {
                 ModuleBuilder.build(projectId, version);
                 return "Built module from project '" + projectId + "' to "
-                        + net.xmilon.craftpy.project.PyForgePaths.exports().resolve(
-                                projectId + (version == null ? "" : "-" + version) + ".cpm");
+                        + net.xmilon.craftpy.project.PyForgePaths.modules().resolve(projectId + ".cpm");
             } catch (java.io.IOException e) {
                 return "Build failed: " + e.getMessage();
             }
