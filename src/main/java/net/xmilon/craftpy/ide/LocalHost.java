@@ -63,9 +63,32 @@ final class LocalHost implements IdeHost {
 
     @Override
     public void closeScreen() {
+        closeWindow();
+    }
+
+    /**
+     * Closes the window the way its close button does: Modern UI's private {@code stop()} runs the fragments' stop/destroy
+     * (so the editor saves its buffers into the store) and ends the main loop. Setting the GLFW close flag alone does not
+     * end the loop.
+     */
+    static void closeWindow() {
         ModernUI app = ModernUI.getInstance();
-        if (app != null && app.getWindow() != null) {
-            app.getWindow().setShouldClose(true);
+        if (app == null) {
+            return;
         }
+        Core.postOnMainThread(() -> {
+            if (app.getWindow() != null) {
+                app.getWindow().setShouldClose(true);
+            }
+            try {
+                var stop = ModernUI.class.getDeclaredMethod("stop");
+                stop.setAccessible(true);
+                stop.invoke(app);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                CraftPyLog.LOGGER.warn("Closing the IDE window the short way: {}", e.toString());
+                icyllis.modernui.core.Looper.getMainLooper().quitSafely();
+            }
+        });
+        org.lwjgl.glfw.GLFW.glfwPostEmptyEvent(); // wake the main loop so it runs the close
     }
 }

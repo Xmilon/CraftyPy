@@ -273,6 +273,11 @@ tasks.register('runIde', JavaExec) {
     mainClass = 'net.xmilon.craftpy.ide.IdeMain'
     def home = project.hasProperty('craftpyHome') ? project.property('craftpyHome') : file('run').absolutePath
     systemProperty 'craftpy.home', home
+    for (String key : ['craftpy.ide.page', 'craftpy.ide.exitAfter']) {
+        if (project.hasProperty(key)) {
+            systemProperty key, project.property(key)
+        }
+    }
     jvmArgs '-Xmx1G'
 }
 tasks.register('ideSmokeTest', JavaExec) {
