@@ -77,6 +77,7 @@ your .py files ──Run──> Python worker ──declarations──> CraftPy 
 | remember numbers between events | [Storage](#storage) |
 | open a window with buttons | [Windows](#windows) |
 | draw on the screen, add hotkeys, make a client-side mod | [Client-side code](#client-side-code) |
+| use a web API, save files | [Web and files](#web-and-files) |
 | print, debug, try code live | [Chat, console and debugging](#chat-console-and-debugging) |
 | check my code with tests | [Tests](#tests) |
 | see what changed between versions | [API versions](#api-versions) |
@@ -423,6 +424,35 @@ def hide(ctx):
 - In server-side code the names `hud`, `keys` and `client` exist but say that they only work in client-side code.
 - Switch it off with `enableClientPython` in the config.
 
+## Web and files
+
+**What it is:** web requests and text files, done by the game for your code, never by Python itself.
+
+```python
+# project.json:  "permissions": {"net": ["open-meteo.com"], "files": true}
+def show(response):
+    temp = response.json()["current"]["temperature_2m"]
+    say("It is %s degrees in Berlin" % temp)
+    files.write_json("last_weather.json", {"temp": temp})
+
+http.get("https://api.open-meteo.com/v1/forecast?latitude=52.5&longitude=13.4&current=temperature_2m", show)
+```
+
+- **Declare** what you need in `project.json` (or the module's `module.json`): `"permissions": {"net": ["site.com"], "files": true}`.
+  An entry covers its subdomains (`wikipedia.org` covers `en.wikipedia.org`).
+- **Your own projects** may use what they declare. **Modules** (other people's code) also need **Approve access** on the Modules
+  page; every module that declares sites shows a red warning there, in its README and in the console:
+  *"This module is trying to access ... continue at your own risk!"*
+- The **server owner** decides which sites exist at all: `config/craftpy-access.toml`, `net.allowedDomains` (general sites)
+  and `net.dangerDomains` (sites where anyone can upload files or receive data, such as GitHub, pastebins, Discord webhooks:
+  allowed only with approval and shown as DANGER ZONE). Remove a line to forbid a site.
+- `https://` only, named sites only (no IP numbers, no addresses of your computer or home network), at most 30 requests a
+  minute, 2 MB answers, 15 seconds. Redirects are checked like the first request.
+- **API keys** go into `net.httpKeys` (`openai=api.openai.com=Authorization: Bearer sk-...`); code writes `key="openai"` and
+  never sees the key.
+- **Files**: `files.read / write / delete / exists / list / read_json / write_json` work in `pyforge/data/<project>/` only
+  (20 MB, no `..`, no links). Folders the server owner lists in `files.sharedFolders` can be read with `folder="name"`.
+
 ## Windows
 
 **What it is:** a window with labels, buttons, fields and sliders that opens for a player.
@@ -562,11 +592,17 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.3** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.4** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.4 (2026-10-16)
+
+- **Added:** `http.get` / `http.post`: web requests through the host, to sites the module declares, the player approves and the server allows; the answer comes to a callback. API keys stay in the server config.
+- **Added:** `files`: text files in the project's own folder (pyforge/data/<project>/) and read-only shared folders.
+- **Added:** `"permissions"` in project.json / module.json; modules show a forced warning and need approval.
 
 ### 2.3 (2026-10-16)
 
@@ -2371,6 +2407,127 @@ Closes a window of yours.
 | Parameter | Default | Meaning |
 | --- | --- | --- |
 | `window_id` | `None` | Which one; omit to close any. |
+
+### Web and files
+
+#### `http.get(url, on_done=None, headers=None, key=None, timeout=10)`
+
+Fetches a web page or API (https only). The answer comes later to on_done(response).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `url` |  | https:// address of a site the module declares in permissions.net and the server allows. |
+| `on_done` | `None` | Function called with a Response (ok, status, text, headers, error, json()). |
+| `headers` | `None` | Extra request headers (dict). |
+| `key` | `None` | Name of an API key in the server config; the key itself stays there. |
+| `timeout` | `10` | Seconds before giving up. |
+
+Returns: the request id
+
+#### `http.post(url, on_done=None, body=None, json=None, headers=None, key=None, timeout=10)`
+
+Sends data to a web API (https only); the answer comes to on_done(response).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `url` |  | https:// address. |
+| `on_done` | `None` | Function called with a Response. |
+| `body` | `None` | Text to send. |
+| `json` | `None` | A dict or list sent as JSON instead of body. |
+| `headers` | `None` | Extra request headers (dict). |
+| `key` | `None` | Name of an API key in the server config. |
+| `timeout` | `10` | Seconds before giving up. |
+
+Returns: the request id
+
+#### `http.request(method, url, on_done=None, headers=None, body=None, json_body=None, key=None, timeout=10)`
+
+Any of GET, POST, PUT, DELETE; see http.get.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `method` |  | GET, POST, PUT or DELETE. |
+| `url` |  | https:// address. |
+| `on_done` | `None` | Function called with a Response. |
+| `headers` | `None` | Extra headers. |
+| `body` | `None` | Text to send. |
+| `json_body` | `None` | A dict or list sent as JSON. |
+| `key` | `None` | API key name in the server config. |
+| `timeout` | `10` | Seconds. |
+
+Returns: the request id
+
+#### `files.read(name, folder=None, default=None)`
+
+Reads a text file of this project's data folder (or of a shared folder).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` |  | File name, folders with /: 'notes/day1.txt'. |
+| `folder` | `None` | Name of a shared folder from the server config, or None for your own. |
+| `default` | `None` | Returned when the file does not exist (instead of an error). |
+
+Returns: the text
+
+#### `files.write(name, text)`
+
+Writes a text file into this project's data folder.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` |  | File name. |
+| `text` |  | The text. |
+
+#### `files.delete(name)`
+
+Deletes a file of the data folder.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` |  | File name. |
+
+Returns: True when it was there
+
+#### `files.exists(name, folder=None)`
+
+True when the file exists.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` |  | File name. |
+| `folder` | `None` | Shared folder name or None. |
+
+Returns: bool
+
+#### `files.list(folder=None)`
+
+Names of the files of the data folder (or of a shared folder).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `folder` | `None` | Shared folder name or None. |
+
+Returns: list of str
+
+#### `files.read_json(name, default=None)`
+
+Reads a JSON file.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` |  | File name. |
+| `default` | `None` | Returned when the file does not exist. |
+
+Returns: the value
+
+#### `files.write_json(name, value)`
+
+Writes a value as a JSON file.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` |  | File name. |
+| `value` |  | Dict, list, number, text... |
 
 ### Java bridge
 

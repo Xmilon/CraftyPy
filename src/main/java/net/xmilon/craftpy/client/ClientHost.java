@@ -47,6 +47,11 @@ public final class ClientHost {
     }
 
     public static JsonObject handle(String method, JsonObject p) {
+        JsonObject access = net.xmilon.craftpy.security.AccessBridge.handle(method, p,
+                event -> ClientPython.get().event("http_response", event));
+        if (access != null) {
+            return access;
+        }
         try {
             return switch (method) {
                 case "hud.set" -> ClientHud.set(p) ? ok() : fail("hud: that element is not valid, or the limit of elements is reached");

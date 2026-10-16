@@ -20,6 +20,7 @@ import net.xmilon.craftpy.util.Json;
  */
 public final class PermissionStore {
     private static final Map<String, ModulePermissions> DECLARED = new HashMap<>();
+    private static final Map<String, ModulePermissions> OWN = new HashMap<>();
     private static Map<String, ModulePermissions> approved;
 
     private PermissionStore() {
@@ -33,6 +34,16 @@ public final class PermissionStore {
 
     public static synchronized void declare(String owner, ModulePermissions asked) {
         DECLARED.put(owner, ModulePermissions.clean(asked));
+    }
+
+    /**
+     * A project of this computer: the person who writes its project.json is the person who runs it, so what it declares
+     * is approved. Modules (code of other people) always go through {@link #approve}.
+     */
+    public static synchronized void declareOwn(String projectId, ModulePermissions asked) {
+        ModulePermissions clean = ModulePermissions.clean(asked);
+        DECLARED.put(projectId, clean);
+        OWN.put(projectId, clean);
     }
 
     public static synchronized ModulePermissions declared(String owner) {
@@ -62,6 +73,10 @@ public final class PermissionStore {
     }
 
     public static synchronized ModulePermissions approved(String owner) {
+        ModulePermissions own = OWN.get(owner);
+        if (own != null) {
+            return own;
+        }
         return approvals().getOrDefault(owner, new ModulePermissions());
     }
 
@@ -105,6 +120,7 @@ public final class PermissionStore {
     /** For tests: forget everything held in memory so the next call reads the file again. */
     public static synchronized void forget() {
         DECLARED.clear();
+        OWN.clear();
         approved = null;
     }
 }

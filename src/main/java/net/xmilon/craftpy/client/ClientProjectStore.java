@@ -508,6 +508,13 @@ public final class ClientProjectStore {
         }
     }
 
+    public void approveModule(String id, boolean approve) {
+        JsonObject params = new JsonObject();
+        params.addProperty("id", id);
+        params.addProperty("approve", approve);
+        request(ProjectAction.MODULE_APPROVE, null, Json.COMPACT.toJson(params));
+    }
+
     /** The module debuilder: the server makes a project from the .cpm; the reply opens it in the editor. */
     public void unpackModule(String path) {
         if (path == null || path.isBlank()) {
@@ -840,7 +847,7 @@ public final class ClientProjectStore {
                     refresh();
                 }
             }
-            case MODULE_SET_ENABLED, MODULE_SET_ALL, MODULE_RELOAD, MODULE_DELETE -> {
+            case MODULE_SET_ENABLED, MODULE_SET_ALL, MODULE_RELOAD, MODULE_DELETE, MODULE_APPROVE -> {
                 if (payload.message() != null && !payload.message().isBlank()) {
                     append(payload.message());
                 }

@@ -85,6 +85,15 @@ public final class ClientPython {
                         + "): client projects run from the folder of the game you are playing."));
                 return;
             }
+            try {
+                var meta = net.xmilon.craftpy.util.Json.COMPACT.fromJson(
+                        Files.readString(dir.resolve("project.json"), StandardCharsets.UTF_8), net.xmilon.craftpy.project.ProjectMetadata.class);
+                if (meta != null) {
+                    net.xmilon.craftpy.security.PermissionStore.declareOwn(projectId, meta.permissions);
+                }
+            } catch (IOException | RuntimeException unreadable) {
+                net.xmilon.craftpy.security.PermissionStore.declareOwn(projectId, null);
+            }
             JsonObject params = new JsonObject();
             params.addProperty("project", projectId);
             params.addProperty("file", "code/main.py");

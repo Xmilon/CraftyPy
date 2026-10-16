@@ -57,6 +57,12 @@ public final class ProjectController {
 
     public void load(String projectId, MinecraftServer server, boolean debug) {
         ProjectManager sides = ProjectManager.get();
+        if (sides != null) {
+            net.xmilon.craftpy.project.ProjectMetadata meta = sides.metadataOf(projectId);
+            if (meta != null) {
+                net.xmilon.craftpy.security.PermissionStore.declareOwn(projectId, meta.permissions);
+            }
+        }
         if (sides != null && sides.sideOf(projectId) == net.xmilon.craftpy.project.ModuleSide.CLIENT) {
             CraftPyLog.LOGGER.info("Project {} is client-side: it runs on the player's computer, not in the world", projectId);
             return;

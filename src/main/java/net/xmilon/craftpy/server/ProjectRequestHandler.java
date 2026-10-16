@@ -399,6 +399,29 @@ public final class ProjectRequestHandler {
                     }
                 }, CraftPyExecutors.io());
             }
+            case MODULE_APPROVE: {
+                com.google.gson.JsonObject obj;
+                try {
+                    obj = com.google.gson.JsonParser.parseString(request.data()).getAsJsonObject();
+                } catch (RuntimeException e) {
+                    return CompletableFuture.completedFuture(fail(action, "Malformed approval"));
+                }
+                String moduleId = obj.has("id") ? obj.get("id").getAsString() : "";
+                if (!ProjectManager.isValidId(moduleId)) {
+                    return CompletableFuture.completedFuture(fail(action, "Invalid module id"));
+                }
+                String owner = "module:" + moduleId;
+                boolean approve = obj.has("approve") && obj.get("approve").getAsBoolean();
+                var asked = net.xmilon.craftpy.security.PermissionStore.declared(owner);
+                if (approve) {
+                    net.xmilon.craftpy.security.PermissionStore.approve(owner, asked); // exactly what it declares, no more
+                } else {
+                    net.xmilon.craftpy.security.PermissionStore.revoke(owner);
+                }
+                return CompletableFuture.completedFuture(ResponsePayload.success(action, approve
+                        ? "Approved for " + moduleId + ": " + net.xmilon.craftpy.security.PermissionLabels.warning(asked)
+                        : "Revoked what " + moduleId + " was allowed", ""));
+            }
             case MODULE_UNPACK: {
                 ModulePath modulePath = Json.COMPACT.fromJson(request.data(), ModulePath.class);
                 final String path = modulePath == null ? null : modulePath.path;

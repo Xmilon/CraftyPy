@@ -108,6 +108,7 @@ public final class ModuleBuilder {
             modMeta.version = version;
             modMeta.apiVersion = meta.apiVersion;
             modMeta.side = request.side().id();
+            modMeta.permissions = net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions);
             zos.putNextEntry(new ZipEntry("module.json"));
             zos.write(Json.GSON.toJson(modMeta).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             zos.closeEntry();
@@ -126,6 +127,9 @@ public final class ModuleBuilder {
             String text = !ModuleReadme.needsGenerating(own) ? own
                     : ModuleReadme.generate(moduleId, displayName, meta.description, meta.author, version, meta.apiVersion,
                     request.side(), pythonFiles(projectDir));
+            // the warning is forced at the top, whoever wrote the README
+            text = net.xmilon.craftpy.security.PermissionLabels.readmeBlock(
+                    net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions)) + text;
             zos.putNextEntry(new ZipEntry("README.md"));
             zos.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             zos.closeEntry();
@@ -211,6 +215,8 @@ public final class ModuleBuilder {
         public String apiVersion;
         /** {@code both} (missing = both), {@code client} or {@code server}: see {@link ModuleSide}. */
         public String side;
+        /** What the module asks for (sites, data folder); approved by the player before it counts. */
+        public net.xmilon.craftpy.security.ModulePermissions permissions;
         public String[] dependencies = new String[0];
     }
 }

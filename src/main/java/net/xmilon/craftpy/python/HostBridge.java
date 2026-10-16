@@ -41,6 +41,12 @@ public final class HostBridge {
     }
 
     public static JsonObject handle(String method, JsonObject params) {
+        // web and data folder: permission-checked, the result of a web request arrives later as the event http_response
+        JsonObject access = net.xmilon.craftpy.security.AccessBridge.handle(method, params,
+                event -> PyRuntime.get().triggerEvent("http_response", event));
+        if (access != null) {
+            return access;
+        }
         if (method.startsWith("java.")) {
             // the generic Java bridge: Minecraft/NeoForge/mod classes by name (see bridge.JavaBridge)
             return onServer(server -> net.xmilon.craftpy.bridge.JavaBridge.handle(method.substring(5), params));

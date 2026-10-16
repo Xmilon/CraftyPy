@@ -290,6 +290,23 @@ public class ModulesFragment extends Fragment {
         details.addView(props);
 
         final ModuleInfo selected = module;
+        if (module.permissionWarning != null && !module.permissionWarning.isEmpty()) {
+            // forced: whoever wrote the module, its access to sites / files is said in red before anything else
+            var warning = label(context, module.permissionWarning + (module.permissionsApproved ? "  (approved)"
+                    : "  (not approved: it cannot use them until you approve)"), R.attr.textAppearanceBodyMedium);
+            warning.setTextColor(IdeColors.ERROR);
+            details.addView(warning);
+            var approveRow = row(context);
+            approveRow.addView(button(context, module.permissionsApproved ? "Revoke access" : "Approve access",
+                    R.attr.buttonTonalStyle, v -> {
+                        if (selected.permissionsApproved) {
+                            store(s -> s.approveModule(selected.id, false));
+                        } else {
+                            prompt(v, selected.permissionWarning, null, "Approve", ignored -> store(s -> s.approveModule(selected.id, true)));
+                        }
+                    }));
+            details.addView(approveRow);
+        }
         var actions = row(context);
         actions.addView(button(context, "Reload", R.attr.buttonTonalStyle,
                 v -> store(s -> s.reloadModule(selected.id))));
@@ -349,6 +366,9 @@ public class ModulesFragment extends Fragment {
             case SERVER -> sb.append(" · Server only");
             default -> {
             }
+        }
+        if (m.permissionWarning != null && !m.permissionWarning.isEmpty()) {
+            sb.append(m.permissionsApproved ? " · ⚠ web/files (approved)" : " · ⚠ wants web/files");
         }
         if (m.loaded) {
             sb.append(" · Loaded");

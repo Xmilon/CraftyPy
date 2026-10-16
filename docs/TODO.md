@@ -261,6 +261,13 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 
 - [x] `docs/STORE.md`: the short description for CurseForge / Modrinth (Markdown, no dev details).
 
+## 9h. Web and files (asked 2026-10-16) - done
+
+- [x] `config/craftpy-access.toml` with ~60 general sites and ~45 danger-zone sites, API keys by name, data folder limits,
+  shared read-only folders. `http` / `files` in Python (API 2.4), `permissions` in project.json / module.json, forced
+  warning + Approve / Revoke on the Modules page, warning in the README and the console. AUDIT section 11.
+- [ ] Not shown yet: a project's own permissions in the editor (they count as approved for your own projects).
+
 ## 8. Known limits (from the last "what is missing" list)
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.

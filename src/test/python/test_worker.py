@@ -563,7 +563,7 @@ def test_api_reference_is_complete_and_current():
     covered = {key.partition(".")[0] for _, keys in gen.CHAPTERS for key in keys}
     legacy = {"block", "item", "entity", "effect", "enchantment", "potion", "block_logic", "cp", "JavaError", "Content",
               "Entity", "Player", "Window", "players", "world", "storage", "scheduler", "server", "ui", "java",
-              "API_VERSION"}  # API_VERSION is in the generated "API versions" part
+              "API_VERSION", "Response"}  # API_VERSION: "API versions" part; Response: described under http.get
     uncovered = sorted(n for n in w._api_names() if not n.startswith("_") and n not in covered and n not in legacy)
     assert uncovered == [], "public names without documentation: %s" % uncovered
 
@@ -1192,6 +1192,57 @@ def test_client_names_say_so_on_the_server():
         assert not [p for p in problems if "Undefined" in p["message"] or "No event" in p["message"]], problems
     finally:
         w._MODE[0] = old
+
+
+def test_http_and_files_go_through_the_host():
+    calls = []
+    store = {}
+
+    def host(method, params=None, timeout=10.0):
+        calls.append((method, params))
+        if method == "http.request":
+            if "blocked" in params["url"]:
+                return {"ok": False, "error": "did not declare blocked.org"}
+            return {"ok": True}
+        if method == "files.write":
+            store[params["name"]] = params["text"]
+            return {"ok": True}
+        if method == "files.read":
+            if params["name"] not in store:
+                return {"ok": False, "missing": True, "error": "No file"}
+            return {"ok": True, "text": store[params["name"]]}
+        return {"ok": True}
+
+    old = w._host_call
+    w._host_call = lambda method, params=None, timeout=10.0: host(method, params)
+    try:
+        code = NL.join([
+            "from craftpy import *",
+            "got = []",
+            "def done(response):",
+            "    got.append((response.ok, response.status, response.json()['temp']))",
+            "    files.write_json('last.json', {'temp': response.json()['temp']})",
+            "ident = http.get('https://api.open-meteo.com/v1/forecast', done)",
+            "try:",
+            "    http.get('https://blocked.org/', done)",
+            "    refused = None",
+            "except PermissionError as exc:",
+            "    refused = str(exc)",
+            "assert 'did not declare' in refused, refused",
+            "assert files.read('none.txt', default='-') == '-'",
+            ""])
+        result = w._handle("run_main", {"project": "web", "code": code, "file": "code/main.py"})
+        assert not result.get("error"), result
+        request = [p for m, p in calls if m == "http.request"][0]
+        assert request["owner"] == "web" and request["method"] == "GET", request
+        w._handle("trigger_event", {"event": "http_response", "context": {"id": request["id"], "ok": True, "status": 200,
+                                                                          "text": '{"temp": 21}', "headers": {}}})
+        assert '"temp": 21' in store.get("last.json", ""), store
+        assert all(p["owner"] == "web" for m, p in calls if m.startswith("files.")), calls
+        # an answer nobody waits for (unknown id) is ignored
+        assert w._handle("trigger_event", {"event": "http_response", "context": {"id": 999}})["handlers"] == 0
+    finally:
+        w._host_call = old
 
 
 if __name__ == "__main__":

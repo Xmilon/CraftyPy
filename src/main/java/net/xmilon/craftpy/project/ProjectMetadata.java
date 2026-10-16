@@ -19,6 +19,8 @@ public class ProjectMetadata {
     public boolean requiresRestart = false;
     /** {@code both} (default) or {@code client}: a client project runs on the player's computer, not in the world. */
     public String side = "both";
+    /** Sites and the data folder the project asks for: {"net": ["wikipedia.org"], "files": true}. */
+    public net.xmilon.craftpy.security.ModulePermissions permissions = new net.xmilon.craftpy.security.ModulePermissions();
     public Map<String, Integer> slotUsage = new LinkedHashMap<>();
 
     public ProjectMetadata() {

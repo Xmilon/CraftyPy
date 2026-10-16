@@ -255,6 +255,14 @@ public final class ModuleLoader {
                 extractZip(zip, cacheDir);
 
                 LOADED_MODULES.put(meta.id, meta);
+                net.xmilon.craftpy.security.PermissionStore.declare("module:" + meta.id, meta.permissions);
+                String warning = net.xmilon.craftpy.security.PermissionLabels.warning(
+                        net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions));
+                if (!warning.isEmpty()) {
+                    net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(ServerLifecycleHooks.getCurrentServer(),
+                            "[module " + meta.id + "] " + warning + (net.xmilon.craftpy.security.PermissionStore
+                                    .fullyApproved("module:" + meta.id) ? "" : " (not approved yet: Modules page)"));
+                }
                 MODULE_FILES.put(meta.id, path);
                 CraftPyLog.LOGGER.info("Loaded module: {} ({})", meta.name, meta.id);
 
@@ -373,6 +381,7 @@ public final class ModuleLoader {
                 info.author = meta.author == null ? "" : meta.author;
                 info.description = meta.description == null ? "" : meta.description;
                 info.side = ModuleSide.of(meta.side).id();
+                info.permissions = net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions);
                 if (meta.dependencies != null) {
                     info.dependencies = new ArrayList<>(Arrays.asList(meta.dependencies));
                 }
@@ -386,6 +395,9 @@ public final class ModuleLoader {
             info.id = fileNameId(path);
         }
         info.enabled = isEnabledState(info.id);
+        net.xmilon.craftpy.security.PermissionStore.declare("module:" + info.id, info.permissions);
+        info.permissionWarning = net.xmilon.craftpy.security.PermissionLabels.warning(info.permissions);
+        info.permissionsApproved = net.xmilon.craftpy.security.PermissionStore.fullyApproved("module:" + info.id);
         if (!ProjectManager.isValidId(info.id)) {
             info.error = "'" + info.id + "' is not a valid module id: this module is not loaded";
         }

@@ -327,6 +327,8 @@ def restricted_builtins(log):
         "NameError": NameError, "AttributeError": AttributeError,
         "ArithmeticError": ArithmeticError, "ZeroDivisionError": ZeroDivisionError,
         "OverflowError": OverflowError, "ImportError": ImportError,
+        "PermissionError": PermissionError, "FileNotFoundError": FileNotFoundError, "OSError": OSError,
+        "TimeoutError": TimeoutError, "UnicodeError": UnicodeError,
         "__import__": _sandboxed_import,
         # Deliberately still blocked: filesystem, processes, dynamic exec.
         "open": _denied, "eval": _denied, "exec": _denied,
@@ -2632,9 +2634,14 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.3"
+API_VERSION = "2.4"
 
 API_CHANGES = [
+    {"version": "2.4", "date": "2026-10-16",
+     "added": ["`http.get` / `http.post`: web requests through the host, to sites the module declares, the player "
+               "approves and the server allows; the answer comes to a callback. API keys stay in the server config.",
+               "`files`: text files in the project's own folder (pyforge/data/<project>/) and read-only shared folders.",
+               "`\"permissions\"` in project.json / module.json; modules show a forced warning and need approval."]},
     {"version": "2.3", "date": "2026-10-16",
      "added": ["Client-side modules and projects (`side: client`): Python that runs on the player's own computer, in its own "
                "sandbox, and never touches the server: `hud` (text, bars, item icons on the screen), `keys.bind(...)`, "
@@ -2725,6 +2732,119 @@ def _api_notes(folder, meta_file):
 # It can draw on the screen, listen to keys and client events and open windows, and it can read what the client knows;
 # it cannot change the world or reach the server. In the server's worker these names exist but say so when used.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Web and data folder. Python never opens a connection or a file itself: it asks the host, which checks what the
+# project / module declared ("permissions" in project.json / module.json), what the player approved and what the
+# server owner allows (config/craftpy-access.toml). A web request answers later: the callback gets a Response.
+# ---------------------------------------------------------------------------
+
+_HTTP_WAITING = {}   # request id -> (owner, callback)
+_HTTP_NEXT = [1]
+
+
+class Response:
+    """What a web request got back: ok, status, text, headers, error; json() parses the text."""
+
+    def __init__(self, data):
+        self.ok = bool(data.get("ok"))
+        self.status = int(data.get("status") or 0)
+        self.text = data.get("text") or ""
+        self.headers = data.get("headers") or {}
+        self.error = data.get("error") or ""
+
+    def json(self):
+        return json.loads(self.text)
+
+    def __repr__(self):
+        return "Response(%d)" % self.status if self.ok else "Response(error=%r)" % self.error
+
+
+class _Http:
+    """``http.get(url, on_done)``: the answer comes to ``on_done(response)`` a moment later, the game never waits."""
+
+    def request(self, method, url, on_done=None, headers=None, body=None, json_body=None, key=None, timeout=10):
+        if json_body is not None:
+            body = json.dumps(json_body)
+            headers = dict(headers or {}, **{"Content-Type": "application/json"})
+        ident = _HTTP_NEXT[0]
+        _HTTP_NEXT[0] += 1
+        params = {"owner": _OWNER[0], "id": ident, "method": method, "url": str(url), "headers": dict(headers or {}),
+                  "body": None if body is None else str(body), "key": key, "timeout": int(timeout)}
+        result = _host_call("http.request", params)
+        if isinstance(result, dict) and result.get("ok") is False:
+            raise PermissionError(result.get("error") or "web request refused")
+        if on_done is not None:
+            _HTTP_WAITING[ident] = (_OWNER[0], on_done)
+        return ident
+
+    def get(self, url, on_done=None, headers=None, key=None, timeout=10):
+        return self.request("GET", url, on_done, headers=headers, key=key, timeout=timeout)
+
+    def post(self, url, on_done=None, body=None, json=None, headers=None, key=None, timeout=10):
+        return self.request("POST", url, on_done, headers=headers, body=body, json_body=json, key=key, timeout=timeout)
+
+
+http = _Http()
+
+
+def _http_response(data):
+    log = []
+    entry = _HTTP_WAITING.pop(data.get("id"), None)
+    if entry is None:
+        return {"log": log, "handlers": 0, "scheduled": len(_SCHEDULE)}
+    owner, fn = entry
+    _use_owner(owner)
+    _LOG_TARGET[0] = log
+    try:
+        _call_flexible(fn, Response(data))
+    except Exception as exc:  # noqa: BLE001
+        log.append("[%s] http callback: %s: %s" % (owner, type(exc).__name__, exc))
+    finally:
+        _LOG_TARGET[0] = None
+    return {"log": log, "handlers": 1, "scheduled": len(_SCHEDULE)}
+
+
+class _Files:
+    """Text files in this project's own folder (pyforge/data/<project>/), or read-only in a folder the server shares."""
+
+    def _call(self, method, **params):
+        result = _host_call(method, dict(params, owner=_OWNER[0]))
+        if isinstance(result, dict) and result.get("ok") is False:
+            if result.get("missing"):
+                raise FileNotFoundError(result.get("error"))
+            raise PermissionError(result.get("error") or "files refused")
+        return result
+
+    def read(self, name, folder=None, default=None):
+        try:
+            return self._call("files.read", name=str(name), folder=folder or "")["text"]
+        except FileNotFoundError:
+            if default is not None:
+                return default
+            raise
+
+    def write(self, name, text):
+        self._call("files.write", name=str(name), text=str(text))
+
+    def delete(self, name):
+        return self._call("files.delete", name=str(name))["deleted"]
+
+    def exists(self, name, folder=None):
+        return self._call("files.exists", name=str(name), folder=folder or "")["exists"]
+
+    def list(self, folder=None):
+        return self._call("files.list", folder=folder or "")["names"]
+
+    def read_json(self, name, default=None):
+        text = self.read(name, default="" if default is not None else None)
+        return default if text == "" else json.loads(text)
+
+    def write_json(self, name, value):
+        self.write(name, json.dumps(value, indent=2))
+
+
+files = _Files()
 
 _MODE = [None]
 _CLIENT_EVENT_NAMES = ("client_tick", "chat_received", "screen_open", "client_join", "client_leave")
@@ -2937,7 +3057,7 @@ _CLIENT_NAMES = frozenset({
     "on", "every", "after", "run_later", "run_every", "run_next_tick", "scheduler", "storage", "Pos", "has",
     "window", "Window", "ui", "action", "Label", "Button", "TextInput", "TextArea", "Checkbox", "Slider", "Dropdown",
     "ListView", "ProgressBar", "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView",
-    "hud", "keys", "client", "API_VERSION",
+    "hud", "keys", "client", "API_VERSION", "http", "files", "Response",
 })
 
 
@@ -2964,7 +3084,7 @@ def _server_api_names():
         "advancement": advancement, "raw_json": raw_json, "recipe": recipe,
         "window": window, "Window": Window, "ui": ui, "cp": cp, "action": action,
         "world": world, "players": players, "server": server,
-        "hud": hud, "keys": keys, "client": client,
+        "hud": hud, "keys": keys, "client": client, "http": http, "files": files, "Response": Response,
         "storage": storage, "scheduler": scheduler,
         "run_later": run_later, "run_every": run_every, "run_next_tick": run_next_tick,
         "Label": Label, "Button": Button, "TextInput": TextInput, "TextArea": TextArea,
@@ -3669,6 +3789,8 @@ def _trigger_event(params):
         return _ui_event(ctx_data)
     if event_name == "key":
         return _key_event(ctx_data)
+    if event_name == "http_response":
+        return _http_response(ctx_data)
     if event_name.startswith("java:"):
         return _trigger_java_event(event_name, ctx_data)
     log = []
@@ -5518,6 +5640,28 @@ def _load_docs():
             "id": "Name of this element.", "item": "Item id such as 'minecraft:diamond' or 'welcome:gem'.",
             "anchor": "Where on the screen (see hud.text).", "x": "Pixels right of the anchor.", "y": "Pixels below the anchor.",
             "count": "A number drawn in the corner, or None.", "scale": "Size, 0.25 to 8."}, ""),
+        "http.get": ("Fetches a web page or API (https only). The answer comes later to on_done(response).", {
+            "url": "https:// address of a site the module declares in permissions.net and the server allows.",
+            "on_done": "Function called with a Response (ok, status, text, headers, error, json()).",
+            "headers": "Extra request headers (dict).", "key": "Name of an API key in the server config; the key itself stays there.",
+            "timeout": "Seconds before giving up."}, "the request id"),
+        "http.post": ("Sends data to a web API (https only); the answer comes to on_done(response).", {
+            "url": "https:// address.", "on_done": "Function called with a Response.", "body": "Text to send.",
+            "json": "A dict or list sent as JSON instead of body.", "headers": "Extra request headers (dict).",
+            "key": "Name of an API key in the server config.", "timeout": "Seconds before giving up."}, "the request id"),
+        "http.request": ("Any of GET, POST, PUT, DELETE; see http.get.", {"method": "GET, POST, PUT or DELETE.",
+            "url": "https:// address.", "on_done": "Function called with a Response.", "headers": "Extra headers.",
+            "body": "Text to send.", "json_body": "A dict or list sent as JSON.", "key": "API key name in the server config.",
+            "timeout": "Seconds."}, "the request id"),
+        "files.read": ("Reads a text file of this project's data folder (or of a shared folder).", {
+            "name": "File name, folders with /: 'notes/day1.txt'.", "folder": "Name of a shared folder from the server config, or None for your own.",
+            "default": "Returned when the file does not exist (instead of an error)."}, "the text"),
+        "files.write": ("Writes a text file into this project's data folder.", {"name": "File name.", "text": "The text."}, ""),
+        "files.delete": ("Deletes a file of the data folder.", {"name": "File name."}, "True when it was there"),
+        "files.exists": ("True when the file exists.", {"name": "File name.", "folder": "Shared folder name or None."}, "bool"),
+        "files.list": ("Names of the files of the data folder (or of a shared folder).", {"folder": "Shared folder name or None."}, "list of str"),
+        "files.read_json": ("Reads a JSON file.", {"name": "File name.", "default": "Returned when the file does not exist."}, "the value"),
+        "files.write_json": ("Writes a value as a JSON file.", {"name": "File name.", "value": "Dict, list, number, text..."}, ""),
         "hud.remove": ("Takes one element off the screen.", {"id": "Name of the element."}, ""),
         "hud.clear": ("Takes every element of this module off the screen.", {}, ""),
         "keys.bind": ("Runs a function when you press a key (while no screen is open). Use it as @keys.bind('ctrl+k').", {

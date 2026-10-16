@@ -181,3 +181,19 @@ What this does not cover, on purpose or by limit:
   network at the interpreter level, and the worker is a separate process with no game access except the host calls.
 - The audit hook cannot tell the worker's own reads from project code, so the roots are the worker's own folders only.
 
+## 11. Web and files (2026-10-16)
+
+Python never opens sockets or files (layer 1 of section 10 refuses it); it asks the host (`security/AccessBridge`).
+
+| Risk | Answer |
+|---|---|
+| A module calls home / leaks data | site must be declared, approved by the player (modules) and listed by the server owner; danger-zone sites flagged |
+| Probing the home network (SSRF) | https + named hosts only; every resolved address must be public (`NetPolicy.isPublic`: loopback, private, link-local, CGNAT, IPv4-mapped...) |
+| DNS rebinding | the connection goes to the address that was checked (`PinnedHttps`), certificate still checked against the name |
+| Redirect to a forbidden site | every hop re-runs all checks; at most 3 |
+| Key theft | keys live in the config and are added by Java for their own domain only |
+| Header smuggling | no CR/LF/non-ASCII, no Host/Cookie/Content-Length/Proxy-*/Sec-*... |
+| Flooding / huge answers | 30 requests a minute per owner, 4 at once, 2 MB, 15 s, deadline also for slow sites |
+| A new module version asks for more | approval covers exactly the old declaration; new sites need approval again |
+| Files outside the folder | text check (no `..`, devices, absolute) + no link anywhere on the path + quota and file count |
+
