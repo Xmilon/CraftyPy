@@ -49,3 +49,6 @@ REQUIREMENTS.local.md
 ### Python ###
 __pycache__/
 *.pyc
+
+# built jars: build them with ./gradlew build (the full jar is over GitHub's 100 MB limit)
+release/*.jar

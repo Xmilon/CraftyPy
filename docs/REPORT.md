@@ -417,7 +417,7 @@ Nothing in M11 was clicked in game.
 - `/craftpy give <player> <id> [count]`: block or item is detected (block first, then item); `block` / `item` still force
   a kind. Ambiguity errors are unchanged.
 
-**Folder layout** (`PyForgePaths`): `projects/ modules/ imports/ exports/ system/`. Everything CraftPy manages (runtime,
+**Folder layout** (`PyForgePaths`): `projects/ modules/ system/` (`imports/` and `exports/` were removed in phase 1's last round: builds go into `modules/`). Everything CraftPy manages (runtime,
 logs, build, cache, `slots.json`, `modules.json`) lives in `system/`. The old flat layout is moved in on the first path
 lookup, before anything can create a file at the new place (a real server start showed `slots.json` being written first
 while the old one stayed behind - fixed). Modules are scanned **only** in `modules/` (before: the whole `pyforge/` tree,

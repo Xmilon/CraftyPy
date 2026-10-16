@@ -53,14 +53,30 @@ New UI in dark, with CraftPy's green as the accent:
 - **IntelliJ commands**: Find Action (`Ctrl+Shift+A`), Find in Files, TODO list, rename in file (`Shift+F6`), reformat
   (`Ctrl+Alt+L`), comment, duplicate and move lines, live templates (`onj` + `Tab`), go to definition, extract variable /
   function, organise imports, run the selection in the console (`Alt+Shift+E`).
-- **Building blocks**: 30 ready-made pieces (windows and other UI elements, items, blocks, events, commands, timers,
-  recipes, world actions). Each one opens its docs, inserts its code at the cursor, or becomes a new file that `main.py`
-  already imports.
+- **Building blocks**: 56 ready-made pieces (windows and other UI elements, items, armor, curios, blocks, events,
+  commands, timers, recipes, world actions, web and files, and client-side HUD / keys / windows). The panel only shows the
+  ones that work on the project's side. Each one opens its docs, inserts its code at the cursor, or becomes a new file
+  that `main.py` already imports. Every block is run and checked by the test suite.
+- **Preview drawn by Minecraft**: in game, blocks, items and mobs (vanilla and every mod, GeckoLib models included) are
+  rendered live by the game itself inside the Preview tab; drag to turn, wheel to zoom. *Mobs...* lists every mob type.
+  GeckoLib `.geo.json` files also preview in the standalone IDE.
+- **Recipes & drops** (right stripe, `Ctrl+Shift+R` on an id): every item and mob of the game and its mods; for an item,
+  what makes it, what it is used in and what drops it; for a mob, the mob drawn live with everything it drops (chances,
+  Looting bonus, player kills). With JEI installed the recipes are JEI's own layouts (Create, Mekanism... exactly as in
+  JEI); without it the server's recipes are shown as cards. Drops come from the loot tables, the part JEI does not show.
+- **UI maker** (right stripe): the designer of `ui/<id>.json` windows: a palette of widgets, the tree, the properties
+  and the window drawn live. Every change goes into the editor tab (undo, save as usual); *Copy Python* gives the
+  `@action` functions the window's buttons call.
 - **Modules** page: every built `.cpm` with search, enable/disable, reload and the rendered README. **Docs**: the offline
   guide, API reference and Java bridge reference.
-- Modules work on **client and server** (default), **client only** (just `assets/`: each player's CraftPy applies it as a
-  resource pack, on any server) or **server only** (code and data; players install nothing). Chosen in *Build module*,
-  stored as `"side"` in `module.json`.
+- Projects work on **client and server** (default), **client only** (Python on each player's computer: HUD, keys,
+  windows, plus `assets/` as a resource pack, on any server) or **server only** (code and data; players install nothing).
+  Chosen when the project is made (*Client side only* checkbox), stored as `"side"` in `project.json`, switched (and
+  back) in *Tools > Project side*. The code checks warn about API names of the other side; *Build module* (toolbar
+  hammer) uses the project's side.
+- **Using other modules**: `from modules.jukebox import songs` imports what an installed module defines (its `main.py`
+  names and its files). *Modules > Use in project* adds it to `"dependencies"` in `project.json`, so it loads first
+  and the built module says it needs it.
 
 ### Asset management
 - **Click-to-view asset files** from the explorer: textures render on a checkerboard backdrop with zoom and a one-click jump into the built-in **pixel editor**; sounds resolve their sound event for playback.
@@ -241,11 +257,12 @@ Everything is stored as plain files, so projects can also be edited with any ext
 ├── system/python/      # the Python shipped in the mod jar, unpacked on the first start
 ├── runtime/            # worker.py (a Python you put here yourself is used before the shipped one)
 ├── logs/
+├── modules/            # installed modules (.cpm): drop new ones here, Build module writes here too
 ├── slots.json          # persistent content-id -> slot mapping
 ├── build/              # generated resource/data packs (disposable)
 └── projects/
     └── <project_id>/
-        ├── project.json    # name, version, author, description, ...
+        ├── project.json    # name, version, side, dependencies, permissions, ...
         ├── code/           # main.py + modules
         ├── assets/
         │   ├── textures/   # *.png  -> addressable as "<project>:<name>"

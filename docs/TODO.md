@@ -295,6 +295,27 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 - Console tools: `me`, `here`, `content`, `give_all`, `showcase`, `fire`, `timers`, `stop_timers`, `slowest`,
   `bench`, `near`, `docs`, `tools` (worker `_CONSOLE_NAMES`; test `test_console_tools`).
 
+## 9k. Phase 1 closed (2026-10-16): last round - done
+
+- [x] Disconnect on big replies ("Failed to encode packet 'clientbound/minecraft.custom_payload'", `java.cls`):
+  packet text is deflated and capped at 16 MiB (`PayloadText`), an oversized reply becomes a failure message;
+  requests checked before sending. Protocol 2.
+- [x] Minecraft draws inside the IDE (`McCanvas` + `McCanvasRenderer` after `ScreenEvent.Render.Post`): live 3D preview
+  of blocks, items, mobs (GeckoLib, mod renderers), item icons and images in windows. GeckoLib `.geo.json` in `ModelScene`.
+- [x] Recipes & drops tool window: JEI layouts (JEI API 19.64, plugin `compat/jei`), server cards without JEI
+  (`RecipeBook` tool `recipe_book`), every loot table flattened (`LootFlattener`, tool `loot_book`). Old Recipes / Loot
+  tables / visualizer tools removed.
+- [x] UI maker = the designer docked: palette, tree, properties, live window, writes the editor text, Copy Python.
+- [x] Project side at creation (checkbox), Tools > Project side, side checks in validation, building blocks filtered,
+  Build uses it; Build button on the toolbar.
+- [x] 25 more building blocks (56), all run + linted by `test_every_building_block_runs_on_its_side`.
+- [x] `from modules.<id> import ...`, dependencies + load order, Modules > Use in project.
+- [x] `pyforge/imports/` and `exports/` removed: builds go into `modules/`; old dropped files moved, nothing deleted.
+- [x] Console tools, Dungeon Architect example module, real game renders.
+
+Not checked in game yet (needs a run): everything above that draws (McCanvas placement at every GUI scale, JEI layouts,
+mob page, GeckoLib items), Recipes & drops on a big modpack, UI maker on a real window.
+
 ## 8. Known limits (from the last "what is missing" list)
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.
