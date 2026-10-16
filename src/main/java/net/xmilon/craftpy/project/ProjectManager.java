@@ -101,6 +101,15 @@ public final class ProjectManager {
         return projectsDir;
     }
 
+    /** The side written in the project's project.json ({@code both} when unreadable or missing). */
+    public ModuleSide sideOf(String id) {
+        try {
+            return ModuleSide.of(loadMetadata(id, projectsDir.resolve(id)).side);
+        } catch (IOException | RuntimeException unreadable) {
+            return ModuleSide.BOTH;
+        }
+    }
+
     public Project getProject(String id) {
         return id == null ? null : projects.get(id);
     }

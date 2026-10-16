@@ -145,8 +145,8 @@ final class BuildDialog {
         }
         sideHint.setText(switch (chosen) {
             case BOTH -> "Code, recipes and loot run on the server; textures, models, sounds and names go to the players.";
-            case CLIENT -> "Only assets/ (textures, models, sounds, translations): each player's CraftPy applies it as a"
-                    + " resource pack, on any server. No code runs.";
+            case CLIENT -> "assets/, code/ and ui/: the resources become a resource pack and the Python runs on each"
+                    + " player's own computer (HUD, keys, windows), on any server. Nothing runs on the server.";
             case SERVER -> "Only behaviour (code, recipes, loot, tags, commands): players need nothing. Blocks and items"
                     + " would show without textures.";
         });
@@ -193,8 +193,11 @@ final class BuildDialog {
     }
 
     static void open(View anchor, String projectId, String projectName, String projectVersion,
-                     List<ModuleInfo> installed, Consumer<String> onBuild) {
+                     List<ModuleInfo> installed, String projectSide, Consumer<String> onBuild) {
         var built = new BuildDialog(anchor, projectId, projectName, projectVersion, installed, onBuild);
+        if ("client".equals(projectSide)) {
+            built.setSide(net.xmilon.craftpy.project.ModuleSide.CLIENT); // a client project is built as a client module
+        }
         built.dialog.show();
         built.version.requestFocus();
     }

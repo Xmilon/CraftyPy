@@ -29,7 +29,8 @@ class ClientModulePackTest {
         assertEquals(ModuleSide.SERVER, ModuleSide.of("server"));
         assertFalse(ModuleSide.CLIENT.runsOnServer());
         assertFalse(ModuleSide.SERVER.hasAssets());
-        assertTrue(ModuleSide.CLIENT.packs("assets") && !ModuleSide.CLIENT.packs("code") && !ModuleSide.CLIENT.packs("data"));
+        assertTrue(ModuleSide.CLIENT.packs("assets") && ModuleSide.CLIENT.packs("code") && ModuleSide.CLIENT.packs("ui")
+                && !ModuleSide.CLIENT.packs("data"));
         assertTrue(ModuleSide.SERVER.packs("code") && ModuleSide.SERVER.packs("data") && !ModuleSide.SERVER.packs("assets"));
         assertTrue(ModuleSide.BOTH.packs("assets") && ModuleSide.BOTH.packs("code"));
         assertEquals(ModuleSide.BOTH, ModuleBuilder.Request.parse("1.0").side());

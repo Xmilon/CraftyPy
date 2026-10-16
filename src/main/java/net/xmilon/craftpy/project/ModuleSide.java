@@ -6,8 +6,9 @@ import java.util.Locale;
  * Where a module does its work ({@code "side"} in module.json).
  * <ul>
  * <li>{@code both}: code and data run on the server, its assets go to the players (the default, what every module was).</li>
- * <li>{@code client}: only resources (textures, models, sounds, translations); applied by each player's own CraftPy as
- * a resource pack, on any server, even one without CraftPy. No code runs.</li>
+ * <li>{@code client}: resources (textures, models, sounds, translations) applied by each player's own CraftPy as a
+ * resource pack on any server, even one without CraftPy, and Python that runs on the player's computer
+ * (HUD, keys, windows; see {@code ClientPython}). Nothing of it runs on the server.</li>
  * <li>{@code server}: only behaviour (code, recipes, loot, tags, commands); players need nothing installed.</li>
  * </ul>
  */
@@ -44,7 +45,7 @@ public enum ModuleSide {
     public boolean packs(String folder) {
         return switch (this) {
             case BOTH -> true;
-            case CLIENT -> folder.equals("assets");
+            case CLIENT -> folder.equals("assets") || folder.equals("code") || folder.equals("ui");
             case SERVER -> !folder.equals("assets");
         };
     }

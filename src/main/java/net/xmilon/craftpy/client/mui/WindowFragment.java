@@ -235,6 +235,10 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         values.forEach(all::add);
         event.add("values", all);
         String data = event.toString();
+        if (tree.has("local") && tree.get("local").getAsBoolean()) {
+            net.xmilon.craftpy.client.ClientPython.get().windowEvent(data); // drawn by client-side Python
+            return;
+        }
         store(s -> s.request(ProjectAction.WINDOW_EVENT, "", data));
     }
 

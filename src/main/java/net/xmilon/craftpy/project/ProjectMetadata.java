@@ -17,6 +17,8 @@ public class ProjectMetadata {
     /** The Python API version the project was written for; new projects get the current one. */
     public String apiVersion = net.xmilon.craftpy.python.PyApi.version();
     public boolean requiresRestart = false;
+    /** {@code both} (default) or {@code client}: a client project runs on the player's computer, not in the world. */
+    public String side = "both";
     public Map<String, Integer> slotUsage = new LinkedHashMap<>();
 
     public ProjectMetadata() {

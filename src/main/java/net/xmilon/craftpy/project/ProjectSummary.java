@@ -14,6 +14,8 @@ public class ProjectSummary {
     public int fileCount = 0;
     public long sizeBytes = 0L;
     public boolean loaded = false;
+    /** {@code both} or {@code client} ({@link ModuleSide}). */
+    public String side = "both";
     public String error;
 
     public ProjectSummary() {
@@ -27,6 +29,7 @@ public class ProjectSummary {
         summary.version = meta.version;
         summary.description = meta.description;
         summary.requiresRestart = meta.requiresRestart;
+        summary.side = ModuleSide.of(meta.side).id();
         return summary;
     }
 }

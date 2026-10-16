@@ -4167,6 +4167,13 @@ public class EditorFragment extends Fragment {
                 return;
             }
             s.saveActiveFile();
+            var summary = s.find(id);
+            if (summary != null && "client".equals(summary.side)) {
+                // a client project runs in the Python of this computer (HUD, keys, windows), not in the world
+                s.append("Running '" + id + "' on this computer ...");
+                net.xmilon.craftpy.client.ClientPython.get().runProject(id);
+                return;
+            }
             tools.syncBreakpoints(); // before the run, so lines of main.py and its imports record too
             s.request(ProjectAction.LOAD, id, s.debugMode() ? "{\"debug\":true}" : "");
             s.append("Running '" + id + "' ...");
@@ -4196,7 +4203,9 @@ public class EditorFragment extends Fragment {
         store(s -> {
             List<net.xmilon.craftpy.project.ModuleInfo> installed = new ArrayList<>(s.modules());
             s.refreshModules(); // fresher next time
-            host.post(() -> BuildDialog.open(host, id, name, version, installed, request -> {
+            var summary = s.find(id);
+            String projectSide = summary == null ? "both" : summary.side;
+            host.post(() -> BuildDialog.open(host, id, name, version, installed, projectSide, request -> {
                 store(st -> st.buildProject(request));
                 openPanel(PANEL_CONSOLE);
             }));

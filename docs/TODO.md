@@ -252,6 +252,11 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 
 - [x] Three layers (audit hook, code check, memory/process limits), see AUDIT section 10. Everything the API offers keeps
   working (full test suite, welcome, ruby_rush, mod_mashup, jukebox run unchanged).
+- [x] Client-side Python (asked 2026-10-16): `side: client` projects and modules run in a second worker on the player's PC
+  (`client/ClientPython`, answered by `client/ClientHost`; HUD `client/ClientHud`, keys `KeyCombo`, local windows,
+  `ClientStorage`). API 2.3. Tested: worker tests (fake host) and `ClientPythonTest` (real worker process).
+- [ ] Client-side: keys cannot be rebound in the controls screen; vanilla keys are not consumed (the code gets the press too);
+  `client.looking_at()` names blocks by their game id (CraftPy slot blocks show `craftpy:pcblock_N`).
 - [ ] Linux/macOS: the memory cap (`RLIMIT_AS`) and the audit probe are only run on Windows here.
 
 - [x] `docs/STORE.md`: the short description for CurseForge / Modrinth (Markdown, no dev details).

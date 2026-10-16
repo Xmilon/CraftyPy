@@ -93,7 +93,54 @@ public class CraftPyClient {
     }
 
     @SubscribeEvent
+    static void onRegisterGuiLayers(net.neoforged.neoforge.client.event.RegisterGuiLayersEvent event) {
+        event.registerAboveAll(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(CraftPyLog.MODID, "hud"),
+                net.xmilon.craftpy.client.ClientHud::render);
+    }
+
+    // ---- client-side Python (HUD, keys, client events): everything is handed to the background thread
+
+    @SubscribeEvent
+    static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
+        net.xmilon.craftpy.client.ClientPython.get().onTick();
+    }
+
+    @SubscribeEvent
+    static void onJoin(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingIn event) {
+        net.xmilon.craftpy.client.ClientPython python = net.xmilon.craftpy.client.ClientPython.get();
+        python.loadModules();
+        python.event("client_join", new com.google.gson.JsonObject());
+    }
+
+    @SubscribeEvent
+    static void onLeave(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
+        net.xmilon.craftpy.client.ClientPython python = net.xmilon.craftpy.client.ClientPython.get();
+        python.event("client_leave", new com.google.gson.JsonObject());
+        python.shutdown();
+    }
+
+    @SubscribeEvent
+    static void onChat(net.neoforged.neoforge.client.event.ClientChatReceivedEvent event) {
+        com.google.gson.JsonObject context = new com.google.gson.JsonObject();
+        context.addProperty("message", event.getMessage().getString());
+        net.xmilon.craftpy.client.ClientPython.get().event("chat_received", context);
+    }
+
+    @SubscribeEvent
+    static void onScreen(net.neoforged.neoforge.client.event.ScreenEvent.Opening event) {
+        com.google.gson.JsonObject context = new com.google.gson.JsonObject();
+        context.addProperty("screen", event.getNewScreen().getClass().getSimpleName());
+        net.xmilon.craftpy.client.ClientPython.get().event("screen_open", context);
+    }
+
+    @SubscribeEvent
     static void onInput(InputEvent.Key event) {
+        if (event.getAction() == org.lwjgl.glfw.GLFW.GLFW_PRESS && Minecraft.getInstance().screen == null) {
+            String combo = net.xmilon.craftpy.client.KeyCombo.name(event.getKey(), event.getModifiers());
+            if (combo != null && net.xmilon.craftpy.client.ClientHost.isBound(combo)) {
+                net.xmilon.craftpy.client.ClientPython.get().key(combo);
+            }
+        }
         if (OPEN_IDE_KEY.consumeClick()) {
             Minecraft mc = Minecraft.getInstance();
             // admins, or the owner of a singleplayer world (the server checks again on every request)

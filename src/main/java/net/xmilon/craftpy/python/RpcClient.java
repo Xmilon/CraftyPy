@@ -42,12 +42,18 @@ public final class RpcClient {
     private Thread readerThread;
     private Thread stderrThread;
     private java.util.function.BiFunction<String, JsonObject, JsonObject> hostHandler;
+    private Map<String, String> extraEnvironment = Map.of();
     private java.util.concurrent.ExecutorService hostExecutor;
 
     public RpcClient(Path python, Path workerScript, Path logFile) {
         this.python = python;
         this.workerScript = workerScript;
         this.logFile = logFile;
+    }
+
+    /** Environment variables for the worker process (the client's worker gets {@code CRAFTPY_MODE=client}). */
+    public void setEnvironment(Map<String, String> environment) {
+        this.extraEnvironment = Map.copyOf(environment);
     }
 
     /** Installs the handler for reverse calls (Python -> Java). */
@@ -83,6 +89,7 @@ public final class RpcClient {
             builder.environment().put("PYTHONUNBUFFERED", "1");
             // the worker's sandbox (worker.py _harden): the memory cap and the only folder project code may read
             builder.environment().put("CRAFTPY_MEMORY_MB", String.valueOf(net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PYTHON_MEMORY_MB)));
+            builder.environment().putAll(extraEnvironment);
             builder.environment().put("CRAFTPY_READ_ROOTS", net.xmilon.craftpy.project.PyForgePaths.root().toAbsolutePath().toString());
             process = builder.start();
             out = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));

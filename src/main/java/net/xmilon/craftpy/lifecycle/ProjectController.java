@@ -56,6 +56,11 @@ public final class ProjectController {
     }
 
     public void load(String projectId, MinecraftServer server, boolean debug) {
+        ProjectManager sides = ProjectManager.get();
+        if (sides != null && sides.sideOf(projectId) == net.xmilon.craftpy.project.ModuleSide.CLIENT) {
+            CraftPyLog.LOGGER.info("Project {} is client-side: it runs on the player's computer, not in the world", projectId);
+            return;
+        }
         if (!loading.add(projectId)) {
             loadAgain.add(projectId); // run once more when the current run is done
             return;

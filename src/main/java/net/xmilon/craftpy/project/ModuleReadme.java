@@ -75,7 +75,7 @@ public final class ModuleReadme {
         }
         out.append("| Works on | ").append(switch (side) {
             case BOTH -> "client and server";
-            case CLIENT -> "client only (a resource pack: textures, models, sounds, names)";
+            case CLIENT -> "client only (a resource pack and Python that runs on the player's computer)";
             case SERVER -> "server only (behaviour; players install nothing)";
         }).append(" |\n");
         out.append("| CraftPy Python API | ").append(blank(apiVersion) ? "-" : apiVersion).append(" |\n");
@@ -103,7 +103,8 @@ public final class ModuleReadme {
             any = true;
         }
         if (!any) {
-            out.append(side == ModuleSide.CLIENT ? "Resources only (assets/).\n" : "No blocks, items or commands found in the code.\n");
+            out.append(side == ModuleSide.CLIENT ? "Client-side: resources and screen code (HUD, keys, windows).\n"
+                    : "No blocks, items or commands found in the code.\n");
         }
         out.append("\n_Written by CraftPy when the module was built; add a README.md to the project to write your own._\n");
         return out.toString();

@@ -113,6 +113,10 @@ public final class ProjectRequestHandler {
                 if (!ProjectManager.isValidId(id)) {
                     return CompletableFuture.completedFuture(fail(action, "Invalid project id"));
                 }
+                if (manager.sideOf(id) == net.xmilon.craftpy.project.ModuleSide.CLIENT) {
+                    return CompletableFuture.completedFuture(fail(action, id + " is a client-side project: it runs on your"
+                            + " computer (Run in the editor), not in the world"));
+                }
                 net.xmilon.craftpy.lifecycle.ProjectController.get().load(id, caller.server(), loadDebug(request.data()));
                 return CompletableFuture.completedFuture(ResponsePayload.success(ProjectAction.LOAD,
                         "Loading " + id + " ...", id));

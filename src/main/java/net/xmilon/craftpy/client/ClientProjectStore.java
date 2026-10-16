@@ -479,6 +479,7 @@ public final class ClientProjectStore {
             if (net.xmilon.craftpy.dynamics.ClientModulePack.refresh()) {
                 net.xmilon.craftpy.client.ClientPackSync.reload();
             }
+            net.xmilon.craftpy.client.ClientPython.get().loadModules(); // code of client modules, on this computer
         });
     }
 

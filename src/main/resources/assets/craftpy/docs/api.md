@@ -76,6 +76,7 @@ your .py files ──Run──> Python worker ──declarations──> CraftPy 
 | change blocks, spawn mobs, explode | [World](#world) |
 | remember numbers between events | [Storage](#storage) |
 | open a window with buttons | [Windows](#windows) |
+| draw on the screen, add hotkeys, make a client-side mod | [Client-side code](#client-side-code) |
 | print, debug, try code live | [Chat, console and debugging](#chat-console-and-debugging) |
 | check my code with tests | [Tests](#tests) |
 | see what changed between versions | [API versions](#api-versions) |
@@ -390,6 +391,38 @@ storage.set("home:" + p.name, [p.x, p.y, p.z])
 - Shared by all your handlers and saved with the world: values are still there after a restart.
 - Values must be JSON: numbers, text, `True`/`False`, `None`, lists and dicts.
 
+## Client-side code
+
+**What it is:** Python that runs on the player's own computer, in a second sandboxed worker. It can draw on the screen,
+listen to keys, react to client events and open windows. It can **not** change the world, give items, run commands or
+talk to the server: it only sees what the game already shows the player. Think of a client-side mod.
+
+```python
+from craftpy import *
+
+@on.client_tick
+def refresh(event):
+    me = client.player()
+    hud.text("coords", "XYZ %d %d %d" % (me.x, me.y, me.z), anchor="bottom_left", x=4, y=-4, color="aqua")
+    hud.bar("health", me.health, max=me.max_health, anchor="top_left", x=4, y=4, label="HP")
+
+@keys.bind("f7")
+def hide(ctx):
+    hud.clear()
+    client.chat("HUD hidden")
+```
+
+- **Where it lives:** a project whose `project.json` has `"side": "client"` (Run starts it on this computer), or a module built
+  as **Client only** (installed modules of that kind start when you join a world). Both are in the Modules page.
+- **On the screen:** `hud.text`, `hud.bar`, `hud.item`; the same id replaces the element, `hud.remove` / `hud.clear` take it off.
+- **Keys:** `@keys.bind("ctrl+k")`, one key plus optional ctrl / shift / alt. Works while no screen is open.
+- **Events:** `client_tick` (every game tick), `chat_received`, `screen_open`, `client_join`, `client_leave`.
+- **Read:** `client.player()`, `client.looking_at()`, `client.fps()`. **Show to you only:** `client.chat`, `client.sound`, `client.toast`.
+- **Windows:** `@window` classes work as usual; open them with `client.open_window("id")`.
+- `storage` keeps values on this computer (not in the world), `after` / `every` timers work.
+- In server-side code the names `hud`, `keys` and `client` exist but say that they only work in client-side code.
+- Switch it off with `enableClientPython` in the config.
+
 ## Windows
 
 **What it is:** a window with labels, buttons, fields and sliders that opens for a player.
@@ -499,6 +532,7 @@ raw_json("worldgen/configured_feature/ruby.json", {...})          # any data fil
 - Blocks and items are slots registered when the game starts (a pool per kind), so content appears without a restart.
 - Custom entities and custom mob effects can be declared but are not wired into the game yet.
 - Python runs in a sandbox: no files, network or OS access. Handlers get about 50 ms.
+- Client-side code cannot change the world; keys cannot be rebound in the controls screen (the code chooses them).
 - The sandbox also refuses the insides of the interpreter: attributes such as `__globals__`, `__subclasses__`,
   `__code__`, `f_back`, `gi_frame` and modules such as `inspect` and `gc`. The editor marks them as errors while you
   type. Everything the API offers (classes, `__init__`, `__repr__`, `super()`, properties, `getattr` on your own names)
