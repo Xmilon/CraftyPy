@@ -1,6 +1,6 @@
 #: title: Protect a block from breaking
 #: category: Events
-#: doc: api.md#6. Events
+#: doc: api.md#Events
 #: module: protected_blocks
 #: about: Players in survival cannot break bedrock-like blocks you name (event.cancel()).
 from craftpy import *

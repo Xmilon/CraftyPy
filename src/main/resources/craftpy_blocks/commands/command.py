@@ -1,6 +1,6 @@
 #: title: Command with arguments
 #: category: Commands
-#: doc: api.md#12. Commands
+#: doc: api.md#Commands
 #: module: gift_command
 #: about: /{{id}}:{{name}} <player> <amount> - arguments come from the annotations.
 from craftpy import *

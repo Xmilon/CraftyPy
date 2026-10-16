@@ -1,6 +1,6 @@
 #: title: Reward for breaking a block
 #: category: Events
-#: doc: api.md#6. Events
+#: doc: api.md#Events
 #: module: diamond_luck
 #: about: Breaking stone sometimes gives a diamond; counts per world with storage.
 import random

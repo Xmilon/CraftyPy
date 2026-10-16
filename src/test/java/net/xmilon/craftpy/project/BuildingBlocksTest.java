@@ -67,4 +67,13 @@ class BuildingBlocksTest {
         assertEquals("# only a comment\nimport shop\nx = 1", PyImports.addImport("# only a comment\nx = 1", "shop"));
         assertEquals("import a, shop as s\n", PyImports.addImport("import a, shop as s\n", "shop"));
     }
+
+    @Test
+    void everyDocsLinkOpensASectionOfTheDocs() throws Exception {
+        for (BuildingBlocks.Block block : BuildingBlocks.all()) {
+            String markdown = Files.readString(Path.of("src/main/resources/assets/craftpy/docs", block.docFile()));
+            String section = BuildingBlocks.section(markdown, block.docHeading());
+            assertTrue(section.length() < markdown.length() / 2, block.file() + " -> " + block.doc() + " matches no heading");
+        }
+    }
 }

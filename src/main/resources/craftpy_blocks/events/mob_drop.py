@@ -1,6 +1,6 @@
 #: title: Extra drop from mobs
 #: category: Events
-#: doc: api.md#6. Events
+#: doc: api.md#Events
 #: module: zombie_loot
 #: about: Zombies killed by a player sometimes drop an extra item.
 import random

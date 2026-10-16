@@ -1,6 +1,6 @@
 #: title: Glowing block
 #: category: Blocks
-#: doc: api.md#2. Blocks
+#: doc: api.md#Blocks
 #: module: crystal_lamp
 #: about: A block that gives light (0-15) and a recipe for it.
 from craftpy import *

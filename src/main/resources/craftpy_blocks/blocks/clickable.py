@@ -1,6 +1,6 @@
 #: title: Block that reacts to a right click
 #: category: Blocks
-#: doc: api.md#6. Events
+#: doc: api.md#Events
 #: module: healing_altar
 #: about: Right click the block: heal the player and show particles.
 from craftpy import *

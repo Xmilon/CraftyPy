@@ -1,6 +1,6 @@
 #: title: Simple block
 #: category: Blocks
-#: doc: api.md#2. Blocks
+#: doc: api.md#Blocks
 #: module: ruby_block
 #: about: A decorative block that drops itself, mined with a pickaxe.
 from craftpy import *

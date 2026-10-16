@@ -1,6 +1,6 @@
 #: title: Home: set and go back
 #: category: Commands
-#: doc: api.md#11. Storage
+#: doc: api.md#Storage
 #: module: home
 #: about: /{{id}}:sethome saves where you stand, /{{id}}:home takes you back (storage).
 from craftpy import *

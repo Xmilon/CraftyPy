@@ -78,9 +78,11 @@ def build(worker=None):
     worker = worker or load_worker()
     docs = worker._DOCS
     missing = []
-    out = [START, "", "# Reference: every function and what each parameter does", ""]
+    out = [START, "", "## Reference", "",
+           "Every function, class and method with all its parameters, by topic. Use the search of this page, or hover a "
+           "name in the editor (`Ctrl+Q`).", ""]
     for chapter, keys in CHAPTERS:
-        out += ["## " + chapter, ""]
+        out += ["### " + chapter, ""]
         for key in keys:
             if key not in docs:
                 missing.append("%s: no documentation" % key)
@@ -94,7 +96,7 @@ def build(worker=None):
             except (TypeError, ValueError):
                 sig = None
             shown = key if member else key
-            out += ["### `%s%s`" % (shown, sig if sig is not None else "()"), "", summary, ""]
+            out += ["#### `%s%s`" % (shown, sig if sig is not None else "()"), "", summary, ""]
             rows = []
             if sig is not None:
                 for p in sig.parameters.values():

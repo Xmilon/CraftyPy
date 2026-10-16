@@ -1,6 +1,6 @@
 #: title: Chat command word
 #: category: Events
-#: doc: api.md#6. Events
+#: doc: api.md#Events
 #: module: chat_words
 #: about: Answer when a player writes a word in chat (here !time).
 from craftpy import *

@@ -1,6 +1,6 @@
 #: title: Greet joining players
 #: category: Events
-#: doc: api.md#6. Events
+#: doc: api.md#Events
 #: module: greetings
 #: about: A title and a chat line for every player who joins.
 from craftpy import *

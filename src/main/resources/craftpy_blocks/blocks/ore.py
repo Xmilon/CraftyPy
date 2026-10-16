@@ -1,6 +1,6 @@
 #: title: Ore that drops an item
 #: category: Blocks
-#: doc: api.md#2. Blocks
+#: doc: api.md#Blocks
 #: module: ruby_ore
 #: about: An ore that needs a pickaxe and drops two of a new item; the item smelts back from the ore.
 from craftpy import *
