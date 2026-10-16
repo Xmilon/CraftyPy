@@ -928,6 +928,39 @@ def test_lint_checks():
     assert clean == [], clean
 
 
+def test_debugger_snapshots():
+    code = NL.join([
+        "from craftpy import *",
+        "total = 0",
+        "",
+        "@on.player_join",
+        "def hello(event):",
+        "    greeting = 'hi ' + event.player.name",
+        "    event.player.say(greeting)",
+        "",
+        "for i in range(3):",
+        "    total += i",
+        ""])
+    w._handle("debug", {"project": "dbg", "cmd": "set", "breakpoints": {"code/main.py": [6, 9]}})
+    run_main("dbg", code)
+    first = w._handle("debug", {"project": "dbg", "cmd": "hits"})
+    loop = [h for h in first["hits"] if h["line"] == 9]
+    assert len(loop) == 3 and first["breakpoints"] == 2, first
+    assert ["i", "int", "2"] in loop[-1]["variables"], loop[-1]["variables"]
+    ctx = {"player": {"name": "Alex", "uuid": "u-1"}}
+    w._handle("trigger_event", {"event": "player_join", "context": ctx})
+    after = w._handle("debug", {"project": "dbg", "cmd": "hits", "since": first["last"]})
+    hit = after["hits"][0]
+    assert hit["function"] == "hello" and hit["line"] == 6, hit
+    assert ["greeting", "str", "'hi Alex'"] in hit["variables"], hit["variables"]
+    assert hit["stack"][0]["function"] == "hello", hit["stack"]
+    assert sys.gettrace() is None
+    w._handle("debug", {"project": "dbg", "cmd": "set", "breakpoints": {}})
+    w._handle("debug", {"project": "dbg", "cmd": "clear"})
+    w._handle("trigger_event", {"event": "player_join", "context": ctx})
+    assert w._handle("debug", {"project": "dbg", "cmd": "hits"})["hits"] == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

@@ -36,7 +36,7 @@ its blocks, items and event handlers, and the error is shown with its file and l
 
 The layout follows IntelliJ's New UI. The **main toolbar** has the project widget (switch project, run, build, settings),
 the menus, *Search Everywhere* and the Run / Reload / Stop buttons. The narrow **stripes** on the left and right edges open
-and close the tool windows (also `Alt+1`, `Alt+2`, `Alt+4`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`); drag the thin bars between
+and close the tool windows (also `Alt+1`, `Alt+2`, `Alt+4`, `Alt+5`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`); drag the thin bars between
 the panels to resize them. `Ctrl+\` splits the editor in two, `Ctrl+Shift+F12` hides every tool window, and
 `Ctrl+Alt+S` opens the settings. The same IDE runs without the game: `gradlew runIde`.
 
@@ -212,6 +212,7 @@ See the *Java bridge* topic: `java.cls("net.minecraft...")`, `java.new(...)`, `@
 | `Ctrl+J` | Join lines |
 | `Ctrl+Shift+Enter` | Split line |
 | `Ctrl+F2` | Toggle bookmark |
+| `Ctrl+F8` | Toggle breakpoint (red dot): each time the line runs, the Debug window (`Alt+5`) gets the call stack and the variables; the game never pauses |
 | `F2` / `Shift+F2` | Next / previous bookmark (in the explorer, `F2` renames) |
 | `Tab` / `Shift+Tab` | Indent / unindent |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset (also `Ctrl` + mouse wheel) |
@@ -233,7 +234,7 @@ See the *Java bridge* topic: `java.cls("net.minecraft...")`, `java.new(...)`, `@
 | `Tab` after `onj`, `onb`, `cmd`, `win`, `item`... | Expand a live template (see below) |
 | `Ctrl+Shift+T` | Reopen the last closed tab |
 | `Ctrl+\` | Split the editor right / close the split |
-| `Alt+1` / `Alt+2` / `Alt+4` / `Alt+6` / `Alt+7` / `Alt+8` / `Alt+9` | Project / Bookmarks / Console / Problems / Structure / Building blocks / Assets |
+| `Alt+1` / `Alt+2` / `Alt+4` / `Alt+5` / `Alt+6` / `Alt+7` / `Alt+8` / `Alt+9` | Project / Bookmarks / Console / Debug / Problems / Structure / Building blocks / Assets |
 | `Ctrl+Shift+F12` | Hide all tool windows (again: bring them back) |
 | `F1` | This help |
 

@@ -55,6 +55,7 @@ public final class ProjectTools {
             case "decls" -> done(decls(projectId));
             case "profile" -> profile(request);
             case "run_tests" -> runTests(manager, projectId, string(request, "file"));
+            case "debug" -> debug(projectId, request);
             case "trace" -> done(trace(request));
             case "complete", "hover", "signature" -> assist(op, projectId, request);
             case "changes" -> done(changes(projectId));
@@ -582,6 +583,27 @@ public final class ProjectTools {
         return PyRuntime.get().profile(reset).thenApply(result -> {
             result.addProperty("op", "profile");
             return ok(fit(result, "rows"));
+        });
+    }
+
+    /** Breakpoint snapshots (they never pause the game): sync the breakpoints, read the hits. */
+    private static CompletableFuture<ResponsePayload> debug(String projectId, JsonObject request) {
+        if (!PyRuntime.available()) {
+            return done(error("debug", "No Python runtime"));
+        }
+        JsonObject params = new JsonObject();
+        params.addProperty("project", projectId);
+        params.addProperty("cmd", string(request, "cmd"));
+        params.addProperty("since", request.has("since") ? request.get("since").getAsLong() : 0);
+        if (request.has("breakpoints") && request.get("breakpoints").isJsonObject()) {
+            params.add("breakpoints", request.getAsJsonObject("breakpoints"));
+        }
+        return PyRuntime.get().debug(params).thenApply(result -> {
+            if (result.has("error")) {
+                return error("debug", result.get("error").getAsString());
+            }
+            result.addProperty("op", "debug");
+            return ok(fit(result, "hits"));
         });
     }
 

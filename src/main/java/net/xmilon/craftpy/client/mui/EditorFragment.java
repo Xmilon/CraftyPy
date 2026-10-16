@@ -68,6 +68,7 @@ public class EditorFragment extends Fragment {
     private static final int PANEL_PROBLEMS = 1;
     private static final int PANEL_BOOKMARKS = 2;
     private static final int PANEL_EVENTS = 3;
+    private static final int PANEL_DEBUG = 4;
 
     /** Immutable copy of the store state, taken on the client thread. */
     private record State(@Nullable String projectId, String projectName, String projectVersion,
@@ -107,8 +108,8 @@ public class EditorFragment extends Fragment {
     private ScrollView consoleScroll;
     private LinearLayout problems;
     private LinearLayout bookmarkList;
-    private final TextView[] panelTabs = new TextView[4];
-    private final View[] panelPanes = new View[4];
+    private final TextView[] panelTabs = new TextView[5];
+    private final View[] panelPanes = new View[5];
     private TextView breadcrumb;
     private TextView sticky;
     private View statusBar;
@@ -213,6 +214,18 @@ public class EditorFragment extends Fragment {
         @Override
         public java.util.Map<String, String> dirtyTexts() {
             return EditorFragment.this.dirtyTexts();
+        }
+
+        @Override
+        public java.util.Map<String, TreeSet<Integer>> breakpoints() {
+            return settings.breakpointsOf(projectId());
+        }
+
+        @Override
+        public void clearBreakpoints() {
+            settings.clearBreakpoints(projectId());
+            settings.save();
+            updateGutter();
         }
 
         @Override
@@ -663,6 +676,7 @@ public class EditorFragment extends Fragment {
         stripe.add(IdeIcon.Glyph.TERMINAL, "Python console (Alt+4)", () -> bottomShows(PANEL_CONSOLE), v -> toggleBottom(PANEL_CONSOLE));
         stripe.add(IdeIcon.Glyph.WARNING, "Problems (Alt+6)", () -> bottomShows(PANEL_PROBLEMS), v -> toggleBottom(PANEL_PROBLEMS));
         stripe.add(IdeIcon.Glyph.PULSE, "Event tracer", () -> bottomShows(PANEL_EVENTS), v -> toggleBottom(PANEL_EVENTS));
+        stripe.add(IdeIcon.Glyph.EYE, "Debugger (Alt+5)", () -> bottomShows(PANEL_DEBUG), v -> toggleBottom(PANEL_DEBUG));
         return stripe;
     }
 
@@ -997,6 +1011,8 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Extract variable", "Ctrl+Alt+V", tools::extractVariable));
         a.add(new ActionEntry("Extract function", "Ctrl+Alt+M", tools::extractFunction));
         a.add(new ActionEntry("Toggle bookmark", "Ctrl+F2", this::toggleBookmark));
+        a.add(new ActionEntry("Toggle breakpoint", "Ctrl+F8", this::toggleBreakpoint));
+        a.add(new ActionEntry("Debugger: breakpoint hits with stack and variables", "Alt+5", () -> openPanel(PANEL_DEBUG)));
         a.add(new ActionEntry("Split editor right", "Ctrl+\\", () -> {
             if (splitOpen()) {
                 closeSplit();
@@ -1975,7 +1991,7 @@ public class EditorFragment extends Fragment {
 
         var header = row(context);
         header.setPadding(header.dp(8), header.dp(2), header.dp(8), header.dp(2));
-        String[] names = { "Console", "Problems", "Bookmarks", "Events" };
+        String[] names = { "Console", "Problems", "Bookmarks", "Events", "Debug" };
         for (int i = 0; i < names.length; i++) {
             final int index = i;
             panelTabs[i] = panelTab(context, names[i], v -> showPanel(index));
@@ -2078,6 +2094,9 @@ public class EditorFragment extends Fragment {
         panelPanes[PANEL_EVENTS] = tools.createEventsPane(context);
         panelView.addView(panelPanes[PANEL_EVENTS], new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
 
+        panelPanes[PANEL_DEBUG] = tools.createDebugPane(context);
+        panelView.addView(panelPanes[PANEL_DEBUG], new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+
         showPanel(PANEL_CONSOLE);
         return panelView;
     }
@@ -2113,6 +2132,11 @@ public class EditorFragment extends Fragment {
             tools.eventsPanelShown();
         } else {
             tools.eventsPanelHidden();
+        }
+        if (index == PANEL_DEBUG) {
+            tools.debugPanelShown();
+        } else {
+            tools.debugPanelHidden();
         }
     }
 
@@ -3155,6 +3179,7 @@ public class EditorFragment extends Fragment {
         String all = code.getText().toString();
         var layout = code.getLayout();
         TreeSet<Integer> marks = shownPath == null ? new TreeSet<>() : settings.bookmarks(projectId(), shownPath);
+        TreeSet<Integer> points = shownPath == null ? new TreeSet<>() : settings.breakpoints(projectId(), shownPath);
         var numbers = new StringBuilder();
         int line = 0;
         int start = 0;
@@ -3164,7 +3189,7 @@ public class EditorFragment extends Fragment {
             if (last) {
                 end = all.length();
             }
-            numbers.append(marks.contains(line) ? "◆ " : "").append(line + 1);
+            numbers.append(points.contains(line) ? "● " : "").append(marks.contains(line) ? "◆ " : "").append(line + 1);
             if (layout != null && isWrapped()) {
                 int visual = layout.getLineForOffset(end) - layout.getLineForOffset(start);
                 numbers.append("\n".repeat(Math.max(0, visual)));
@@ -3200,14 +3225,17 @@ public class EditorFragment extends Fragment {
         }
         gutterCaretLine = line;
         String text = gutterText.toString();
+        var spans = new SpannableString(text);
+        for (int dot = text.indexOf('●'); dot >= 0; dot = text.indexOf('●', dot + 1)) {
+            spans.setSpan(new ForegroundColorSpan(IdeColors.ERROR), dot, dot + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
         // the gutter has one row per logical line when not wrapped; wrapped files skip the highlight
         if (isWrapped() || line >= gutterLineStarts.length) {
-            gutter.setText(text);
+            gutter.setText(spans);
             return;
         }
         int start = gutterLineStarts[line];
         int end = text.indexOf('\n', start);
-        var spans = new SpannableString(text);
         spans.setSpan(new ForegroundColorSpan(IdeColors.TEXT), start, end < 0 ? text.length() : end,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         gutter.setText(spans);
@@ -3227,14 +3255,21 @@ public class EditorFragment extends Fragment {
         if (removed == added) {
             return;
         }
-        TreeSet<Integer> marks = settings.bookmarks(projectId(), shownPath);
-        if (marks.isEmpty()) {
-            return;
+        int at = TextOps.lineOf(s.toString(), changeStart);
+        boolean changed = false;
+        for (TreeSet<Integer> marks : List.of(settings.bookmarks(projectId(), shownPath),
+                settings.breakpoints(projectId(), shownPath))) {
+            if (marks.isEmpty()) {
+                continue;
+            }
+            TreeSet<Integer> shifted = TextOps.shiftLines(marks, at, removed, added);
+            marks.clear();
+            marks.addAll(shifted);
+            changed = true;
         }
-        TreeSet<Integer> shifted = TextOps.shiftLines(marks, TextOps.lineOf(s.toString(), changeStart), removed, added);
-        marks.clear();
-        marks.addAll(shifted);
-        settings.save();
+        if (changed) {
+            settings.save();
+        }
     }
 
     /** Auto-pairs, surround, closer step-over and else/except dedent after a single typed character. */
@@ -3311,6 +3346,10 @@ public class EditorFragment extends Fragment {
                 }
                 case KeyEvent.KEY_4 -> {
                     toggleBottom(PANEL_CONSOLE);
+                    return true;
+                }
+                case KeyEvent.KEY_5 -> {
+                    toggleBottom(PANEL_DEBUG);
                     return true;
                 }
                 case KeyEvent.KEY_6 -> {
@@ -3447,6 +3486,7 @@ public class EditorFragment extends Fragment {
                     }
                 }
                 case KeyEvent.KEY_F2 -> toggleBookmark();
+                case KeyEvent.KEY_F8 -> toggleBreakpoint();
                 default -> {
                     return false;
                 }
@@ -3600,6 +3640,21 @@ public class EditorFragment extends Fragment {
     // ------------------------------------------------------------------
     // Bookmarks
     // ------------------------------------------------------------------
+
+    /** Ctrl+F8: a breakpoint records the stack and variables each time the line runs (the game never pauses). */
+    private void toggleBreakpoint() {
+        if (shownPath == null || !shownPath.endsWith(".py")) {
+            return;
+        }
+        int line = TextOps.lineOf(code.getText().toString(), code.getSelectionStart());
+        TreeSet<Integer> points = settings.breakpoints(projectId(), shownPath);
+        if (!points.remove(line)) {
+            points.add(line);
+        }
+        settings.save();
+        updateGutter();
+        tools.syncBreakpoints();
+    }
 
     private void toggleBookmark() {
         if (shownPath == null) {
@@ -3893,6 +3948,8 @@ public class EditorFragment extends Fragment {
         m.add("Loot tables...").setOnMenuItemClickListener(i -> run(tools::loot));
         m.add("Handler profiler...").setOnMenuItemClickListener(i -> run(tools::profiler));
         m.add("Event tracer").setOnMenuItemClickListener(i -> run(() -> openPanel(PANEL_EVENTS)));
+        m.add("Debugger   Alt+5").setOnMenuItemClickListener(i -> run(() -> openPanel(PANEL_DEBUG)));
+        m.add("Toggle breakpoint   Ctrl+F8").setOnMenuItemClickListener(i -> run(this::toggleBreakpoint));
         menu.show();
     }
 
@@ -4110,6 +4167,7 @@ public class EditorFragment extends Fragment {
                 return;
             }
             s.saveActiveFile();
+            tools.syncBreakpoints(); // before the run, so lines of main.py and its imports record too
             s.request(ProjectAction.LOAD, id, s.debugMode() ? "{\"debug\":true}" : "");
             s.append("Running '" + id + "' ...");
         });

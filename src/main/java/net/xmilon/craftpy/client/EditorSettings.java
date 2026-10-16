@@ -51,6 +51,8 @@ public final class EditorSettings {
     public Set<String> wrapped = new TreeSet<>();
     public Set<String> pinned = new LinkedHashSet<>();
     public Map<String, TreeSet<Integer>> bookmarks = new LinkedHashMap<>();
+    /** Debugger breakpoints by {@link #key(String, String)}, 0-based lines. */
+    public Map<String, TreeSet<Integer>> breakpoints = new LinkedHashMap<>();
     public List<String> recent = new ArrayList<>();
     public List<String> findHistory = new ArrayList<>();
 
@@ -90,6 +92,7 @@ public final class EditorSettings {
         if (wrapped == null) wrapped = new TreeSet<>();
         if (pinned == null) pinned = new LinkedHashSet<>();
         if (bookmarks == null) bookmarks = new LinkedHashMap<>();
+        if (breakpoints == null) breakpoints = new LinkedHashMap<>();
         if (recent == null) recent = new ArrayList<>();
         if (findHistory == null) findHistory = new ArrayList<>();
         if (expanded == null) expanded = new LinkedHashMap<>();
@@ -144,5 +147,26 @@ public final class EditorSettings {
 
     public synchronized TreeSet<Integer> bookmarks(String project, String path) {
         return bookmarks.computeIfAbsent(key(project, path), k -> new TreeSet<>());
+    }
+
+    public synchronized TreeSet<Integer> breakpoints(String project, String path) {
+        return breakpoints.computeIfAbsent(key(project, path), k -> new TreeSet<>());
+    }
+
+    /** The breakpoints of a project by file path (files without any are left out). */
+    public synchronized Map<String, TreeSet<Integer>> breakpointsOf(String project) {
+        Map<String, TreeSet<Integer>> out = new LinkedHashMap<>();
+        String prefix = key(project, "");
+        breakpoints.forEach((key, lines) -> {
+            if (key.startsWith(prefix) && !lines.isEmpty()) {
+                out.put(key.substring(prefix.length()), new TreeSet<>(lines));
+            }
+        });
+        return out;
+    }
+
+    public synchronized void clearBreakpoints(String project) {
+        String prefix = key(project, "");
+        breakpoints.keySet().removeIf(key -> key.startsWith(prefix));
     }
 }

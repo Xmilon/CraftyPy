@@ -82,6 +82,12 @@ final class EditorTools {
         /** Unsaved open files (path to current text); the active one uses the live editor text. */
         Map<String, String> dirtyTexts();
 
+        /** The project's breakpoints by file (0-based lines). */
+        Map<String, java.util.TreeSet<Integer>> breakpoints();
+
+        /** Removes every breakpoint of the project (and redraws the gutter). */
+        void clearBreakpoints();
+
         /** Shows a read-only built-in file (the generated API) and moves to a 0-based line. */
         void openLibrary(String path, String text, int line);
 
@@ -1181,6 +1187,148 @@ final class EditorTools {
         hoverBackground(view);
         view.setOnClickListener(onClick);
         return view;
+    }
+
+    // ---- Debugger: breakpoints record the stack and variables; the game never pauses (see _debug in worker.py)
+
+    private LinearLayout debugList;
+    private TextView debugStatus;
+    private boolean debugVisible;
+    private long debugLast;
+    private final List<JsonObject> debugHits = new ArrayList<>();
+
+    View createDebugPane(Context context) {
+        var pane = new LinearLayout(context);
+        pane.setOrientation(LinearLayout.VERTICAL);
+        var header = row(context);
+        header.setPadding(header.dp(8), header.dp(2), header.dp(8), header.dp(2));
+        header.addView(smallButton(context, "Clear", "Forget the recorded hits", v -> {
+            debugHits.clear();
+            renderDebug();
+            sendDebug("clear");
+        }));
+        header.addView(smallButton(context, "Remove breakpoints", "Remove every breakpoint of this project", v -> {
+            host.clearBreakpoints();
+            syncBreakpoints();
+        }));
+        debugStatus = label(context, "", R.attr.textAppearanceBodySmall);
+        debugStatus.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        debugStatus.setPadding(header.dp(10), 0, 0, 0);
+        header.addView(debugStatus);
+        pane.addView(header);
+        debugList = new LinearLayout(context);
+        debugList.setOrientation(LinearLayout.VERTICAL);
+        debugList.setPadding(debugList.dp(8), debugList.dp(2), debugList.dp(8), debugList.dp(2));
+        var scroll = new ScrollView(context);
+        scroll.addView(debugList, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        pane.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+        renderDebug();
+        return pane;
+    }
+
+    void debugPanelShown() {
+        debugVisible = true;
+        sendDebug("sync");
+    }
+
+    void debugPanelHidden() {
+        debugVisible = false;
+    }
+
+    /** Sends the project's breakpoints to the worker (after a toggle, before a run; the worker forgets them on restart). */
+    void syncBreakpoints() {
+        sendDebug("sync");
+    }
+
+    private void sendDebug(String cmd) {
+        if (host.projectId() == null || debugList == null) {
+            return;
+        }
+        JsonObject args = new JsonObject();
+        args.addProperty("cmd", cmd);
+        args.addProperty("since", debugLast);
+        JsonObject points = new JsonObject();
+        host.breakpoints().forEach((file, lines) -> {
+            JsonArray list = new JsonArray();
+            lines.forEach(list::add);
+            points.add(file, list);
+        });
+        args.add("breakpoints", points);
+        View view = debugList;
+        store(s -> s.tool("debug", args, reply -> view.post(() -> onDebug(reply))));
+    }
+
+    private void onDebug(JsonObject reply) {
+        if (reply.has("error")) {
+            debugStatus.setText(reply.get("error").getAsString());
+            return;
+        }
+        int count = reply.has("breakpoints") ? reply.get("breakpoints").getAsInt() : 0;
+        for (JsonElement e : reply.getAsJsonArray("hits")) {
+            debugHits.add(0, e.getAsJsonObject());
+        }
+        while (debugHits.size() > 100) {
+            debugHits.remove(debugHits.size() - 1);
+        }
+        debugLast = reply.has("last") ? reply.get("last").getAsLong() : debugLast;
+        debugStatus.setText(count == 0 ? "No breakpoints: Ctrl+F8 on a line adds one."
+                : count + " breakpoint(s). The game does not pause: each hit records the call stack and the variables.");
+        renderDebug();
+        if (debugVisible && count > 0) {
+            debugList.postDelayed(() -> {
+                if (debugVisible) {
+                    sendDebug("hits");
+                }
+            }, 1000);
+        }
+    }
+
+    private void renderDebug() {
+        if (debugList == null) {
+            return;
+        }
+        debugList.removeAllViews();
+        Context context = debugList.getContext();
+        if (debugHits.isEmpty()) {
+            var none = label(context, "No hits yet. Put a breakpoint on a line (Ctrl+F8), then run the project or do what"
+                    + " triggers that code in the game.", R.attr.textAppearanceBodySmall);
+            none.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+            debugList.addView(none);
+            return;
+        }
+        for (JsonObject hit : debugHits) {
+            String file = hit.get("file").getAsString();
+            int line = hit.get("line").getAsInt();
+            var title = label(context, hit.get("time").getAsString() + "   " + file + ":" + (line + 1) + "   in "
+                    + hit.get("function").getAsString() + "()   hit " + hit.get("hit").getAsInt(), R.attr.textAppearanceLabelLarge);
+            title.setTextColor(IdeColors.TEXT);
+            title.setPadding(0, title.dp(6), 0, title.dp(2));
+            title.setClickable(true);
+            hoverBackground(title);
+            title.setOnClickListener(v -> host.openAt(file, line));
+            debugList.addView(title);
+            for (JsonElement v : hit.getAsJsonArray("variables")) {
+                JsonArray row = v.getAsJsonArray();
+                var variable = label(context, "    " + row.get(0).getAsString() + " = " + row.get(2).getAsString()
+                        + "    (" + row.get(1).getAsString() + ")", R.attr.textAppearanceBodySmall);
+                variable.setTypeface(Typeface.MONOSPACED);
+                variable.setTextIsSelectable(true);
+                variable.setTextColor(0xFFBCBEC4);
+                debugList.addView(variable);
+            }
+            for (JsonElement f : hit.getAsJsonArray("stack")) {
+                JsonObject frame = f.getAsJsonObject();
+                String frameFile = frame.get("file").getAsString();
+                int frameLine = frame.get("line").getAsInt();
+                var call = label(context, "    at " + frame.get("function").getAsString() + "  " + frameFile + ":" + (frameLine + 1),
+                        R.attr.textAppearanceBodySmall);
+                call.setTextColor(IdeColors.TEXT_SECONDARY);
+                call.setClickable(true);
+                hoverBackground(call);
+                call.setOnClickListener(v -> host.openAt(frameFile, frameLine));
+                debugList.addView(call);
+            }
+        }
     }
 
     void eventsPanelShown() {

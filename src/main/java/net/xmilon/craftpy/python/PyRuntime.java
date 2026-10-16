@@ -182,6 +182,19 @@ public final class PyRuntime {
         }, CraftPyExecutors.rpc());
     }
 
+    /** The debugger: {@code cmd} set / hits / clear with the project's breakpoints; see {@code _debug} in worker.py. */
+    public CompletableFuture<JsonObject> debug(JsonObject params) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            try {
+                return client().call("debug", params, DEFAULT_TIMEOUT_MS);
+            } catch (Exception e) {
+                JsonObject failure = new JsonObject();
+                failure.addProperty("error", String.valueOf(e.getMessage()));
+                return failure;
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
     /** Triggers a registered Python event handler. */
     public CompletableFuture<JsonObject> triggerEvent(String eventName, JsonObject context) {
         return net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(() -> {

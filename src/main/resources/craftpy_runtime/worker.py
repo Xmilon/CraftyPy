@@ -1355,7 +1355,110 @@ def _on_tick(params):
     return {"log": log, "scheduled": len(_SCHEDULE)}
 
 
+# ---------------------------------------------------------------------------
+# Debugger. Breakpoints never pause: the worker is single-threaded and the game waits for it, so stopping would freeze
+# the server. A line with a breakpoint records the call stack and the variables instead (a "snapshot"), and the IDE's
+# Debug tool window shows them. Breakpoints are per owner (project) and file; lines are 1-based here.
+# ---------------------------------------------------------------------------
+
+_BREAKPOINTS = {}          # (owner, file) -> set of line numbers
+_DEBUG_HITS = []           # newest last, at most _DEBUG_MAX
+_DEBUG_COUNT = {}          # (owner, file, line) -> hits recorded since the last clear
+_DEBUG_SEQ = [0]
+_DEBUG_MAX = 100
+_DEBUG_PER_LINE = 20
+
+
+def _debug_check(frame):
+    lines = _BREAKPOINTS.get((_OWNER[0], frame.f_code.co_filename))
+    if lines and frame.f_lineno in lines:
+        _debug_record(frame)
+
+
+def _debug_tracer(frame, event, arg):
+    if _INTERRUPT:
+        raise KeyboardInterrupt("Interrupted by user")
+    if event == "call":
+        # only frames of files with breakpoints get line events; everything else runs at full speed
+        return _debug_tracer if (_OWNER[0], frame.f_code.co_filename) in _BREAKPOINTS else None
+    if event == "line":
+        _debug_check(frame)
+    return _debug_tracer
+
+
+def _debug_value(value):
+    import reprlib
+    shower = reprlib.Repr()
+    shower.maxstring = 120
+    shower.maxother = 120
+    shower.maxlist = shower.maxdict = shower.maxset = shower.maxtuple = 8
+    shower.maxlevel = 3
+    try:
+        return shower.repr(value)
+    except Exception as exc:  # noqa: BLE001  a __repr__ that fails must not break the user's code
+        return "<%s: repr failed: %s>" % (type(value).__name__, exc)
+
+
+def _debug_record(frame):
+    import types as _types
+    key = (_OWNER[0], frame.f_code.co_filename, frame.f_lineno)
+    count = _DEBUG_COUNT.get(key, 0)
+    if count >= _DEBUG_PER_LINE:
+        return
+    _DEBUG_COUNT[key] = count + 1
+    stack = []
+    walk = frame
+    while walk is not None and len(stack) < 30:
+        name = walk.f_code.co_filename
+        if name.startswith("code/") or name.endswith(".py") and "craftpy_runtime" not in name:
+            stack.append({"file": name, "line": walk.f_lineno - 1, "function": walk.f_code.co_name})
+        walk = walk.f_back
+    variables = []
+    for name, value in list(frame.f_locals.items()):
+        if name.startswith("__") or isinstance(value, (_types.ModuleType, _types.FunctionType, type, _types.BuiltinFunctionType)):
+            continue
+        variables.append([name, type(value).__name__, _debug_value(value)])
+        if len(variables) >= 40:
+            break
+    _DEBUG_SEQ[0] += 1
+    _DEBUG_HITS.append({"seq": _DEBUG_SEQ[0], "time": time.strftime("%H:%M:%S"), "owner": _OWNER[0],
+                        "file": frame.f_code.co_filename, "line": frame.f_lineno - 1, "function": frame.f_code.co_name,
+                        "hit": count + 1, "stack": stack, "variables": variables})
+    del _DEBUG_HITS[:-_DEBUG_MAX]
+
+
+def _debug(params):
+    """IDE requests: ``set`` the breakpoints of a project ({file: [0-based lines]}), ``hits`` after a seq, ``clear``."""
+    owner = params.get("project") or "__main__"
+    cmd = params.get("cmd", "hits")
+    if cmd in ("set", "sync"):
+        for key in [k for k in _BREAKPOINTS if k[0] == owner]:
+            del _BREAKPOINTS[key]
+        for path, lines in (params.get("breakpoints") or {}).items():
+            wanted = {int(line) + 1 for line in lines}
+            if wanted:
+                _BREAKPOINTS[(owner, path)] = wanted
+    if cmd == "clear":
+        _DEBUG_HITS[:] = [h for h in _DEBUG_HITS if h["owner"] != owner]
+        for key in [k for k in _DEBUG_COUNT if k[0] == owner]:
+            del _DEBUG_COUNT[key]
+    since = int(params.get("since", 0) or 0)
+    hits = [h for h in _DEBUG_HITS if h["owner"] == owner and h["seq"] > since]
+    count = sum(len(lines) for (o, _), lines in _BREAKPOINTS.items() if o == owner)
+    return {"hits": hits, "last": _DEBUG_SEQ[0], "breakpoints": count}
+
+
 def _call_flexible(fn, ctx):
+    if _BREAKPOINTS and sys.gettrace() is None:
+        sys.settrace(_debug_tracer)
+        try:
+            return _call_flexible_now(fn, ctx)
+        finally:
+            sys.settrace(None)
+    return _call_flexible_now(fn, ctx)
+
+
+def _call_flexible_now(fn, ctx):
     """Calls fn(ctx), or fn() when the function takes no arguments."""
     try:
         wants_arg = len(inspect.signature(fn).parameters) > 0
@@ -2837,6 +2940,8 @@ def _run_code(code, filename, module_name, debug=False, persistent=False, owner=
     def _combined_tracer(frame, event, arg):
         if _INTERRUPT:
             raise KeyboardInterrupt("Interrupted by user")
+        if _BREAKPOINTS and event == "line":
+            _debug_check(frame)
         if debug and event == "line" and frame.f_code.co_filename == filename:
             if len(steps) < 4000:
                 steps.append(frame.f_lineno)
@@ -3032,6 +3137,8 @@ def _handle(method, params):
         else:
             _restore_owner(owner, snapshot)
         return {"ok": True, "scheduled": len(_SCHEDULE)}
+    if method == "debug":
+        return _debug(params)
     if method == "run_tests":
         _INTERRUPT = False
         return _run_tests(params)
