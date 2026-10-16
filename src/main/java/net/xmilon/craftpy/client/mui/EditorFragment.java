@@ -123,6 +123,10 @@ public class EditorFragment extends Fragment {
     private boolean[] hiddenToolWindows;
     private BlocksPanel blocks;
     private CatalogPanel catalog;
+    private ModMapPanel modMap;
+    private UiMakerPanel uiMaker;
+    private Splitter modMapSplitter;
+    private Splitter uiMakerSplitter;
     private View catalogSplitter;
     private final Runnable followCursor = this::followCatalog;
     private View blocksSplitter;
@@ -384,6 +388,7 @@ public class EditorFragment extends Fragment {
                     if (visible && blocks != null) {
                         setBlocksVisible(false); // one tool window on the right at a time
                         setCatalogVisible(false);
+                        hideSidePanels();
                     }
                     if (rightStripe != null) {
                         rightStripe.refresh();
@@ -403,6 +408,62 @@ public class EditorFragment extends Fragment {
         body.addView(catalogSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
         body.addView(catalog.view(), new LinearLayout.LayoutParams(body.dp(settings.blocksWidth + 40), MATCH_PARENT));
         setCatalogVisible(false);
+        modMap = new ModMapPanel(context, new ModMapPanel.Host() {
+            @Override
+            public void request(com.google.gson.JsonObject args, java.util.function.Consumer<com.google.gson.JsonObject> reply) {
+                View anchor = modMap.view();
+                store(s -> s.tool("modmap", args, answer -> anchor.post(() -> reply.accept(answer))));
+            }
+
+            @Override
+            public void hide() {
+                setSidePanel(modMap.view(), modMapSplitter, false);
+            }
+        });
+        modMapSplitter = new Splitter(context, true, dx -> dragPanel(modMap.view(), dx), this::saveLayout);
+        body.addView(modMapSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
+        body.addView(modMap.view(), new LinearLayout.LayoutParams(body.dp(settings.blocksWidth + 120), MATCH_PARENT));
+        setSidePanel(modMap.view(), modMapSplitter, false);
+        uiMaker = new UiMakerPanel(context, new UiMakerPanel.Host() {
+            @Override
+            public List<String> files() {
+                return shownFiles;
+            }
+
+            @Override
+            public String activePath() {
+                return shownPath;
+            }
+
+            @Override
+            public String activeText() {
+                return code == null ? "" : code.getText().toString();
+            }
+
+            @Override
+            public void open(String path) {
+                openEntry(path, false);
+            }
+
+            @Override
+            public void design() {
+                tools.uiDesigner();
+            }
+
+            @Override
+            public void newWindow() {
+                tools.newWindow();
+            }
+
+            @Override
+            public void hide() {
+                setSidePanel(uiMaker.view(), uiMakerSplitter, false);
+            }
+        });
+        uiMakerSplitter = new Splitter(context, true, dx -> dragPanel(uiMaker.view(), dx), this::saveLayout);
+        body.addView(uiMakerSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
+        body.addView(uiMaker.view(), new LinearLayout.LayoutParams(body.dp(settings.blocksWidth + 40), MATCH_PARENT));
+        setSidePanel(uiMaker.view(), uiMakerSplitter, false);
         body.addView(separator(context, true), new LinearLayout.LayoutParams(body.dp(1), MATCH_PARENT));
         rightStripe = createRightStripe(context);
         body.addView(rightStripe, new LinearLayout.LayoutParams(body.dp(40), MATCH_PARENT));
@@ -684,6 +745,10 @@ public class EditorFragment extends Fragment {
                 this::blocksVisible, v -> setBlocksVisible(!blocksVisible()));
         stripe.add(IdeIcon.Glyph.CATALOG, "Mod catalog: every id, attribute, tag, recipe type and class of the installed mods (Alt+0)",
                 this::catalogVisible, v -> setCatalogVisible(!catalogVisible()));
+        stripe.add(IdeIcon.Glyph.GRAPH, "Mod map: mods, modules and projects, and what ties them together",
+                () -> sidePanelShown(modMap.view()), v -> toggleSidePanel(modMap.view(), modMapSplitter));
+        stripe.add(IdeIcon.Glyph.LAYOUT, "UI maker: the windows of this project, with a live preview",
+                () -> sidePanelShown(uiMaker.view()), v -> toggleSidePanel(uiMaker.view(), uiMakerSplitter));
         stripe.add(IdeIcon.Glyph.IMAGE, "Assets: every texture, model and sound (Alt+9)", () -> dockShows(AssetDock.ASSETS),
                 v -> toggleDock(AssetDock.ASSETS));
         stripe.add(IdeIcon.Glyph.EYE, "Preview: models and textures", () -> dockShows(AssetDock.PREVIEW),
@@ -1029,6 +1094,10 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Mod catalog: ids, attributes, tags, recipe types, classes of the mods", "Alt+0",
                 () -> setCatalogVisible(true)));
         a.add(new ActionEntry("Assets", "Alt+9", () -> toggleDock(AssetDock.ASSETS)));
+        a.add(new ActionEntry("Mod map: mods, modules, projects and their links", "",
+                () -> setSidePanel(modMap.view(), modMapSplitter, true)));
+        a.add(new ActionEntry("UI maker: windows of this project with a preview", "",
+                () -> setSidePanel(uiMaker.view(), uiMakerSplitter, true)));
         a.add(new ActionEntry("Hide all tool windows", "Ctrl+Shift+F12", this::hideAllToolWindows));
         a.add(new ActionEntry("Zen mode", "F11", this::toggleZen));
         a.add(new ActionEntry("Word wrap (this file)", "", this::toggleWrap));
@@ -1131,12 +1200,73 @@ public class EditorFragment extends Fragment {
             }
             if (catalogVisible()) {
                 setCatalogVisible(false);
+                hideSidePanels();
             }
             blocks.focusSearch();
         }
         if (rightStripe != null) {
             rightStripe.refresh();
         }
+    }
+
+    // ---- mod map and UI maker: right-side tool windows, one at a time like the others
+
+    private boolean sidePanelShown(View panel) {
+        return panel != null && panel.getVisibility() == View.VISIBLE;
+    }
+
+    private void toggleSidePanel(View panel, Splitter splitter) {
+        setSidePanel(panel, splitter, !sidePanelShown(panel));
+    }
+
+    private void setSidePanel(View panel, Splitter splitter, boolean visible) {
+        int visibility = visible && !zen ? View.VISIBLE : View.GONE;
+        panel.setVisibility(visibility);
+        splitter.setVisibility(visibility);
+        if (visible) {
+            if (dock.visible()) {
+                dock.setVisible(false);
+            }
+            if (blocksVisible()) {
+                setBlocksVisible(false);
+            }
+            if (catalogVisible()) {
+                setCatalogVisible(false);
+            }
+            if (modMap != null && panel != modMap.view()) {
+                setSidePanel(modMap.view(), modMapSplitter, false);
+            }
+            if (uiMaker != null && panel != uiMaker.view()) {
+                setSidePanel(uiMaker.view(), uiMakerSplitter, false);
+            }
+            if (modMap != null && panel == modMap.view()) {
+                modMap.refresh();
+                modMap.focusSearch();
+            }
+            if (uiMaker != null && panel == uiMaker.view()) {
+                uiMaker.refresh();
+            }
+        }
+        if (rightStripe != null) {
+            rightStripe.refresh();
+        }
+    }
+
+    /** Other right-side windows close these two. */
+    private void hideSidePanels() {
+        if (modMap != null && sidePanelShown(modMap.view())) {
+            setSidePanel(modMap.view(), modMapSplitter, false);
+        }
+        if (uiMaker != null && sidePanelShown(uiMaker.view())) {
+            setSidePanel(uiMaker.view(), uiMakerSplitter, false);
+        }
+    }
+
+    private void dragPanel(View panel, int dx) {
+        var lp = panel.getLayoutParams();
+        int max = Math.max(panel.dp(320), ((View) panel.getParent()).getWidth() / 2);
+        lp.width = Math.clamp(lp.width - dx, panel.dp(240), max);
+        panel.setLayoutParams(lp);
     }
 
     // ---- mod catalog (Alt+0): everything the installed mods bring, connected to the cursor like completion
@@ -1156,6 +1286,7 @@ public class EditorFragment extends Fragment {
             if (blocksVisible()) {
                 setBlocksVisible(false);
             }
+            hideSidePanels();
             catalog.refresh();
             followCatalog();
             catalog.focusSearch();
@@ -3210,6 +3341,9 @@ public class EditorFragment extends Fragment {
         }
         gutterCaretLine = -1;
         highlightGutterLine();
+        if (uiMaker != null && sidePanelShown(uiMaker.view())) {
+            uiMaker.refresh(); // the preview follows the text of an open ui/*.json
+        }
     }
 
     /** The caret's line number is drawn brighter, like in IntelliJ. Wrapped lines have empty rows in the gutter. */

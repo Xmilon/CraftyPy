@@ -43,7 +43,7 @@ public final class ProjectTools {
             return done(error("", "Malformed tool request"));
         }
         String op = string(request, "op");
-        if (!ProjectManager.isValidId(projectId) && !op.equals("trace") && !op.equals("profile")) {
+        if (!ProjectManager.isValidId(projectId) && !op.equals("trace") && !op.equals("profile") && !op.equals("modmap")) {
             return done(error(op, "Invalid project id"));
         }
         return switch (op) {
@@ -61,6 +61,7 @@ public final class ProjectTools {
             case "changes" -> done(changes(projectId));
             case "add_part" -> addPart(manager, projectId, request);
             case "catalog" -> done(catalog(ModCatalog.get().view(), request));
+            case "modmap" -> net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(ProjectTools::modMap, net.xmilon.craftpy.util.CraftPyExecutors.io());
             case "restore_entry" -> manager.restoreEntry(projectId, string(request, "path")).thenApply(result -> {
                 JsonObject out = new JsonObject();
                 out.addProperty("op", "restore_entry");
@@ -605,6 +606,48 @@ public final class ProjectTools {
             result.addProperty("op", "debug");
             return ok(fit(result, "hits"));
         });
+    }
+
+    /** The mod map tool window: mods, modules, projects and what ties them together (see ModMap). */
+    private static ResponsePayload modMap() {
+        java.util.List<ModMap.Mod> mods = new java.util.ArrayList<>();
+        try {
+            for (var info : net.neoforged.fml.ModList.get().getMods()) {
+                java.util.List<ModMap.Dependency> deps = new java.util.ArrayList<>();
+                for (var dep : info.getDependencies()) {
+                    deps.add(new ModMap.Dependency(dep.getModId(), dep.getType().name().toLowerCase(java.util.Locale.ROOT)));
+                }
+                mods.add(new ModMap.Mod(info.getModId(), info.getDisplayName(), info.getVersion().toString(), deps));
+            }
+        } catch (RuntimeException noModList) {
+            // the standalone IDE: the mods are the ones the game's catalog listed
+            for (String mod : ModCatalog.get().view().installedMods()) {
+                mods.add(new ModMap.Mod(mod, mod, "", java.util.List.of()));
+            }
+        }
+        java.util.List<net.xmilon.craftpy.project.ModuleInfo> modules = net.xmilon.craftpy.project.ModuleLoader.list();
+        java.util.Map<String, java.util.Map<String, String>> moduleCode = new java.util.TreeMap<>();
+        for (var module : modules) {
+            java.nio.file.Path cache = net.xmilon.craftpy.project.PyForgePaths.cache().resolve(module.id);
+            if (ProjectManager.isValidId(module.id) && java.nio.file.Files.isDirectory(cache)) {
+                moduleCode.put(module.id, ModMap.pythonFiles(cache));
+            }
+        }
+        java.util.Map<String, java.util.Map<String, String>> projectCode = new java.util.TreeMap<>();
+        java.nio.file.Path projects = net.xmilon.craftpy.project.PyForgePaths.projects();
+        try (var dirs = java.nio.file.Files.list(projects)) {
+            for (java.nio.file.Path dir : dirs.toList()) {
+                String id = dir.getFileName().toString();
+                if (ProjectManager.isValidId(id) && java.nio.file.Files.isDirectory(dir)) {
+                    projectCode.put(id, ModMap.pythonFiles(dir));
+                }
+            }
+        } catch (java.io.IOException | RuntimeException none) {
+            // no projects folder yet
+        }
+        JsonObject out = ModMap.build(mods, modules, projectCode, moduleCode, ModCatalog.get().view());
+        out.addProperty("op", "modmap");
+        return ok(fit(fit(out, "edges"), "nodes"));
     }
 
     /** The project's tests run on the worker like its code does, so scripting must be on. */

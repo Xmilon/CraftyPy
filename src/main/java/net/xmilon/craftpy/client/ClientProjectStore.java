@@ -460,7 +460,7 @@ public final class ClientProjectStore {
      * on failure it carries an {@code error} string. One request per op is in flight at a time.
      */
     public void tool(String op, JsonObject args, java.util.function.Consumer<JsonObject> callback) {
-        boolean global = op.equals("trace") || op.equals("profile");
+        boolean global = op.equals("trace") || op.equals("profile") || op.equals("modmap");
         if (activeProjectId == null && !global) {
             append("Open a project first");
             notifyListener();
