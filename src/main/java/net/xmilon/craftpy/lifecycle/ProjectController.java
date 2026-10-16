@@ -61,6 +61,13 @@ public final class ProjectController {
             net.xmilon.craftpy.project.ProjectMetadata meta = sides.metadataOf(projectId);
             if (meta != null) {
                 net.xmilon.craftpy.security.PermissionStore.declareOwn(projectId, meta.permissions);
+                String warning = net.xmilon.craftpy.security.PermissionLabels.warning(
+                        net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions));
+                if (!warning.isEmpty()) {
+                    net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[" + projectId + "] "
+                            + warning.replace("This module", "This project").replace(" — continue at your own risk!", "")
+                            + " (your own project: allowed as declared in project.json)");
+                }
             }
         }
         if (sides != null && sides.sideOf(projectId) == net.xmilon.craftpy.project.ModuleSide.CLIENT) {

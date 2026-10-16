@@ -224,7 +224,6 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 - [x] Found on the way: the assets of installed modules (`.cpm`, unpacked to `system/cache/<id>`) never reached the pack;
   `PackBuilder.copyProjectAssets` reads them from there now (`ModuleLoader.assetsOf`). Module pack refresh goes through the
   debounced `ProjectController.refreshPacks`.
-- [ ] Client-side Python (HUD, key binds, client events) does not exist: client modules are resources only.
 - [ ] On a dedicated server the Modules page lists the server's modules; client modules are installed in each player's own
   `pyforge/modules/`.
 
@@ -260,7 +259,7 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
   (`client/ClientPython`, answered by `client/ClientHost`; HUD `client/ClientHud`, keys `KeyCombo`, local windows,
   `ClientStorage`). API 2.3. Tested: worker tests (fake host) and `ClientPythonTest` (real worker process).
 - [ ] Client-side: keys cannot be rebound in the controls screen; vanilla keys are not consumed (the code gets the press too);
-  `client.looking_at()` names blocks by their game id (CraftPy slot blocks show `craftpy:pcblock_N`).
+  `client.looking_at()` names CraftPy blocks by their project id now.
 - [ ] Linux/macOS: the memory cap (`RLIMIT_AS`) and the audit probe are only run on Windows here.
 
 - [x] `docs/STORE.md`: the short description for CurseForge / Modrinth (Markdown, no dev details).
@@ -270,7 +269,7 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 - [x] `config/craftpy-access.toml` with ~60 general sites and ~45 danger-zone sites, API keys by name, data folder limits,
   shared read-only folders. `http` / `files` in Python (API 2.4), `permissions` in project.json / module.json, forced
   warning + Approve / Revoke on the Modules page, warning in the README and the console. AUDIT section 11.
-- [ ] Not shown yet: a project's own permissions in the editor (they count as approved for your own projects).
+- [x] A project's own permissions are printed in the console on Run (they count as approved for your own projects).
 
 ## 9i. Asked 2026-10-16 (IDE round) - done
 

@@ -166,7 +166,16 @@ public final class ClientHost {
         HitResult hit = minecraft.hitResult;
         if (minecraft.level != null && hit instanceof BlockHitResult block && hit.getType() == HitResult.Type.BLOCK) {
             JsonObject target = new JsonObject();
-            target.addProperty("block", BuiltInRegistries.BLOCK.getKey(minecraft.level.getBlockState(block.getBlockPos()).getBlock()).toString());
+            var state = minecraft.level.getBlockState(block.getBlockPos());
+            String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+            if (state.getBlock() instanceof net.xmilon.craftpy.block.SlottedBlock slotted) {
+                // a CraftPy block: its project id (ruby_rush:ruby_ore), not the slot behind it
+                String[] parts = net.xmilon.craftpy.registry.SlotRegistry.holderForBlock(slotted.slotIndex()).split(":", 3);
+                if (parts.length == 3) {
+                    id = parts[1] + ":" + parts[2];
+                }
+            }
+            target.addProperty("block", id);
             JsonArray pos = new JsonArray();
             pos.add(block.getBlockPos().getX());
             pos.add(block.getBlockPos().getY());
