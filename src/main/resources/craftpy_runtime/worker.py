@@ -278,7 +278,7 @@ def _drop_owner(owner):
 
 def _namespace():
     owner = _OWNER[0]
-    return owner.split(":", 1)[1] if owner.startswith("module:") else owner
+    return owner.split(":", 1)[1] if owner.startswith(("module:", "test:")) else owner
 
 
 # ---------------------------------------------------------------------------
@@ -2733,7 +2733,7 @@ def _restore_owner(owner, snap):
         _use_owner(owner)
 
 
-def _run_code(code, filename, module_name, debug=False, persistent=False, owner="__main__", sources=None):
+def _run_code(code, filename, module_name, debug=False, persistent=False, owner="__main__", sources=None, after=None):
     _use_owner(owner)
     log = []
     import types as _types
@@ -2760,6 +2760,8 @@ def _run_code(code, filename, module_name, debug=False, persistent=False, owner=
     try:
         sys.settrace(_combined_tracer)
         exec(compiled, globals_, globals_)
+        if after is not None:  # the test runner: calls the file's test functions while its imports still resolve
+            after(globals_, log)
         if not persistent:
             main_fn = globals_.get("main")
             if callable(main_fn):
@@ -2782,6 +2784,78 @@ def _run_code(code, filename, module_name, debug=False, persistent=False, owner=
                    % (len(_DECLS["blocks"]), len(_DECLS["items"]), len(_DECLS["effects"]),
                       len(_DECLS["recipes"]), len(_DECLS["loot_tables"]), len(_DECLS["tags"])))
     return {"declarations": _DECLS, "log": log, "scheduled": len(_SCHEDULE)}
+
+
+def _is_test_file(path):
+    name = path.rsplit("/", 1)[-1]
+    return path.startswith("code/") and name.startswith("test_") and name.endswith(".py")
+
+
+def _run_tests(params):
+    """Runs every ``test*`` function of the project's ``code/test_*.py`` files (or of ``file`` only), each on its own:
+    a failing test does not stop the others. The files run as a throwaway owner, so what they declare or schedule is
+    gone afterwards and the loaded project is not touched."""
+    project = params.get("project") or "__main__"
+    sources = params.get("sources") or {}
+    only = params.get("file") or ""
+    owner = "test:" + project
+    previous = _OWNER[0]
+    files = sorted(path for path in sources if _is_test_file(path) and (not only or path == only))
+    results = []
+    output = []
+
+    def where(tb, path):
+        line = 0
+        for frame in traceback.extract_tb(tb):
+            if frame.filename in sources:
+                path, line = frame.filename, frame.lineno
+        return path, line
+
+    def run_file(path):
+        def call_tests(namespace, log):
+            tests = [fn for name, fn in namespace.items()
+                     if name.startswith("test") and inspect.isfunction(fn) and fn.__code__.co_filename == path]
+            tests.sort(key=lambda fn: fn.__code__.co_firstlineno)
+            for fn in tests:
+                started = time.perf_counter()
+                row = {"file": path, "name": fn.__name__, "line": fn.__code__.co_firstlineno - 1}
+                try:
+                    fn()
+                    row["ok"] = True
+                except KeyboardInterrupt:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    file_name, line = where(sys.exc_info()[2], path)
+                    text = str(exc)
+                    if isinstance(exc, AssertionError) and not text:
+                        source = sources.get(file_name, "").split("\n")
+                        text = source[line - 1].strip() if 0 < line <= len(source) else "assert failed"
+                    row.update(ok=False, file=file_name, line=max(0, line - 1),
+                               message=text if isinstance(exc, AssertionError) else "%s: %s" % (type(exc).__name__, text))
+                row["ms"] = round((time.perf_counter() - started) * 1000, 2)
+                results.append(row)
+
+        _drop_owner(owner)
+        try:
+            result = _run_code(sources[path], path, "__craftpy_test__", persistent=True, owner=owner,
+                               sources=sources, after=call_tests)
+            output.extend(result.get("log", []))
+        except Exception as exc:  # noqa: BLE001  the file itself did not run (syntax error, failed import)
+            file_name, line = where(sys.exc_info()[2], path)
+            if isinstance(exc, SyntaxError) and exc.lineno:
+                file_name, line = exc.filename if exc.filename in sources else path, exc.lineno
+            results.append({"file": file_name, "name": "(file)", "line": max(0, line - 1), "ok": False, "ms": 0,
+                            "message": "%s: %s" % (type(exc).__name__, exc)})
+
+    try:
+        for path in files:
+            run_file(path)
+            if _INTERRUPT:
+                break
+    finally:
+        _drop_owner(owner)
+        _use_owner(previous)
+    return {"results": results, "files": files, "log": output[-200:]}
 
 
 # ---------------------------------------------------------------------------
@@ -2868,6 +2942,9 @@ def _handle(method, params):
         else:
             _restore_owner(owner, snapshot)
         return {"ok": True, "scheduled": len(_SCHEDULE)}
+    if method == "run_tests":
+        _INTERRUPT = False
+        return _run_tests(params)
     if method == "run_main":
         code = params.get("code", "")
         name = params.get("file", "main.py")

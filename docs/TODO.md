@@ -102,7 +102,7 @@ Remaining:
 
 - Batch D (needs a custom text view instead of `EditText`): 2 minimap (a simple one exists), 4 Alt+drag box selection,
   15 smooth scroll / cursor blink settings, 16 split editor; then 31 move function/class to another file, 37 `test_*.py` runner
-  (needs the multi-file import design), 41 Python environment selector, 55 theme editor.
+  (done 2026-10-16: worker `run_tests`, tool `run_tests`, `Ctrl+Shift+F10`), 41 Python environment selector, 55 theme editor.
 - Batch E (design first): 34-35 pyright / mypy / ruff in the worker, 38-39 debugger + call stack, 51 shared sessions with file locks.
 - More than 4096 slots / no restart: data-component items + variant blocks (design in REPORT M12 "Not done").
 - Model viewer, content preview and inspector are still vanilla screens (`ContentPreviewScreen`); drag is only from the Assets tab.

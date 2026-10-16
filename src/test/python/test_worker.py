@@ -829,6 +829,36 @@ def test_extensions_and_fixed_values_are_offered_where_they_fit():
     assert _names('x = 1  # "tier') == []
 
 
+def test_run_tests():
+    sources = {
+        "code/items.py": "from craftpy import *\nruby = Item('ruby')\ndef double(x):\n    return x * 2\n",
+        "code/test_items.py": ("from items import ruby, double\n"
+                               "def test_double():\n    assert double(2) == 4\n"
+                               "def test_wrong():\n    assert double(2) == 5\n"
+                               "def test_id():\n    assert ruby == 'tp:ruby', ruby\n"
+                               "def test_boom():\n    {}['x']\n"
+                               "def helper():\n    raise RuntimeError('not a test')\n"),
+        "code/test_broken.py": "def test_x(:\n    pass\n",
+        "code/notes.py": "def test_not_collected():\n    assert False\n",
+    }
+    run_main("tp", "from craftpy import *\n")
+    previous = w._OWNER[0]
+    result = w._handle("run_tests", {"project": "tp", "sources": sources})
+    rows = {(r["file"].rsplit("/", 1)[-1], r["name"]): r for r in result["results"]}
+    assert rows[("test_items.py", "test_double")]["ok"], rows
+    wrong = rows[("test_items.py", "test_wrong")]
+    assert not wrong["ok"] and wrong["message"] == "assert double(2) == 5" and wrong["line"] == 4, wrong
+    assert rows[("test_items.py", "test_id")]["ok"], rows
+    assert rows[("test_items.py", "test_boom")]["message"].startswith("KeyError"), rows
+    assert ("test_items.py", "helper") not in rows
+    broken = rows[("test_broken.py", "(file)")]
+    assert not broken["ok"] and broken["line"] == 0 and "SyntaxError" in broken["message"], broken
+    assert not any(name == "test_not_collected" for _, name in rows)
+    assert "test:tp" not in w._OWNERS and w._OWNER[0] == previous, (list(w._OWNERS), w._OWNER)
+    only = w._handle("run_tests", {"project": "tp", "sources": sources, "file": "code/test_broken.py"})
+    assert only["files"] == ["code/test_broken.py"], only
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

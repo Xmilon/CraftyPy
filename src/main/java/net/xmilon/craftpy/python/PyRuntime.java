@@ -162,6 +162,26 @@ public final class PyRuntime {
         }, CraftPyExecutors.rpc());
     }
 
+    /**
+     * Runs the {@code test*} functions of the project's {@code code/test_*.py} files ({@code file} only when not blank).
+     * The reply has {@code results}: file, name, line, ok, message, ms per test.
+     */
+    public CompletableFuture<JsonObject> runTests(String projectId, JsonObject sources, String file) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            JsonObject params = new JsonObject();
+            params.addProperty("project", projectId);
+            params.add("sources", sources == null ? new JsonObject() : sources);
+            params.addProperty("file", file == null ? "" : file);
+            try {
+                return client().call("run_tests", params, 60_000);
+            } catch (Exception e) {
+                JsonObject failure = new JsonObject();
+                failure.addProperty("error", String.valueOf(e.getMessage()));
+                return failure;
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
     /** Triggers a registered Python event handler. */
     public CompletableFuture<JsonObject> triggerEvent(String eventName, JsonObject context) {
         return net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(() -> {

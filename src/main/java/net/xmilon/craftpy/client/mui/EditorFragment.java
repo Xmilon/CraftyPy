@@ -214,6 +214,13 @@ public class EditorFragment extends Fragment {
         public java.util.Map<String, String> dirtyTexts() {
             return EditorFragment.this.dirtyTexts();
         }
+
+        @Override
+        public void saveAll() {
+            prepareSave();
+            java.util.Set<String> paths = EditorFragment.this.dirtyTexts().keySet();
+            store(s -> paths.forEach(s::saveFile));
+        }
     });
 
     private State state;
@@ -639,6 +646,7 @@ public class EditorFragment extends Fragment {
         m.add("Settings...   Ctrl+Alt+S").setOnMenuItemClickListener(i -> run(this::showSettings));
         m.add("Run   Ctrl+R").setOnMenuItemClickListener(i -> run(this::run));
         m.add("Reload project and modules   F5").setOnMenuItemClickListener(i -> run(this::reloadAll));
+        m.add("Run tests   Ctrl+Shift+F10").setOnMenuItemClickListener(i -> run(() -> tools.runTests(false)));
         m.add("Build module...").setOnMenuItemClickListener(i -> run(() -> build(anchor)));
         m.add("Installed modules").setOnMenuItemClickListener(i -> run(() -> CraftPyFragment.navigate(this, CraftPyFragment.PAGE_MODULES)));
         menu.show();
@@ -952,6 +960,8 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Save", "Ctrl+S", this::save));
         a.add(new ActionEntry("Validate", "Ctrl+Enter", this::validate));
         a.add(new ActionEntry("Run", "Ctrl+R", this::run));
+        a.add(new ActionEntry("Run tests (code/test_*.py)", "Ctrl+Shift+F10", () -> tools.runTests(false)));
+        a.add(new ActionEntry("Run tests of this file", "", () -> tools.runTests(true)));
         a.add(new ActionEntry("Reload project and modules", "F5", this::reloadAll));
         a.add(new ActionEntry("Stop", "", () -> store(ClientProjectStore::interrupt)));
         a.add(new ActionEntry("Build module", "", () -> build(code)));
@@ -3381,6 +3391,12 @@ public class EditorFragment extends Fragment {
                         return false;
                     }
                     hideAllToolWindows();
+                }
+                case KeyEvent.KEY_F10 -> { // IntelliJ's "run context configuration"
+                    if (!shift) {
+                        return false;
+                    }
+                    tools.runTests(false);
                 }
                 case KeyEvent.KEY_E -> tools.showRecentLocations();
                 case KeyEvent.KEY_D -> {

@@ -77,6 +77,7 @@ your .py files ──Run──> Python worker ──declarations──> CraftPy 
 | remember numbers between events | [Storage](#storage) |
 | open a window with buttons | [Windows](#windows) |
 | print, debug, try code live | [Chat, console and debugging](#chat-console-and-debugging) |
+| check my code with tests | [Tests](#tests) |
 | use another mod's items or recipes | [Other mods](#other-mods) |
 | reach Java directly | [Java bridge](#java-bridge) |
 
@@ -432,6 +433,29 @@ print("debug")                # shows in the IDE console
   `Alt+Shift+E` runs the selected lines there.
 - Errors show the file and line; `Ctrl+click` the line in the console to jump there.
 - **Validate** (`Ctrl+Enter`) checks a file without running it; the event tracer and handler profiler are in **Tools**.
+
+## Tests
+
+**What it is:** small functions that check your code still does what you think.
+
+```python
+# code/test_rewards.py
+from rewards import reward_for
+
+def test_diamonds_give_ten():
+    assert reward_for("diamond") == 10
+
+def test_unknown_gives_nothing():
+    assert reward_for("dirt") == 0
+```
+
+- Files are `code/test_<something>.py`; functions whose name starts with `test` are the tests.
+- **Run tests**: `Ctrl+Shift+F10` (or the project menu on the toolbar > **Run tests**, or Find action "Run tests of this file"). Failures come
+  first with the line of the `assert`; a click opens it.
+- Each test runs on its own: one failing test does not stop the others.
+- Tests import your other files (`from rewards import ...`), not `main.py`: put the logic you test in its own file.
+- What a test declares or schedules is thrown away after the run; the loaded project is not touched. Calls to the
+  world or players do reach the running game.
 
 ## Other mods
 

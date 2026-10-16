@@ -84,6 +84,9 @@ final class EditorTools {
 
         /** Shows a read-only built-in file (the generated API) and moves to a 0-based line. */
         void openLibrary(String path, String text, int line);
+
+        /** Saves every open file with unsaved changes (before a tool reads them on the server). */
+        void saveAll();
     }
 
     private static final int TRACE_LINES = 400;
@@ -968,6 +971,65 @@ final class EditorTools {
     // ------------------------------------------------------------------
     // 40 handler profiler
     // ------------------------------------------------------------------
+
+    /**
+     * Runs the {@code test*} functions of {@code code/test_*.py} on the worker (the open file only when it is a test file
+     * and {@code thisFile}) and lists them: failures first, a click opens the line.
+     */
+    void runTests(boolean thisFile) {
+        String file = thisFile ? host.activePath() : null;
+        boolean single = file != null && file.startsWith("code/") && file.substring(file.lastIndexOf('/') + 1).startsWith("test_")
+                && file.endsWith(".py");
+        if (thisFile && !single) {
+            host.toast("This is not a test file: name it code/test_<something>.py");
+            return;
+        }
+        host.saveAll();
+        var dialog = ListDialog.open(host.anchor(), single ? "Tests of " + file : "Tests", true, 720, 360);
+        Runnable[] load = new Runnable[1];
+        load[0] = () -> {
+            dialog.setMessage("Running tests on the Python worker ...");
+            JsonObject args = new JsonObject();
+            args.addProperty("file", single ? file : "");
+            store(s -> s.tool("run_tests", args, reply -> postUi(() -> showTests(dialog, reply))));
+        };
+        dialog.addAction("Run again", () -> load[0].run());
+        load[0].run();
+    }
+
+    private void showTests(ListDialog dialog, JsonObject reply) {
+        if (reply.has("error")) {
+            dialog.setMessage(reply.get("error").getAsString());
+            dialog.setRows(List.of());
+            return;
+        }
+        List<ListDialog.Row> failed = new java.util.ArrayList<>();
+        List<ListDialog.Row> passed = new java.util.ArrayList<>();
+        JsonArray results = reply.has("results") ? reply.getAsJsonArray("results") : new JsonArray();
+        for (JsonElement element : results) {
+            JsonObject row = element.getAsJsonObject();
+            String path = row.get("file").getAsString();
+            int line = row.get("line").getAsInt();
+            String where = path + ":" + (line + 1) + "   " + row.get("ms").getAsDouble() + " ms";
+            if (row.get("ok").getAsBoolean()) {
+                passed.add(ListDialog.Row.link("\u2714 " + row.get("name").getAsString(), where, () -> host.openAt(path, line))
+                        .colored(R.attr.colorTertiary));
+            } else {
+                String message = row.has("message") ? row.get("message").getAsString() : "failed";
+                failed.add(ListDialog.Row.link("\u2718 " + row.get("name").getAsString() + ": " + message, where,
+                        () -> host.openAt(path, line)).colored(R.attr.colorError));
+            }
+        }
+        List<ListDialog.Row> rows = new java.util.ArrayList<>(failed);
+        rows.addAll(passed);
+        int files = reply.has("files") ? reply.getAsJsonArray("files").size() : 0;
+        dialog.setMessage(results.isEmpty()
+                ? (files == 0 ? "No tests: add code/test_<something>.py with functions named test_<something> that use assert."
+                : "No test functions in " + files + " file(s): their names must start with test.")
+                : failed.size() + " failed, " + passed.size() + " passed (" + files + " file(s))");
+        dialog.setRows(rows);
+        store(s -> s.append("Tests: " + failed.size() + " failed, " + passed.size() + " passed"));
+    }
 
     void profiler() {
         var dialog = ListDialog.open(host.anchor(), "Handler profiler", false, 700, 300);

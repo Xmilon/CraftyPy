@@ -53,6 +53,7 @@ public final class ProjectTools {
             case "explain" -> manager.snapshot(projectId).thenApply(s -> explain(projectId, string(request, "id"), s));
             case "decls" -> done(decls(projectId));
             case "profile" -> profile(request);
+            case "run_tests" -> runTests(manager, projectId, string(request, "file"));
             case "trace" -> done(trace(request));
             case "complete", "hover", "signature" -> assist(op, projectId, request);
             case "changes" -> done(changes(projectId));
@@ -544,6 +545,26 @@ public final class ProjectTools {
             result.addProperty("op", "profile");
             return ok(fit(result, "rows"));
         });
+    }
+
+    /** The project's tests run on the worker like its code does, so scripting must be on. */
+    private static CompletableFuture<ResponsePayload> runTests(ProjectManager manager, String projectId, String file) {
+        if (!net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.ENABLE_SCRIPTING)) {
+            return done(error("run_tests", "Scripting is disabled in the config"));
+        }
+        if (!PyRuntime.available()) {
+            return done(error("run_tests", "No Python runtime"));
+        }
+        return manager.snapshot(projectId).thenApply(ProjectTools::pythonSources)
+                .thenCompose(sources -> PyRuntime.get().runTests(projectId, sources, file))
+                .thenApply(result -> {
+                    if (result.has("error")) {
+                        return error("run_tests", result.get("error").getAsString());
+                    }
+                    result.addProperty("op", "run_tests");
+                    result.remove("log");
+                    return ok(fit(result, "results"));
+                });
     }
 
     private static ResponsePayload changes(String projectId) {
