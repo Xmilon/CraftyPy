@@ -43,7 +43,7 @@ CHAPTERS = [
     ("Storage and scheduler", ["storage.get", "storage.set", "storage.clear", "scheduler.after",
                                "scheduler.every_seconds", "scheduler.run_every", "scheduler.run_later",
                                "scheduler.run_next_tick"]),
-    ("Windows", ["window", "action", "Window.build", "Window.state", "ui.open", "ui.close", "ui.windows", "Label",
+    ("Windows", ["window", "action", "Window.build", "Window.state", "ui.open", "ui.close", "ui.windows", "ui.refresh", "Label",
                  "Button", "TextInput", "TextArea", "Checkbox", "Slider", "Dropdown", "ListView", "ProgressBar",
                  "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView"]),
     ("Java bridge", ["java.available", "java.cls", "java.new", "java.on", "java.items", "java.members", "java.mods",

@@ -2157,6 +2157,14 @@ class _Ui:
         owner = _OWNER[0]
         return sorted(set(_WINDOWS) | {wid for (own, wid) in _UI_FILES if own == owner})
 
+    def refresh(self, player, window_id):
+        name = _player_name(player)
+        entry = _UI_OPEN.get((name, window_id))
+        if entry is None:
+            return False  # the player closed it meanwhile
+        _host_call("ui.open", {"player": name, "window": _ui_render(entry)})
+        return True
+
 
 ui = _Ui()
 
@@ -2418,7 +2426,8 @@ API_CHANGES = [
     {"version": "2.2", "date": "2026-10-16",
      "changed": ["`run(\"...\")` and `server.run_command(...)` return what the command answered, as text "
                  "(before: a status object)."],
-     "added": ["The IDE console runs `/commands` (vanilla, other mods', your project's own) and shows their answer."]},
+     "added": ["The IDE console runs `/commands` (vanilla, other mods', your project's own) and shows their answer.",
+               "`ui.refresh(player, window)` redraws an open window from a timer or an event."]},
     {"version": "2.1", "date": "2026-10-16",
      "added": ["Tests: `code/test_*.py` files with `test...` functions, run with `Ctrl+Shift+F10`.",
                "`Item(..., tags=[...])` and `Block(..., tags=[...])`.",
@@ -5013,6 +5022,9 @@ def _load_docs():
         "ui.open": ("Opens a window for a player.", {"player": "Player or name.", "window_id": "Id of a @window class or ui/<id>.json."}, ""),
         "ui.close": ("Closes the window.", {"player": "Player or name.", "window_id": "Which one; omit to close any."}, ""),
         "ui.windows": ("Ids of the registered windows.", {}, "list of str"),
+        "ui.refresh": ("Redraws a window that is open, from a timer or an event (callbacks redraw by themselves); it keeps"
+                       " its state.", {"player": "Player or name.", "window_id": "Which window."},
+                       "False when the player has closed it"),
         # ---------------------------------------------------------------- widgets
         "Label": ("Text.", {"text": "The text.", "p": "style='title'|'headline'|'text', color='#rrggbb', id."}, "A widget."),
         "Button": ("A button.", {"text": "Caption.", "on_click": "An @action name or a function (called as fn(event)).",

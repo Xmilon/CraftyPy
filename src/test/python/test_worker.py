@@ -961,6 +961,30 @@ def test_debugger_snapshots():
     assert w._handle("debug", {"project": "dbg", "cmd": "hits"})["hits"] == []
 
 
+def test_ui_refresh_keeps_the_window_state():
+    sent = []
+    old = w._host_call
+    w._host_call = lambda method, params=None, timeout=10.0: sent.append((method, params)) or {"ok": True}
+    try:
+        run_main("uir", NL.join([
+            "from craftpy import *",
+            "@window('ticker', title='Ticker')",
+            "class Ticker(Window):",
+            "    n = 0",
+            "    def build(self, ctx):",
+            "        return Label('n=%d' % self.n)",
+            ""]))
+        w._use_owner("uir")
+        w.ui.open("Alex", "ticker")
+        w._UI_OPEN[("Alex", "ticker")]["inst"].n = 5
+        assert w.ui.refresh("Alex", "ticker") is True
+        assert "n=5" in w.json.dumps(sent[-1][1]["window"]), sent[-1]
+        w.ui.close("Alex", "ticker")
+        assert w.ui.refresh("Alex", "ticker") is False
+    finally:
+        w._host_call = old
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

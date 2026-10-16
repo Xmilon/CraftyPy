@@ -533,6 +533,7 @@ This page describes Python API **2.2** (`API_VERSION` in your code). `apiVersion
 ### 2.2 (2026-10-16)
 
 - **Added:** The IDE console runs `/commands` (vanilla, other mods', your project's own) and shows their answer.
+- **Added:** `ui.refresh(player, window)` redraws an open window from a timer or an event.
 - **Changed:** `run("...")` and `server.run_command(...)` return what the command answered, as text (before: a status object).
 
 ### 2.1 (2026-10-16)
@@ -2002,6 +2003,17 @@ Closes the window.
 Ids of the registered windows.
 
 Returns: list of str
+
+#### `ui.refresh(player, window_id)`
+
+Redraws a window that is open, from a timer or an event (callbacks redraw by themselves); it keeps its state.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `player` |  | Player or name. |
+| `window_id` |  | Which window. |
+
+Returns: False when the player has closed it
 
 #### `Label(text, **p)`
 
