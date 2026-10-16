@@ -37,6 +37,10 @@ public final class Config {
             .comment("Path to a Python executable. Leave empty to use a Python 3.13+ on PATH or one placed in pyforge/runtime/.")
             .define("pythonPath", "");
 
+    public static final ModConfigSpec.IntValue PYTHON_MEMORY_MB = BUILDER
+            .comment("Memory the Python worker may use (MB). Code that needs more is stopped instead of slowing the game.")
+            .defineInRange("pythonMemoryMb", 1024, 256, 8192);
+
     public static final ModConfigSpec.IntValue EVENT_TIMEOUT_MS = BUILDER
             .comment("Budget in milliseconds for a Python event callback before it is cancelled.")
             .defineInRange("eventTimeoutMs", 50, 1, 5000);

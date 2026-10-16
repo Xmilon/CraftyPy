@@ -248,6 +248,12 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
   (`project/ModuleReadme`: info table, items/blocks, commands, events, windows, other mods used). README.md added to
   welcome, ruby_rush and both personal projects.
 
+## 9g. Sandbox (asked 2026-10-16: safe, bug free and complete) - done
+
+- [x] Three layers (audit hook, code check, memory/process limits), see AUDIT section 10. Everything the API offers keeps
+  working (full test suite, welcome, ruby_rush, mod_mashup, jukebox run unchanged).
+- [ ] Linux/macOS: the memory cap (`RLIMIT_AS`) and the audit probe are only run on Windows here.
+
 ## 8. Known limits (from the last "what is missing" list)
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.

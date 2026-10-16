@@ -81,6 +81,9 @@ public final class RpcClient {
             builder.redirectErrorStream(false);
             builder.environment().put("PYTHONDONTWRITEBYTECODE", "1");
             builder.environment().put("PYTHONUNBUFFERED", "1");
+            // the worker's sandbox (worker.py _harden): the memory cap and the only folder project code may read
+            builder.environment().put("CRAFTPY_MEMORY_MB", String.valueOf(net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PYTHON_MEMORY_MB)));
+            builder.environment().put("CRAFTPY_READ_ROOTS", net.xmilon.craftpy.project.PyForgePaths.root().toAbsolutePath().toString());
             process = builder.start();
             out = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
             pending.clear();

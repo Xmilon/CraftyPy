@@ -158,3 +158,26 @@ Modules are files people share, so a `.cpm` is untrusted input. Found and fixed:
 Not a risk today: project/module `data/` folders are not copied into the datapack (only declarations are).
 Open: the Python sandbox itself (see section 10).
 
+## 10. The Python sandbox (2026-10-16)
+
+The first sandbox (blocked imports + restricted builtins) only stopped the obvious: ordinary Python object introspection
+still reached the worker's internals and from there the OS. It is now three layers, each covering what the others miss:
+
+| Layer | What it does | Where |
+|---|---|---|
+| 1. Audit hook (the boundary) | Refuses at interpreter level, whatever the code does: every file write, reads outside the Python install / the worker / `pyforge/`, listing other folders, starting processes, network, native libraries, deleting or renaming files, registry, `sqlite3`. A hook cannot be removed from Python | `_install_audit_hook`, roots from `CRAFTPY_READ_ROOTS` |
+| 2. Code check | Before compiling (every path: run, imports of project files, console, tests, modules) attributes that expose frames, code, globals, class hierarchies are refused; `getattr` / `hasattr` / `setattr` apply the rule to names built at run time; `inspect`, `gc`, `dis`, `code`... cannot be imported; the editor shows the same errors | `_compile_user`, `_check_user_code`, `_safe_getattr` |
+| 3. Limits | Memory cap (`pythonMemoryMb`, default 1024; `RLIMIT_AS`, or a Job Object on Windows which also forbids child processes); per-call timeouts and the Stop button were already there | `_limit_memory` |
+
+Tests: refused-code table, audit probe in a separate process (reads, writes, delete, process, network, listing), memory
+test, plus the whole API suite and the four example projects unchanged.
+
+What this does not cover, on purpose or by limit:
+- Anything the API itself allows is allowed: a module can give items, run commands as the server (`run()`), move players,
+  call the Java bridge in the mode the server config permits (`javaBridge.mode`). That is what a mod is. The module list
+  shows what a module is before it runs, and a debuilt module never runs until Run is pressed.
+- CPU: a loop that never ends is stopped by the per-call timeout and Stop, not prevented.
+- A flaw in CPython itself or a native module would bypass layers 2 and 3; layer 1 still refuses files, processes and
+  network at the interpreter level, and the worker is a separate process with no game access except the host calls.
+- The audit hook cannot tell the worker's own reads from project code, so the roots are the worker's own folders only.
+

@@ -258,6 +258,7 @@ Everything is stored as plain files, so projects can also be edited with any ext
 | `enableScripting` | `true` | Master switch for loading/running projects |
 | `permissionLevel` | `2` | Permission level required to use the IDE (singleplayer owner always allowed) |
 | `pythonPath` | `""` | Explicit Python executable; empty = the shipped one (then `PATH`) |
+| `pythonMemoryMb` | `1024` | Memory the Python worker may use; code that needs more is stopped |
 | `debugDefault` | `false` | Start with debug tracing on |
 | `hotReloadOnSave` | `false` | Re-run a loaded project 0.7 s after a code/ui/asset file was saved (one run for a burst of saves) |
 | `javaBridge.mode` | `RESTRICTED` | `OFF`, `RESTRICTED` (Minecraft, NeoForge, Mojang libs, CraftPy + `javaBridge.extraPackages`) or `FULL` |

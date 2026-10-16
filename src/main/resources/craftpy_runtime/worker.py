@@ -64,6 +64,9 @@ _BLOCKED = {
     # serialization that can execute code
     "pickle", "_pickle", "shelve", "marshal", "dbm", "sqlite3", "_sqlite3",
     "winreg", "sysconfig",
+    # modules that inspect or rebuild the running interpreter
+    "inspect", "gc", "dis", "code", "codeop", "runpy", "pdb", "bdb", "trace", "tracemalloc", "faulthandler",
+    "zipimport", "pkgutil", "site", "atexit", "imp", "_io", "_posixshmem", "_winapi", "_testcapi",
 }
 
 
@@ -97,6 +100,196 @@ def _denied(*args, **kwargs):
     raise RuntimeError("I/O and process calls are blocked in the CraftPy sandbox")
 
 
+# ---------------------------------------------------------------------------
+# Sandbox, three layers (see docs/AUDIT.md section 10):
+#   1. an audit hook (_install_audit_hook) refuses files outside the allowed folders, every write, processes, network,
+#      native libraries and similar at the interpreter level, whatever the code does to get there;
+#   2. user code is checked before it is compiled (_compile_user): attributes that expose the interpreter's insides are
+#      refused, and getattr / hasattr / setattr apply the same rule to names built at run time;
+#   3. the worker process is memory limited (_limit_memory) and, on Windows, cannot start other processes.
+# ---------------------------------------------------------------------------
+
+# Dunder attributes ordinary code uses. Any other __name__ attribute is refused in user code (defining one with `def`
+# is fine: only reading or writing it through a dot is checked).
+_SAFE_DUNDERS = frozenset({
+    "__init__", "__name__", "__doc__", "__class__", "__module__", "__qualname__", "__slots__", "__repr__", "__str__",
+    "__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__hash__", "__len__", "__iter__", "__next__",
+    "__getitem__", "__setitem__", "__delitem__", "__contains__", "__call__", "__enter__", "__exit__", "__bool__",
+    "__add__", "__sub__", "__mul__", "__truediv__", "__floordiv__", "__mod__", "__neg__", "__abs__", "__radd__",
+    "__rsub__", "__rmul__", "__post_init__", "__annotations__", "__wrapped__", "__all__", "__version__",
+    "__format__", "__lshift__", "__rshift__", "__and__", "__or__", "__xor__", "__invert__", "__index__",
+    "__int__", "__float__", "__round__", "__reversed__", "__missing__", "__set_name__", "__init_subclass__",
+})
+
+# Attributes of frames, generators, tracebacks and code objects: they lead out of the program into the interpreter.
+_FORBIDDEN_ATTRS = frozenset({
+    "f_back", "f_globals", "f_locals", "f_builtins", "f_code", "f_trace", "f_lineno", "gi_frame", "gi_code",
+    "gi_yieldfrom", "cr_frame", "cr_code", "cr_await", "ag_frame", "ag_code", "ag_await", "tb_frame", "tb_next",
+    "co_code", "co_consts", "co_names", "co_varnames", "co_filename", "co_lines",
+})
+
+_FORBIDDEN_NAMES = frozenset({"__builtins__", "__loader__", "__spec__", "__import__"})
+
+
+def _attribute_allowed(name):
+    if not isinstance(name, str):
+        return True
+    if name.startswith("__") and name.endswith("__"):
+        return name in _SAFE_DUNDERS
+    return name not in _FORBIDDEN_ATTRS
+
+
+def _attribute_error(name):
+    return "'%s' is not available in CraftPy's sandbox: it reaches into the interpreter, not into the game" % name
+
+
+def _check_user_code(tree, filename):
+    """Refuses code that names interpreter internals. Raises SyntaxError with the line, so the editor shows it."""
+    import ast
+    for node in ast.walk(tree):
+        bad = None
+        if isinstance(node, ast.Attribute) and not _attribute_allowed(node.attr):
+            bad = node.attr
+        elif isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
+            bad = node.id
+        if bad is not None:
+            raise SyntaxError(_attribute_error(bad), (filename, node.lineno, node.col_offset + 1, None))
+
+
+def _compile_user(source, filename, mode="exec"):
+    """The only way project code is compiled: parse, check, then compile."""
+    import ast
+    tree = ast.parse(source, filename, mode=mode)
+    _check_user_code(tree, filename)
+    return compile(tree, filename, mode)
+
+
+def _safe_getattr(obj, name, *default):
+    if not _attribute_allowed(name):
+        raise AttributeError(_attribute_error(name))
+    return getattr(obj, name, *default)
+
+
+def _safe_hasattr(obj, name):
+    if not _attribute_allowed(name):
+        return False
+    return hasattr(obj, name)
+
+
+def _safe_setattr(obj, name, value):
+    if not _attribute_allowed(name):
+        raise AttributeError(_attribute_error(name))
+    setattr(obj, name, value)
+
+
+_DENIED_EVENTS = frozenset({
+    "subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn", "os.fork", "os.forkpty", "os.kill",
+    "os.killpg", "os.remove", "os.rename", "os.rmdir", "os.mkdir", "os.chmod", "os.chown", "os.chdir", "os.chroot",
+    "os.truncate", "os.symlink", "os.link", "os.mkfifo", "os.mknod", "os.putenv", "os.unsetenv", "os.startfile",
+    "os.add_dll_directory", "os.utime", "os.setxattr", "code.__new__", "sqlite3.connect",
+})
+_DENIED_PREFIXES = ("socket.", "ctypes.", "shutil.", "winreg.", "http.", "urllib.", "ftplib.", "smtplib.",
+                    "webbrowser.", "tempfile.", "resource.", "pty.", "msvcrt.", "mmap.")
+
+
+def _install_audit_hook(read_roots):
+    """Refuses, for the whole process, what project code has no business doing. An audit hook cannot be removed from
+    Python code. Reads are allowed inside ``read_roots`` (the Python install, this worker, pyforge/), writes never."""
+    import os
+    roots = tuple(os.path.normcase(os.path.abspath(r)) + os.sep for r in read_roots if r)
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+
+    def inside(path):
+        try:
+            text = os.fsdecode(path)
+            return (os.path.normcase(os.path.abspath(text)) + os.sep).startswith(roots)
+        except (TypeError, ValueError):
+            return False
+
+    def hook(event, args):
+        if event == "open":
+            path = args[0]
+            if isinstance(path, int):
+                return  # a descriptor that was already open
+            mode, flags = args[1], args[2]
+            if (isinstance(mode, str) and any(c in mode for c in "wax+")) or (isinstance(flags, int) and flags & write_flags):
+                raise PermissionError("CraftPy's sandbox: files cannot be written")
+            if not inside(path):
+                raise PermissionError("CraftPy's sandbox: files outside the project and the game cannot be read")
+        elif event in ("os.listdir", "os.scandir"):
+            path = args[0]
+            if not isinstance(path, int) and not (path is not None and inside(path)):
+                raise PermissionError("CraftPy's sandbox: that folder cannot be listed")
+        elif event in _DENIED_EVENTS or event.startswith(_DENIED_PREFIXES):
+            raise PermissionError("CraftPy's sandbox: %s is not allowed" % event)
+
+    sys.addaudithook(hook)
+
+
+def _limit_memory(megabytes):
+    """Caps the memory of this process; on Windows the same job also forbids starting other processes."""
+    if megabytes <= 0:
+        return
+    limit = int(megabytes) * 1024 * 1024
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            class IoCounters(ctypes.Structure):
+                _fields_ = [(n, ctypes.c_ulonglong) for n in (
+                    "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                    "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+            class Basic(ctypes.Structure):
+                _fields_ = [("PerProcessUserTimeLimit", ctypes.c_longlong), ("PerJobUserTimeLimit", ctypes.c_longlong),
+                            ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                            ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                            ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                            ("SchedulingClass", wintypes.DWORD)]
+
+            class Extended(ctypes.Structure):
+                _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", IoCounters), ("ProcessMemoryLimit", ctypes.c_size_t),
+                            ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                            ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.CreateJobObjectW.restype = wintypes.HANDLE
+            kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+            kernel.GetCurrentProcess.restype = wintypes.HANDLE
+            kernel.GetCurrentProcess.argtypes = []
+            kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+            kernel.SetInformationJobObject.restype = wintypes.BOOL
+            kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+            kernel.AssignProcessToJobObject.restype = wintypes.BOOL
+            job = kernel.CreateJobObjectW(None, None)
+            info = Extended()
+            info.BasicLimitInformation.LimitFlags = 0x100 | 0x8  # process memory + active process limit
+            info.BasicLimitInformation.ActiveProcessLimit = 1
+            info.ProcessMemoryLimit = limit
+            if not job or not kernel.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+                raise OSError("SetInformationJobObject failed")
+            if not kernel.AssignProcessToJobObject(job, kernel.GetCurrentProcess()):
+                raise OSError("AssignProcessToJobObject failed")
+        else:
+            import resource
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    except Exception as exc:  # noqa: BLE001  a platform that refuses a limit still gets layers 1 and 2
+        print("CraftPy worker: memory limit not applied (%s)" % exc, file=sys.stderr, flush=True)
+
+
+def _harden():
+    """Called once by main() before any project code can run."""
+    import os
+    try:
+        _limit_memory(int(os.environ.get("CRAFTPY_MEMORY_MB", "1024")))
+    except ValueError:
+        _limit_memory(1024)
+    roots = [sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix, os.path.dirname(os.path.abspath(__file__))]
+    roots += [r for r in os.environ.get("CRAFTPY_READ_ROOTS", "").split(os.pathsep) if r]
+    _install_audit_hook(roots)
+
+
 # While an event/timer runs, print() goes to that call's log (shown in the editor console),
 # not to the log of the Run that defined the function.
 _LOG_TARGET = [None]
@@ -116,13 +309,13 @@ def restricted_builtins(log):
         "classmethod": classmethod, "complex": complex,
         "dict": dict, "divmod": divmod, "enumerate": enumerate,
         "filter": filter, "float": float, "format": format, "frozenset": frozenset,
-        "getattr": getattr, "hasattr": hasattr, "hash": hash, "hex": hex, "id": id,
+        "getattr": _safe_getattr, "hasattr": _safe_hasattr, "hash": hash, "hex": hex, "id": id,
         "int": int, "isinstance": isinstance, "issubclass": issubclass,
         "iter": iter, "len": len, "list": list,
         "map": map, "max": max, "memoryview": memoryview, "min": min, "next": next,
         "object": object, "oct": oct, "ord": ord, "pow": pow, "property": property,
         "range": range, "repr": repr, "reversed": reversed, "round": round,
-        "set": set, "setattr": setattr, "slice": slice, "sorted": sorted,
+        "set": set, "setattr": _safe_setattr, "slice": slice, "sorted": sorted,
         "staticmethod": staticmethod, "str": str, "sum": sum, "super": super,
         "tuple": tuple, "type": type, "zip": zip,
         "print": _print_to(log), "dir": dir, "vars": vars, "LookupError": LookupError,
@@ -2584,8 +2777,10 @@ def _repl_eval(params):
         if tree.body and isinstance(tree.body[-1], _ast.Expr):
             last = _ast.Expression(tree.body.pop().value)
         if tree.body:
+            _check_user_code(tree, "<console>")
             exec(compile(tree, "<console>", "exec"), ns, ns)
         if last is not None:
+            _check_user_code(last, "<console>")
             value = repr(eval(compile(last, "<console>", "eval"), ns, ns))
     except (SyntaxError, KeyboardInterrupt) as exc:
         error = {"message": "%s: %s" % (type(exc).__name__, exc),
@@ -2893,7 +3088,7 @@ class ProjectFinder:
             module.__path__ = []
         module.__dict__["__builtins__"] = restricted_builtins(self.log)
         module.__dict__["__file__"] = path
-        exec(compile(code, path, "exec"), module.__dict__)
+        exec(_compile_user(code, path), module.__dict__)
 
 
 def _read_sources(base_dir):
@@ -2963,7 +3158,7 @@ def _run_code(code, filename, module_name, debug=False, persistent=False, owner=
 
     sys.modules["craftpy"] = sandbox_module
     _DEPRECATION_HITS.clear()
-    compiled = compile(code, filename, "exec")
+    compiled = _compile_user(code, filename)
     finder = ProjectFinder(sources, log)
     sys.meta_path.insert(0, finder)
     try:
@@ -3179,6 +3374,8 @@ def _handle(method, params):
                 if frame.filename in known:
                     file_name, line = frame.filename, frame.lineno
                     break
+            if isinstance(exc, SyntaxError) and exc.lineno:  # also what the sandbox check refuses
+                file_name, line = (exc.filename if exc.filename in known else name), exc.lineno
             return {"error": True, "message": str(exc), "file": file_name,
                     "line": max(0, line - 1),
                     "problems": [{"file": file_name, "line": max(0, line - 1),
@@ -4692,6 +4889,8 @@ def _lint_more(tree, warn, error):
     # the "02d" of f"{x:02d}" is an f-string of its own without placeholders: not a mistake
     specs = {id(n.format_spec) for n in ast.walk(tree) if isinstance(n, ast.FormattedValue) and n.format_spec}
     for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and not _attribute_allowed(node.attr):
+            error(node, _attribute_error(node.attr) + ": this fails when the code runs")
         # the sandbox refuses these when the code runs; say so while typing
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
@@ -5189,6 +5388,7 @@ def _write(obj):
 
 
 def main():
+    _harden()
     _install_finder()
     print("CraftPy worker ready (Python %d.%d)" % sys.version_info[:2],
           file=sys.stderr, flush=True)

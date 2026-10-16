@@ -989,6 +989,120 @@ def test_ui_refresh_keeps_the_window_state():
         w._host_call = old
 
 
+REFUSED_CODE = {
+    "frame attribute": "def f():\n    pass\nprint(f.__globals__)\n",
+    "subclass walk": "print(().__class__.__bases__[0].__subclasses__())\n",
+    "code object": "def f():\n    pass\nprint(f.__code__)\n",
+    "frame of a generator": "g = (i for i in range(1))\nprint(g.gi_frame.f_globals)\n",
+    "builtins name": "print(__builtins__)\n",
+    "getattr with a built name": "def f():\n    pass\nprint(getattr(f, '__glo' + 'bals__'))\n",
+    "setattr with a built name": "class A:\n    pass\nsetattr(A, '__bases__', ())\n",
+    "inspect import": "import inspect\n",
+    "gc import": "import gc\n",
+    "os import": "import os\n",
+    "open": "open('x.txt', 'w')\n",
+}
+
+
+def test_sandbox_refuses_interpreter_internals_and_keeps_the_api():
+    for label, code in REFUSED_CODE.items():
+        result = w._handle("run_main", {"project": "sbx", "code": code, "file": "code/main.py"})
+        assert result.get("error"), (label, result)
+    # the editor shows the refusal while typing
+    problems = w._handle("validate", {"file": "code/main.py", "code": REFUSED_CODE["frame attribute"]})["problems"]
+    assert any("not available in CraftPy" in p["message"] and p["severity"] == "error" for p in problems), problems
+    # what ordinary code does keeps working: classes, dunder methods, super, properties, dataclass-like patterns
+    ok = NL.join([
+        "from craftpy import *",
+        "class Base:",
+        "    def __init__(self, n):",
+        "        self.n = n",
+        "    def __repr__(self):",
+        "        return 'Base(%d)' % self.n",
+        "    def __eq__(self, other):",
+        "        return self.n == other.n",
+        "    def __hash__(self):",
+        "        return hash(self.n)",
+        "class Child(Base):",
+        "    def __init__(self, n):",
+        "        super().__init__(n + 1)",
+        "    @property",
+        "    def double(self):",
+        "        return self.n * 2",
+        "c = Child(1)",
+        "assert repr(c) == 'Base(2)' and c.double == 4 and c == Child(1) and c.__class__.__name__ == 'Child'",
+        "assert getattr(c, 'n') == 2 and hasattr(c, 'double') and not hasattr(c, 'nothing')",
+        "setattr(c, 'n', 5)",
+        "def named(): pass",
+        "assert named.__name__ == 'named'",
+        ""])
+    result = w._handle("run_main", {"project": "sbx", "code": ok, "file": "code/main.py"})
+    assert not result.get("error"), result
+
+
+AUDIT_PROBE = NL.join([
+    "import importlib.util, os, sys, tempfile",
+    "spec = importlib.util.spec_from_file_location('w', %r)",
+    "w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)",
+    "inside = os.path.join(%r, 'inside.txt')",
+    "open(inside, 'w').write('data')",
+    "w._install_audit_hook([sys.prefix, sys.base_prefix, %r, os.path.dirname(inside)])",
+    "def attempt(label, fn):",
+    "    try:",
+    "        fn(); print('ALLOWED', label)",
+    "    except PermissionError:",
+    "        print('refused', label)",
+    "attempt('read inside', lambda: open(inside).read())",
+    "attempt('read outside', lambda: open(os.path.abspath(os.sep)).read() if False else open(%r).read())",
+    "attempt('write inside', lambda: open(inside, 'a').write('x'))",
+    "attempt('create file', lambda: open(os.path.join(os.path.dirname(inside), 'new.txt'), 'w'))",
+    "attempt('delete', lambda: os.remove(inside))",
+    "attempt('start process', lambda: __import__('subprocess').run([sys.executable, '-c', '1']))",
+    "attempt('network', lambda: __import__('socket').socket().connect(('127.0.0.1', 9)))",
+    "attempt('list outside', lambda: os.listdir(os.path.dirname(os.path.dirname(inside))))",
+    "attempt('stdlib import', lambda: __import__('colorsys'))",
+    "print('worker still reads its folder', len(os.listdir(os.path.dirname(inside))) > 0)",
+])
+
+
+def test_audit_hook_refuses_files_processes_and_network():
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as folder:
+        outside = os.path.join(tempfile.gettempdir(), "craftpy_audit_outside.txt")
+        with open(outside, "w") as handle:
+            handle.write("secret")
+        try:
+            code = AUDIT_PROBE % (w.__file__, folder, folder, outside)
+            run = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60)
+        finally:
+            os.remove(outside)
+    lines = run.stdout.split(NL)
+    assert run.returncode == 0, run.stderr[-800:]
+    for label in ["read outside", "write inside", "create file", "delete", "start process", "network", "list outside"]:
+        assert "refused " + label in lines, (label, run.stdout, run.stderr[-400:])
+    assert "ALLOWED read inside" in lines and "ALLOWED stdlib import" in lines, run.stdout
+
+
+MEMORY_PROBE = NL.join([
+    "import importlib.util",
+    "spec = importlib.util.spec_from_file_location('w', %r)",
+    "w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)",
+    "w._limit_memory(300)",
+    "try:",
+    "    block = bytearray(900 * 1024 * 1024)",
+    "    print('not limited')",
+    "except MemoryError:",
+    "    print('limited')",
+])
+
+
+def test_memory_limit_stops_runaway_allocation():
+    import subprocess
+    run = subprocess.run([sys.executable, "-I", "-c", MEMORY_PROBE % w.__file__], capture_output=True, text=True, timeout=60)
+    assert run.stdout.strip() == "limited", (run.stdout, run.stderr[-500:])
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

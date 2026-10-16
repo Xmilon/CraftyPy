@@ -499,6 +499,10 @@ raw_json("worldgen/configured_feature/ruby.json", {...})          # any data fil
 - Blocks and items are slots registered when the game starts (a pool per kind), so content appears without a restart.
 - Custom entities and custom mob effects can be declared but are not wired into the game yet.
 - Python runs in a sandbox: no files, network or OS access. Handlers get about 50 ms.
+- The sandbox also refuses the insides of the interpreter: attributes such as `__globals__`, `__subclasses__`,
+  `__code__`, `f_back`, `gi_frame` and modules such as `inspect` and `gc`. The editor marks them as errors while you
+  type. Everything the API offers (classes, `__init__`, `__repr__`, `super()`, properties, `getattr` on your own names)
+  works as usual. The worker may use 1 GB (`pythonMemoryMb` in the config) and cannot write files or open connections.
 
 ## Older syntax
 
