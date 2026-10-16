@@ -583,7 +583,7 @@ input, recent colors, keyboard shortcuts, cursor pixel info; sound player shows 
 both examples and the template); `runClient` starts without resource errors. **Not verified**: any of it clicked
 in-game.
 **Known limits**: bookmarks shift with line edits but not with external file changes; `storage` is not persisted
-across restarts; only `code/main.py` runs; handlers cannot cancel events.
+across restarts (fixed in M19: saved with the world); only `code/main.py` runs; handlers cannot cancel events.
 
 ### Milestone M7: UI Rewrite on Modern UI
 - **One screen, four pages** (`client/mui/`): `CraftPyFragment` (nav rail + page container, modelled on

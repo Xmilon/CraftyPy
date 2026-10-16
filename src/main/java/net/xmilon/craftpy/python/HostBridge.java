@@ -3,7 +3,6 @@ package net.xmilon.craftpy.python;
 import net.xmilon.craftpy.CraftPyLog;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -35,7 +34,7 @@ import net.neoforged.neoforge.server.ServerLifecycleHooks;
  */
 public final class HostBridge {
 
-    private static final Map<String, JsonElement> STORAGE = new ConcurrentHashMap<>();
+    private static final Map<String, JsonElement> STORAGE = net.xmilon.craftpy.lifecycle.StorageData.VALUES;
     private static final long TIMEOUT_SECONDS = 8;
 
     private HostBridge() {
@@ -112,14 +111,17 @@ public final class HostBridge {
                 case "storage.set" -> {
                     JsonElement stored = params.get("value");
                     STORAGE.put(storageKey(params), stored == null ? new JsonObject() : stored);
+                    net.xmilon.craftpy.lifecycle.StorageData.changed();
                     yield ok();
                 }
                 case "storage.clear" -> {
                     if (params.has("key") && !string(params, "key", "").isBlank()) {
                         STORAGE.remove(storageKey(params));
                     } else {
-                        STORAGE.clear();
+                        String scope = string(params, "scope", "world") + "/";
+                        STORAGE.keySet().removeIf(key -> key.startsWith(scope));
                     }
+                    net.xmilon.craftpy.lifecycle.StorageData.changed();
                     yield ok();
                 }
                 case "server.log" -> {

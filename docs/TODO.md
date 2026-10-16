@@ -193,7 +193,6 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.
 - Files are always read and written as UTF-8 (no charset conversion).
-- `storage` is not persisted across restarts.
 - Recipe, loot and content previews need the project to be running.
 - Rename refuses on unsaved text.
 - The missing-imports helper only knows about 20 standard-library modules.

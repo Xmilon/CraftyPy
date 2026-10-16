@@ -385,7 +385,8 @@ storage["ores_mined"] = storage.get("ores_mined", 0) + 1
 storage.set("home:" + p.name, [p.x, p.y, p.z])
 ```
 
-- Shared by all your handlers while the game runs. It resets when the server restarts.
+- Shared by all your handlers and saved with the world: values are still there after a restart.
+- Values must be JSON: numbers, text, `True`/`False`, `None`, lists and dicts.
 
 ## Windows
 
@@ -465,7 +466,6 @@ raw_json("worldgen/configured_feature/ruby.json", {...})          # any data fil
 - Blocks and items are slots registered when the game starts (a pool per kind), so content appears without a restart.
 - Custom entities and custom mob effects can be declared but are not wired into the game yet.
 - Python runs in a sandbox: no files, network or OS access. Handlers get about 50 ms.
-- `storage` is not saved across server restarts.
 
 ## Older syntax
 
@@ -1761,7 +1761,7 @@ Sets the weather.
 
 #### `storage.get(key, default=None, scope='world')`
 
-Reads a saved value (values live while the game runs, shared by all handlers).
+Reads a saved value (saved with the world, shared by all handlers).
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |

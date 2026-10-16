@@ -1375,7 +1375,7 @@ class _TickContext:
         self.world = world
 
 
-# Storage. NOTE: kept in memory by the host for the running game session.
+# Storage. The host saves the values with the world (lifecycle/StorageData); _STORAGE caches them for this worker.
 def storage_get(key, default=None, scope="world"):
     value = _STORAGE.get((scope, key))
     if value is None:
@@ -1391,7 +1391,8 @@ def storage_set(key, value, scope="world"):
 
 def storage_clear(key=None, scope="world"):
     if key is None:
-        _STORAGE.clear()
+        for cached in [k for k in _STORAGE if k[0] == scope]:
+            del _STORAGE[cached]
         _try_host("storage.clear", {"scope": scope}, default=None)
     else:
         _STORAGE.pop((scope, key), None)
@@ -4619,7 +4620,7 @@ def _load_docs():
         "world.is_day": ("True during the day.", {"dimension": DIM}, "bool"),
         "world.weather": ("Sets the weather.", {"weather": "'clear', 'rain' or 'thunder'.", "duration": "Ticks (default 6000).", "dimension": DIM}, ""),
         # ---------------------------------------------------------------- storage, scheduler, server, ui
-        "storage.get": ("Reads a saved value (values live while the game runs, shared by all handlers).", {"key": "Name.", "default": "Returned when missing.", "scope": "A name that keeps groups of values apart (default 'world')."}, "the value"),
+        "storage.get": ("Reads a saved value (saved with the world, shared by all handlers).", {"key": "Name.", "default": "Returned when missing.", "scope": "A name that keeps groups of values apart (default 'world')."}, "the value"),
         "storage.set": ("Saves a value. storage['key'] = value does the same in the default scope.", {"key": "Name.", "value": "Number, text, bool, list or dict.", "scope": "Group name (default 'world')."}, "the value"),
         "storage.clear": ("Deletes one value, or everything of the scope.", {"key": "Name; omit to clear the whole scope.", "scope": "Group name (default 'world')."}, ""),
         "scheduler.after": ("Runs fn once after a delay.", {"seconds": "Delay.", "fn": "Function."}, "A Task."),

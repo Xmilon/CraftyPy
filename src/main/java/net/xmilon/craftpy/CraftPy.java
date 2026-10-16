@@ -56,6 +56,8 @@ public class CraftPy {
     public void onServerStarted(ServerStartedEvent event) {
         // All project IO is owned by the server (integrated server = same instance folder).
         ProjectManager.init();
+        // Python's storage values of this world, before any module runs
+        net.xmilon.craftpy.lifecycle.StorageData.open(event.getServer());
         net.xmilon.craftpy.project.ModuleLoader.discoverAndLoad();
         LOGGER.info("CraftPy project manager ready");
         // Silent: writes system/catalog/<mod>.json for mods that changed, so the IDE can complete their names.
