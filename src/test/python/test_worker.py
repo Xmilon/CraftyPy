@@ -592,6 +592,8 @@ def test_lint_warnings():
     assert any("already defined" in m for m in msgs), msgs
     assert not any("Item" in m or "print" in m for m in msgs), msgs
     assert all(p["severity"] == "warning" for p in r["problems"])
+    local = w._handle("validate", {"code": "import blocks" + NL + "import items" + NL, "file": "code/main.py"})
+    assert local["problems"] == [], local  # importing a project file runs it: no warning
     star = w._handle("validate", {"code": "from other import *" + NL + "print(zzz)" + NL, "file": "m.py"})
     assert not any("Undefined" in p["message"] for p in star["problems"])
 

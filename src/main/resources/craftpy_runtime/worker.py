@@ -4662,7 +4662,9 @@ def _lint(source, filename):
                 reported.add(node.id)
                 warn(node, "Undefined name '%s'" % node.id)
     for name, node in imported.items():
-        if name not in used and not name.startswith("_"):
+        # "import blocks" of a project file runs it, which registers its content: that is the point, not a leftover
+        side_effect = isinstance(node, ast.Import) and name not in sys.stdlib_module_names
+        if name not in used and not name.startswith("_") and not side_effect:
             warn(node, "'%s' is imported but never used" % name)
     seen = {}
     for node in tree.body:
