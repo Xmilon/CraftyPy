@@ -76,8 +76,7 @@ Remaining:
 - [x] Effect helpers with catalog ids: `Item(effect="mod:effect")` was broken (read as id `mod`); fixed on both sides.
 - [x] Field check of `recipe("mod:type", ...)` against the fields the dump saw (warning).
 - [x] Completion cap raised to 250 and ranked (prefix, then initials).
-- [ ] Hover and completion of names imported from the project's other files (`from items import gem`): the worker only
-  sees the open file. Needs the project's sources in the assist request (cost per keystroke).
+- [x] Hover and completion of names imported from the project's other files (the assist request carries the .py files).
 - [ ] Verify the catalog dump on a server with Create, Mekanism, Iron's Spells, Curios (needs the game).
 
 ## 4. M17 gaps (installer)
