@@ -5,11 +5,9 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * What the installer found on this PC. {@code pythonCommand} is a working Python of at least the required version, or null.
- * {@code packageManager} is winget, brew, apt, dnf or pacman, or null.
+ * What the installer found on this PC.
  */
-public record Env(String os, Path minecraftDir, int javaMajor, String pythonCommand, String packageManager,
-                  boolean neoforgeInstalled, Set<String> modFiles) {
+public record Env(String os, Path minecraftDir, int javaMajor, boolean neoforgeInstalled, Set<String> modFiles) {
 
     public static String osName(String property) {
         String name = property.toLowerCase(Locale.ROOT);

@@ -230,7 +230,7 @@ public final class ProjectRequestHandler {
                 }
                 if (!PyRuntime.available()) {
                     return CompletableFuture.completedFuture(fail(action,
-                            "No supported Python runtime found. Install CPython 3.13+ or set pythonPath in config."));
+                            "No Python: this CraftPy build has none for this computer (see the log). Install CPython 3.13+ or set pythonPath in config."));
                 }
                 String code = request.data();
                 String session = "default";
@@ -482,7 +482,7 @@ public final class ProjectRequestHandler {
         }
         if (!PyRuntime.available()) {
             return CompletableFuture.completedFuture(fail(ProjectAction.VALIDATE,
-                    "No supported Python runtime found. Install CPython 3.13+ or set pythonPath in config."));
+                    "No Python: this CraftPy build has none for this computer (see the log). Install CPython 3.13+ or set pythonPath in config."));
         }
         return manager.listFiles(projectId).thenCompose(files -> {
             List<String> pyFiles = new ArrayList<>();

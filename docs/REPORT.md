@@ -268,6 +268,7 @@ First time the mod was run with Create, Mekanism, Iron's Spells, Curios and Mode
 - Pinned: NeoForge 21.1.259 (maven.neoforged.net), Modern UI 3.13.0.1 (Modrinth CDN). Decision: `.properties` instead of JSON so the installer has no dependency.
 - Removed the dead `autoDownloadPython` config option and its lang/README entries; the "no Python" error now points to the installer.
 - Not done: an embedded Python download (package managers only), Linux distros without `python3.13` packages get the python.org note.
+  Done in M19: the mod jar ships CPython 3.13 for five platforms; the installer no longer installs Python.
 
 ### Milestone M16: mod catalog, id completion and checks, other mods' recipes and attributes
 

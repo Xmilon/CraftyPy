@@ -239,6 +239,81 @@ sourceSets {
     }
 }
 
+// ---- The Python players get with the mod: python-build-standalone (CPython built to run from any folder), one archive
+// per platform in the jar under craftpy_python/, pinned by release and SHA-256. BundledPython unpacks the one of the
+// player's computer on first start. -Pcraftpy.bundlePython=false builds without it (offline, smaller jar).
+def pythonRelease = '20260929'
+def pythonVersion = '3.13.15'
+def pythonRuntimes = [
+        'x86_64-pc-windows-msvc'   : 'd11d0d4b4fefa5df09e925dbd37600457f5488a9712a82f3f0dd1ff9431c2ccf',
+        'x86_64-unknown-linux-gnu' : 'c552deaf9ed0e678dee4ccc760d6dcd7cab33f1bd43e8037123b4a4db8508e14',
+        'aarch64-unknown-linux-gnu': '3807936bef22d3e347454df4f8774c786f98c7caa5e7328425e7b40766a9cff8',
+        'x86_64-apple-darwin'      : '73b503a2d3f47f0601265d7936744b77dc4ee75d2a3e88a470594a014dcf6822',
+        'aarch64-apple-darwin'     : 'd66c67f16148c7454b1509c32747175f7669c8b8e105b97b92a0000d66af6e6e',
+]
+def pythonDir = layout.buildDirectory.dir('python-runtimes')
+def bundlePython = (findProperty('craftpy.bundlePython') ?: 'true').toString() != 'false'
+
+def downloadPython = tasks.register('downloadPython') {
+    group = 'craftpy'
+    description = 'Downloads the pinned Python runtimes the mod jar ships (checked against their SHA-256).'
+    def out = pythonDir.get().asFile
+    inputs.property('release', pythonRelease + '/' + pythonVersion)
+    inputs.property('runtimes', pythonRuntimes)
+    outputs.dir(out)
+    doLast {
+        out.mkdirs()
+        def sha256 = { File file ->
+            def digest = java.security.MessageDigest.getInstance('SHA-256')
+            file.withInputStream { stream ->
+                byte[] buffer = new byte[1 << 16]
+                int read
+                while ((read = stream.read(buffer)) > 0) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            digest.digest().encodeHex().toString()
+        }
+        def http = java.net.http.HttpClient.newBuilder().followRedirects(java.net.http.HttpClient.Redirect.NORMAL).build()
+        pythonRuntimes.each { platform, expected ->
+            def file = new File(out, platform + '.tar.gz')
+            if (file.exists() && sha256(file) == expected) {
+                return
+            }
+            def url = "https://github.com/astral-sh/python-build-standalone/releases/download/${pythonRelease}/" +
+                    "cpython-${pythonVersion}%2B${pythonRelease}-${platform}-install_only_stripped.tar.gz"
+            def part = new File(out, platform + '.tar.gz.part')
+            println "Downloading Python ${pythonVersion} for ${platform}"
+            def response = http.send(java.net.http.HttpRequest.newBuilder(URI.create(url)).build(),
+                    java.net.http.HttpResponse.BodyHandlers.ofFile(part.toPath()))
+            if (response.statusCode() != 200) {
+                part.delete()
+                throw new GradleException("Python download failed (HTTP ${response.statusCode()}): ${url}")
+            }
+            def actual = sha256(part)
+            if (actual != expected) {
+                part.delete()
+                throw new GradleException("Python for ${platform} has SHA-256 ${actual}, expected ${expected}: not used")
+            }
+            java.nio.file.Files.move(part.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+        def index = new StringBuilder('# The Python runtimes in this jar (python-build-standalone ' + pythonRelease + ')\n')
+        index.append('version=').append(pythonVersion).append('+').append(pythonRelease).append('\n')
+        pythonRuntimes.each { platform, sha -> index.append(platform).append('.sha256=').append(sha).append('\n') }
+        new File(out, 'runtimes.properties').text = index.toString()
+    }
+}
+
+tasks.named('jar', Jar) {
+    if (bundlePython) {
+        dependsOn downloadPython
+        from(pythonDir) {
+            into 'craftpy_python'
+            include '*.tar.gz', 'runtimes.properties'
+        }
+    }
+}
+
 tasks.register('installerJar', Jar) {
     group = 'build'
     archiveBaseName = 'craftpy-installer'

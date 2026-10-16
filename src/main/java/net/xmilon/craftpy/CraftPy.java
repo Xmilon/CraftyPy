@@ -50,6 +50,8 @@ public class CraftPy {
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
         
         net.xmilon.craftpy.project.PyForgePaths.ensureLayout();
+        // the first start unpacks the Python shipped in the jar (a few seconds) while the game loads
+        net.xmilon.craftpy.util.CraftPyExecutors.runAsync(() -> net.xmilon.craftpy.python.BundledPython.executable());
     }
 
     @SubscribeEvent

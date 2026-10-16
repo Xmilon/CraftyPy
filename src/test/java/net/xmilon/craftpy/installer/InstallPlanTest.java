@@ -17,13 +17,13 @@ class InstallPlanTest {
     private static final Path MC = Path.of("mc");
     private static final Path WORK = Path.of("work");
 
-    private static Env env(int java, String python, String manager, boolean neoforge, Set<String> mods) {
-        return new Env("linux", MC, java, python, manager, neoforge, mods);
+    private static Env env(int java, boolean neoforge, Set<String> mods) {
+        return new Env("linux", MC, java, neoforge, mods);
     }
 
     @Test
     void freshPcGetsNeoForgeModernUiAndCraftPyInOrder() {
-        List<Step> steps = InstallPlan.build(env(21, "python3", null, false, Set.of()), REQ, WORK, false);
+        List<Step> steps = InstallPlan.build(env(21, false, Set.of()), REQ, WORK);
         assertEquals(4, steps.size(), steps.toString());
         assertTrue(steps.get(0) instanceof Step.Download d && d.url().contains("neoforge-21.1.259-installer.jar"));
         assertTrue(steps.get(1) instanceof Step.Run r && r.command().containsAll(List.of("--installClient", MC.toString())));
@@ -33,32 +33,16 @@ class InstallPlanTest {
 
     @Test
     void existingPartsAreSkipped() {
-        List<Step> steps = InstallPlan.build(env(21, "python3", null, true, Set.of(REQ.modernUiFile())), REQ, WORK, false);
+        List<Step> steps = InstallPlan.build(env(21, true, Set.of(REQ.modernUiFile())), REQ, WORK);
         assertEquals(List.of(new Step.CopyMod(MC.resolve("mods").resolve("craftpy.jar"))), steps);
     }
 
     @Test
     void oldJavaIsReportedNotInstalled() {
-        List<Step> steps = InstallPlan.build(env(17, "python3", null, true, Set.of(REQ.modernUiFile())), REQ, WORK, false);
+        List<Step> steps = InstallPlan.build(env(17, true, Set.of(REQ.modernUiFile())), REQ, WORK);
         assertTrue(steps.get(0) instanceof Step.Manual m && m.text().contains("Java 21"));
     }
 
-    @Test
-    void pythonIsOnlyInstalledWhenAsked() {
-        Env missing = new Env("windows", MC, 21, null, "winget", true, Set.of(REQ.modernUiFile()));
-        assertTrue(InstallPlan.build(missing, REQ, WORK, false).get(1) instanceof Step.Manual);
-        assertEquals(new Step.Run("Install Python 3.13", List.of("winget", "install", "-e", "--id", "Python.Python.3.13")),
-                InstallPlan.build(missing, REQ, WORK, true).get(1));
-    }
-
-    @Test
-    void packageManagerCommandsPerSystem() {
-        assertEquals(List.of("brew", "install", "python@3.13"), InstallPlan.pythonCommand("brew", REQ));
-        assertEquals(List.of("sudo", "apt", "install", "-y", "python3.13"), InstallPlan.pythonCommand("apt", REQ));
-        assertEquals(List.of("sudo", "dnf", "install", "-y", "python3.13"), InstallPlan.pythonCommand("dnf", REQ));
-        assertEquals(List.of("sudo", "pacman", "-S", "--noconfirm", "python"), InstallPlan.pythonCommand("pacman", REQ));
-        assertEquals(null, InstallPlan.pythonCommand(null, REQ));
-    }
 
     @Test
     void minecraftFolderPerSystem() {

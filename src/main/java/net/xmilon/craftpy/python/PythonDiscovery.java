@@ -17,7 +17,8 @@ import net.xmilon.craftpy.project.PyForgePaths;
  * Locates a usable CPython 3 executable. Priority:
  * <ol>
  * <li>Config {@code pythonPath} (explicit user choice)</li>
- * <li>A bundled runtime under {@code pyforge/runtime/}</li>
+ * <li>A Python placed in {@code pyforge/system/runtime/}</li>
+ * <li>The Python shipped in the mod jar ({@link BundledPython}), unpacked on first use</li>
  * <li>A system Python on PATH ({@code py}, {@code python3}, {@code python})</li>
  * </ol>
  * The executable is probed with {@code --version} and must report Python 3.13+.
@@ -41,6 +42,10 @@ public final class PythonDiscovery {
             candidates.add(Path.of(configured.trim()));
         }
         runtimeBundled().ifPresent(candidates::add);
+        Path shipped = BundledPython.executable();
+        if (shipped != null) {
+            candidates.add(shipped);
+        }
         for (String name : new String[] { "py", "python3", "python" }) {
             for (Path dir : pathDirectories()) {
                 candidates.add(dir.resolve(name));
@@ -64,7 +69,7 @@ public final class PythonDiscovery {
 
     private static Optional<Path> runtimeBundled() {
         Path runtime = PyForgePaths.runtime();
-        for (String name : new String[] { "python", "python3" }) {
+        for (String name : new String[] { "python", "python3", "bin/python3" }) {
             String exe = System.getProperty("os.name").toLowerCase().contains("win")
                     ? name + ".exe" : name;
             Path candidate = runtime.resolve(exe);

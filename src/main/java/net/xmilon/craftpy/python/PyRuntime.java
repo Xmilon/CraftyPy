@@ -246,8 +246,8 @@ public final class PyRuntime {
         Path python = PythonDiscovery.pythonExecutable();
         if (python == null) {
             throw new IllegalStateException(
-                    "No supported Python found. Install CPython 3.13+ (the craftpy-installer does it with --install-python)"
-                            + " or set a path in pyforge config (pythonPath).");
+                    "No Python: CraftPy ships one for Windows, macOS and Linux (x64 / ARM64); it could not be unpacked or"
+                            + " this computer is not one of those (see the log). Install CPython 3.13+ or set pythonPath in config.");
         }
         return python;
     }

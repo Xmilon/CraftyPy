@@ -88,7 +88,11 @@ Remaining:
 - [ ] Run a real install on a clean profile (NeoForge installer, Modern UI download, copy). Not run: it changes the user's
   `.minecraft`; do it together with the user.
 - [x] Linux and macOS commands (`apt`, `dnf`, `pacman`, `brew`) and the Swing window were already there (this item was stale).
-- [ ] Embedded Python download (only package managers are supported now).
+- [x] Python ships in the mod jar (2026-10-16): python-build-standalone 3.13.15+20260929 for Windows x64, macOS x64/arm64,
+  Linux x64/arm64 (`gradlew downloadPython`, pinned SHA-256), unpacked by `python/BundledPython` with `util/TarGz` to
+  `pyforge/system/python/`; the installer has no Python step any more. Jar ~140 MB.
+- [ ] Not covered by the shipped Python: 32-bit Windows, musl Linux (Alpine servers), FreeBSD: they need `pythonPath`.
+- [ ] Verify on a real Mac and Linux machine (only the Windows runtime was run here; the Linux archive was unpacked and checked).
 
 ## 5. Earlier plan, batch 5 (mod metadata and clean push)
 

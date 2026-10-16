@@ -85,16 +85,24 @@ New UI in dark, with CraftPy's green as the accent:
 | **Minecraft** | 1.21.1 |
 | **Mod loader** | NeoForge 21.1.x |
 | **JDK** | 21 or newer |
-| **Python** | CPython **3.13+** on `PATH` (or set `pythonPath` in config; a runtime placed in `pyforge/runtime/` also works) |
+| **Python** | **Nothing to install**: the mod ships CPython 3.13 for Windows x64, macOS (Intel and Apple silicon) and Linux x64 / ARM64 |
 | **Modern UI** | 3.13+ for NeoForge 1.21.1, **client only** (servers do not need it) |
+
+### Python is included
+
+You do not install Python. The mod jar carries CPython 3.13 (python-build-standalone, pinned by release and SHA-256) for
+Windows x64, macOS Intel / Apple silicon and Linux x64 / ARM64. The first start unpacks the one for your computer to
+`pyforge/system/python/` (a few seconds, once; checked against its hash) and every later start uses it. The order is:
+`pythonPath` in the config, a Python you put in `pyforge/system/runtime/`, the shipped one, then `python` on `PATH`.
+That is why the jar is about 140 MB. Building it: `./gradlew build` downloads the five runtimes once into
+`build/python-runtimes/` (`./gradlew downloadPython`); `-Pcraftpy.bundlePython=false` builds a small jar without them.
 
 ### Installer
 
 `./gradlew installerJar` builds `build/libs/craftpy-installer.jar` (the mod jar is inside). Double-click it, or run
 `java -jar craftpy-installer.jar --cli`. It shows every step before it runs anything: NeoForge 21.1.259 (via its own installer),
-Modern UI 3.13.0.1 and CraftPy into `mods/`, all downloads checked against a pinned SHA-256. Python is only installed with
-`--install-python` (winget / brew / apt / dnf / pacman, printed first) together with the optional `soundfile` package for OGG export.
-Flags: `--dry-run`, `--yes`, `--dir <minecraft folder>`, `--craftpy <jar>`. Start the Minecraft launcher once before the first run so it has a profile.
+Modern UI 3.13.0.1 and CraftPy into `mods/`, all downloads checked against a pinned SHA-256. Python is not a step: it is
+inside the mod. Flags: `--dry-run`, `--yes`, `--dir <minecraft folder>`, `--craftpy <jar>`. Start the Minecraft launcher once before the first run so it has a profile.
 
 ## Getting Started
 
@@ -206,7 +214,8 @@ Everything is stored as plain files, so projects can also be edited with any ext
 
 ```text
 <instance>/pyforge/
-├── runtime/            # worker.py and an optional bundled Python
+├── system/python/      # the Python shipped in the mod jar, unpacked on the first start
+├── runtime/            # worker.py (a Python you put here yourself is used before the shipped one)
 ├── logs/
 ├── slots.json          # persistent content-id -> slot mapping
 ├── build/              # generated resource/data packs (disposable)
@@ -237,7 +246,7 @@ Everything is stored as plain files, so projects can also be edited with any ext
 |---|---|---|
 | `enableScripting` | `true` | Master switch for loading/running projects |
 | `permissionLevel` | `2` | Permission level required to use the IDE (singleplayer owner always allowed) |
-| `pythonPath` | `""` | Explicit Python executable; empty = auto-detect |
+| `pythonPath` | `""` | Explicit Python executable; empty = the shipped one (then `PATH`) |
 | `debugDefault` | `false` | Start with debug tracing on |
 | `hotReloadOnSave` | `false` | Re-run a loaded project 0.7 s after a code/ui/asset file was saved (one run for a burst of saves) |
 | `javaBridge.mode` | `RESTRICTED` | `OFF`, `RESTRICTED` (Minecraft, NeoForge, Mojang libs, CraftPy + `javaBridge.extraPackages`) or `FULL` |
@@ -259,7 +268,8 @@ Project Python runs in an external subprocess with a denylist of OS, filesystem,
 - **Entities and effects** can be declared but are not yet wired into the game (later milestone).
 - Slot pools are fixed at startup (default 256 blocks / 256 items, at most 4096 each via `config/craftpy-slots.properties`); more at the same time needs a restart.
 - Binary asset previews are capped at 288 KB per file (larger files open with a notice).
-- Only CPython 3.13+ is supported (no Jython/GraalPy).
+- Only CPython 3.13+ is supported (no Jython/GraalPy). The shipped Python covers Windows x64, macOS and glibc Linux
+  (x64 / ARM64); elsewhere (32-bit Windows, Alpine/musl) install CPython 3.13+ or set `pythonPath`.
 - Hot reload of behavior is per-run: reload a project to re-execute its scripts.
 
 ## Development & Testing
