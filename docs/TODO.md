@@ -254,6 +254,8 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
   working (full test suite, welcome, ruby_rush, mod_mashup, jukebox run unchanged).
 - [ ] Linux/macOS: the memory cap (`RLIMIT_AS`) and the audit probe are only run on Windows here.
 
+- [x] `docs/STORE.md`: the short description for CurseForge / Modrinth (Markdown, no dev details).
+
 ## 8. Known limits (from the last "what is missing" list)
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.
