@@ -24,7 +24,7 @@ import net.xmilon.craftpy.util.Json;
 public final class PackBuilder {
     private static final String UNLOADED_TEXTURE = "minecraft:block/magenta_wool";
     private static final String DIR_NAME = "craftpy-dynamic";
-    private static final String RESOURCE_FORMAT = "34";
+    static final String RESOURCE_FORMAT = "34";
     private static final String DATA_FORMAT = "48";
 
     private PackBuilder() {
@@ -307,7 +307,14 @@ public final class PackBuilder {
         Path projectsDir = manager.projectsDir();
         for (String projectId : SlotRegistry.activeProjectIds()) {
             Path source = projectsDir.resolve(projectId).resolve("assets");
-            if (!Files.isDirectory(source)) {
+            if (!Files.isDirectory(projectsDir.resolve(projectId))) {
+                // an installed module, not a project of this game: its unpacked copy (null when server-side)
+                if (net.xmilon.craftpy.project.ModuleLoader.isServerOnly(projectId)) {
+                    continue;
+                }
+                source = net.xmilon.craftpy.project.ModuleLoader.assetsOf(projectId);
+            }
+            if (source == null || !Files.isDirectory(source)) {
                 continue;
             }
             try (java.util.stream.Stream<Path> children = Files.list(source)) {
@@ -344,6 +351,10 @@ public final class PackBuilder {
      * namespace of its own, like in a mod or resource pack: {@code assets/minecraft/textures/block/stone.png} retextures
      * vanilla. Null for a folder name that cannot be a namespace.
      */
+    static boolean isResourceFolder(String name) {
+        return RESOURCE_FOLDERS.contains(name);
+    }
+
     static String assetNamespace(String projectId, String entryName, boolean directory) {
         if (!directory || RESOURCE_FOLDERS.contains(entryName)) {
             return projectId;
@@ -1078,7 +1089,7 @@ public final class PackBuilder {
                 ? element.getAsBoolean() : fallback;
     }
 
-    private static void writeMcmeta(Path root, String format, String description) throws Exception {
+    static void writeMcmeta(Path root, String format, String description) throws Exception {
         JsonObject meta = new JsonObject();
         meta.addProperty("pack_format", Integer.parseInt(format));
         JsonObject desc = new JsonObject();

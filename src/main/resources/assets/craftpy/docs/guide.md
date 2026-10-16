@@ -151,6 +151,17 @@ the datapack folders of Curios (`craftpy_integrations/*.json`). They show only w
 in place, so there is never a duplicate) or **New module** (its own id and display name; its blocks and items then use that id as
 namespace). With *Install* ticked the module is loaded right away; the file is always also written to `exports/`.
 
+**Works on** picks where the module does its job:
+
+| Choice | What goes in | Where it works |
+| --- | --- | --- |
+| Client and server (default) | everything | code, recipes and loot on the server; textures, models, sounds, names for the players |
+| Client only | only `assets/` | each player's own CraftPy applies it as a resource pack, on any server (even without CraftPy). No code runs |
+| Server only | code, `data/`, `ui/` | the server; players need nothing. Blocks and items would show without textures |
+
+A client-only module is read from the `pyforge/` folder of the computer it is installed on; enable or disable it on the
+Modules page and the resources reload. `/craftpy module info <id>` shows a module's side.
+
 ## Editor font
 
 The code area, line numbers, console and completion list use JetBrains Mono (SIL Open Font License), shipped with the mod. The rest

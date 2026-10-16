@@ -29,11 +29,14 @@ class BuildFormTest {
 
     @Test
     void requestIsTheJsonTheServerReads() {
-        var json = JsonParser.parseString(BuildForm.request(true, " 2.0 ", " pack ", " Pack ", false)).getAsJsonObject();
+        var json = JsonParser.parseString(BuildForm.request(true, " 2.0 ", " pack ", " Pack ", false, "client")).getAsJsonObject();
         assertEquals("2.0", json.get("version").getAsString());
         assertEquals("new", json.get("mode").getAsString());
         assertEquals("pack", json.get("newId").getAsString());
         assertEquals("Pack", json.get("newName").getAsString());
         assertEquals(false, json.get("install").getAsBoolean());
+        assertEquals("client", json.get("side").getAsString());
+        assertEquals(net.xmilon.craftpy.project.ModuleSide.CLIENT,
+                net.xmilon.craftpy.project.ModuleBuilder.Request.parse(json.toString()).side());
     }
 }

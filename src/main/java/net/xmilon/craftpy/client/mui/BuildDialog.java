@@ -38,6 +38,9 @@ final class BuildDialog {
     private final LinearLayout newFields;
     private final Set<String> installedIds = new HashSet<>();
     private boolean asNew;
+    private final View[] sideChips = new View[3];
+    private final TextView sideHint;
+    private net.xmilon.craftpy.project.ModuleSide side = net.xmilon.craftpy.project.ModuleSide.BOTH;
 
     private BuildDialog(View anchor, String projectId, String projectName, String projectVersion,
                         List<ModuleInfo> installed, Consumer<String> onBuild) {
@@ -71,6 +74,21 @@ final class BuildDialog {
         version = field(context, "Version");
         version.setText(projectVersion);
         body.addView(version, spaced(body));
+
+        // where the module works: both (default), only resources for the players, only behaviour on the server
+        body.addView(label(context, "Works on", R.attr.textAppearanceLabelMedium), spaced(body));
+        var sides = row(context);
+        var values = net.xmilon.craftpy.project.ModuleSide.values();
+        String[] names = {"Client and server", "Client only", "Server only"};
+        for (int i = 0; i < values.length; i++) {
+            var value = values[i];
+            sideChips[i] = button(context, names[i], R.attr.borderlessButtonStyle, v -> setSide(value));
+            sides.addView(sideChips[i]);
+        }
+        body.addView(sides);
+        sideHint = label(context, "", R.attr.textAppearanceBodySmall);
+        sideHint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        body.addView(sideHint);
 
         newFields = new LinearLayout(context);
         newFields.setOrientation(LinearLayout.VERTICAL);
@@ -117,6 +135,21 @@ final class BuildDialog {
         version.addTextChangedListener(recheck);
         newId.addTextChangedListener(recheck);
         setMode(false);
+        setSide(own == null ? net.xmilon.craftpy.project.ModuleSide.BOTH : net.xmilon.craftpy.project.ModuleSide.of(own.side));
+    }
+
+    private void setSide(net.xmilon.craftpy.project.ModuleSide chosen) {
+        side = chosen;
+        for (int i = 0; i < sideChips.length; i++) {
+            styleChip(sideChips[i], net.xmilon.craftpy.project.ModuleSide.values()[i] == chosen);
+        }
+        sideHint.setText(switch (chosen) {
+            case BOTH -> "Code, recipes and loot run on the server; textures, models, sounds and names go to the players.";
+            case CLIENT -> "Only assets/ (textures, models, sounds, translations): each player's CraftPy applies it as a"
+                    + " resource pack, on any server. No code runs.";
+            case SERVER -> "Only behaviour (code, recipes, loot, tags, commands): players need nothing. Blocks and items"
+                    + " would show without textures.";
+        });
     }
 
     private static EditText field(Context context, String hint) {
@@ -156,7 +189,7 @@ final class BuildDialog {
         }
         dialog.dismiss();
         onBuild.accept(BuildForm.request(asNew, version.getText().toString(), newId.getText().toString(),
-                newName.getText().toString(), install.isChecked()));
+                newName.getText().toString(), install.isChecked(), side.id()));
     }
 
     static void open(View anchor, String projectId, String projectName, String projectVersion,

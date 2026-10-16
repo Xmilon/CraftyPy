@@ -237,6 +237,11 @@ public final class ModuleLoader {
                     CraftPyLog.LOGGER.info("Module {} already loaded, skipping.", meta.id);
                     return;
                 }
+                if (!ModuleSide.of(meta.side).runsOnServer()) {
+                    // resources only: each player's CraftPy applies it (dynamics.ClientModulePack)
+                    CraftPyLog.LOGGER.info("Module {} is client-side: nothing runs on the server", meta.id);
+                    return;
+                }
 
                 // Extract code/assets/data to a persistent cache for the current session
                 Path cacheDir = PyForgePaths.cache().resolve(meta.id);
@@ -255,6 +260,14 @@ public final class ModuleLoader {
                         return;
                     }
                     Declarations declarations = Declarations.parse(result, "module:" + moduleId);
+                    boolean serverOnly = ModuleSide.of(LOADED_MODULES.get(moduleId) == null ? null
+                            : LOADED_MODULES.get(moduleId).side) == ModuleSide.SERVER;
+                    if (serverOnly && !declarations.failed() && declarations.contents().stream()
+                            .anyMatch(c -> "block".equals(c.kind()) || "item".equals(c.kind()))) {
+                        net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(ServerLifecycleHooks.getCurrentServer(),
+                                "[module " + moduleId + "] is server-side but declares blocks or items: players see them"
+                                        + " without textures. Build it as \"both\" to ship its assets.");
+                    }
                     if (declarations.failed()) {
                         CraftPyLog.LOGGER.error("Module {} failed: {}", moduleId, declarations.error());
                         var server = ServerLifecycleHooks.getCurrentServer();
@@ -301,29 +314,31 @@ public final class ModuleLoader {
         }
     }
 
-    /** Rebuilds dynamic packs and notifies clients after a module change. */
+    /** Rebuilds dynamic packs and notifies clients after a module change (folded with other changes). */
     private static void triggerModuleSync(String moduleId) {
-        // Run on IO thread, then hop to server thread for reload
-        CraftPyExecutors.runAsync(() -> {
-            net.xmilon.craftpy.dynamics.PackBuilder.rebuild();
-        }).thenRun(() -> {
-            var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
-            if (server == null) {
-                CraftPyLog.LOGGER.warn("No server available to sync module {}", moduleId);
-                return;
+        net.xmilon.craftpy.lifecycle.ProjectController.refreshPacks(ServerLifecycleHooks.getCurrentServer());
+    }
+
+    /**
+     * The assets folder of a running module (unpacked in the cache), or null when {@code id} is not a module or ships
+     * no assets ({@code server} side). The pack builder reads projects from their folder and modules from here.
+     */
+    public static Path assetsOf(String id) {
+        synchronized (LOCK) {
+            ModuleBuilder.ModuleMetadata meta = LOADED_MODULES.get(id);
+            if (meta == null || !ModuleSide.of(meta.side).hasAssets()) {
+                return null;
             }
-            server.execute(() -> {
-                server.reloadResources(server.getPackRepository().getSelectedIds())
-                        .thenRun(() -> {
-                            net.xmilon.craftpy.network.CraftPyNetwork.broadcastActive(server);
-                            CraftPyLog.LOGGER.info("Module {} synced to clients", moduleId);
-                        })
-                        .exceptionally(error -> {
-                            CraftPyLog.LOGGER.error("Datapack reload failed for module {}", moduleId, error);
-                            return null;
-                        });
-            });
-        });
+            return PyForgePaths.cache().resolve(id).resolve("assets");
+        }
+    }
+
+    /** True when {@code id} is a running server-side module (its assets stay out of the players' pack). */
+    public static boolean isServerOnly(String id) {
+        synchronized (LOCK) {
+            ModuleBuilder.ModuleMetadata meta = LOADED_MODULES.get(id);
+            return meta != null && ModuleSide.of(meta.side) == ModuleSide.SERVER;
+        }
     }
 
     /** Reads a .cpm's metadata and README without loading it into the runtime. */
@@ -350,6 +365,7 @@ public final class ModuleLoader {
                 info.version = meta.version == null ? "" : meta.version;
                 info.author = meta.author == null ? "" : meta.author;
                 info.description = meta.description == null ? "" : meta.description;
+                info.side = ModuleSide.of(meta.side).id();
                 if (meta.dependencies != null) {
                     info.dependencies = new ArrayList<>(Arrays.asList(meta.dependencies));
                 }

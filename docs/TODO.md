@@ -211,6 +211,20 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 - [ ] Old timer names (`run_later`, `run_every`, `run_next_tick`) are not deprecated: they return cancellable handles that
   `after()` / `@every` do not replace one to one.
 
+## 9e. Asked 2026-10-16: client-side / server-side modules - done
+
+- [x] `"side"` in module.json (`project/ModuleSide`: both, client, server), chosen in the Build dialog ("Works on").
+  Client modules hold only `assets/`, never run on the server, and are applied by each computer's own pack
+  (`dynamics/ClientModulePack`, rebuilt on every resource reload and after module changes, offered by
+  `DynamicPackManager`). Server modules hold code/data/ui; their assets stay out of the players' pack, and a console note
+  warns when they declare blocks or items.
+- [x] Found on the way: the assets of installed modules (`.cpm`, unpacked to `system/cache/<id>`) never reached the pack;
+  `PackBuilder.copyProjectAssets` reads them from there now (`ModuleLoader.assetsOf`). Module pack refresh goes through the
+  debounced `ProjectController.refreshPacks`.
+- [ ] Client-side Python (HUD, key binds, client events) does not exist: client modules are resources only.
+- [ ] On a dedicated server the Modules page lists the server's modules; client modules are installed in each player's own
+  `pyforge/modules/`.
+
 ## 8. Known limits (from the last "what is missing" list)
 
 - Java bridge: no registry entries after startup, no subclassing from Python, public members only; the deny list is best effort.

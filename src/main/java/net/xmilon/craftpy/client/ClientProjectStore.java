@@ -473,6 +473,15 @@ public final class ClientProjectStore {
 
     private final Map<String, java.util.function.Consumer<JsonObject>> toolCallbacks = new java.util.HashMap<>();
 
+    /** Client-side modules are this computer's own resource pack: rebuild it, and reload resources when it changed. */
+    private void refreshClientModules() {
+        net.xmilon.craftpy.util.CraftPyExecutors.runAsync(() -> {
+            if (net.xmilon.craftpy.dynamics.ClientModulePack.refresh()) {
+                net.xmilon.craftpy.client.ClientPackSync.reload();
+            }
+        });
+    }
+
     /** Asks the server to re-scan every .cpm under pyforge/. */
     public void refreshModules() {
         request(ProjectAction.MODULES_LIST, null, "");
@@ -782,6 +791,7 @@ public final class ClientProjectStore {
                 if (payload.message() != null && !payload.message().isBlank()) {
                     append(payload.message());
                 }
+                refreshClientModules();
                 notifyListener();
                 return;
             }
@@ -811,6 +821,7 @@ public final class ClientProjectStore {
                     append(payload.message());
                 }
                 refreshModules();
+                refreshClientModules();
             }
             default -> {
                 if (payload.message() != null && !payload.message().isBlank()) {

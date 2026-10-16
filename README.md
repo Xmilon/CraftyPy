@@ -58,6 +58,9 @@ New UI in dark, with CraftPy's green as the accent:
   already imports.
 - **Modules** page: every built `.cpm` with search, enable/disable, reload and the rendered README. **Docs**: the offline
   guide, API reference and Java bridge reference.
+- Modules work on **client and server** (default), **client only** (just `assets/`: each player's CraftPy applies it as a
+  resource pack, on any server) or **server only** (code and data; players install nothing). Chosen in *Build module*,
+  stored as `"side"` in `module.json`.
 
 ### Asset management
 - **Click-to-view asset files** from the explorer: textures render on a checkerboard backdrop with zoom and a one-click jump into the built-in **pixel editor**; sounds resolve their sound event for playback.

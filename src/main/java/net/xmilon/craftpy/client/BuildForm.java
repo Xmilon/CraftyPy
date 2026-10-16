@@ -28,14 +28,15 @@ public final class BuildForm {
         return null;
     }
 
-    /** The JSON the server's BUILD action reads. */
-    public static String request(boolean asNew, String version, String newId, String newName, boolean install) {
+    /** The JSON the server's BUILD action reads; {@code side} is both, client or server ({@code ModuleSide}). */
+    public static String request(boolean asNew, String version, String newId, String newName, boolean install, String side) {
         com.google.gson.JsonObject json = new com.google.gson.JsonObject();
         json.addProperty("version", version.trim());
         json.addProperty("mode", asNew ? "new" : "update");
         json.addProperty("newId", newId.trim());
         json.addProperty("newName", newName.trim());
         json.addProperty("install", install);
+        json.addProperty("side", side);
         return json.toString();
     }
 }

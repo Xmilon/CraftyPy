@@ -25,6 +25,8 @@ public class ModuleInfo {
     public String source = "";
     public long sizeBytes = 0L;
     public long modified = 0L;
+    /** {@code both}, {@code client} or {@code server} ({@link ModuleSide}). */
+    public String side = "both";
     /** Whether the user has this module enabled. */
     public boolean enabled = true;
     /** Whether the module is currently loaded into the running game. */

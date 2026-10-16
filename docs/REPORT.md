@@ -642,4 +642,7 @@ across restarts (fixed in M19: saved with the world); only `code/main.py` runs; 
   `TarGz`; installer without Python. Verified here: Windows runtime unpacked from the real jar and the worker tests pass
   on it; the Linux archive unpacks. **Not verified**: macOS and Linux machines, in-game.
 - Python API 2.1 with a generated changelog and deprecation notes (`PyApi`, `API_CHANGES`, `_DEPRECATED`).
+- Modules have a side (client / server / both): `ModuleSide`, `ClientModulePack`, Build dialog "Works on". Module assets
+  from installed `.cpm` files now reach the resource pack (they were only read from project folders). F6 moves a def/class
+  to another file (`PyMove`). Sound files resolve through `sounds.json` (standalone IDE too). Welcome example has tests.
 

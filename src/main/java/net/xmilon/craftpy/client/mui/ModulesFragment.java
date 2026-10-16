@@ -339,6 +339,12 @@ public class ModulesFragment extends Fragment {
 
     private static String statusText(ModuleInfo m) {
         StringBuilder sb = new StringBuilder(m.enabled ? "Enabled" : "Disabled");
+        switch (net.xmilon.craftpy.project.ModuleSide.of(m.side)) {
+            case CLIENT -> sb.append(" · Client only (resource pack of this computer)");
+            case SERVER -> sb.append(" · Server only");
+            default -> {
+            }
+        }
         if (m.loaded) {
             sb.append(" · Loaded");
         }

@@ -47,5 +47,24 @@ public final class DynamicPackManager {
                 consumer.accept(pack);
             }
         });
+        if (type == PackType.CLIENT_RESOURCES) {
+            // client-side modules: this computer's own pack, on any server (rebuilt here when the modules changed)
+            event.addRepositorySource(consumer -> {
+                ClientModulePack.refresh();
+                Path modules = ClientModulePack.root();
+                if (!Files.isDirectory(modules)) {
+                    return;
+                }
+                Pack pack = Pack.readMetaAndCreate(
+                        new PackLocationInfo(ClientModulePack.PACK_ID, Component.literal("CraftPy client modules"),
+                                PackSource.BUILT_IN, Optional.empty()),
+                        new PathPackResources.PathResourcesSupplier(modules),
+                        type,
+                        new PackSelectionConfig(true, Pack.Position.TOP, false));
+                if (pack != null) {
+                    consumer.accept(pack);
+                }
+            });
+        }
     }
 }

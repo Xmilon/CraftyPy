@@ -511,6 +511,7 @@ public final class CraftPyCommand {
         sb.append("id: ").append(module.id == null ? "?" : module.id).append('\n');
         sb.append("name: ").append(module.name == null ? "?" : module.name).append('\n');
         sb.append("version: ").append(module.version == null ? "?" : module.version).append('\n');
+        sb.append("works on: ").append(net.xmilon.craftpy.project.ModuleSide.of(module.side).id()).append('\n');
         sb.append("Python API: ").append(module.apiVersion == null ? "not set (built before API versions)" : module.apiVersion)
                 .append(" (this CraftPy: ").append(net.xmilon.craftpy.python.PyApi.version()).append(")\n");
         if (module.dependencies != null && module.dependencies.length > 0) {

@@ -17,7 +17,7 @@ public final class ModuleBuilder {
     private ModuleBuilder() {}
 
     /** What to build: a plain version string from older clients, or JSON from the build dialog. */
-    public record Request(String version, String mode, String newId, String newName, boolean install) {
+    public record Request(String version, String mode, String newId, String newName, boolean install, ModuleSide side) {
         public static final String UPDATE = "update";
         public static final String NEW = "new";
 
@@ -25,12 +25,13 @@ public final class ModuleBuilder {
         public static Request parse(String data) {
             String text = data == null ? "" : data.trim();
             if (!text.startsWith("{")) {
-                return new Request(text.isEmpty() ? null : text, UPDATE, "", "", false);
+                return new Request(text.isEmpty() ? null : text, UPDATE, "", "", false, ModuleSide.BOTH);
             }
             com.google.gson.JsonObject json = Json.COMPACT.fromJson(text, com.google.gson.JsonObject.class);
             String version = text(json, "version");
             return new Request(version.isEmpty() ? null : version, NEW.equals(text(json, "mode")) ? NEW : UPDATE,
-                    text(json, "newId"), text(json, "newName"), json.has("install") && json.get("install").getAsBoolean());
+                    text(json, "newId"), text(json, "newName"), json.has("install") && json.get("install").getAsBoolean(),
+                    ModuleSide.of(text(json, "side")));
         }
 
         private static String text(com.google.gson.JsonObject json, String key) {
@@ -57,7 +58,7 @@ public final class ModuleBuilder {
      * non-null) wins over both.
      */
     public static void build(String projectId, String overrideVersion) throws IOException {
-        build(projectId, new Request(overrideVersion, Request.UPDATE, "", "", false));
+        build(projectId, new Request(overrideVersion, Request.UPDATE, "", "", false, ModuleSide.BOTH));
     }
 
     /**
@@ -105,6 +106,7 @@ public final class ModuleBuilder {
             modMeta.description = meta.description;
             modMeta.version = version;
             modMeta.apiVersion = meta.apiVersion;
+            modMeta.side = request.side().id();
             zos.putNextEntry(new ZipEntry("module.json"));
             zos.write(Json.GSON.toJson(modMeta).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             zos.closeEntry();
@@ -113,7 +115,7 @@ public final class ModuleBuilder {
             String from = asNew && !moduleId.equals(meta.id) ? meta.id : null;
             for (String subDir : new String[]{"code", "assets", "data", "ui"}) {
                 Path dir = projectDir.resolve(subDir);
-                if (Files.isDirectory(dir)) {
+                if (Files.isDirectory(dir) && request.side().packs(subDir)) { // a client module is only its assets
                     zipDirectory(dir, subDir, zos, from, moduleId);
                 }
             }
@@ -188,6 +190,8 @@ public final class ModuleBuilder {
         public String version;
         /** The Python API version the module was written for (checked when it loads). */
         public String apiVersion;
+        /** {@code both} (missing = both), {@code client} or {@code server}: see {@link ModuleSide}. */
+        public String side;
         public String[] dependencies = new String[0];
     }
 }
