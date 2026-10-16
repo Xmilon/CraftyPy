@@ -990,6 +990,7 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Reformat file", "Ctrl+Alt+L", this::reformatFile));
         a.add(new ActionEntry("Rename in file", "Shift+F6", this::renameInFile));
         a.add(new ActionEntry("Rename block / item id everywhere", "", tools::renameId));
+        a.add(new ActionEntry("Move function / class to another file", "F6", tools::moveSymbol));
         a.add(new ActionEntry("Organise imports", "Ctrl+Alt+O", tools::organiseImports));
         a.add(new ActionEntry("Add missing imports", "Ctrl+Alt+I", tools::addMissingImports));
         a.add(new ActionEntry("Generate docstring", "Ctrl+Shift+D", tools::generateDocstring));
@@ -3469,6 +3470,13 @@ public class EditorFragment extends Fragment {
                 reloadAll();
                 return true;
             }
+            case KeyEvent.KEY_F6 -> {
+                if (shift) {
+                    return false; // Shift+F6 is rename, handled with the other shortcuts
+                }
+                tools.moveSymbol();
+                return true;
+            }
             case KeyEvent.KEY_F11 -> {
                 toggleZen();
                 return true;
@@ -3877,6 +3885,7 @@ public class EditorFragment extends Fragment {
         Menu m = menu.getMenu();
         m.add("Go to symbol...   Ctrl+T").setOnMenuItemClickListener(i -> run(tools::symbolSearch));
         m.add("Rename block / item id everywhere...").setOnMenuItemClickListener(i -> run(tools::renameId));
+        m.add("Move function / class to another file...   F6").setOnMenuItemClickListener(i -> run(tools::moveSymbol));
         m.add("Asset usage report...").setOnMenuItemClickListener(i -> run(tools::assetUsage));
         m.add("Why isn't my block showing?...").setOnMenuItemClickListener(i -> run(tools::explain));
         m.add("Preview block / item (3D)...").setOnMenuItemClickListener(i -> run(tools::previewContent));

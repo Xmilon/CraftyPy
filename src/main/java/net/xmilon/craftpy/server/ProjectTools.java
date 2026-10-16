@@ -50,6 +50,7 @@ public final class ProjectTools {
             case "symbols" -> manager.snapshot(projectId).thenApply(ProjectTools::symbols);
             case "usage" -> manager.snapshot(projectId).thenApply(ProjectTools::usage);
             case "rename" -> rename(manager, projectId, request);
+            case "move_symbol" -> moveSymbol(manager, projectId, request);
             case "explain" -> manager.snapshot(projectId).thenApply(s -> explain(projectId, string(request, "id"), s));
             case "decls" -> done(decls(projectId));
             case "profile" -> profile(request);
@@ -394,6 +395,43 @@ public final class ProjectTools {
                 out.addProperty("applied", result.success());
                 out.addProperty("message", result.message());
                 return ok(fit(out, "edits"));
+            });
+        });
+    }
+
+    /** Move a top-level def/class to another file (preview, then {@code apply}); see {@link net.xmilon.craftpy.analysis.PyMove}. */
+    private static CompletableFuture<ResponsePayload> moveSymbol(ProjectManager manager, String projectId, JsonObject request) {
+        String source = string(request, "source");
+        String name = string(request, "name");
+        String target = string(request, "target").replace('\\', '/').strip();
+        boolean apply = request.has("apply") && request.get("apply").getAsBoolean();
+        return manager.snapshot(projectId).thenCompose(snapshot -> {
+            Map<String, String> python = new java.util.TreeMap<>();
+            snapshot.texts().forEach((path, text) -> {
+                if (path.endsWith(".py")) {
+                    python.put(path, text);
+                }
+            });
+            var plan = net.xmilon.craftpy.analysis.PyMove.move(python, source, name, target);
+            JsonObject out = new JsonObject();
+            out.addProperty("op", "move_symbol");
+            if (!plan.ok()) {
+                out.addProperty("error", plan.error());
+                return done(ok(out));
+            }
+            JsonArray files = new JsonArray();
+            plan.newTexts().keySet().forEach(path -> files.add(path + (python.containsKey(path) ? "" : "  (new file)")));
+            out.add("files", files);
+            out.addProperty("message", plan.message());
+            if (!apply) {
+                out.addProperty("applied", false);
+                return done(ok(out));
+            }
+            var write = new ProjectScan.RenamePlan(null, List.of(), List.of(), plan.newTexts(), List.of());
+            return manager.applyRename(projectId, write).thenApply(result -> {
+                out.addProperty("applied", result.success());
+                out.addProperty("message", result.success() ? plan.message() : result.message());
+                return ok(out);
             });
         });
     }

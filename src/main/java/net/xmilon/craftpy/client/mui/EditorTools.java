@@ -629,6 +629,75 @@ final class EditorTools {
                 prompt(host.anchor(), "New id for '" + from + "'", from, "Preview", to -> requestRename(from, to, false)));
     }
 
+    /** F6: moves the top-level def/class at the caret to another file; a preview lists the files that change. */
+    void moveSymbol() {
+        if (host.projectId() == null) {
+            host.toast("Open a project first");
+            return;
+        }
+        Map<String, String> dirty = host.dirtyTexts();
+        if (!dirty.isEmpty()) {
+            host.toast("Save these files first (Ctrl+S): " + String.join(", ", dirty.keySet()));
+            return;
+        }
+        String text = host.text();
+        int line = TextOps.lineOf(text, Math.max(0, Math.min(host.caret(), text.length())));
+        PyOutline.Symbol top = null;
+        for (PyOutline.Symbol s : PyOutline.chain(PyOutline.parse(text), line)) {
+            if (s.indent() == 0 && s.isScope()) {
+                top = s;
+            }
+        }
+        if (top == null) {
+            host.toast("Put the cursor in a top-level def or class");
+            return;
+        }
+        String name = top.name();
+        String source = host.activePath();
+        prompt(host.anchor(), "Move " + name + " to file", "code/" + name.toLowerCase(java.util.Locale.ROOT) + ".py", "Preview",
+                target -> requestMove(source, name, target, false));
+    }
+
+    private void requestMove(String source, String name, String target, boolean apply) {
+        JsonObject args = new JsonObject();
+        args.addProperty("source", source);
+        args.addProperty("name", name);
+        args.addProperty("target", target);
+        args.addProperty("apply", apply);
+        var dialog = apply ? null : ListDialog.open(host.anchor(), "Move " + name + " to " + target, false, 620, 260);
+        if (dialog != null) {
+            dialog.setMessage("Checking the project ...");
+        }
+        store(s -> s.tool("move_symbol", args, reply -> postUi(() -> {
+            if (reply.has("error")) {
+                String error = reply.get("error").getAsString();
+                if (dialog != null) {
+                    dialog.setMessage(error);
+                }
+                host.toast(error);
+                return;
+            }
+            if (apply) {
+                host.toast(reply.has("message") ? reply.get("message").getAsString() : "Moved");
+                String active = host.activePath();
+                store(st -> st.reloadAfterDiskChange(active));
+                return;
+            }
+            List<ListDialog.Row> rows = new ArrayList<>();
+            for (JsonElement file : reply.getAsJsonArray("files")) {
+                String path = file.getAsString();
+                String open = path.replace("  (new file)", "");
+                rows.add(ListDialog.Row.link(path, "changes", () -> host.openAt(open, 0)));
+            }
+            dialog.setMessage(reply.get("message").getAsString() + " - these files change:");
+            dialog.setRows(rows);
+            dialog.addAction("Move", () -> {
+                dialog.dismiss();
+                requestMove(source, name, target, true);
+            });
+        })));
+    }
+
     private void requestRename(String from, String to, boolean apply) {
         JsonObject args = new JsonObject();
         args.addProperty("from", from);

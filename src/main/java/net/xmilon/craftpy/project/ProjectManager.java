@@ -772,6 +772,7 @@ public final class ProjectManager {
                     if (file == null) {
                         return OpResult.fail("Illegal path: " + entry.getKey());
                     }
+                    Files.createDirectories(file.getParent()); // a move can create its target file
                     Files.writeString(file, entry.getValue(), StandardCharsets.UTF_8);
                 }
                 for (var move : plan.moves()) {
