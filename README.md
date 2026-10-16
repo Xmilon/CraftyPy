@@ -93,7 +93,7 @@ New UI in dark, with CraftPy's green as the accent:
 
 ### Python API versions
 
-The Python API has a version (`API_VERSION`, now 2.1; `apiVersion` in `project.json` and `module.json`). A minor
+The Python API has a version (`API_VERSION`, now 2.2; `apiVersion` in `project.json` and `module.json`). A minor
 version only adds, so everything written for 2.0 keeps working on 2.1; a major version may rename, and the old names keep
 working with an `[api]` note in the console saying what replaces them. A project written for a newer API than the
 installed CraftPy gets a note to update. What changed in each version: **API versions** in the API docs (generated from

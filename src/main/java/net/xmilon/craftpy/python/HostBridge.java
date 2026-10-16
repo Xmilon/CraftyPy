@@ -397,8 +397,11 @@ public final class HostBridge {
         if (command.startsWith("/")) {
             command = command.substring(1);
         }
-        server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), command);
-        return ok(true);
+        JsonObject result = ok();
+        JsonArray output = new JsonArray();
+        net.xmilon.craftpy.server.CommandOutput.run(server, server.createCommandSourceStack(), command).forEach(output::add);
+        result.add("output", output);
+        return result;
     }
 
     // ------------------------------------------------------------------

@@ -1847,7 +1847,8 @@ class _Server:
         return _host_call("server.broadcast", {"message": str(message)})
 
     def run_command(self, command):
-        return _host_call("server.command", {"command": str(command)})
+        result = _host_call("server.command", {"command": str(command)}) or {}
+        return "\n".join(result.get("output") or [])
 
     command = run_command
 
@@ -1909,7 +1910,7 @@ def say(*message):
 
 
 def run(command_text):
-    """Runs a Minecraft command as the server, e.g. run("time set day")."""
+    """Runs a Minecraft command as the server, e.g. run("time set day"); returns what the command answered."""
     return server.run_command(command_text)
 
 
@@ -2411,9 +2412,13 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.1"
+API_VERSION = "2.2"
 
 API_CHANGES = [
+    {"version": "2.2", "date": "2026-10-16",
+     "changed": ["`run(\"...\")` and `server.run_command(...)` return what the command answered, as text "
+                 "(before: a status object)."],
+     "added": ["The IDE console runs `/commands` (vanilla, other mods', your project's own) and shows their answer."]},
     {"version": "2.1", "date": "2026-10-16",
      "added": ["Tests: `code/test_*.py` files with `test...` functions, run with `Ctrl+Shift+F10`.",
                "`Item(..., tags=[...])` and `Block(..., tags=[...])`.",
@@ -4922,7 +4927,7 @@ def _load_docs():
         "has": ("True when the game supports a capability: has('ui.window').", {"capability": "Capability name."}, ""),
         # ---------------------------------------------------------------- server / chat
         "say": ("Broadcasts a chat message to everyone.", {"message": "Texts; non-text values are converted and joined with spaces."}, ""),
-        "run": ("Runs a Minecraft command as the server: run('time set day').", {"command_text": "Command without the leading slash."}, ""),
+        "run": ("Runs a Minecraft command as the server: run('time set day').", {"command_text": "Command without the leading slash."}, "what the command answered, as text (lines joined with a newline)"),
         "player": ("The online player with this name, or None.", {"name": "Player name."}, "A Player or None."),
         # ---------------------------------------------------------------- Pos
         "Pos": ("An (x, y, z) position; supports pos + (0, 1, 0), pos.up(2).", {"x": "X.", "y": "Y.", "z": "Z."}, ""),
@@ -5003,7 +5008,7 @@ def _load_docs():
         "scheduler.run_later": ("Runs fn after N ticks.", {"ticks": "Delay.", "fn": "Function."}, "A Task."),
         "scheduler.run_next_tick": ("Runs fn on the next tick.", {"fn": "Function."}, "A Task."),
         "server.broadcast": ("Chat message to everyone.", {"message": "Text."}, ""),
-        "server.run_command": ("Runs a command as the server.", {"command": "Without the leading slash."}, ""),
+        "server.run_command": ("Runs a command as the server.", {"command": "Without the leading slash."}, "what the command answered, as text"),
         "server.log": ("Writes to the server log and the IDE console.", {"message": "Text.", "level": "'info' (default), 'warn' or 'error'."}, ""),
         "ui.open": ("Opens a window for a player.", {"player": "Player or name.", "window_id": "Id of a @window class or ui/<id>.json."}, ""),
         "ui.close": ("Closes the window.", {"player": "Player or name.", "window_id": "Which one; omit to close any."}, ""),

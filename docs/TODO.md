@@ -238,8 +238,8 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 - [x] Item tooltip like a normal mod item: the project's name (blue italic, where mods show theirs), `namespace:id` with
   advanced tooltips (F3+H) instead of `craftpy:pcitem_N`, and a "Created with CraftPy" line. (`client/ContentTooltip`; JEI/EMI still add "CraftPy" as the mod name from the slot's
   namespace.)
-- [ ] IDE console: `/command` lines (vanilla, other mods', the project's own like `/welcome:gift`) run as the player and
-  their output shows in the console.
+- [x] IDE console: `/command` lines (vanilla, other mods', the project's own like `/welcome:gift`) run as the player and
+  their output shows in the console. (`server/CommandOutput`; `run()` now returns the answer too, API 2.2.)
 - [ ] Two personal examples, not shipped (in `run/pyforge/projects/`): several mods working together, and something not
   Minecraft-like (a music player window).
 

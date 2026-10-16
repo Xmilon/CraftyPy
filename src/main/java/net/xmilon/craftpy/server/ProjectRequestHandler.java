@@ -238,6 +238,10 @@ public final class ProjectRequestHandler {
                         });
             }
             case EVAL: {
+                String typed = consoleCommand(request.data());
+                if (typed != null) {
+                    return minecraftCommand(caller, typed);
+                }
                 if (!Config.get(Config.ENABLE_SCRIPTING)) {
                     return CompletableFuture.completedFuture(fail(action, "Scripting is disabled in the config"));
                 }
@@ -390,6 +394,53 @@ public final class ProjectRequestHandler {
             default:
                 return CompletableFuture.completedFuture(fail(action, "Unsupported action: " + action));
         }
+    }
+
+    /** A console line that starts with {@code /} is a Minecraft command, not Python; null otherwise. */
+    static String consoleCommand(String data) {
+        String code;
+        try {
+            com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(data).getAsJsonObject();
+            code = obj.has("code") ? obj.get("code").getAsString() : "";
+        } catch (RuntimeException notJson) {
+            code = data == null ? "" : data;
+        }
+        String text = code.strip();
+        return text.startsWith("/") && !text.contains("\n") && text.length() > 1 ? text : null;
+    }
+
+    /**
+     * {@code /give @s diamond}, {@code /welcome:gift Alex 3}: run as the player who typed it (with their permission level),
+     * and what the command answers is shown in the console.
+     */
+    private static CompletableFuture<ResponsePayload> minecraftCommand(Caller caller, String command) {
+        MinecraftServer server = caller.server();
+        if (server == null) {
+            return CompletableFuture.completedFuture(fail(ProjectAction.EVAL, NEEDS_GAME));
+        }
+        return server.submit(() -> {
+            ServerPlayer player;
+            try {
+                player = server.getPlayerList().getPlayer(java.util.UUID.fromString(caller.key()));
+            } catch (IllegalArgumentException notAPlayer) {
+                player = null;
+            }
+            if (player == null) {
+                return fail(ProjectAction.EVAL, "Commands run as a player in the game");
+            }
+            List<String> lines = CommandOutput.run(server, player.createCommandSourceStack(), command);
+            com.google.gson.JsonObject out = new com.google.gson.JsonObject();
+            com.google.gson.JsonArray output = new com.google.gson.JsonArray();
+            output.add(command);
+            lines.forEach(output::add);
+            if (lines.isEmpty()) {
+                output.add("(the command answered nothing)");
+            }
+            out.add("output", output);
+            out.add("value", com.google.gson.JsonNull.INSTANCE);
+            out.add("error", com.google.gson.JsonNull.INSTANCE);
+            return new ResponsePayload(ProjectAction.EVAL, true, "", Json.COMPACT.toJson(out));
+        });
     }
 
     private static ResponsePayload evalResponse(PyRuntime.EvalResult result) {

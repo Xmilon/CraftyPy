@@ -5,6 +5,6 @@
   "author": "CraftPy",
   "description": "A small mining game: ore with drops, recipes, events, storage, timers and a command.",
   "mcVersion": "1.21.1",
-  "apiVersion": "2.1",
+  "apiVersion": "2.2",
   "requiresRestart": false
 }

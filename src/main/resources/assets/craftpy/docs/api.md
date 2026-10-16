@@ -430,7 +430,9 @@ run("time set day")           # any Minecraft command, as the server
 print("debug")                # shows in the IDE console
 ```
 
-- The **Console** (`Alt+4`) runs Python in your project: try `player("Dev").give("diamond", 3)`.
+- The **Console** (`Alt+4`) runs Python in your project: try `player("Dev").give("diamond", 3)`. A line that starts
+  with `/` is a Minecraft command run as you: `/give @s diamond 3`, another mod's command, or your project's own
+  (`/welcome:gift Dev 3`); its answer shows in the console.
   `Alt+Shift+E` runs the selected lines there.
 - Errors show the file and line; `Ctrl+click` the line in the console to jump there.
 - **Validate** (`Ctrl+Enter`) checks a file without running it; the event tracer and handler profiler are in **Tools**.
@@ -522,11 +524,16 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.1** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.2** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.2 (2026-10-16)
+
+- **Added:** The IDE console runs `/commands` (vanilla, other mods', your project's own) and shows their answer.
+- **Changed:** `run("...")` and `server.run_command(...)` return what the command answered, as text (before: a status object).
 
 ### 2.1 (2026-10-16)
 
@@ -1249,6 +1256,8 @@ Runs a Minecraft command as the server: run('time set day').
 | --- | --- | --- |
 | `command_text` |  | Command without the leading slash. |
 
+Returns: what the command answered, as text (lines joined with a newline)
+
 #### `player(name) -> 'Player'`
 
 The online player with this name, or None.
@@ -1274,6 +1283,8 @@ Runs a command as the server.
 | Parameter | Default | Meaning |
 | --- | --- | --- |
 | `command` |  | Without the leading slash. |
+
+Returns: what the command answered, as text
 
 #### `server.log(message, level='info')`
 
