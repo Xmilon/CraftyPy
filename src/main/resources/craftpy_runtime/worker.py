@@ -5832,6 +5832,9 @@ def _process(request):
     params = request.get("params", {}) or {}
     try:
         result = _handle(method, params)
+        if isinstance(result, dict) and _MODE[0] == "client":
+            # the client only sends ticks while something needs them (a timer, a client_tick handler)
+            result["ticking"] = bool(_SCHEDULE) or any(s["handlers"].get("client_tick") for s in _OWNERS.values())
         _write({"id": req_id, "result": result})
     except Exception as exc:  # noqa: BLE001
         _write({"id": req_id, "error": {"message": str(exc)}})

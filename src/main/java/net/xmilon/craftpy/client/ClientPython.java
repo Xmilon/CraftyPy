@@ -51,6 +51,8 @@ public final class ClientPython {
     private final AtomicBoolean tickQueued = new AtomicBoolean();
     private final AtomicInteger queued = new AtomicInteger();
     private final AtomicInteger tickCounter = new AtomicInteger();
+    /** False while no timer or client_tick handler exists: then no tick is sent at all (the worker says so in each reply). */
+    private volatile boolean ticking = true;
     private final Set<String> loadedModules = new HashSet<>();
     private volatile RpcClient rpc;
     private volatile boolean active;
@@ -163,7 +165,7 @@ public final class ClientPython {
 
     /** Every game tick; at most one tick waits in the queue, a busy worker just skips ticks. */
     public void onTick() {
-        if (!active || !tickQueued.compareAndSet(false, true)) {
+        if (!active || !ticking || !tickQueued.compareAndSet(false, true)) {
             return;
         }
         executor.execute(() -> {
@@ -271,7 +273,11 @@ public final class ClientPython {
             rpc = client;
             active = true;
         }
-        return client.call(method, params, timeoutMs);
+        JsonObject result = client.call(method, params, timeoutMs);
+        if (result != null && result.has("ticking")) {
+            ticking = result.get("ticking").getAsBoolean();
+        }
+        return result;
     }
 
     private static List<String> logOf(JsonObject result) {

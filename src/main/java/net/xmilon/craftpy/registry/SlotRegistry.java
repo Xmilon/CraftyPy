@@ -122,14 +122,28 @@ public final class SlotRegistry {
         return ITEM_DEFS.get(key(ref.kind, ref.index));
     }
 
+    /** A SlotRef is its kind and index: no need to look it up (this used to scan the whole mapping on every call). */
     private static SlotRef refByIndex(Kind kind, int index) {
-        for (Map.Entry<String, SlotRef> entry : MAPPING.entrySet()) {
-            SlotRef ref = entry.getValue();
-            if (ref.kind() == kind && ref.index() == index) {
-                return ref;
-            }
-        }
         return new SlotRef(kind, index);
+    }
+
+    /** slot -> content key, rebuilt after MAPPING changes (tooltips, names and ticks ask for it many times a second). */
+    private static volatile Map<SlotRef, String> reverse;
+
+    private static void mappingChanged() {
+        reverse = null;
+    }
+
+    private static Map<SlotRef, String> reverse() {
+        Map<SlotRef, String> current = reverse;
+        if (current == null) {
+            current = new java.util.HashMap<>();
+            for (Map.Entry<String, SlotRef> entry : MAPPING.entrySet()) {
+                current.putIfAbsent(entry.getValue(), entry.getKey());
+            }
+            reverse = current;
+        }
+        return current;
     }
 
     public static String holderForBlock(int index) {
@@ -141,13 +155,8 @@ public final class SlotRegistry {
     }
 
     private static String holderFor(Kind kind, int index) {
-        SlotRef ref = refByIndex(kind, index);
-        for (Map.Entry<String, SlotRef> entry : MAPPING.entrySet()) {
-            if (entry.getValue().equals(ref)) {
-                return entry.getKey();
-            }
-        }
-        return kind.name().toLowerCase() + "_" + index;
+        String holder = reverse().get(refByIndex(kind, index));
+        return holder != null ? holder : kind.name().toLowerCase() + "_" + index;
     }
 
     private static String key(Kind kind, int index) {
@@ -173,6 +182,7 @@ public final class SlotRegistry {
                         Kind kind = Kind.valueOf(value.get("kind").getAsString());
                         int index = value.get("index").getAsInt();
                         MAPPING.put(entry.getKey(), new SlotRef(kind, index));
+                        mappingChanged();
                     }
                 }
                 JsonElement active = root.get("active");
@@ -233,6 +243,7 @@ public final class SlotRegistry {
             int index = allocateFree(Kind.BLOCK, poolSize(Kind.BLOCK, cap));
             ref = new SlotRef(Kind.BLOCK, index);
             MAPPING.put(contentKey, ref);
+            mappingChanged();
         }
         BLOCK_DEFS.put(key(Kind.BLOCK, ref.index()), def);
         ACTIVE_PROJECTS.put(projectId, Boolean.TRUE);
@@ -249,6 +260,7 @@ public final class SlotRegistry {
             int index = allocateFree(Kind.ITEM, poolSize(Kind.ITEM, cap));
             ref = new SlotRef(Kind.ITEM, index);
             MAPPING.put(contentKey, ref);
+            mappingChanged();
         }
         ITEM_DEFS.put(key(Kind.ITEM, ref.index()), def);
         ACTIVE_PROJECTS.put(projectId, Boolean.TRUE);
@@ -347,6 +359,7 @@ public final class SlotRegistry {
             }
         }
         MAPPING.putAll(next);
+        mappingChanged();
         blocks.forEach((id, def) -> BLOCK_DEFS.put(key(Kind.BLOCK, next.get(SlotPlan.key(Kind.BLOCK, projectId, id)).index()), def));
         items.forEach((id, def) -> ITEM_DEFS.put(key(Kind.ITEM, next.get(SlotPlan.key(Kind.ITEM, projectId, id)).index()), def));
         ACTIVE_PROJECTS.put(projectId, Boolean.TRUE);
@@ -390,6 +403,7 @@ public final class SlotRegistry {
 
     public static void clearAll() {
         MAPPING.clear();
+        mappingChanged();
         BLOCK_DEFS.clear();
         ITEM_DEFS.clear();
         PROJECT_DECLS.clear();
