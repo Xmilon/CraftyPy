@@ -114,7 +114,8 @@ Remaining:
 - Batch E (design first): 34-35 pyright / mypy / ruff in the worker (done 2026-10-16 as pure-ast checks, `_lint_more`:
   sandbox imports, event names, unused locals, None compare, mutable defaults, bare except, unreachable, dict keys,
   `is` literals, empty f-strings; no type checker), 38-39 debugger + call stack (done 2026-10-16 as breakpoint snapshots that never pause: worker `_debug`, tool
-  `debug`, `Ctrl+F8`, Debug window `Alt+5`; no stepping), 51 shared sessions with file locks.
+  `debug`, `Ctrl+F8`, Debug window `Alt+5`; no stepping), 51 shared sessions with file locks (done 2026-10-16: `server/FileLocks`, the last saver holds a file
+  for 5 min, other saves are refused with a message, opening says who edits, logout releases).
 - More than 4096 slots / no restart: data-component items + variant blocks (design in REPORT M12 "Not done").
 - Model viewer, content preview and inspector are still vanilla screens (`ContentPreviewScreen`); drag is only from the Assets tab.
 - [x] Audit gaps (2026-10-16): 8 pack rebuilds after asset uploads and project loads are folded into one (`util/Debouncer`,
@@ -227,6 +228,19 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 - [ ] Client-side Python (HUD, key binds, client events) does not exist: client modules are resources only.
 - [ ] On a dedicated server the Modules page lists the server's modules; client modules are installed in each player's own
   `pyforge/modules/`.
+
+## 9f. Asked 2026-10-16 (later)
+
+- [ ] **EMI / JEI do not show recipes of CraftPy items.** To find out in game: are the recipes in the recipe manager
+  (`/recipe give` works?), does JEI/EMI reload after a project run (their reload follows the recipe sync), and are the
+  slot items hidden or shown under `craftpy:pcitem_N`? Then a JEI plugin / EMI entrypoint that refreshes after
+  `ProjectController.refreshPacks` and names the items by their project id.
+- [ ] Item tooltip like a normal mod item: the project's name (blue italic, where mods show theirs), `namespace:id` with
+  advanced tooltips (F3+H) instead of `craftpy:pcitem_N`, and a "Created with CraftPy" line.
+- [ ] IDE console: `/command` lines (vanilla, other mods', the project's own like `/welcome:gift`) run as the player and
+  their output shows in the console.
+- [ ] Two personal examples, not shipped (in `run/pyforge/projects/`): several mods working together, and something not
+  Minecraft-like (a music player window).
 
 ## 8. Known limits (from the last "what is missing" list)
 

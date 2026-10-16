@@ -636,6 +636,9 @@ public final class ClientProjectStore {
             case READ_FILE -> {
                 ProjectManager.FileRead read = tryParse(payload.action(), payload.json(), ProjectManager.FileRead.class);
                 if (read != null && read.success()) {
+                    if (payload.message() != null && !payload.message().isBlank()) {
+                        append(payload.message()); // another player is editing it (shared sessions)
+                    }
                     openFiles.put(read.path(), read.content());
                     dirty.remove(read.path());
                     this.activeFile = read.path();

@@ -53,11 +53,11 @@ public final class ProjectRequestHandler {
      * Who sends a request: a player in the game, or the standalone IDE ({@link #LOCAL}: no server, so nothing that needs the
      * running game - loading into the world, modules, pack reloads - is done). {@code key} keeps uploads apart.
      */
-    public record Caller(String key, MinecraftServer server, boolean allowed) {
-        public static final Caller LOCAL = new Caller("ide", null, true);
+    public record Caller(String key, String name, MinecraftServer server, boolean allowed) {
+        public static final Caller LOCAL = new Caller("ide", "the IDE", null, true);
 
         public static Caller of(ServerPlayer player) {
-            return new Caller(player.getUUID().toString(), player.getServer(), isAllowed(player));
+            return new Caller(player.getUUID().toString(), player.getName().getString(), player.getServer(), isAllowed(player));
         }
     }
 
@@ -128,9 +128,15 @@ public final class ProjectRequestHandler {
                         Json.COMPACT.toJson(files)));
             case READ_FILE:
                 return manager.readFile(id, request.data())
-                        .thenApply(read -> read.success()
-                                ? new ResponsePayload(ProjectAction.READ_FILE, true, "", Json.COMPACT.toJson(read))
-                                : new ResponsePayload(ProjectAction.READ_FILE, false, read.message(), ""));
+                        .thenApply(read -> {
+                            if (!read.success()) {
+                                return new ResponsePayload(ProjectAction.READ_FILE, false, read.message(), "");
+                            }
+                            long now = System.currentTimeMillis();
+                            FileLocks.Lock lock = FileLocks.holder(id, read.path(), caller.key(), now);
+                            return new ResponsePayload(ProjectAction.READ_FILE, true,
+                                    lock == null ? "" : read.path() + ": " + lock.describe(now), Json.COMPACT.toJson(read));
+                        });
             case READ_ASSET:
                 if (!ProjectManager.isValidId(id)) {
                     return CompletableFuture.completedFuture(fail(action, "Invalid project id"));
@@ -147,6 +153,13 @@ public final class ProjectRequestHandler {
                 FileWrite file = Json.COMPACT.fromJson(request.data(), FileWrite.class);
                 if (file == null || file.path == null) {
                     return CompletableFuture.completedFuture(fail(action, "Malformed write request"));
+                }
+                long now = System.currentTimeMillis();
+                FileLocks.Lock lock = FileLocks.claim(id, file.path, caller.key(), caller.name(), now);
+                if (lock != null) {
+                    return CompletableFuture.completedFuture(new ResponsePayload(ProjectAction.WRITE_FILE, false,
+                            "Not saved: " + file.path + " - " + lock.describe(now)
+                                    + ". Your text stays in the editor; save again when they are done.", file.path));
                 }
                 return manager.writeFile(id, file.path, file.content == null ? "" : file.content)
                         .thenApply(result -> {

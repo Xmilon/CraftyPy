@@ -158,6 +158,7 @@ public class EventBridge {
 
     @SubscribeEvent
     public static void onPlayerLeave(PlayerEvent.PlayerLoggedOutEvent event) {
+        net.xmilon.craftpy.server.FileLocks.release(event.getEntity().getUUID().toString());
         playerEvent("player_leave", event.getEntity());
     }
 
