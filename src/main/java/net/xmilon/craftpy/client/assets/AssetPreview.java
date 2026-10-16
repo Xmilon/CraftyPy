@@ -10,14 +10,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.resources.sounds.Sound;
-import net.minecraft.client.sounds.SoundManager;
-import net.minecraft.client.sounds.WeighedSoundEvents;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.Resource;
-import net.minecraft.util.RandomSource;
 
 /**
  * Shared drawing + resolution helpers for the asset bank thumbnails and the
@@ -31,10 +27,6 @@ public final class AssetPreview {
     private static final Map<String, String> MODEL_JSON_CACHE = new HashMap<>();
 
     private AssetPreview() {
-    }
-
-    private static Minecraft mc() {
-        return Minecraft.getInstance();
     }
 
     // ------------------------------------------------------------------
@@ -191,29 +183,68 @@ public final class AssetPreview {
     // ------------------------------------------------------------------
 
     /**
-     * The physical .ogg resource for a sound event id, or null if unresolved. An event with several variants (stone
-     * breaking has four) always gives the same one, so copying it twice copies the same file.
+     * The physical .ogg resource for a sound event id, or null if unresolved. Read from the {@code sounds.json} files of
+     * the resource packs (the game's own rules: later packs add variants, {@code "replace": true} starts over), so it
+     * works in the standalone IDE too. An event with several variants (stone breaking has four) gives its first one, so
+     * copying it twice copies the same file.
      */
     public static ResourceLocation soundFile(String id) {
         try {
-            SoundManager manager = mc().getSoundManager();
-            ResourceLocation rl = ResourceLocation.parse(id);
-            WeighedSoundEvents events = manager.getSoundEvent(rl);
-            if (events == null) {
-                return null;
-            }
-            Sound sound = events.getSound(RandomSource.create(0L));
-            if (sound == null) {
-                return null;
-            }
-            ResourceLocation path = sound.getPath();
-            if (path == null || GameResources.manager().getResource(path).isEmpty()) {
-                return null;
-            }
-            return path;
+            var manager = GameResources.manager();
+            return manager == null ? null : firstSound(manager, ResourceLocation.tryParse(id), 0);
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    static ResourceLocation firstSound(net.minecraft.server.packs.resources.ResourceManager manager,
+                                               ResourceLocation event, int depth) {
+        if (event == null || depth > 4) {
+            return null;
+        }
+        java.util.List<JsonElement> sounds = new java.util.ArrayList<>();
+        for (Resource resource : manager.getResourceStack(
+                ResourceLocation.fromNamespaceAndPath(event.getNamespace(), "sounds.json"))) {
+            try (var reader = resource.openAsReader()) {
+                JsonElement all = JsonParser.parseReader(reader);
+                JsonElement definition = all.isJsonObject() ? all.getAsJsonObject().get(event.getPath()) : null;
+                if (definition == null || !definition.isJsonObject()) {
+                    continue;
+                }
+                JsonObject def = definition.getAsJsonObject();
+                if (def.has("replace") && def.get("replace").getAsBoolean()) {
+                    sounds.clear();
+                }
+                if (def.has("sounds") && def.get("sounds").isJsonArray()) {
+                    def.getAsJsonArray("sounds").forEach(sounds::add);
+                }
+            } catch (java.io.IOException | RuntimeException broken) {
+                // a broken sounds.json of one pack: the others still count
+            }
+        }
+        for (JsonElement sound : sounds) {
+            String name = sound.isJsonPrimitive() ? sound.getAsString()
+                    : sound.isJsonObject() && sound.getAsJsonObject().has("name") ? sound.getAsJsonObject().get("name").getAsString()
+                    : null;
+            ResourceLocation location = name == null ? null : ResourceLocation.tryParse(name); // no namespace = minecraft, like the game
+            if (location == null) {
+                continue;
+            }
+            boolean nested = sound.isJsonObject() && sound.getAsJsonObject().has("type")
+                    && "event".equals(sound.getAsJsonObject().get("type").getAsString());
+            if (nested) {
+                ResourceLocation inner = firstSound(manager, location, depth + 1);
+                if (inner != null) {
+                    return inner;
+                }
+                continue;
+            }
+            ResourceLocation file = location.withPrefix("sounds/").withSuffix(".ogg");
+            if (manager.getResource(file).isPresent()) {
+                return file;
+            }
+        }
+        return null;
     }
 
     /** Reads the raw bytes of a resource, or null. */

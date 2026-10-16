@@ -7,9 +7,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.sounds.SoundManager;
-import net.minecraft.client.sounds.WeighedSoundEvents;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -67,16 +64,8 @@ public final class AssetInfo {
     }
 
     private static String soundDetail(String id) {
-        try {
-            SoundManager sm = Minecraft.getInstance().getSoundManager();
-            ResourceLocation rl = id.contains(":") ? ResourceLocation.parse(id) : ResourceLocation.parse(id);
-            WeighedSoundEvents weighed = sm.getSoundEvent(rl);
-            if (weighed != null) {
-                return "sound event with variants (see Sounds tab)";
-            }
-        } catch (RuntimeException ignored) {
-        }
-        return "sound event";
+        ResourceLocation file = AssetPreview.soundFile(id);
+        return file == null ? "sound event" : "sound event, first variant " + file;
     }
 
     /** Which currently-open project files mention this id (best effort). */

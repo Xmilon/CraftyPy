@@ -86,7 +86,7 @@ public final class GameResources {
         }
     }
 
-    private static PackResources pack(String id, Path root) {
+    static PackResources pack(String id, Path root) {
         return new PathPackResources(new PackLocationInfo(id, Component.literal(id), PackSource.BUILT_IN, Optional.empty()), root);
     }
 }

@@ -66,9 +66,12 @@ tests already ran that way), so the payload records, `Config` (`Config.get` fall
 as they are. `ProjectRequestHandler.Caller.LOCAL` has no server: load/unload/modules answer "Needs the game". `IdeMain`,
 `LocalHost` (requests in-process, Modern UI thread, system clipboard), `WindowChrome` (title, logo icon, dark Windows caption).
 Remaining:
-- [ ] Assets dock, 3D preview and sound preview read the game's resource manager: in the standalone window they must read the
-  bundled vanilla assets jar instead, or say "needs the game" (check every `client/assets/*` entry point).
-- [ ] `ideJar`: one runnable jar with Modern UI (today `runIde` needs the Gradle classpath).
+- [x] Assets read `GameResources` (the game's resource manager, or in the standalone window one over the vanilla jar and the
+  generated pack); sound files are found through `sounds.json` (`AssetPreview.soundFile`), not the game's sound manager.
+  The 3D screens and playing sounds need the game and say so.
+- [ ] Standalone: vanilla sounds are not in the client jar (the launcher keeps them in `assets/objects`), so only project
+  and mod sounds show there.
+- [x] `ideJar`: replaced by `gradlew ideDist` / `ideShortcut` (launcher jar + lib/, section 9c).
 - [ ] Optional later: the decoupling steps of the old plan (plain `Response` record, `HostBridge`/`SlotRegistry` interfaces)
   only matter for an IDE without the game jar on the classpath.
 
