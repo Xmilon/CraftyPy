@@ -57,6 +57,7 @@ public final class ProjectTools {
             case "complete", "hover", "signature" -> assist(op, projectId, request);
             case "changes" -> done(changes(projectId));
             case "add_part" -> addPart(manager, projectId, request);
+            case "catalog" -> done(catalog(ModCatalog.get().view(), request));
             case "restore_entry" -> manager.restoreEntry(projectId, string(request, "path")).thenApply(result -> {
                 JsonObject out = new JsonObject();
                 out.addProperty("op", "restore_entry");
@@ -68,6 +69,123 @@ public final class ProjectTools {
                     request.has("todo") && request.get("todo").getAsBoolean()));
             default -> done(error(op, "Unknown tool: " + op));
         };
+    }
+
+    // -- mod catalog browser ------------------------------------------------------------
+
+    /** Pseudo kinds of the browser next to the registries: recipe types with their fields, Java events and classes. */
+    static final String RECIPE_TYPES = "recipe types";
+    static final String EVENTS = "java events";
+    static final String CLASSES = "java classes";
+    private static final int CATALOG_LIMIT = 5000;
+
+    /**
+     * What the Mod catalog window shows: every kind with its size, the installed mods, and the entries of one kind that
+     * match the search ({@code q}, words in any order) and the mod filter. With {@code code}/{@code line}/{@code column} it
+     * also says which kind the cursor's string takes ({@code Attributes("...")} is {@code attribute}) and what is typed.
+     */
+    static ResponsePayload catalog(net.xmilon.craftpy.catalog.CatalogView view, JsonObject request) {
+        JsonObject out = new JsonObject();
+        out.addProperty("op", "catalog");
+        JsonArray kinds = new JsonArray();
+        for (String kind : view.kinds()) {
+            JsonObject row = new JsonObject();
+            row.addProperty("kind", kind);
+            row.addProperty("count", view.all(kind).size());
+            kinds.add(row);
+        }
+        for (String[] extra : new String[][]{{RECIPE_TYPES, String.valueOf(view.recipeTypes().size())},
+                {EVENTS, String.valueOf(view.events().size())}, {CLASSES, String.valueOf(view.classes().size())}}) {
+            JsonObject row = new JsonObject();
+            row.addProperty("kind", extra[0]);
+            row.addProperty("count", Integer.parseInt(extra[1]));
+            kinds.add(row);
+        }
+        out.add("kinds", kinds);
+        JsonArray mods = new JsonArray();
+        view.installedMods().forEach(mods::add);
+        out.add("mods", mods);
+
+        String kind = string(request, "kind");
+        String typed = "";
+        String code = string(request, "code");
+        if (!code.isEmpty() && request.has("line") && request.has("column")) {
+            int offset = CompletionEngine.offsetOf(code, request.get("line").getAsInt(), request.get("column").getAsInt());
+            var context = offset < 0 ? java.util.Optional.<net.xmilon.craftpy.analysis.StringContext.Call>empty()
+                    : net.xmilon.craftpy.analysis.StringContext.at(code, offset);
+            if (context.isPresent()) {
+                String detected = net.xmilon.craftpy.analysis.IdKinds.kindFor(context.get());
+                if (detected != null) {
+                    detected = detected.equals(net.xmilon.craftpy.analysis.IdKinds.CLASS) ? CLASSES
+                            : detected.equals(net.xmilon.craftpy.analysis.IdKinds.EVENT) ? null
+                            : detected.equals("recipe_type") ? RECIPE_TYPES : detected;
+                }
+                if (detected != null) {
+                    typed = context.get().typed();
+                    if (typed.startsWith("#") && !detected.startsWith("tag:") && !detected.equals(CLASSES)
+                            && !detected.equals(RECIPE_TYPES)) {
+                        detected = "tag:" + detected;
+                        typed = typed.substring(1);
+                    }
+                    out.addProperty("detected", detected);
+                    out.addProperty("typed", typed);
+                    kind = detected;
+                }
+            }
+        }
+        if (kind.isEmpty()) {
+            kind = view.has("item") ? "item" : view.kinds().stream().findFirst().orElse(CLASSES);
+        }
+        out.addProperty("kind", kind);
+        String query = request.has("q") ? string(request, "q") : typed;
+        String mod = string(request, "mod");
+        String[] words = query.toLowerCase(java.util.Locale.ROOT).trim().split("\\s+");
+        JsonArray rows = new JsonArray();
+        int matched = 0;
+        List<String[]> found = new ArrayList<>(); // id, mod, detail
+        switch (kind) {
+            case RECIPE_TYPES -> view.recipeTypes().forEach((type, schema) -> {
+                String namespace = type.contains(":") ? type.substring(0, type.indexOf(':')) : "minecraft";
+                String owner = view.modOf(namespace);
+                found.add(new String[]{type, owner == null ? namespace : owner,
+                        schema.fields.isEmpty() ? "" : "fields: " + String.join(", ", schema.fields)});
+            });
+            case EVENTS -> view.events().forEach(name -> found.add(new String[]{name, "", "Java event"}));
+            case CLASSES -> view.classes().forEach(name -> found.add(new String[]{name, "", "Java class"}));
+            default -> view.all(kind).forEach(entry -> found.add(new String[]{entry.id(), entry.mod(), ""}));
+        }
+        for (String[] row : found) {
+            if (!mod.isEmpty() && !mod.equals(row[1]) && !(row[1].isEmpty() && row[0].startsWith(mod))) {
+                continue;
+            }
+            String haystack = (row[0] + " " + row[2]).toLowerCase(java.util.Locale.ROOT);
+            boolean all = true;
+            for (String word : words) {
+                if (!word.isEmpty() && !haystack.contains(word)) {
+                    all = false;
+                    break;
+                }
+            }
+            if (!all) {
+                continue;
+            }
+            matched++;
+            if (rows.size() < CATALOG_LIMIT) {
+                JsonObject item = new JsonObject();
+                item.addProperty("id", row[0]);
+                item.addProperty("mod", row[1]);
+                if (!row[2].isEmpty()) {
+                    item.addProperty("detail", row[2]);
+                }
+                rows.add(item);
+            }
+        }
+        out.addProperty("matched", matched);
+        out.add("rows", rows);
+        if (request.has("seq")) {
+            out.add("seq", request.get("seq"));
+        }
+        return ok(fit(out, "rows"));
     }
 
     // -- find in files / TODO list -----------------------------------------------------

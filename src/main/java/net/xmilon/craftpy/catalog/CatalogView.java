@@ -128,6 +128,11 @@ public final class CatalogView {
         return mod.equals("minecraft") ? 0 : 1;
     }
 
+    /** Ids of the installed mods, sorted. */
+    public List<String> installedMods() {
+        return installed.stream().sorted().toList();
+    }
+
     public boolean isEmpty() {
         return ids.isEmpty() && recipeTypes.isEmpty();
     }

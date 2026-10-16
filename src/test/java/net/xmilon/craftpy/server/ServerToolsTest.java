@@ -163,4 +163,42 @@ class ServerToolsTest {
         assertEquals("x = 1\n", net.xmilon.craftpy.analysis.PyImports.removeImport("x = 1\n", "shop"));
         assertEquals("import a\n", net.xmilon.craftpy.analysis.PyImports.removeImport("import a\nimport shop\n", "shop"));
     }
+
+    @Test
+    void catalogBrowserListsKindsFiltersAndFollowsTheCursor() {
+        var vanilla = new net.xmilon.craftpy.catalog.Catalog();
+        vanilla.namespace = "minecraft";
+        vanilla.mod = "minecraft";
+        vanilla.registries.put("item", List.of("minecraft:diamond", "minecraft:diamond_sword", "minecraft:stick"));
+        vanilla.registries.put("attribute", List.of("minecraft:generic.armor"));
+        var iron = new net.xmilon.craftpy.catalog.Catalog();
+        iron.namespace = "irons_spellbooks";
+        iron.mod = "irons_spellbooks";
+        iron.registries.put("attribute", List.of("irons_spellbooks:spell_power"));
+        iron.classes = List.of("io.redspace.Spell");
+        var view = net.xmilon.craftpy.catalog.CatalogView.of(List.of(vanilla, iron), java.util.Map.of(),
+                java.util.Set.of("minecraft", "irons_spellbooks"));
+
+        JsonObject request = new JsonObject();
+        request.addProperty("kind", "item");
+        request.addProperty("q", "diamond sw");
+        var reply = com.google.gson.JsonParser.parseString(ProjectTools.catalog(view, request).json()).getAsJsonObject();
+        assertEquals(1, reply.get("matched").getAsInt(), "every word must match");
+        assertTrue(reply.getAsJsonArray("kinds").toString().contains("java classes"));
+        assertEquals(2, reply.getAsJsonArray("mods").size());
+
+        JsonObject follow = new JsonObject();
+        follow.addProperty("code", "Item(\"x\").extends(Attributes(\"spell");
+        follow.addProperty("line", 0);
+        follow.addProperty("column", 36);
+        var detected = com.google.gson.JsonParser.parseString(ProjectTools.catalog(view, follow).json()).getAsJsonObject();
+        assertEquals("attribute", detected.get("detected").getAsString());
+        assertEquals("irons_spellbooks:spell_power", detected.getAsJsonArray("rows").get(0).getAsJsonObject().get("id").getAsString());
+
+        JsonObject byMod = new JsonObject();
+        byMod.addProperty("kind", "attribute");
+        byMod.addProperty("mod", "minecraft");
+        var minecraft = com.google.gson.JsonParser.parseString(ProjectTools.catalog(view, byMod).json()).getAsJsonObject();
+        assertEquals(1, minecraft.get("matched").getAsInt());
+    }
 }

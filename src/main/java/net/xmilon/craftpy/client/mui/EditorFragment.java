@@ -121,6 +121,9 @@ public class EditorFragment extends Fragment {
     /** Which tool windows were open before Ctrl+Shift+F12 hid them all: explorer, bottom, dock, blocks. */
     private boolean[] hiddenToolWindows;
     private BlocksPanel blocks;
+    private CatalogPanel catalog;
+    private View catalogSplitter;
+    private final Runnable followCursor = this::followCatalog;
     private View blocksSplitter;
     private View splitSplitter;
     private View mainEditor;
@@ -360,6 +363,7 @@ public class EditorFragment extends Fragment {
                     }
                     if (visible && blocks != null) {
                         setBlocksVisible(false); // one tool window on the right at a time
+                        setCatalogVisible(false);
                     }
                     if (rightStripe != null) {
                         rightStripe.refresh();
@@ -374,6 +378,11 @@ public class EditorFragment extends Fragment {
         body.addView(blocksSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
         body.addView(blocks.view(), new LinearLayout.LayoutParams(body.dp(settings.blocksWidth), MATCH_PARENT));
         setBlocksVisible(false);
+        catalog = new CatalogPanel(context, catalogHost());
+        catalogSplitter = new Splitter(context, true, this::dragCatalog, this::saveLayout);
+        body.addView(catalogSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
+        body.addView(catalog.view(), new LinearLayout.LayoutParams(body.dp(settings.blocksWidth + 40), MATCH_PARENT));
+        setCatalogVisible(false);
         body.addView(separator(context, true), new LinearLayout.LayoutParams(body.dp(1), MATCH_PARENT));
         rightStripe = createRightStripe(context);
         body.addView(rightStripe, new LinearLayout.LayoutParams(body.dp(40), MATCH_PARENT));
@@ -653,6 +662,8 @@ public class EditorFragment extends Fragment {
         var stripe = new ToolStripe(context);
         stripe.add(IdeIcon.Glyph.MODULES, "Building blocks: windows, items, blocks, events... ready to insert (Alt+8)",
                 this::blocksVisible, v -> setBlocksVisible(!blocksVisible()));
+        stripe.add(IdeIcon.Glyph.CATALOG, "Mod catalog: every id, attribute, tag, recipe type and class of the installed mods (Alt+0)",
+                this::catalogVisible, v -> setCatalogVisible(!catalogVisible()));
         stripe.add(IdeIcon.Glyph.IMAGE, "Assets: every texture, model and sound (Alt+9)", () -> dockShows(AssetDock.ASSETS),
                 v -> toggleDock(AssetDock.ASSETS));
         stripe.add(IdeIcon.Glyph.EYE, "Preview: models and textures", () -> dockShows(AssetDock.PREVIEW),
@@ -989,6 +1000,8 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Event tracer", "", () -> openPanel(PANEL_EVENTS)));
         a.add(new ActionEntry("Structure of this file", "Alt+7", () -> tools.showOutline(breadcrumb)));
         a.add(new ActionEntry("Building blocks", "Alt+8", () -> setBlocksVisible(true)));
+        a.add(new ActionEntry("Mod catalog: ids, attributes, tags, recipe types, classes of the mods", "Alt+0",
+                () -> setCatalogVisible(true)));
         a.add(new ActionEntry("Assets", "Alt+9", () -> toggleDock(AssetDock.ASSETS)));
         a.add(new ActionEntry("Hide all tool windows", "Ctrl+Shift+F12", this::hideAllToolWindows));
         a.add(new ActionEntry("Zen mode", "F11", this::toggleZen));
@@ -1090,11 +1103,105 @@ public class EditorFragment extends Fragment {
             if (dock.visible()) {
                 dock.setVisible(false);
             }
+            if (catalogVisible()) {
+                setCatalogVisible(false);
+            }
             blocks.focusSearch();
         }
         if (rightStripe != null) {
             rightStripe.refresh();
         }
+    }
+
+    // ---- mod catalog (Alt+0): everything the installed mods bring, connected to the cursor like completion
+
+    private boolean catalogVisible() {
+        return catalog != null && catalog.view().getVisibility() == View.VISIBLE;
+    }
+
+    private void setCatalogVisible(boolean visible) {
+        int visibility = visible && !zen ? View.VISIBLE : View.GONE;
+        catalog.view().setVisibility(visibility);
+        catalogSplitter.setVisibility(visibility);
+        if (visible) {
+            if (dock.visible()) {
+                dock.setVisible(false);
+            }
+            if (blocksVisible()) {
+                setBlocksVisible(false);
+            }
+            catalog.refresh();
+            followCatalog();
+            catalog.focusSearch();
+        }
+        if (rightStripe != null) {
+            rightStripe.refresh();
+        }
+    }
+
+    private void dragCatalog(int dx) {
+        var lp = catalog.view().getLayoutParams();
+        int max = Math.max(catalog.view().dp(300), ((View) catalog.view().getParent()).getWidth() / 2);
+        lp.width = Math.clamp(lp.width - dx, catalog.view().dp(240), max);
+        catalog.view().setLayoutParams(lp);
+    }
+
+    private CatalogPanel.Host catalogHost() {
+        return new CatalogPanel.Host() {
+            @Override
+            public void request(com.google.gson.JsonObject args, java.util.function.Consumer<com.google.gson.JsonObject> reply) {
+                View view = code;
+                store(s -> s.tool("catalog", args, answer -> {
+                    if (view != null) {
+                        view.post(() -> reply.accept(answer));
+                    }
+                }));
+            }
+
+            @Override
+            public void insert(String id) {
+                insertCatalogId(id);
+            }
+
+            @Override
+            public void hide() {
+                setCatalogVisible(false);
+            }
+        };
+    }
+
+    /** The cursor moved: the catalog shows what the string under it takes (debounced; a slice of the file around it). */
+    private void followCatalog() {
+        if (!catalogVisible() || code == null) {
+            return;
+        }
+        String all = code.getText().toString();
+        int caret = Math.max(0, code.getSelectionStart());
+        int[] slice = CodeAssist.slice(all, caret);
+        catalog.follow(all.substring(slice[0], slice[1]), CodeAssist.lineOf(all, caret) - CodeAssist.lineOf(all, slice[0]),
+                caret - CodeAssist.lineStart(all, caret));
+    }
+
+    /** A catalog entry clicked: it replaces the string the cursor is in, or goes in as a new string. */
+    private void insertCatalogId(String id) {
+        if (shownPath == null || (state != null && state.activeVirtual())) {
+            EditorTools.copyToClipboard(id);
+            toast("Copied " + id + " (no file open)");
+            return;
+        }
+        String all = code.getText().toString();
+        int caret = Math.max(0, code.getSelectionStart());
+        for (net.xmilon.craftpy.analysis.PyLex.Span span : net.xmilon.craftpy.analysis.PyLex.spans(all)) {
+            if (span.kind() == net.xmilon.craftpy.analysis.PyLex.Kind.STRING && caret >= span.contentStart()
+                    && caret <= span.contentEnd()) {
+                applyEdit(new TextOps.Edit(span.contentStart(), span.contentEnd(), id, span.contentStart() + id.length()));
+                code.requestFocus();
+                return;
+            }
+        }
+        String quoted = "\"" + id + "\"";
+        applyEdit(new TextOps.Edit(caret, caret, quoted, caret + quoted.length()));
+        code.requestFocus();
     }
 
     private void dragBlocks(int dx) {
@@ -1647,6 +1754,10 @@ public class EditorFragment extends Fragment {
         code.setOnCaret(offset -> {
             updateBreadcrumb();
             highlightGutterLine();
+            if (catalogVisible()) {
+                code.removeCallbacks(followCursor);
+                code.postDelayed(followCursor, 250);
+            }
         });
         code.addTextChangedListener(new TextWatcher() {
             @Override
@@ -2129,6 +2240,7 @@ public class EditorFragment extends Fragment {
             dockBeforeZen = dock.visible();
             dock.setVisible(false); // also stops a playing sound
             setBlocksVisible(false);
+            setCatalogVisible(false);
             dockSplitter.setVisibility(View.GONE);
         } else if (dockBeforeZen) {
             dock.setVisible(true);
@@ -3204,6 +3316,10 @@ public class EditorFragment extends Fragment {
                 }
                 case KeyEvent.KEY_8 -> {
                     setBlocksVisible(!blocksVisible());
+                    return true;
+                }
+                case KeyEvent.KEY_0 -> {
+                    setCatalogVisible(!catalogVisible());
                     return true;
                 }
                 default -> {

@@ -13,7 +13,7 @@ import icyllis.modernui.view.View;
 public class IdeIcon extends View {
     public enum Glyph {
         HOME, MODULES, CODE, BOOK, FOLDER, STRUCTURE, PLAY, STOP, RELOAD, CHECK, HAMMER, SAVE, SEARCH, GEAR, TERMINAL,
-        WARNING, BOOKMARK, PULSE, IMAGE, MENU, CLOSE, MINUS, SPLIT, CHEVRON_DOWN, PLUS, PYTHON, BRUSH, SOUND, EYE
+        WARNING, BOOKMARK, PULSE, IMAGE, MENU, CLOSE, MINUS, SPLIT, CHEVRON_DOWN, PLUS, PYTHON, BRUSH, SOUND, EYE, CATALOG
     }
 
     private final Paint paint = new Paint();
@@ -231,6 +231,11 @@ public class IdeIcon extends View {
             case PLUS -> {
                 line(c, u, 8, 3, 8, 13);
                 line(c, u, 3, 8, 13, 8);
+            }
+            case CATALOG -> { // stacked layers: everything the mods bring
+                rect(c, u, 2.5f, 2.5f, 13.5f, 5.5f, 1);
+                rect(c, u, 2.5f, 6.5f, 13.5f, 9.5f, 1);
+                rect(c, u, 2.5f, 10.5f, 13.5f, 13.5f, 1);
             }
             case BRUSH -> {
                 line(c, u, 13.5f, 2.5f, 7, 9);
