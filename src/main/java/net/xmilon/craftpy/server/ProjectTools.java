@@ -57,6 +57,13 @@ public final class ProjectTools {
             case "complete", "hover", "signature" -> assist(op, projectId, request);
             case "changes" -> done(changes(projectId));
             case "add_part" -> addPart(manager, projectId, request);
+            case "restore_entry" -> manager.restoreEntry(projectId, string(request, "path")).thenApply(result -> {
+                JsonObject out = new JsonObject();
+                out.addProperty("op", "restore_entry");
+                return result.success() ? ok(out) : error("restore_entry", result.message());
+            });
+            case "main_import" -> mainImport(manager, projectId, string(request, "module"),
+                    request.has("remove") && request.get("remove").getAsBoolean());
             case "grep" -> manager.snapshot(projectId).thenApply(s -> grep(s, string(request, "q"),
                     request.has("todo") && request.get("todo").getAsBoolean()));
             default -> done(error(op, "Unknown tool: " + op));
@@ -102,6 +109,29 @@ public final class ProjectTools {
         out.add("rows", rows);
         out.addProperty("cut", cut);
         return ok(fit(out, "rows"));
+    }
+
+    /** Adds or removes {@code import <module>} in code/main.py on disk (the editor patches an open main.py itself). */
+    private static CompletableFuture<ResponsePayload> mainImport(ProjectManager manager, String projectId, String module,
+                                                                 boolean remove) {
+        if (!module.matches("[a-z_][a-z0-9_]{0,63}")) {
+            return done(error("main_import", "Not a valid module name: " + module));
+        }
+        return manager.snapshot(projectId).thenCompose(snapshot -> {
+            String main = snapshot.texts().get("code/main.py");
+            JsonObject out = new JsonObject();
+            out.addProperty("op", "main_import");
+            if (main == null) {
+                return done(ok(out));
+            }
+            String patched = remove ? net.xmilon.craftpy.analysis.PyImports.removeImport(main, module)
+                    : net.xmilon.craftpy.analysis.PyImports.addImport(main, module);
+            if (patched.equals(main)) {
+                return done(ok(out));
+            }
+            return manager.writeFile(projectId, "code/main.py", patched).thenApply(result -> result.success() ? ok(out)
+                    : error("main_import", result.message()));
+        });
     }
 
     // -- building blocks: a new file connected to main.py ----------------------------

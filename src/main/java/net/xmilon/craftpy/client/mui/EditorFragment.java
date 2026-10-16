@@ -1006,6 +1006,10 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("New UI window", "", tools::newWindow));
         a.add(new ActionEntry("Keyboard shortcuts", "F1", this::showShortcuts));
         a.add(new ActionEntry("Settings", "Ctrl+Alt+S", this::showSettings));
+        a.add(new ActionEntry("Undo", "Ctrl+Z", () -> undoText(false)));
+        a.add(new ActionEntry("Redo", "Ctrl+Y / Ctrl+Shift+Z", () -> undoText(true)));
+        a.add(new ActionEntry("Undo file operation", "Ctrl+Z in the Project tree", () -> undoFileAction(false)));
+        a.add(new ActionEntry("Redo file operation", "Ctrl+Y in the Project tree", () -> undoFileAction(true)));
         a.add(new ActionEntry("Copy reference (file:line)", "Ctrl+Alt+Shift+C", this::copyReference));
         a.add(new ActionEntry("Execute selection in console", "Alt+Shift+E", this::executeSelection));
         a.add(new ActionEntry("Help", "", () -> HelpPanel.open(code)));
@@ -1150,7 +1154,7 @@ public class EditorFragment extends Fragment {
         toast("Inserted \"" + block.title() + "\"");
     }
 
-    /** Adds the block as code/<name>.py and connects it: main.py gets "import <name>". */
+    /** Adds the block as code/<name>.py and connects it: main.py gets "import <name>". Undo takes both back. */
     private void newBlockFile(View anchor, net.xmilon.craftpy.project.BuildingBlocks.Block block) {
         String project = projectId();
         if (project == null) {
@@ -1169,14 +1173,10 @@ public class EditorFragment extends Fragment {
                 toast(path + " already exists");
                 return;
             }
-            String main = "code/main.py";
-            boolean mainOpen = state != null && state.tabs().contains(main);
-            boolean mainShown = main.equals(shownPath);
-            boolean mainWasDirty = state != null && state.dirtyTabs().contains(main);
             var args = new com.google.gson.JsonObject();
             args.addProperty("module", module);
             args.addProperty("content", block.fill(module, project));
-            args.addProperty("patchMain", !mainOpen);
+            args.addProperty("patchMain", false);
             flush();
             View view = code;
             store(s -> s.tool("add_part", args, reply -> {
@@ -1188,39 +1188,163 @@ public class EditorFragment extends Fragment {
                         toast(reply.get("error").getAsString());
                         return;
                     }
-                    if (mainShown && main.equals(shownPath)) {
-                        // main.py is in the editor: change the editor's text, not the file under it
-                        String text = code.getText().toString();
-                        String patched = net.xmilon.craftpy.analysis.PyImports.addImport(text, module);
-                        if (!patched.equals(text)) {
-                            int caret = code.getSelectionStart();
-                            applyEdit(new TextOps.Edit(0, text.length(), patched, Math.min(caret, patched.length())));
-                            flush();
-                            if (!mainWasDirty) {
-                                store(st -> st.saveFile(main));
-                            }
-                        }
-                    } else if (mainOpen) {
-                        store(st -> {
-                            String text = st.fileContent(main);
-                            if (text == null) {
-                                return;
-                            }
-                            String patched = net.xmilon.craftpy.analysis.PyImports.addImport(text, module);
-                            if (!patched.equals(text)) {
-                                boolean dirty = st.isDirty(main);
-                                st.markDirty(main, patched);
-                                if (!dirty) {
-                                    st.saveFile(main);
-                                }
-                            }
-                        });
-                    }
+                    patchMainImport(module, false);
                     store(st -> st.select(project, path));
                     toast("Added " + path + " and imported it in main.py");
+                    recordAction("New file " + path, () -> {
+                        store(st -> st.closeFile(path));
+                        store(st -> st.deleteEntry(path));
+                        patchMainImport(module, true);
+                    }, () -> {
+                        restoreEntry(path);
+                        patchMainImport(module, false);
+                    });
                 });
             }));
         });
+    }
+
+    /**
+     * Adds or removes "import <module>" in code/main.py: in the editor's text when main.py is shown, in its buffer when it
+     * is open in a tab (saved unless it had other unsaved edits), on disk otherwise. An open main.py is never overwritten.
+     */
+    private void patchMainImport(String module, boolean remove) {
+        String main = "code/main.py";
+        java.util.function.UnaryOperator<String> patch = text -> remove
+                ? net.xmilon.craftpy.analysis.PyImports.removeImport(text, module)
+                : net.xmilon.craftpy.analysis.PyImports.addImport(text, module);
+        if (main.equals(shownPath)) {
+            String text = code.getText().toString();
+            String patched = patch.apply(text);
+            if (!patched.equals(text)) {
+                boolean wasDirty = state != null && state.dirtyTabs().contains(main) || !text.equals(synced);
+                int caret = code.getSelectionStart();
+                applyEdit(new TextOps.Edit(0, text.length(), patched, Math.min(caret, patched.length())));
+                flush();
+                if (!wasDirty) {
+                    store(st -> st.saveFile(main));
+                }
+            }
+        } else if (state != null && state.tabs().contains(main)) {
+            store(st -> {
+                String text = st.fileContent(main);
+                if (text == null) {
+                    return;
+                }
+                String patched = patch.apply(text);
+                if (!patched.equals(text)) {
+                    boolean dirty = st.isDirty(main);
+                    st.markDirty(main, patched);
+                    if (!dirty) {
+                        st.saveFile(main);
+                    }
+                }
+            });
+        } else {
+            var args = new com.google.gson.JsonObject();
+            args.addProperty("module", module);
+            args.addProperty("remove", remove);
+            store(st -> st.tool("main_import", args, reply -> {
+                if (reply.has("error")) {
+                    View view = code;
+                    if (view != null) {
+                        view.post(() -> toast(reply.get("error").getAsString()));
+                    }
+                }
+            }));
+        }
+    }
+
+    // ---- undo / redo (IntelliJ: Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z) for the text and for file operations
+
+    /** One undoable change to the project's files (create, delete, rename, a building block's new file). */
+    private record FileAction(String label, Runnable undo, Runnable redo) {
+    }
+
+    private final java.util.ArrayDeque<FileAction> fileUndo = new java.util.ArrayDeque<>();
+    private final java.util.ArrayDeque<FileAction> fileRedo = new java.util.ArrayDeque<>();
+
+    private void recordAction(String label, Runnable undo, Runnable redo) {
+        fileUndo.push(new FileAction(label, undo, redo));
+        fileRedo.clear();
+        while (fileUndo.size() > 50) {
+            fileUndo.removeLast();
+        }
+    }
+
+    /** Undo (or redo) of the last file operation; in the explorer and from the Edit menu. */
+    private void undoFileAction(boolean redo) {
+        FileAction action = (redo ? fileRedo : fileUndo).poll();
+        if (action == null) {
+            toast(redo ? "No file operation to redo" : "No file operation to undo");
+            return;
+        }
+        (redo ? fileUndo : fileRedo).push(action);
+        flush();
+        (redo ? action.redo() : action.undo()).run();
+        toast((redo ? "Redone: " : "Undone: ") + action.label());
+    }
+
+    private void restoreEntry(String path) {
+        var args = new com.google.gson.JsonObject();
+        args.addProperty("path", path);
+        store(s -> s.tool("restore_entry", args, reply -> {
+            View view = code;
+            if (reply.has("error") && view != null) {
+                view.post(() -> toast(reply.get("error").getAsString()));
+            }
+            ClientProjectStore.getInstance().listFiles();
+        }));
+    }
+
+    private final java.util.Map<String, net.xmilon.craftpy.client.TextHistory> histories = new java.util.HashMap<>();
+    /** The text each file had when the editor left it: a different text when it comes back means the history no longer fits. */
+    private final java.util.Map<String, String> leftTexts = new java.util.HashMap<>();
+    private final java.util.Map<String, Integer> carets = new java.util.HashMap<>();
+    private int changeCaret;
+    private boolean undoing;
+
+    private net.xmilon.craftpy.client.TextHistory history(String path) {
+        return histories.computeIfAbsent(fileKey(path), k -> new net.xmilon.craftpy.client.TextHistory());
+    }
+
+    /** Ctrl+Z / Ctrl+Y in the code: the file's own history, grouped by words like IntelliJ. */
+    private void undoText(boolean redo) {
+        if (shownPath == null || (state != null && state.activeVirtual())) {
+            return;
+        }
+        var history = history(shownPath);
+        var step = redo ? history.redo() : history.undo();
+        if (step == null) {
+            toast(redo ? "Nothing to redo" : "Nothing to undo");
+            return;
+        }
+        Editable text = code.getText();
+        undoing = true;
+        internalEdit = true;
+        try {
+            var edits = step.edits();
+            if (redo) {
+                for (var e : edits) {
+                    text.replace(e.start(), e.start() + e.removed().length(), e.inserted());
+                }
+            } else {
+                for (int i = edits.size() - 1; i >= 0; i--) {
+                    var e = edits.get(i);
+                    text.replace(e.start(), e.start() + e.inserted().length(), e.removed());
+                }
+            }
+        } catch (IndexOutOfBoundsException e) {
+            history.clear(); // the text changed behind the history's back: never apply a step to the wrong place
+            toast("The undo history no longer matched this file and was cleared");
+            return;
+        } finally {
+            undoing = false;
+            internalEdit = false;
+        }
+        int caret = Math.min(redo ? step.caretAfter() : step.caretBefore(), text.length());
+        code.setSelection(Math.max(0, caret));
+        bringIntoView(Math.max(0, caret));
     }
 
     // ---- split editor (IntelliJ "Split Right")
@@ -1530,6 +1654,7 @@ public class EditorFragment extends Fragment {
                 changeStart = start;
                 changeAdded = after;
                 changeReplaced = s.subSequence(start, start + count).toString();
+                changeCaret = code.getSelectionStart();
             }
 
             @Override
@@ -1541,6 +1666,11 @@ public class EditorFragment extends Fragment {
                 textVersion++;
                 if (loading) {
                     return;
+                }
+                if (!undoing && shownPath != null && changeStart + changeAdded <= s.length()) {
+                    history(shownPath).record(new net.xmilon.craftpy.client.TextHistory.Edit(changeStart, changeReplaced,
+                                    s.subSequence(changeStart, changeStart + changeAdded).toString()),
+                            changeCaret, changeStart + changeAdded, System.currentTimeMillis());
                 }
                 shiftBookmarks(s);
                 if (!internalEdit) {
@@ -2091,12 +2221,25 @@ public class EditorFragment extends Fragment {
     }
 
     private void setEditorText(@Nullable String path, String content) {
+        if (shownPath != null && code != null) {
+            leftTexts.put(fileKey(shownPath), code.getText().toString());
+            carets.put(fileKey(shownPath), code.getSelectionStart());
+        }
+        String key = path == null ? null : fileKey(path);
+        if (key != null && leftTexts.containsKey(key) && !leftTexts.get(key).equals(content)) {
+            histories.remove(key); // changed on disk or by a refactoring while away
+            carets.remove(key);
+        }
         loading = true;
         try {
             shownPath = path;
             synced = content;
             code.setText(content);
-            code.setSelection(0);
+            int caret = key == null ? 0 : Math.min(carets.getOrDefault(key, 0), content.length());
+            code.setSelection(Math.max(0, caret)); // back where you were in this file, like IntelliJ
+            if (caret > 0) {
+                code.post(() -> bringIntoView(Math.min(caret, code.getText().length())));
+            }
         } finally {
             loading = false;
         }
@@ -2275,23 +2418,36 @@ public class EditorFragment extends Fragment {
     }
 
     private void renameEntry(FileTree.Row entry) {
-        prompt(explorer, "Rename " + entry.name(), entry.path(), "Rename",
-                to -> store(s -> s.renameEntry(entry.path(), to)));
+        String from = entry.path();
+        prompt(explorer, "Rename " + entry.name(), from, "Rename", to -> {
+            store(s -> s.renameEntry(from, to));
+            recordAction("Rename " + from, () -> store(s -> s.renameEntry(to, from)), () -> store(s -> s.renameEntry(from, to)));
+        });
     }
 
     private void deleteEntry(FileTree.Row entry) {
         String path = entry.path();
         prompt(explorer, "Delete " + path + (entry.folder() ? "/ and everything in it?" : "?"), null, "Delete",
-                ignored -> store(s -> {
-                    if (!entry.folder()) {
+                ignored -> {
+                    store(s -> {
+                        if (!entry.folder()) {
+                            s.closeFile(path);
+                        }
+                        s.deleteEntry(path);
+                    });
+                    recordAction("Delete " + path, () -> restoreEntry(path), () -> store(s -> {
                         s.closeFile(path);
-                    }
-                    s.deleteEntry(path);
-                }));
+                        s.deleteEntry(path);
+                    }));
+                });
     }
 
     /** Keyboard in the tree: arrows move/open/close, Enter opens, F2 renames, Delete deletes. */
     private boolean onExplorerKey(int keyCode, KeyEvent event) {
+        if (event.isCtrlPressed() && (keyCode == KeyEvent.KEY_Z || keyCode == KeyEvent.KEY_Y)) {
+            undoFileAction(keyCode == KeyEvent.KEY_Y || event.isShiftPressed());
+            return true;
+        }
         int at = -1;
         for (int i = 0; i < treeRows.size(); i++) {
             if (treeRows.get(i).path().equals(selectedPath)) {
@@ -3120,6 +3276,8 @@ public class EditorFragment extends Fragment {
                     }
                 }
                 case KeyEvent.KEY_S -> save();
+                case KeyEvent.KEY_Z -> undoText(shift);
+                case KeyEvent.KEY_Y -> undoText(true);
                 case KeyEvent.KEY_R -> run();
                 case KeyEvent.KEY_ENTER, KeyEvent.KEY_KP_ENTER -> {
                     if (shift) {
@@ -3531,6 +3689,15 @@ public class EditorFragment extends Fragment {
     private void showEditMenu(View anchor) {
         var menu = Overlays.menu(anchor);
         Menu m = menu.getMenu();
+        var textHistory = shownPath == null ? null : history(shownPath);
+        m.add("Undo   Ctrl+Z").setEnabled(textHistory != null && textHistory.canUndo())
+                .setOnMenuItemClickListener(i -> run(() -> undoText(false)));
+        m.add("Redo   Ctrl+Y").setEnabled(textHistory != null && textHistory.canRedo())
+                .setOnMenuItemClickListener(i -> run(() -> undoText(true)));
+        m.add(fileUndo.isEmpty() ? "Undo file operation" : "Undo: " + fileUndo.peek().label())
+                .setEnabled(!fileUndo.isEmpty()).setOnMenuItemClickListener(i -> run(() -> undoFileAction(false)));
+        m.add(fileRedo.isEmpty() ? "Redo file operation" : "Redo: " + fileRedo.peek().label())
+                .setEnabled(!fileRedo.isEmpty()).setOnMenuItemClickListener(i -> run(() -> undoFileAction(true)));
         m.add("Find...   Ctrl+F").setOnMenuItemClickListener(i -> run(() -> openFind(false)));
         m.add("Replace...   Ctrl+H").setOnMenuItemClickListener(i -> run(() -> openFind(true)));
         m.add("Quick open...   Ctrl+P").setOnMenuItemClickListener(i -> run(this::quickOpen));
@@ -3839,11 +4006,20 @@ public class EditorFragment extends Fragment {
 
     private void addNewItems(Menu menu, String folder) {
         menu.add("New file...").setOnMenuItemClickListener(item -> {
-            prompt(explorer, "New file", folder + "new_file.py", "Create", path -> store(s -> s.createEntry(path, "file")));
+            prompt(explorer, "New file", folder + "new_file.py", "Create", path -> {
+                store(s -> s.createEntry(path, "file"));
+                recordAction("New file " + path, () -> store(s -> {
+                    s.closeFile(path);
+                    s.deleteEntry(path);
+                }), () -> restoreEntry(path));
+            });
             return true;
         });
         menu.add("New folder...").setOnMenuItemClickListener(item -> {
-            prompt(explorer, "New folder", folder + "new_folder", "Create", path -> store(s -> s.createEntry(path, "folder")));
+            prompt(explorer, "New folder", folder + "new_folder", "Create", path -> {
+                store(s -> s.createEntry(path, "folder"));
+                recordAction("New folder " + path, () -> store(s -> s.deleteEntry(path)), () -> restoreEntry(path));
+            });
             return true;
         });
     }

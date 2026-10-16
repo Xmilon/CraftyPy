@@ -27,6 +27,10 @@ UI code, update REPORT/AUDIT/README/guide after each batch, never plant bugs. Se
   implement them, don't ask, then refine the entire project"**; then **"this has to be an SSS tier mod; add resizable editor
   windows like in IntelliJ; it has to look like a clone of IntelliJ but still different"**. Order of work: section 1, M18,
   sections 3-6, the 50 features (section 9), the IntelliJ-style layout (section 10), a refinement pass over everything.
+- **2026-10-16, soft bugs before the main problems**: API docs out of date and hard to read (wanted: sections for
+  everything you can code, a full explanation of how it works, easy to read / ADHD friendly); welcome sword breaks blocks
+  in creative (and items should take tags); cannot place a block against a ruby block's face; extensions and attributes
+  not offered by completion; native Ctrl+Z / Ctrl+Y across the whole IDE, IntelliJ quality. All in section 9b.
 - **Reference material**: the compat mods' sources are in `C:/Users/Xmilon/IdeaProjects/Compatibily Mods` (claudemem there is only
   partly set up because indexing takes too long). Load claudemem for that folder only when really needed (tokens are expensive).
   The mod jars used for testing are in `run/mods` (Create 6.0.10, Curios 9.5.1, GeckoLib 4.9.3, Iron's Spellbooks 3.16.3 + Iron's Lib,
@@ -116,6 +120,62 @@ reset `run/pyforge` for the dev client (move it out of the repo, backup in the s
 - Done 2026-10-16 after M19: `welcome/code/main.py` describes the new layout; `run/pyforge` moved to the session
   scratchpad (`pyforge-backup-2026-10-16`). Placed CraftPy blocks in `run/saves` may show other content until the projects
   are loaded again (the slot map was in that folder).
+
+## 9. The 50 new features (asked 2026-10-16: "IDE, UI, quality of life, actual coding; then refine everything")
+
+Done:
+1. IntelliJ New UI look in game and standalone: one palette (`IdeColors`), painted icons (`IdeIcon`), fading hover states.
+2. VS Code activity bar (Home / Editor / Modules / Docs).
+3. Main toolbar: project widget with colored initials, menus, Search Everywhere box, run widget (Run / Reload / Stop).
+4. Tool window stripes on both edges; Project, Bookmarks, Console, Problems, Events, Assets, Preview, Texture, Sound, Blocks.
+5. Alt+1/2/4/6/7/8/9 tool window shortcuts; open/closed state remembered.
+6. Resizable split editor (Ctrl+\, tab menu "Split right", View menu); never two editors on one file.
+7. IntelliJ editor tabs: file icons, accent underline, VS Code dot for unsaved files.
+8. Animated tool windows (LayoutTransition).
+9. Console: read-only editor view (scrolls sideways, selecting no longer jumps), colored errors / input / results.
+10. Building Blocks tool window (the user's idea): 30 ready-made pieces in 9 categories, each with Docs (its section of the
+    API docs), Insert at the cursor, New file (`code/<name>.py` + `import <name>` in main.py, also when main.py is open).
+11. Project avatars on the Home page.
+12. Standalone window: logo icon, dark caption.
+13. Save replies name their file (fixes a real data-loss risk: edits typed while saving were marked saved).
+Done in waves 2-6 (2026-10-16), each with tests where there is logic:
+14. Toggle line comment Ctrl+/ (the shortcut list stays on F1). 15. Duplicate line or selection Ctrl+D.
+16. Delete line Ctrl+Shift+K (Ctrl+Y stays redo). 17. Move lines Alt+Shift+Up/Down. 18. Reopen closed tab Ctrl+Shift+T.
+19. Tab menu: Close all, Close tabs to the right, Copy path. 20. Middle click closes a tab. 21. Hide all tool windows
+Ctrl+Shift+F12 and double click on a tab. 22. Find Action Ctrl+Shift+A. 23. Find in Files Ctrl+Shift+F (server tool grep).
+24. TODO list (Find Action > TODO list). 25. Console: Ctrl+click a traceback line opens the file at the line.
+26. Status bar error/warning counts (click: Problems). 27. Status bar indentation. 28. Bracket pair highlight.
+29. Indent guides (Settings can turn them off). 30. Caret line number brighter in the gutter. 31. Error/warning marks on
+the minimap. 32. Painted file icons in the explorer and the tabs. 33. Open folders remembered per project. 34. Open tabs
+restored per project. 35. Fuzzy completion (word initials) with prefix matches first. 36. Signature help on ( and ,
+with the argument being typed in bold. 37. Lint: undefined names and unused imports (was already in the worker; now
+surfaced in the status bar and minimap). 38. Live templates on Tab. 39. Reformat Ctrl+Alt+L (whitespace only).
+40. Rename in file Shift+F6. 41. Go to line Ctrl+G. 42. Smart backspace. 43. Hover on an id string: registry and mod.
+44. Settings dialog Ctrl+Alt+S. 45. Execute selection in console Alt+Shift+E (instead of notification balloons: Modern
+UI's toasts already work the same in game and standalone). 46. Recent projects in the project widget. 47. Tip of the
+day on Home. 48. Copy reference Ctrl+Alt+Shift+C (instead of completion in the console input, which would need the
+console line to become a code view). 49. In game: action-bar line when a project loads or fails. 50. In game: the IDE
+key opens the editor on the last project, also for singleplayer owners without cheats.
+Not checked in game yet: all of the above (unit tests and the standalone window only).
+
+## 10. IntelliJ-style layout (asked 2026-10-16)
+
+Done in section 9 (1-8). Home became a welcome screen (search, New Project dialog, recent files, tip).
+
+## 9b. Soft bugs reported 2026-10-16 (after M19) - done
+
+- [x] API docs rewritten: how it works, an "I want to..." index, one short section per topic (what it is, smallest
+  example, a few bullets), the generated reference under one heading. Old wrong statements removed.
+- [x] Swords and weapons broke blocks in creative: `SlottedItem.canAttackBlock` behaves like vanilla swords.
+- [x] Tags: the pack wrote `tags/items` (pre-1.21), so no tag ever worked; now `tags/item`, merged per id, namespaced ids,
+  `Item(..., tags=[...])` / `Block(..., tags=[...])`.
+- [x] A held block could not be placed against a CraftPy block (the block took every click): `useItemOn` lets block items place.
+- [x] Completion: extensions that fit first in `extends(` / `extensions=[` (built-in, own, modules'), accepted values in
+  strings (`tier=`, `slot=`, `operation=`, `tool=`, `sound=`...), the list opens on the opening quote (attributes, ids).
+- [x] Undo / redo everywhere, IntelliJ-style: per-file text history with word grouping (`TextHistory`), caret remembered
+  per file; file operations (new, rename, delete via `system/trash`, building block files with their import) undoable in
+  the Project tree and the Edit menu. Texture and sound editors keep their own undo.
+- [ ] In game: check all of the above.
 
 ## 8. Known limits (from the last "what is missing" list)
 

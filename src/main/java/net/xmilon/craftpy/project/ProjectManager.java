@@ -577,17 +577,119 @@ public final class ProjectManager {
                 return OpResult.fail("Cannot delete project.json");
             }
             try {
-                if (Files.isDirectory(target)) {
-                    deleteRecursively(target);
-                } else if (Files.exists(target)) {
-                    Files.delete(target);
-                } else {
+                if (!Files.exists(target)) {
                     return OpResult.fail("Not found: " + path);
                 }
+                moveToTrash(id, dir.relativize(target).toString().replace('\\', '/'), target);
                 ChangeLog.record(id, "Deleted " + path);
                 return OpResult.ok(id, "Deleted " + path);
             } catch (IOException e) {
                 return OpResult.fail("Failed to delete " + path + ": " + e.getMessage());
+            }
+        }, CraftPyExecutors.forProject(id));
+    }
+
+    // ---- trash: deleted entries are kept so Undo (Ctrl+Z in the explorer) can bring them back
+
+    private static final int TRASH_KEPT = 40;
+    private static final java.util.concurrent.atomic.AtomicLong TRASH_COUNTER = new java.util.concurrent.atomic.AtomicLong();
+
+    /** {@code <pyforge>/system/trash/<project>}: next to the projects folder, never inside a project. */
+    private Path trashOf(String id) {
+        Path base = projectsDir.toAbsolutePath().getParent();
+        return (base == null ? projectsDir : base).resolve("system").resolve("trash").resolve(id);
+    }
+
+    private void moveToTrash(String id, String relative, Path target) throws IOException {
+        Path stamp = trashOf(id).resolve(System.currentTimeMillis() + "-" + TRASH_COUNTER.incrementAndGet());
+        Path copy = stamp.resolve(relative);
+        Files.createDirectories(copy.getParent());
+        try {
+            Files.move(target, copy);
+        } catch (IOException moveFailed) { // another drive: copy, then delete the original
+            copyTree(target, copy);
+            deleteRecursively(target);
+        }
+        pruneTrash(id);
+    }
+
+    private static void copyTree(Path source, Path target) throws IOException {
+        try (Stream<Path> walk = Files.walk(source)) {
+            for (Path path : (Iterable<Path>) walk::iterator) {
+                Path dest = target.resolve(source.relativize(path).toString());
+                if (Files.isDirectory(path)) {
+                    Files.createDirectories(dest);
+                } else {
+                    Files.createDirectories(dest.getParent());
+                    Files.copy(path, dest, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
+    }
+
+    /** Trash folders of a project, newest first. */
+    private List<Path> trashStamps(String id) throws IOException {
+        Path root = trashOf(id);
+        if (!Files.isDirectory(root)) {
+            return List.of();
+        }
+        try (Stream<Path> list = Files.list(root)) {
+            return list.filter(Files::isDirectory)
+                    .sorted(java.util.Comparator.comparingLong(ProjectManager::stampTime).thenComparing(Path::toString).reversed())
+                    .toList();
+        }
+    }
+
+    private static long stampTime(Path stamp) {
+        String name = stamp.getFileName().toString();
+        try {
+            return Long.parseLong(name.substring(0, Math.max(0, name.indexOf('-'))));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private void pruneTrash(String id) {
+        try {
+            List<Path> stamps = trashStamps(id);
+            for (Path old : stamps.subList(Math.min(TRASH_KEPT, stamps.size()), stamps.size())) {
+                deleteRecursively(old);
+            }
+        } catch (IOException e) {
+            CraftPyLog.LOGGER.warn("Could not prune the trash of {}: {}", id, e.toString());
+        }
+    }
+
+    /** Brings back the most recently deleted copy of {@code path} (Undo of a delete). */
+    public CompletableFuture<OpResult> restoreEntry(String id, String path) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            Path dir = projectsDir.resolve(id);
+            Path target = resolveSafe(dir, path);
+            if (target == null || target.equals(dir.normalize())) {
+                return OpResult.fail("Illegal path: " + path);
+            }
+            if (Files.exists(target)) {
+                return OpResult.fail("Already exists: " + path);
+            }
+            String relative = dir.normalize().relativize(target).toString().replace('\\', '/');
+            try {
+                for (Path stamp : trashStamps(id)) {
+                    Path copy = stamp.resolve(relative);
+                    if (Files.exists(copy)) {
+                        Files.createDirectories(target.getParent());
+                        Files.move(copy, target);
+                        try (Stream<Path> rest = Files.walk(stamp)) {
+                            if (rest.noneMatch(Files::isRegularFile)) {
+                                deleteRecursively(stamp);
+                            }
+                        }
+                        ChangeLog.record(id, "Restored " + path);
+                        return OpResult.ok(id, "Restored " + path);
+                    }
+                }
+                return OpResult.fail("Nothing to restore for " + path);
+            } catch (IOException e) {
+                return OpResult.fail("Failed to restore " + path + ": " + e.getMessage());
             }
         }, CraftPyExecutors.forProject(id));
     }

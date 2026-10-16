@@ -411,4 +411,16 @@ public final class PyImports {
         out.add(at, "import " + module);
         return String.join("\n", out);
     }
+
+    /** {@code source} without the line {@code import <module>} (Undo of a building block's New file); else unchanged. */
+    public static String removeImport(String source, String module) {
+        List<String> lines = new ArrayList<>(List.of(source.split("\n", -1)));
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines.get(i).strip().equals("import " + module)) {
+                lines.remove(i);
+                return String.join("\n", lines);
+            }
+        }
+        return source;
+    }
 }

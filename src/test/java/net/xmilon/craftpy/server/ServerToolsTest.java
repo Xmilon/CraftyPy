@@ -136,4 +136,31 @@ class ServerToolsTest {
         var none = com.google.gson.JsonParser.parseString(ProjectTools.grep(snapshot, " ", false).json()).getAsJsonObject();
         assertEquals(0, none.getAsJsonArray("rows").size(), "a blank query finds nothing");
     }
+
+    @Test
+    void deletedEntriesGoToTheTrashAndComeBack(@TempDir Path dir) throws Exception {
+        Path projects = dir.resolve("projects");
+        Path project = projects.resolve("demo");
+        Files.createDirectories(project.resolve("code/pkg"));
+        Files.writeString(project.resolve("code/a.py"), "a = 1\n", StandardCharsets.UTF_8);
+        Files.writeString(project.resolve("code/pkg/b.py"), "b = 2\n", StandardCharsets.UTF_8);
+        Constructor<ProjectManager> constructor = ProjectManager.class.getDeclaredConstructor(Path.class);
+        constructor.setAccessible(true);
+        ProjectManager manager = constructor.newInstance(projects);
+
+        assertTrue(manager.deleteEntry("demo", "code/a.py").get().success());
+        assertTrue(manager.deleteEntry("demo", "code/pkg").get().success());
+        assertFalse(Files.exists(project.resolve("code/a.py")));
+        assertTrue(Files.isDirectory(dir.resolve("system/trash/demo")), "kept next to the projects, not inside one");
+
+        assertTrue(manager.restoreEntry("demo", "code/pkg").get().success());
+        assertEquals("b = 2\n", Files.readString(project.resolve("code/pkg/b.py")));
+        assertTrue(manager.restoreEntry("demo", "code/a.py").get().success());
+        assertEquals("a = 1\n", Files.readString(project.resolve("code/a.py")));
+        assertFalse(manager.restoreEntry("demo", "code/a.py").get().success(), "it exists again: nothing to overwrite");
+        assertFalse(manager.restoreEntry("demo", "../outside").get().success());
+
+        assertEquals("x = 1\n", net.xmilon.craftpy.analysis.PyImports.removeImport("x = 1\n", "shop"));
+        assertEquals("import a\n", net.xmilon.craftpy.analysis.PyImports.removeImport("import a\nimport shop\n", "shop"));
+    }
 }

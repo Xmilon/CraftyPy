@@ -523,6 +523,13 @@ public final class ClientProjectStore {
 
     // ---- requests ----
 
+    /** Asks for the file list of the open project again (after a change the server made outside the usual requests). */
+    public void listFiles() {
+        if (activeProjectId != null) {
+            request(ProjectAction.LIST_FILES, activeProjectId, "");
+        }
+    }
+
     public void refresh() {
         request(ProjectAction.LIST, null, "");
     }

@@ -205,7 +205,8 @@ See the *Java bridge* topic: `java.cls("net.minecraft...")`, `java.new(...)`, `@
 | `Tab` / `Shift+Tab` | Indent / unindent |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset (also `Ctrl` + mouse wheel) |
 | `F11` | Zen mode |
-| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | Undo / redo. Every file keeps its own history while the IDE is open; a word you type is one step, like in IntelliJ |
+| `Ctrl+Z` / `Ctrl+Y` in the Project tree | Undo / redo a file operation: new file or folder, rename, delete (deleted files wait in `system/trash` until undone), a building block's new file (with its `import` line) |
 | `Ctrl+Shift+A` | Find action: every command by name |
 | `Ctrl+Shift+F` | Find in files |
 | `Ctrl+G` | Go to line |
