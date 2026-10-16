@@ -310,12 +310,9 @@ public final class CraftPyCommand {
         return 1;
     }
 
-    /** Opens the container menu; {@code project} (optional) makes the client jump straight into the IDE. */
+    /** Opens the IDE on the client; {@code project} (optional) makes it jump straight into the editor. */
     private static void openIdeScreen(ServerPlayer target, String project) {
-        target.openMenu(new SimpleMenuProvider(
-                (containerId, inventory, player) -> new ComputerMenu(containerId, inventory),
-                PythonComputerBlock.TITLE));
-        CraftPyNetwork.sendTo(target, ProjectAction.OPEN_IDE, true, "",
+        CraftPyNetwork.sendTo(target, ProjectAction.OPEN_IDE, true, "open",
                 project == null ? "" : project);
     }
 

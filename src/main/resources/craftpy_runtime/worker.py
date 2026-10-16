@@ -532,9 +532,15 @@ class Content(str):
         self._definition[key] = value
 
     def add_ext(self, entry):
-        """Stores the data of a built-in extension; a second one of the same type replaces the first."""
+        """Stores the data of a built-in extension; a second one of the same type replaces the first, except Attributes:
+        every Attributes(...) is a modifier of its own (an item can raise mana and spell power), the same attribute in the
+        same slot replaces the earlier one."""
         found = self._definition.setdefault("ext", [])
-        found[:] = [e for e in found if e.get("type") != entry["type"]]
+        if entry["type"] == "attributes":
+            found[:] = [e for e in found if not (e.get("type") == "attributes" and e.get("attribute") == entry["attribute"]
+                                                 and e.get("slot") == entry["slot"])]
+        else:
+            found[:] = [e for e in found if e.get("type") != entry["type"]]
         found.append(entry)
 
     def has_ext(self, kind):
@@ -651,7 +657,7 @@ def _block_drops(block_id, drops):
 
 
 def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(),
-         **extra) -> "Content":
+         components=None, **extra) -> "Content":
     """Declares an item and returns it.
 
     ``tags=["minecraft:swords", "gems"]`` puts the item in item tags (a bare name is this project's tag).
@@ -676,6 +682,8 @@ def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, e
         definition["burn_time"] = int(fuel)
     if effect:
         definition["use_effect"] = _effect_spec(effect)
+    if components:
+        definition["components"] = _components(components)
     _DECLS["items"].append({"id": id, "definition": definition})
     item = Content("%s:%s" % (_namespace(), id), "item", id, definition["name"], definition)
     _content_tags(tags, "item", str(item))
@@ -1126,13 +1134,29 @@ class BlockType(_TypeBase):
     applies_to = ("block",)
 
 
+def _components(value):
+    """Data components every stack of the item gets (any mod's: Apotheosis affixes, Curios modifiers...): {id: value}."""
+    import re
+    if not isinstance(value, dict) or len(value) > 32:
+        raise ValueError("components must be a dict of at most 32 {'mod:component': value}")
+    out = {}
+    for key, data in value.items():
+        if not isinstance(key, str) or not re.fullmatch(r"!?[a-z0-9_.-]+:[a-z0-9_./-]+", key):
+            raise ValueError("component %r: write it as 'mod:name' (a leading ! removes a component)" % (key,))
+        out[key] = data
+    if len(json.dumps(out)) > 32768:
+        raise ValueError("components are larger than 32 KB")
+    return out
+
+
 class Attributes(_Data):
     """Adds attribute modifiers to an item while it is held or worn: any attribute of the game or of a mod.
 
     attribute: id such as "minecraft:generic.max_health" or "irons_spellbooks:fire_spell_power" (the IDE completes them).
     amount: the number to add. operation: "add" (default), "multiply_base" (+ amount x base value) or "multiply_total"
-    (x (1 + amount) at the end). slot: "mainhand", "offhand", "head", "chest", "legs", "feet", "hand", "armor", "body"
-    or "any". Use several ``Attributes(...)`` for several modifiers."""
+    (x (1 + amount) at the end). slot: "mainhand", "offhand", "head", "chest", "legs", "feet", "hand", "armor", "body",
+    "any", or a Curios slot: "curios:ring", "curios:necklace"... ("curios" = any curio slot). Use several
+    ``Attributes(...)`` for several modifiers."""
     applies_to = ("item",)
     type = "attributes"
     _OPERATIONS = {"add": "add_value", "add_value": "add_value", "multiply_base": "add_multiplied_base",
@@ -1146,7 +1170,11 @@ class Attributes(_Data):
         self.attribute = attribute if ":" in attribute else "minecraft:" + attribute
         self.amount = _num("Attributes amount", amount, -1000000.0, 1000000.0)
         self.operation = self._OPERATIONS[_choice("Attributes operation", operation, tuple(self._OPERATIONS))]
-        self.slot = _choice("Attributes slot", slot, self._SLOTS)
+        import re
+        if isinstance(slot, str) and re.fullmatch(r"curios(:[a-z0-9_]+)?", slot):
+            self.slot = slot  # worn in a Curios slot (needs the Curios mod)
+        else:
+            self.slot = _choice("Attributes slot", slot, self._SLOTS + ("curios", "curios:ring"))
 
     def data(self):
         return {"attribute": self.attribute, "amount": self.amount, "operation": self.operation, "slot": self.slot}
@@ -5406,7 +5434,7 @@ def _load_docs():
             "extensions": "List of extensions (Sword(...), Durability(...), your own); same as .extends(...).",
             "tags": "Item tags to join: ['minecraft:swords', 'gems'] (a bare name is this project's tag).",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
-        }, "The item (a string 'project:id' with .extends(...))."),
+            "components": "Data components every stack gets, from any mod: {'apotheosis:affixes': {...}}. A listed component is filled in when a stack does not have it yet; later changes (a reforge) are kept."}, "The item (a string 'project:id' with .extends(...))."),
         "Block": ("Declares a block and returns it; usable anywhere a block or item id is expected.", {
             "id": ID, "name": "Display name; default is the id in title case.",
             "texture": "PNG file name in assets/textures/, a vanilla texture ('minecraft:block/stone') or tex(...).",

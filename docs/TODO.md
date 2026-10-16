@@ -231,10 +231,15 @@ Done in section 9 (1-8). Home became a welcome screen (search, New Project dialo
 
 ## 9f. Asked 2026-10-16 (later)
 
-- [ ] **EMI / JEI do not show recipes of CraftPy items.** To find out in game: are the recipes in the recipe manager
-  (`/recipe give` works?), does JEI/EMI reload after a project run (their reload follows the recipe sync), and are the
-  slot items hidden or shown under `craftpy:pcitem_N`? Then a JEI plugin / EMI entrypoint that refreshes after
-  `ProjectController.refreshPacks` and names the items by their project id.
+- [x] **EMI / JEI did not show CraftPy items or their recipes**: they read items from the creative tabs, and slot items were
+  in none. New tab "CraftPy Projects" (loaded content only); after each sync the tabs are rebuilt and the recipe / tag
+  events re-sent so JEI, EMI, REI rebuild (`ClientPackSync.announceContent`). Needs an in-game check.
+- [x] JEI's side panel over the IDE: the computer block and `/craftpy ide` open the IDE as a plain screen now, not a
+  container screen (`CraftPyFragment.openFromServer`).
+- [x] Curios slots: `Attributes(..., slot="curios:ring")` / `"curios"` apply when worn (`lifecycle/CuriosCompat`, Curios API
+  by reflection). Bug found: a second `Attributes(...)` replaced the first; they stack now.
+- [x] `Item(components={...})`: any mod's data components (Apotheosis affixes...) filled into every stack that lacks them.
+- [x] Completion sends every match (cap 5000; it was 120 for ids, 250 for code).
 - [x] Item tooltip like a normal mod item: the project's name (blue italic, where mods show theirs), `namespace:id` with
   advanced tooltips (F3+H) instead of `craftpy:pcitem_N`, and a "Created with CraftPy" line. (`client/ContentTooltip`; JEI/EMI still add "CraftPy" as the mod name from the slot's
   namespace.)

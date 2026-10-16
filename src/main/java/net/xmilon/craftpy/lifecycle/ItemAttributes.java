@@ -50,7 +50,7 @@ public final class ItemAttributes {
         }
         int index = 0;
         for (Defs.ItemDef.AttributeSpec spec : def.attributes) {
-            Holder<Attribute> attribute = attribute(spec.attribute());
+            Holder<Attribute> attribute = CuriosCompat.isCurioSlot(spec.slot()) ? null : attribute(spec.attribute()); // curio slots: CuriosCompat
             if (attribute != null) { // an attribute of a mod that is not installed is simply not applied
                 var id = ResourceLocation.fromNamespaceAndPath(CraftPyLog.MODID, "ext." + index);
                 event.addModifier(attribute, new AttributeModifier(id, spec.amount(), operation(spec.operation())), group(spec.slot()));

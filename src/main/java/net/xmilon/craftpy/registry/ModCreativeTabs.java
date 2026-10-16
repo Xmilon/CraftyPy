@@ -24,9 +24,29 @@ public final class ModCreativeTabs {
                     })
                     .build());
 
-    // NOTE: project content (the generic slot pool) deliberately has NO creative
-    // tab and cannot be obtained with /give - it is exclusively distributed via
-    // /craftpy give <player> <project>:<id> <block|item> (namespace isolation).
+    /**
+     * The blocks and items of the running projects and modules. Item-list mods (JEI, EMI, REI) build their list from the
+     * creative tabs, so without this tab they never saw CraftPy content or its recipes. Only loaded content is listed; the
+     * unused slots stay hidden. Rebuilt after every project sync ({@code ClientPackSync}).
+     */
+    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> PROJECTS = TABS.register("projects",
+            () -> CreativeModeTab.builder()
+                    .title(Component.literal("CraftPy Projects"))
+                    .withTabsBefore(MAIN.getId())
+                    .icon(() -> ModItems.PYTHON_WRENCH.get().getDefaultInstance())
+                    .displayItems((parameters, output) -> {
+                        for (var block : SlotRegistry.slotBlocks()) {
+                            if (block.definition() != null) {
+                                output.accept(block.asItem());
+                            }
+                        }
+                        for (var item : SlotRegistry.slotItems()) {
+                            if (item.definition() != null) {
+                                output.accept(item);
+                            }
+                        }
+                    })
+                    .build());
 
     private ModCreativeTabs() {
     }

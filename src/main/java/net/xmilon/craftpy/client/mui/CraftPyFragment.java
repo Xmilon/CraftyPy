@@ -79,6 +79,14 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
     }
 
     /** Creates the standalone (keybind) screen. */
+    /** The server said to open the IDE (computer block, /craftpy ide): a plain screen unless one is open already. */
+    public static void openFromServer(boolean editor) {
+        var minecraft = net.minecraft.client.Minecraft.getInstance();
+        if (!(minecraft.screen instanceof icyllis.modernui.mc.MuiScreen mui && mui.getFragment() instanceof CraftPyFragment)) {
+            minecraft.setScreen(createScreen(editor ? PAGE_EDITOR : PAGE_HOME));
+        }
+    }
+
     public static Screen createScreen(int page) {
         return MuiModApi.get().createScreen(new CraftPyFragment(page));
     }

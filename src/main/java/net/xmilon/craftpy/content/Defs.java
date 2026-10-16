@@ -133,6 +133,8 @@ public final class Defs {
         public String texture;
         public int maxStack;
         public boolean glow;
+        /** Data components of any mod (JSON), filled into every stack that lacks them (SlottedItem.inventoryTick). */
+        public com.google.gson.JsonObject components;
         /** null = not edible. */
         public net.minecraft.world.food.FoodProperties food;
         /** Seconds worth of furnace burn time; 0 = not fuel. */
@@ -163,6 +165,7 @@ public final class Defs {
             def.food = foodFrom(json);
             def.burnTime = Math.max(0, i(json, "burn_time", 0));
             def.useEffect = effectFrom(json);
+            def.components = json.has("components") && json.get("components").isJsonObject() ? json.getAsJsonObject("components") : null;
             for (JsonObject ext : extensions(json)) {
                 switch (s(ext, "type", "")) {
                     case "tool" -> def.tool = new ToolSpec(s(ext, "kind", "pickaxe"), i(ext, "level", 0),

@@ -1245,6 +1245,21 @@ def test_http_and_files_go_through_the_host():
         w._host_call = old
 
 
+def test_item_components_and_curio_slots():
+    d = run_main("cmp", NL.join([
+        "from craftpy import *",
+        "Item('ring', tags=['curios:ring'], components={'apotheosis:affixes': {'x': 1}, '!minecraft:food': {}}).extends(",
+        "    Attributes('irons_spellbooks:max_mana', 50, slot='curios:ring'), Attributes('minecraft:generic.luck', 1, slot='curios'))",
+        ""]))
+    ring = d["items"][0]["definition"]
+    assert ring["components"] == {"apotheosis:affixes": {"x": 1}, "!minecraft:food": {}}, ring
+    slots = [e["slot"] for e in ring["ext"] if e["type"] == "attributes"]
+    assert slots == ["curios:ring", "curios"], slots
+    for bad in ["Item('a', components={'nocolon': 1})", "Item('a', components=[1])", "Attributes('x:y', 1, slot='curios:Ring')"]:
+        result = w._handle("run_main", {"project": "cmp", "code": "from craftpy import *" + NL + bad + NL, "file": "code/main.py"})
+        assert result.get("error"), bad
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

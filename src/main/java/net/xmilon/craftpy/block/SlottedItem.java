@@ -88,6 +88,52 @@ public class SlottedItem extends Item {
         super.appendHoverText(stack, context, lines, flags);
     }
 
+    /**
+     * Fills in the data components the definition lists (other mods' data: affixes, curio modifiers...) when a stack does
+     * not have them yet, whatever made it (recipe, loot, give, creative tab, JEI). What a stack already has is kept.
+     */
+    @Override
+    public void inventoryTick(ItemStack stack, Level level, net.minecraft.world.entity.Entity entity, int slot, boolean selected) {
+        super.inventoryTick(stack, level, entity, slot, selected);
+        Defs.ItemDef def = definition();
+        if (level.isClientSide || def == null || def.components == null || def.components.isEmpty()) {
+            return;
+        }
+        net.minecraft.core.component.DataComponentPatch patch = componentPatch(def, level.registryAccess());
+        if (patch == null) {
+            return;
+        }
+        for (var entry : patch.entrySet()) {
+            if (entry.getValue().isPresent() && !stack.has(entry.getKey())) {
+                applyOne(stack, entry.getKey(), entry.getValue().get());
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> void applyOne(ItemStack stack, net.minecraft.core.component.DataComponentType<T> type, Object value) {
+        stack.set(type, (T) value);
+    }
+
+    private static final java.util.Map<String, net.minecraft.core.component.DataComponentPatch> PATCHES =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The components of a definition, parsed once per distinct JSON; null (and logged once) when they do not parse. */
+    private static net.minecraft.core.component.DataComponentPatch componentPatch(Defs.ItemDef def,
+                                                                                  net.minecraft.core.RegistryAccess registries) {
+        String key = def.components.toString();
+        var cached = PATCHES.get(key);
+        if (cached != null) {
+            return cached == net.minecraft.core.component.DataComponentPatch.EMPTY && !key.equals("{}") ? null : cached;
+        }
+        var result = net.minecraft.core.component.DataComponentPatch.CODEC.parse(
+                registries.createSerializationContext(com.mojang.serialization.JsonOps.INSTANCE), def.components);
+        var patch = result.resultOrPartial(error -> net.xmilon.craftpy.CraftPyLog.LOGGER.warn(
+                "Item components of {} do not fit: {}", def.name, error)).orElse(net.minecraft.core.component.DataComponentPatch.EMPTY);
+        PATCHES.put(key, patch);
+        return patch == net.minecraft.core.component.DataComponentPatch.EMPTY ? null : patch;
+    }
+
     @Override
     public int getMaxStackSize(ItemStack stack) {
         Defs.ItemDef def = definition();

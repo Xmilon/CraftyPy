@@ -642,7 +642,7 @@ Every function, class and method with all its parameters, by topic. Use the sear
 
 ### Items and blocks
 
-#### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(), **extra) -> 'Content'`
+#### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(), components=None, **extra) -> 'Content'`
 
 Declares an item and returns it; the result can be used anywhere an item id is expected.
 
@@ -658,6 +658,7 @@ Declares an item and returns it; the result can be used anywhere an item id is e
 | `effect` | `None` | Right click applies an effect: 'speed' or (name, level, seconds), level 1 = normal. |
 | `extensions` | `()` | List of extensions (Sword(...), Durability(...), your own); same as .extends(...). |
 | `tags` | `()` | Item tags to join: ['minecraft:swords', 'gems'] (a bare name is this project's tag). |
+| `components` | `None` | Data components every stack gets, from any mod: {'apotheosis:affixes': {...}}. A listed component is filled in when a stack does not have it yet; later changes (a reforge) are kept. |
 | `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
 
 Returns: The item (a string 'project:id' with .extends(...)).

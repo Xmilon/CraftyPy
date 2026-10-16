@@ -38,6 +38,9 @@ public class CraftPy {
         ModCreativeTabs.TABS.register(modEventBus);
         modEventBus.register(net.xmilon.craftpy.network.CraftPyNetwork.class);
         modEventBus.addListener(DynamicPackManager::registerSources);
+        // Curios slots for CraftPy items (only when Curios is installed)
+        modEventBus.addListener((net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent event) ->
+                event.enqueueWork(net.xmilon.craftpy.lifecycle.CuriosCompat::register));
 
         NeoForge.EVENT_BUS.register(this);
         // Project content is /craftpy give only - blocks it from vanilla /give.

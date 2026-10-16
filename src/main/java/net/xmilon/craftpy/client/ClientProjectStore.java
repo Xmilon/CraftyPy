@@ -805,6 +805,9 @@ public final class ClientProjectStore {
             }
             case OPEN_IDE -> {
                 this.pendingIdeProject = payload.json() == null || payload.json().isBlank() ? null : payload.json();
+                if ("open".equals(payload.message()) && IdeHost.get().inGame()) {
+                    net.xmilon.craftpy.client.mui.CraftPyFragment.openFromServer(pendingIdeProject != null);
+                }
                 notifyListener();
                 return;
             }

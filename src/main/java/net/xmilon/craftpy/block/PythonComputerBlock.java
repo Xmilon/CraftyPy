@@ -4,7 +4,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
@@ -16,7 +15,6 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.BlockHitResult;
-import net.xmilon.craftpy.menu.ComputerMenu;
 
 public class PythonComputerBlock extends Block {
     public static final Component TITLE = Component.translatable("block.craftpy.python_computer");
@@ -52,8 +50,11 @@ public class PythonComputerBlock extends Block {
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
             BlockHitResult hitResult) {
         if (!level.isClientSide) {
-            player.openMenu(new SimpleMenuProvider(
-                    (containerId, inventory, p) -> new ComputerMenu(containerId, inventory), TITLE), pos);
+            // a plain screen, not a container: item-list mods (JEI, EMI, REI) do not lay their panel over the IDE
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                net.xmilon.craftpy.network.CraftPyNetwork.sendTo(serverPlayer, net.xmilon.craftpy.network.ProjectAction.OPEN_IDE,
+                        true, "open", "");
+            }
         }
         return InteractionResult.sidedSuccess(level.isClientSide);
     }
