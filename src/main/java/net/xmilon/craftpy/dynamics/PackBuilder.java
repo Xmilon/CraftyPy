@@ -467,6 +467,7 @@ public final class PackBuilder {
             if (declarations == null) {
                 continue;
             }
+            copyProjectData(root, projectId); // first: what the scripts generate replaces a file of the same name
             java.util.Map<String, JsonObject> declaredLoot = new java.util.LinkedHashMap<>();
             for (Declarations.DatapackEntry entry : declarations.datapack()) {
                 if (entry.payload() == null || !entry.payload().isJsonObject()) {
@@ -537,6 +538,90 @@ public final class PackBuilder {
                 writeJson(biomeModifier(name, spawn), data.resolve("neoforge/biome_modifier/" + name + "_" + i + ".json"));
             }
         }
+    }
+
+    /** Folders of a data pack namespace; directly under a project's {@code data/} they belong to the project. */
+    private static final java.util.Set<String> DATA_FOLDERS = java.util.Set.of(
+            "structure", "worldgen", "recipe", "loot_table", "tags", "advancement", "function", "predicate",
+            "item_modifier", "damage_type", "enchantment", "enchantment_provider", "trim_material", "trim_pattern",
+            "banner_pattern", "painting_variant", "wolf_variant", "jukebox_song", "chat_type", "dimension",
+            "dimension_type", "neoforge", "curios", "data_maps");
+
+    static String dataNamespace(String projectId, String entryName, boolean directory) {
+        if (!directory || DATA_FOLDERS.contains(entryName)) {
+            return projectId;
+        }
+        return entryName.matches("[a-z0-9_.-]+") ? entryName : null;
+    }
+
+    /**
+     * A project's (or module's) own {@code data/} folder into the data pack: {@code data/structure/ruins.nbt} becomes
+     * {@code <project>:ruins}, a folder named like a namespace ({@code data/minecraft/...}) stays that namespace.
+     * Templates get their project blocks mapped to this game's slots ({@link StructureFiles}).
+     */
+    private static void copyProjectData(Path root, String projectId) {
+        net.xmilon.craftpy.project.ProjectManager manager = net.xmilon.craftpy.project.ProjectManager.get();
+        Path source = manager == null ? null : manager.projectsDir().resolve(projectId).resolve("data");
+        if (source == null || !Files.isDirectory(source)) {
+            source = net.xmilon.craftpy.project.ModuleLoader.dataOf(projectId);
+        }
+        if (source == null || !Files.isDirectory(source)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> children = Files.list(source)) {
+            for (Path child : (Iterable<Path>) children::iterator) {
+                String name = child.getFileName().toString();
+                String namespace = dataNamespace(projectId, name, Files.isDirectory(child));
+                if (namespace == null || !Files.isDirectory(child)) {
+                    continue; // loose files have no place in a data pack
+                }
+                Path target = root.resolve("data").resolve(namespace);
+                Path base = DATA_FOLDERS.contains(name) ? target.resolve(name) : target;
+                try (java.util.stream.Stream<Path> files = Files.walk(child, 12)) {
+                    for (Path file : (Iterable<Path>) files::iterator) {
+                        if (!Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                            continue;
+                        }
+                        Path out = base.resolve(child.relativize(file).toString()).normalize();
+                        if (!out.startsWith(base)) {
+                            continue;
+                        }
+                        Files.createDirectories(out.getParent());
+                        if (file.getFileName().toString().endsWith(".nbt")) {
+                            copyTemplate(file, out, projectId);
+                        } else {
+                            Files.copy(file, out, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            CraftPyLog.LOGGER.warn("Failed to copy the data folder of {}", projectId, e);
+        }
+    }
+
+    private static void copyTemplate(Path file, Path out, String projectId) throws java.io.IOException {
+        net.minecraft.nbt.CompoundTag template;
+        try {
+            template = StructureFiles.read(file);
+        } catch (java.io.IOException | RuntimeException e) {
+            CraftPyLog.LOGGER.warn("{}: {} is not a structure file ({})", projectId, file.getFileName(), e.toString());
+            return;
+        }
+        StructureFiles.renameBlocks(template, name -> {
+            if (!name.startsWith(StructureFiles.CONTENT_NAMESPACE + ":")) {
+                return name;
+            }
+            String ref = name.substring(StructureFiles.CONTENT_NAMESPACE.length() + 1).replaceFirst("/", ":");
+            String slot = mapRef(ref, projectId, SlotRegistry.Kind.BLOCK);
+            if (slot.equals(ref)) {
+                CraftPyLog.LOGGER.warn("{}: {} uses the block {}, which no loaded project declares (it becomes air)",
+                        projectId, file.getFileName(), ref);
+                return "minecraft:air";
+            }
+            return slot;
+        });
+        StructureFiles.write(template, out);
     }
 
     /** {@code neoforge:add_spawns} for one mob slot. Package-visible for tests. */

@@ -61,6 +61,8 @@ public final class CraftPyCommand {
                 .executes(CraftPyCommand::rootHelp)
                 .then(give())
                 .then(summon())
+                .then(place())
+                .then(structure())
                 .then(ide())
                 .then(project())
                 .then(moduleGroup())
@@ -121,6 +123,55 @@ public final class CraftPyCommand {
                         .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
                                 .executes(ctx -> summon(ctx, net.minecraft.commands.arguments.coordinates.BlockPosArgument
                                         .getSpawnablePos(ctx, "pos")))));
+    }
+
+    // /craftpy place <template> [pos] [rotation]   (a project's data/structure/<name>.nbt or any template of the game)
+    private static LiteralArgumentBuilder<CommandSourceStack> place() {
+        return Commands.literal("place")
+                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
+                .then(Commands.argument("template", ResourceLocationArgument.id())
+                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggestResource(
+                                ctx.getSource().getLevel().getStructureManager().listTemplates(), builder))
+                        .executes(ctx -> place(ctx, net.minecraft.core.BlockPos.containing(ctx.getSource().getPosition()), 0))
+                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
+                                .executes(ctx -> place(ctx, net.minecraft.commands.arguments.coordinates.BlockPosArgument
+                                        .getLoadedBlockPos(ctx, "pos"), 0))
+                                .then(Commands.argument("rotation", IntegerArgumentType.integer(0, 270))
+                                        .executes(ctx -> place(ctx, net.minecraft.commands.arguments.coordinates.BlockPosArgument
+                                                .getLoadedBlockPos(ctx, "pos"), IntegerArgumentType.getInteger(ctx, "rotation"))))));
+    }
+
+    private static int place(CommandContext<CommandSourceStack> ctx, net.minecraft.core.BlockPos pos, int rotation) {
+        ResourceLocation id = ResourceLocationArgument.getId(ctx, "template");
+        String error = net.xmilon.craftpy.server.StructurePlacer.placeTemplate(ctx.getSource().getLevel(), id, pos, rotation, false, true);
+        if (error != null) {
+            fail(ctx, error);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("Placed " + id + " at " + pos.toShortString()), true);
+        return 1;
+    }
+
+    // /craftpy structure import <saved name> <project>   (what a structure block saved, into the project)
+    private static LiteralArgumentBuilder<CommandSourceStack> structure() {
+        return Commands.literal("structure")
+                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
+                .then(Commands.literal("import")
+                        .then(Commands.argument("name", ResourceLocationArgument.id())
+                                .then(Commands.argument("project", com.mojang.brigadier.arguments.StringArgumentType.word())
+                                        .executes(ctx -> {
+                                            String name = ResourceLocationArgument.getId(ctx, "name").toString();
+                                            String project = com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "project");
+                                            try {
+                                                String message = net.xmilon.craftpy.server.StructurePlacer.importSaved(
+                                                        ctx.getSource().getServer(), name, project);
+                                                ctx.getSource().sendSuccess(() -> Component.literal(message), true);
+                                                return 1;
+                                            } catch (java.io.IOException e) {
+                                                fail(ctx, "Could not import: " + e.getMessage());
+                                                return 0;
+                                            }
+                                        }))));
     }
 
     /** The slot of a declared mob ({@code project:id} or a bare id), or null after telling the source why not. */

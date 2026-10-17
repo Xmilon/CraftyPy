@@ -98,6 +98,38 @@ New UI in dark, with CraftPy's green as the accent:
 - Projects load/unload/reload at runtime with automatic resource + data pack regeneration and multiplayer sync.
 - Persistent slot mapping (`pyforge/slots.json`) so placed blocks survive reloads and restarts.
 
+### Structures
+- `.nbt` templates (what structure blocks save) go in a project's `data/structure/`. `world.place_structure(...)` and
+  `/craftpy place <project>:<name> [pos] [rotation]` place one at once (after **Run**).
+- `Pool(...)` + `Structure(...)` make jigsaw structures that generate in new chunks like villages. Minecraft reads world
+  generation only when a world opens, so a new or changed structure appears after reopening the world;
+  `/place structure <project>:<id>`, `/locate structure` and `world.place_jigsaw(pool, ..., target=...)` work then.
+- `/craftpy structure import <saved name> <project>` copies what a structure block saved in this world into the project.
+  CraftPy blocks in it are kept as content ids (`craftpy_content:<project>/<id>`) and mapped to this game's slots on
+  every build, so the template works in any game. Without the project that declares such a block it becomes air.
+- A project's whole `data/` folder now goes into the data pack (`data/structure`, `data/worldgen`, `data/recipe`,
+  `data/tags`...; a folder named like a namespace, `data/minecraft/...`, stays that namespace).
+
+### Media player and the shared pool
+- `pyforge/shared/` holds your own files (`shared/music` is made on the first start). A module reads a folder of it only
+  when it declares `"permissions": {"shared": ["music"]}` and you approved it; your own projects are allowed as declared.
+- `media` (client side) plays OGG, WAV, AIFF, MP3 (JLayer) and FLAC (jFLAC) through Minecraft's sound engine (the
+  *Jukebox/Note Blocks* slider), plus any music sound event of the game, resource packs and mods. A track keeps playing
+  when its window closes. Opus, M4A and AAC are not supported.
+- `nearby=True` sends the file to the server, which passes it to players within `media.shareRange` blocks (they hear it
+  around you, also when they walk up later). Server settings: `media.shareNearby`, `media.maxShareMb`, `media.shareRange`;
+  each player can turn other players' media off with `media.hearOthers`.
+- The **Assets** tool window has a **Shared** tab: preview audio and **Import** any file into the open project (MP3, FLAC,
+  WAV and AIFF become OGG when the converter of the sound editor is installed).
+- The `jukebox` example (`examples/jukebox`) is a full media player built on this: press **J**.
+
+### Modules per world
+- Which modules are on is saved in the world (`<world>/craftpy/modules.json`). A new world starts with every module off;
+  worlds from before keep the modules that were on.
+- On a server you join, the server's world decides for its modules. Your own client-side modules get a list per server
+  on your computer (`pyforge/system/servers/<address>.json`, all off the first time): `/craftpy_client modules`,
+  `/craftpy_client modules enable <id>`.
+
 ### Namespace isolation
 - Project content is addressed as `<project>:<id>` (e.g. `project_bb:ruby`) — never overlapping with vanilla or mod registry ids.
 - Project content is **not** exposed in the creative menu and **cannot** be obtained with vanilla `/give`; it is distributed exclusively through [`/craftpy give`](#the-craftpy-command).
@@ -257,6 +289,8 @@ Examples:
 - `count` is optional (1–64).
 - `egg` instead of `block`/`item` gives a spawn egg of a `Mob(...)`: `/craftpy give Dev zoo:goblin egg`.
 - `/craftpy summon <project>:<mob> [pos]` puts a mob in the world (Tab completes the mobs).
+- `/craftpy place <template> [pos] [rotation]` places a structure template; `/craftpy structure import <name> <project>`
+  copies a structure block save into a project.
 - Commands declared with `@command("name")` in a project become `/<project>:<name>` and tab-complete as soon as the project runs.
 - `/craftpy module enable|disable|info|reload <module>` complete every discovered module.
 
@@ -281,7 +315,7 @@ Everything is stored as plain files, so projects can also be edited with any ext
         │   ├── models/     # *.json
         │   ├── sounds/     # *.ogg
         │   ├── lang/ animations/ other/
-        ├── data/           # data pack JSON (recipes, loot, tags)
+        ├── data/           # data pack files: structure/*.nbt, worldgen/, recipe/, tags/ ...
         └── build/          # per-project generated output
 ```
 

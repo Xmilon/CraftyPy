@@ -774,6 +774,78 @@ def Effect(id, name=None, icon=None, color="#8899ff", category="neutral", attrib
     return Content("%s:%s" % (_namespace(), id), "effect", id, definition["name"], definition)
 
 
+def _ref_structure(name):
+    """'ruins/house' is this project's; 'mod:path' stays."""
+    name = str(name).strip()
+    return name if ":" in name else "%s:%s" % (_namespace(), name)
+
+
+_STEPS = ("raw_generation", "lakes", "local_modifications", "underground_structures", "surface_structures",
+          "strongholds", "underground_ores", "underground_decoration", "fluid_springs", "vegetal_decoration",
+          "top_layer_modification")
+_TERRAIN = ("none", "beard_thin", "beard_box", "bury", "encapsulate")
+
+
+def Pool(id, pieces, fallback=None, projection="rigid", processors="minecraft:empty"):
+    """A jigsaw template pool: the pieces a jigsaw block named with this pool can grow into.
+
+    pieces: ['ruins/hall', ('ruins/tower', 3), (None, 1)] - templates of data/structure/ with weights; None is an
+    empty piece (a branch may stop). Jigsaw blocks in the .nbt files name pools like '<project>:<id>'."""
+    _check_id(id)
+    _choice("Pool projection", projection, ("rigid", "terrain_matching"))
+    found = [pieces] if isinstance(pieces, (str, tuple)) else list(pieces)
+    if not found:
+        raise ValueError("Pool(%r) needs at least one piece" % id)
+    elements = []
+    for piece in found:
+        name, weight = (piece if isinstance(piece, tuple) else (piece, 1))
+        weight = _num("Pool weight", weight, 1, 150, whole=True)
+        if name is None:
+            element = {"element_type": "minecraft:empty_pool_element"}
+        else:
+            element = {"element_type": "minecraft:single_pool_element", "location": _ref_structure(name),
+                       "processors": str(processors), "projection": projection}
+        elements.append({"weight": weight, "element": element})
+    raw_json("worldgen/template_pool/%s" % id, {"fallback": _ref_structure(fallback) if fallback else "minecraft:empty",
+                                                "elements": elements})
+    return Content("%s:%s" % (_namespace(), id), "pool", id, id, {})
+
+
+def Structure(id, start, biomes="#minecraft:is_overworld", size=7, max_distance=80, spacing=32, separation=8,
+              step="surface_structures", terrain="beard_thin", height=0, on_surface=True, start_jigsaw=None):
+    """A jigsaw structure that generates in new chunks, like villages: it starts with a piece of the `start` Pool and
+    grows `size` jigsaw steps (at most 20) within `max_distance` blocks (at most 128).
+
+    One every `spacing` chunks on average, at least `separation` chunks apart. Minecraft reads world generation only
+    when a world opens: a new or changed Structure appears after reopening the world, in chunks not generated yet.
+    Try it at once with /place structure <project>:<id> (after reopening) or world.place_jigsaw(start, ...)."""
+    _check_id(id)
+    _choice("Structure step", step, _STEPS)
+    _choice("Structure terrain", terrain, _TERRAIN)
+    spacing = _num("Structure spacing", spacing, 2, 4096, whole=True)
+    separation = _num("Structure separation", separation, 0, 4095, whole=True)
+    if separation >= spacing:
+        raise ValueError("Structure separation (%d) must be smaller than spacing (%d)" % (separation, spacing))
+    names = [biomes] if isinstance(biomes, str) else list(biomes)
+    structure = {"type": "minecraft:jigsaw", "biomes": names[0] if len(names) == 1 else names, "step": step,
+                 "spawn_overrides": {}, "terrain_adaptation": terrain, "start_pool": _ref_structure(start),
+                 "size": _num("Structure size", size, 0, 20, whole=True),
+                 "start_height": {"absolute": _num("Structure height", height, -2048, 2048, whole=True)},
+                 "max_distance_from_center": _num("Structure max_distance", max_distance, 1, 128, whole=True),
+                 "use_expansion_hack": False}
+    if on_surface:
+        structure["project_start_to_heightmap"] = "WORLD_SURFACE_WG"
+    if start_jigsaw:
+        structure["start_jigsaw_name"] = str(start_jigsaw)
+    full = "%s:%s" % (_namespace(), id)
+    raw_json("worldgen/structure/%s" % id, structure)
+    salt = sum(ord(c) * 31 ** i for i, c in enumerate(full)) % 2147483647  # the same structure, the same places
+    raw_json("worldgen/structure_set/%s" % id, {"structures": [{"structure": full, "weight": 1}],
+                                                "placement": {"type": "minecraft:random_spread", "spacing": spacing,
+                                                              "separation": separation, "salt": salt}})
+    return Content(full, "structure", id, id, {})
+
+
 def _content_tags(tags, kind, full_id):
     """Item(..., tags=[...]) / Block(..., tags=[...]): one tag entry per tag; the pack merges entries of the same tag."""
     for name in ([tags] if isinstance(tags, str) else list(tags or ())):
@@ -1925,6 +1997,25 @@ class _World:
         uuid = result.get("uuid")
         return Entity({"uuid": uuid, "type": _ref(entity), "x": x, "y": y, "z": z}) if uuid else result
 
+    def place_structure(self, structure, x, y=None, z=None, rotation=0, mirror=False, entities=True,
+                        dimension=_OVERWORLD):
+        """Places a structure template now: 'ruins/house' is data/structure/ruins/house.nbt of this project (after
+        Run); 'minecraft:village/plains/houses/plains_small_house_1' a template of the game."""
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.place_structure", {"structure": _ref_structure(structure), "x": x, "y": y, "z": z,
+                                                        "rotation": int(rotation), "mirror": bool(mirror),
+                                                        "entities": bool(entities), "dimension": dimension}))
+
+    def place_jigsaw(self, pool, x, y=None, z=None, target=None, depth=7, dimension=_OVERWORLD):
+        """Generates a jigsaw structure from a Pool now, starting at the jigsaw block named `target` of its first piece
+        (the "Name" field of a jigsaw block, such as 'minecraft:building_entrance').
+        Pools are world generation: they exist after the world was opened with the project loaded."""
+        if not target:
+            raise ValueError("place_jigsaw needs target=: the name of a jigsaw block in the first piece")
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.place_jigsaw", {"pool": _ref_structure(pool), "target": str(target), "depth": int(depth),
+                                                     "x": x, "y": y, "z": z, "dimension": dimension}))
+
     def explode(self, x, y=None, z=None, power=3, fire=False, break_blocks=True, dimension=_OVERWORLD):
         x, y, z = _xyz(x, y, z)
         return _ok(_host_call("world.explode", {"x": x, "y": y, "z": z, "power": power, "fire": fire,
@@ -2756,9 +2847,16 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.6"
+API_VERSION = "2.7"
 
 API_CHANGES = [
+    {"version": "2.7", "date": "2026-10-17",
+     "added": ["`media` (client side): play OGG, WAV, AIFF, MP3 and FLAC files of `pyforge/shared/<folder>` and music "
+               "sound events; pause, seek, volume, state; `nearby=True` lets players around you hear it. A module reads "
+               "a shared folder only when it declares `\"permissions\": {\"shared\": [\"music\"]}`.",
+               "`Pool(...)` and `Structure(...)`: jigsaw structures from the `.nbt` files of `data/structure/`, generated "
+               "in new chunks after reopening the world; `world.place_structure(...)` and `world.place_jigsaw(...)`.",
+               "A project's `data/` folder goes into the data pack (structures, recipes, tags, worldgen...)."]},
     {"version": "2.6", "date": "2026-10-17",
      "added": ["`Mob(...)`: mobs in the game, with a vanilla body or a GeckoLib model, stats, hostile or passive AI, "
                "drops, a spawn egg (`/craftpy give <player> <project>:<id> egg`), `/craftpy summon` and natural "
@@ -3281,6 +3379,7 @@ def _server_api_names():
         "has": has, "core": core, "requires_restart": requires_restart,
         # simple API
         "Block": Block, "Item": Item, "Food": Food, "Content": Content, "Mob": Mob, "Spawn": Spawn, "Effect": Effect,
+        "Pool": Pool, "Structure": Structure,
         "shaped": shaped, "shapeless": shapeless, "smelt": smelt, "stonecut": stonecut,
         "after": after, "Pos": Pos, "Player": Player, "Entity": Entity,
         "player": player, "say": say, "run": run, "java": java, "JavaError": JavaError,
@@ -5941,6 +6040,28 @@ def _load_docs():
             "drops": "What it drops: an item, a list, (item, count) / (item, count, weight).",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The mob (a string 'project:id')."),
+        "Pool": ("A jigsaw template pool: pieces (.nbt files of data/structure/) a jigsaw block can grow into.", {
+            "id": ID, "pieces": "['ruins/hall', ('ruins/tower', 3), (None, 1)]: templates with weights; None is an empty piece.",
+            "fallback": "Pool used when no piece fits (default none).",
+            "projection": "'rigid' (as built) or 'terrain_matching' (follows the ground, for paths).",
+            "processors": "Processor list id applied to the pieces (default none).",
+        }, "The pool (a string 'project:id')."),
+        "Structure": ("A jigsaw structure generated in new chunks, like villages (after reopening the world).", {
+            "id": ID, "start": "The Pool of the first piece.",
+            "biomes": "Biome, biome tag ('#minecraft:is_forest') or a list.",
+            "size": "How many jigsaw steps it grows, 0 to 20.", "max_distance": "How far pieces may reach, 1 to 128 blocks.",
+            "spacing": "About one every this many chunks.", "separation": "At least this many chunks apart (smaller than spacing).",
+            "step": "Generation step, default 'surface_structures'.",
+            "terrain": "'beard_thin' (ground fits around it), 'beard_box', 'bury', 'encapsulate' or 'none'.",
+            "height": "Start height; with on_surface it is added to the surface.",
+            "on_surface": "True: starts on the surface.", "start_jigsaw": "Name of the jigsaw block of the first piece to start from.",
+        }, "The structure (a string 'project:id')."),
+        "world.place_structure": ("Places a structure template now (a project's data/structure/<name>.nbt after Run, or the game's).", {
+            **POS3, "structure": "'ruins/house' (this project) or 'mod:path'.", "rotation": "0, 90, 180 or 270 degrees.",
+            "mirror": "True mirrors it.", "entities": "False leaves out the entities saved in it.", "dimension": DIM}, ""),
+        "world.place_jigsaw": ("Generates a jigsaw structure from a Pool now (pools exist after the world was opened with the project).", {
+            **POS3, "pool": "The Pool.", "target": "Name of the jigsaw block of the first piece to start from.",
+            "depth": "Jigsaw steps, 1 to 20.", "dimension": DIM}, ""),
         "Spawn": ("Where a Mob appears by itself (for Mob(spawns=[...])).", {
             "biomes": "A biome ('minecraft:plains'), a biome tag ('#minecraft:is_overworld') or a list of them.",
             "weight": "How often, next to other mobs (zombie 100, pig 10).",

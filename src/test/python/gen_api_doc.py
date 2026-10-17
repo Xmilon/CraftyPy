@@ -19,6 +19,7 @@ GENERIC = {"extra": "Further fields written into the JSON as they are.",
 CHAPTERS = [
     ("Items and blocks", ["Item", "Block", "Food", "ItemType", "BlockType"]),
     ("Mobs and effects", ["Mob", "Spawn", "Effect"]),
+    ("Structures", ["Pool", "Structure", "world.place_structure", "world.place_jigsaw"]),
     ("Extensions", ["Content.extends", "Extension", "extension", "Tool", "Sword", "Pickaxe", "Axe", "Shovel", "Hoe",
                     "Durability", "Weapon", "Fuel", "Armor", "Enchantable", "Cooldown", "Tooltip", "MineableBy",
                     "Drops", "Redstone", "Flammable", "Friction", "Piston", "Attributes"]),

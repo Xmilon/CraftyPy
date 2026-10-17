@@ -99,6 +99,17 @@ public final class ModuleLoader {
         }
     }
 
+    /** The unpacked {@code data/} folder of a loaded module, or null. */
+    public static Path dataOf(String id) {
+        synchronized (LOCK) {
+            if (!LOADED_MODULES.containsKey(id)) {
+                return null;
+            }
+            Path data = PyForgePaths.cache().resolve(id).resolve("data");
+            return Files.isDirectory(data) ? data : null;
+        }
+    }
+
     /** True when {@code id} is running as a module now. */
     public static boolean isLoaded(String id) {
         synchronized (LOCK) {

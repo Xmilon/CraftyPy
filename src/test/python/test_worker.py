@@ -357,6 +357,38 @@ def hi(event):
     assert other["handlers"] == 0, other
 
 
+def test_structures_write_jigsaw_worldgen():
+    d = run_main("ruins", """
+from craftpy import *
+halls = Pool("halls", ["ruins/hall", ("ruins/tower", 3), (None, 1)])
+ruin = Structure("ruin", start=halls, biomes=["minecraft:plains", "minecraft:forest"], size=5, spacing=20, separation=6)
+
+@on.player_join
+def show(event):
+    world.place_structure("ruins/hall", 0, 64, 0, rotation=90)
+    world.place_jigsaw(halls, 10, 64, 10, target="minecraft:bottom", depth=3)
+""")
+    raw = {e["id"]: e["definition"] for e in d["raw"]}
+    pool = raw["worldgen/template_pool/halls"]
+    assert pool["elements"][0]["element"]["location"] == "ruins:ruins/hall"
+    assert pool["elements"][1]["weight"] == 3 and pool["elements"][2]["element"]["element_type"] == "minecraft:empty_pool_element"
+    structure = raw["worldgen/structure/ruin"]
+    assert structure["start_pool"] == "ruins:halls" and structure["size"] == 5
+    assert structure["biomes"] == ["minecraft:plains", "minecraft:forest"]
+    placement = raw["worldgen/structure_set/ruin"]["placement"]
+    assert placement["spacing"] == 20 and placement["separation"] == 6 and placement["salt"] > 0
+    CALLS.clear()
+    w._handle("trigger_event", {"event": "player_join", "context": {"player": DEV}})
+    placed = {m: p for m, p in CALLS if m.startswith("world.place")}
+    assert placed["world.place_structure"]["structure"] == "ruins:ruins/hall" and placed["world.place_structure"]["rotation"] == 90
+    assert placed["world.place_jigsaw"]["pool"] == "ruins:halls" and placed["world.place_jigsaw"]["depth"] == 3
+    for code, message in (('Structure("s", start="p", spacing=8, separation=8)', "separation"),
+                          ('Structure("s", start="p", size=40)', "size"), ('Pool("p", [])', "at least one")):
+        result = w._handle("run_main", {"project": "bad", "code": "from craftpy import *\n" + code,
+                                        "file": "code/main.py", "sources": {}})
+        assert result.get("error") and message in result.get("message", ""), (code, result)
+
+
 def test_mob_and_effect_mistakes_are_explained():
     for code, message in (('Mob("m", model="dragon")', "Mob model"), ('Mob("m", wings=2)', "no attribute"),
                           ('Effect("e", category="nice")', "category"), ('Spawn([])', "Spawn biomes"),

@@ -60,6 +60,8 @@ public final class HostBridge {
                 case "world.set_time" -> onServer(server -> setTime(server, params));
                 case "world.play_sound" -> onServer(server -> playSound(server, params));
                 case "world.spawn" -> onServer(server -> spawn(server, params));
+                case "world.place_structure" -> onServer(server -> placeStructure(server, params));
+                case "world.place_jigsaw" -> onServer(server -> placeJigsaw(server, params));
                 case "world.particle" -> onServer(server -> particle(server, params));
                 case "world.set_weather" -> onServer(server -> setWeather(server, params));
                 case "world.blocks_in_box" -> onServer(server -> blocksInBox(server, params));
@@ -232,6 +234,28 @@ public final class HostBridge {
         JsonObject result = ok();
         result.addProperty("uuid", entity.getUUID().toString());
         return result;
+    }
+
+    private static JsonObject placeStructure(MinecraftServer server, JsonObject p) {
+        ServerLevel level = level(server, p);
+        ResourceLocation id = parseId(string(p, "structure", ""));
+        if (level == null || id == null) {
+            return error(level == null ? "unknown dimension" : "bad structure id");
+        }
+        String problem = net.xmilon.craftpy.server.StructurePlacer.placeTemplate(level, id, pos(p),
+                (int) number(p, "rotation", 0), bool(p, "mirror", false), bool(p, "entities", true));
+        return problem == null ? ok(true) : error(problem);
+    }
+
+    private static JsonObject placeJigsaw(MinecraftServer server, JsonObject p) {
+        ServerLevel level = level(server, p);
+        ResourceLocation pool = parseId(string(p, "pool", ""));
+        ResourceLocation target = parseId(string(p, "target", ""));
+        if (level == null || pool == null || target == null) {
+            return error(level == null ? "unknown dimension" : "bad pool or target id");
+        }
+        String problem = net.xmilon.craftpy.server.StructurePlacer.placeJigsaw(level, pool, target, (int) number(p, "depth", 7), pos(p));
+        return problem == null ? ok(true) : error(problem);
     }
 
     private static JsonObject particle(MinecraftServer server, JsonObject p) {

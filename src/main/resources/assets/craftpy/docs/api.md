@@ -593,11 +593,17 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.6** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.7** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.7 (2026-10-17)
+
+- **Added:** `media` (client side): play OGG, WAV, AIFF, MP3 and FLAC files of `pyforge/shared/<folder>` and music sound events; pause, seek, volume, state; `nearby=True` lets players around you hear it. A module reads a shared folder only when it declares `"permissions": {"shared": ["music"]}`.
+- **Added:** `Pool(...)` and `Structure(...)`: jigsaw structures from the `.nbt` files of `data/structure/`, generated in new chunks after reopening the world; `world.place_structure(...)` and `world.place_jigsaw(...)`.
+- **Added:** A project's `data/` folder goes into the data pack (structures, recipes, tags, worldgen...).
 
 ### 2.6 (2026-10-17)
 
@@ -774,6 +780,72 @@ Declares a potion effect and returns it: player.effect(rage), Item(effect=rage),
 | `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
 
 Returns: The effect (a string 'project:id').
+
+### Structures
+
+#### `Pool(id, pieces, fallback=None, projection='rigid', processors='minecraft:empty')`
+
+A jigsaw template pool: pieces (.nbt files of data/structure/) a jigsaw block can grow into.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
+| `pieces` |  | ['ruins/hall', ('ruins/tower', 3), (None, 1)]: templates with weights; None is an empty piece. |
+| `fallback` | `None` | Pool used when no piece fits (default none). |
+| `projection` | `'rigid'` | 'rigid' (as built) or 'terrain_matching' (follows the ground, for paths). |
+| `processors` | `'minecraft:empty'` | Processor list id applied to the pieces (default none). |
+
+Returns: The pool (a string 'project:id').
+
+#### `Structure(id, start, biomes='#minecraft:is_overworld', size=7, max_distance=80, spacing=32, separation=8, step='surface_structures', terrain='beard_thin', height=0, on_surface=True, start_jigsaw=None)`
+
+A jigsaw structure generated in new chunks, like villages (after reopening the world).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
+| `start` |  | The Pool of the first piece. |
+| `biomes` | `'#minecraft:is_overworld'` | Biome, biome tag ('#minecraft:is_forest') or a list. |
+| `size` | `7` | How many jigsaw steps it grows, 0 to 20. |
+| `max_distance` | `80` | How far pieces may reach, 1 to 128 blocks. |
+| `spacing` | `32` | About one every this many chunks. |
+| `separation` | `8` | At least this many chunks apart (smaller than spacing). |
+| `step` | `'surface_structures'` | Generation step, default 'surface_structures'. |
+| `terrain` | `'beard_thin'` | 'beard_thin' (ground fits around it), 'beard_box', 'bury', 'encapsulate' or 'none'. |
+| `height` | `0` | Start height; with on_surface it is added to the surface. |
+| `on_surface` | `True` | True: starts on the surface. |
+| `start_jigsaw` | `None` | Name of the jigsaw block of the first piece to start from. |
+
+Returns: The structure (a string 'project:id').
+
+#### `world.place_structure(structure, x, y=None, z=None, rotation=0, mirror=False, entities=True, dimension='minecraft:overworld')`
+
+Places a structure template now (a project's data/structure/<name>.nbt after Run, or the game's).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `structure` |  | 'ruins/house' (this project) or 'mod:path'. |
+| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
+| `y` | `None` | Y coordinate (height). |
+| `z` | `None` | Z coordinate. |
+| `rotation` | `0` | 0, 90, 180 or 270 degrees. |
+| `mirror` | `False` | True mirrors it. |
+| `entities` | `True` | False leaves out the entities saved in it. |
+| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+
+#### `world.place_jigsaw(pool, x, y=None, z=None, target=None, depth=7, dimension='minecraft:overworld')`
+
+Generates a jigsaw structure from a Pool now (pools exist after the world was opened with the project).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `pool` |  | The Pool. |
+| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
+| `y` | `None` | Y coordinate (height). |
+| `z` | `None` | Z coordinate. |
+| `target` | `None` | Name of the jigsaw block of the first piece to start from. |
+| `depth` | `7` | Jigsaw steps, 1 to 20. |
+| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
 
 ### Extensions
 
