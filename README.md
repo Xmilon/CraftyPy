@@ -122,6 +122,11 @@ installed CraftPy gets a note to update. What changed in each version: **API ver
 installer, for the user only, added to PATH) and `install-python.sh` (macOS / Linux) install Python 3.13; `INSTALL.md`
 explains both. They are copied next to the jars from `dist/`.
 
+For Modrinth and CurseForge (100 MB per file) `build` also makes one jar per system with only that system's Python:
+`craftpy-<version>-windows.jar` (about 25 MB), `-macos.jar` (Intel + Apple silicon, about 53 MB) and `-linux.jar`
+(x64 + ARM64, about 67 MB). On another system such a jar uses the Python on `PATH`. `installerJar` also builds
+`craftpy-installer-windows.jar` / `-macos` / `-linux` with the matching jar inside.
+
 ### Python is included
 
 You do not install Python. The mod jar carries CPython 3.13 (python-build-standalone, pinned by release and SHA-256) for

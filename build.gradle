@@ -342,6 +342,62 @@ tasks.register('distScripts', Copy) {
 }
 tasks.named('build') { dependsOn liteJar }
 
+// One jar per system (craftpy-<version>-windows / -macos / -linux.jar): only that system's Python inside, so each
+// stays under the 100 MB that Modrinth and CurseForge accept. Its runtimes.properties lists only its platforms; on
+// another system BundledPython finds no entry and the mod uses the Python on PATH, like the no-python jar.
+def pythonJarSystems = [
+        windows: ['x86_64-pc-windows-msvc'],
+        macos  : ['x86_64-apple-darwin', 'aarch64-apple-darwin'],
+        linux  : ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu'],
+]
+def systemJars = []
+def systemInstallers = []
+pythonJarSystems.each { system, platforms ->
+    def indexDir = layout.buildDirectory.dir("python-index/${system}").get().asFile
+    def indexText = "# The Python runtimes in this jar (python-build-standalone ${pythonRelease}, ${system})\n" +
+            "version=${pythonVersion}+${pythonRelease}\n" +
+            platforms.collect { "${it}.sha256=${pythonRuntimes[it]}\n" }.join('')
+    def index = tasks.register("pythonIndex${system.capitalize()}") {
+        inputs.property('text', indexText)
+        outputs.dir(indexDir)
+        doLast {
+            indexDir.mkdirs()
+            new File(indexDir, 'runtimes.properties').text = indexText
+        }
+    }
+    def systemJar = tasks.register("${system}Jar", Jar) {
+        group = 'build'
+        description = "Builds craftpy-<version>-${system}.jar (only the ${system} Python inside)."
+        dependsOn tasks.named('jar'), downloadPython, index
+        archiveClassifier = system
+        from(zipTree(tasks.named('jar').flatMap { it.archiveFile })) {
+            exclude 'craftpy_python/**'
+        }
+        from(pythonDir) {
+            into 'craftpy_python'
+            include platforms.collect { it + '.tar.gz' }
+        }
+        from(indexDir) {
+            into 'craftpy_python'
+        }
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        mustRunAfter 'distScripts'
+    }
+    systemJars << systemJar
+    systemInstallers << tasks.register("installerJar${system.capitalize()}", Jar) {
+        group = 'build'
+        description = "Builds craftpy-installer-${system}.jar (installs the ${system} jar)."
+        archiveBaseName = 'craftpy-installer'
+        archiveVersion = ''
+        archiveClassifier = system
+        from sourceSets.installer.output
+        from(systemJar) { rename { 'craftpy.jar' } }
+        manifest { attributes 'Main-Class': 'net.xmilon.craftpy.installer.InstallerMain' }
+        mustRunAfter 'distScripts'
+    }
+}
+tasks.named('build') { dependsOn systemJars }
+
 tasks.register('installerJar', Jar) {
     group = 'build'
     archiveBaseName = 'craftpy-installer'
@@ -350,6 +406,7 @@ tasks.register('installerJar', Jar) {
     from(tasks.named('jar')) { rename { 'craftpy.jar' } }
     manifest { attributes 'Main-Class': 'net.xmilon.craftpy.installer.InstallerMain' }
     mustRunAfter 'distScripts' // both write build/libs; Gradle refuses `build installerJar` without an order
+    dependsOn systemInstallers // and the small installers, one per system
 }
 
 dependencies {
