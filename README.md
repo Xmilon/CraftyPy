@@ -386,4 +386,7 @@ src/main/java/net/xmilon/craftpy/
 
 ## License
 
-MIT — see [TEMPLATE_LICENSE.txt](TEMPLATE_LICENSE.txt).
+CraftPy is free software under the **GNU General Public License v3.0** (see [LICENSE](LICENSE)): you may use, change
+and share it, and versions you share must stay under the GPL with their source. Bundled third-party code (CPython,
+JLayer, jFLAC) keeps its own license: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The NeoForge MDK template files
+are MIT ([TEMPLATE_LICENSE.txt](TEMPLATE_LICENSE.txt)).
