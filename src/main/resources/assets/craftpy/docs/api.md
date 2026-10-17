@@ -592,11 +592,15 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.4** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.5** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.5 (2026-10-17)
+
+- **Added:** `ctx.player` in a window's `build(self, ctx)`: the player the window is drawn for (before: missing, so `ui.open(event.player, ...)` from an event failed).
 
 ### 2.4 (2026-10-16)
 

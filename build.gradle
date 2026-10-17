@@ -349,6 +349,7 @@ tasks.register('installerJar', Jar) {
     from sourceSets.installer.output
     from(tasks.named('jar')) { rename { 'craftpy.jar' } }
     manifest { attributes 'Main-Class': 'net.xmilon.craftpy.installer.InstallerMain' }
+    mustRunAfter 'distScripts' // both write build/libs; Gradle refuses `build installerJar` without an order
 }
 
 dependencies {

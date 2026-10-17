@@ -312,7 +312,24 @@ class Bad(Window):
     assert any("ZeroDivisionError" in line for line in result["log"]), result
 
 
-TEMPLATES = os.path.join(HERE, "..", "..", "main", "resources", "craftpy_templates")
+def test_window_build_gets_the_player():
+    run_main("wp", """
+from craftpy import *
+@window("who", size=(100, 100))
+class Who(Window):
+    def build(self, ctx):
+        return Label("for " + ctx.player.name)
+@on.item_use
+def use(event):
+    ui.open(event.player, "who")
+""")
+    CALLS.clear()
+    result = w._handle("trigger_event", {"event": "item_use", "context": {"player": DEV, "item": "wp:x"}})
+    assert result["log"] == [], result
+    assert find(opened_windows()[-1]["root"], type="label", text="for Dev"), opened_windows()
+
+
+TEMPLATES =os.path.join(HERE, "..", "..", "main", "resources", "craftpy_templates")
 
 
 def test_project_templates_run():

@@ -52,3 +52,11 @@ __pycache__/
 
 # built jars: build them with ./gradlew build (the full jar is over GitHub's 100 MB limit)
 release/*.jar
+
+# Local only (asked 2026-10-17): notes, logs, release files and tool folders stay on this machine
+docs/
+logs/
+release/
+AUDIT.md
+instructions.txt
+.claudemem/

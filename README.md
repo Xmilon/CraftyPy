@@ -68,7 +68,7 @@ New UI in dark, with CraftPy's green as the accent:
   and the window drawn live. Every change goes into the editor tab (undo, save as usual); *Copy Python* gives the
   `@action` functions the window's buttons call.
 - **Modules** page: every built `.cpm` with search, enable/disable, reload and the rendered README. **Docs**: the offline
-  guide, API reference and Java bridge reference.
+  guide, API reference and Java bridge reference, with a contents list on the left that jumps to each heading.
 - Projects work on **client and server** (default), **client only** (Python on each player's computer: HUD, keys,
   windows, plus `assets/` as a resource pack, on any server) or **server only** (code and data; players install nothing).
   Chosen when the project is made (*Client side only* checkbox), stored as `"side"` in `project.json`, switched (and

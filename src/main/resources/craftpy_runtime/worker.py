@@ -2308,8 +2308,13 @@ class Window:
 
 
 class _WindowContext:
+    """Passed to ``build(ctx)``: the player the window is drawn for (None outside ui.open) and the window."""
+
+    player: "Player"
+
     def __init__(self, window):
         self.window = window
+        self.player = getattr(window, "_viewer", None)
         self.log = lambda message: _try_host("server.log", {"message": str(message)}, default=None)
 
     def close(self, event=None):
@@ -2367,6 +2372,7 @@ def _ui_collect(node, build):
 def _ui_render(entry):
     """Builds the tree of an open window and records which callbacks it may call."""
     _UI_BUILD[0] = {"tokens": {}, "named": set()}
+    entry["inst"]._viewer = entry.get("player")
     try:
         tree = entry["inst"].to_dict()
         entry["tokens"] = _UI_BUILD[0]["tokens"]
@@ -2387,7 +2393,8 @@ class _Ui:
             inst = _FileWindow(_UI_FILES[(owner, window_id)])
         else:
             raise KeyError("unknown window: %s (windows: %s)" % (window_id, ", ".join(self.windows()) or "none"))
-        entry = {"inst": inst, "tokens": {}, "named": set(), "owner": owner}
+        viewer = player if isinstance(player, Player) else (Player.named(name) or Player({"name": name}))
+        entry = {"inst": inst, "tokens": {}, "named": set(), "owner": owner, "player": viewer}
         _UI_OPEN[(name, window_id)] = entry
         return _host_call("ui.open", {"player": name, "window": _ui_render(entry)})
 
@@ -2451,6 +2458,7 @@ def _ui_event(data):
         if entry is None:
             return {"log": log, "handlers": 0, "ms": 0, "scheduled": len(_SCHEDULE)}
         player = Player(who)
+        entry["player"] = player
         ctx = _UiContext(player, window_id, data.get("value"), data.get("values"))
         if token == "__closed__":
             _UI_OPEN.pop((name, window_id), None)
@@ -2664,9 +2672,12 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.4"
+API_VERSION = "2.5"
 
 API_CHANGES = [
+    {"version": "2.5", "date": "2026-10-17",
+     "added": ["`ctx.player` in a window's `build(self, ctx)`: the player the window is drawn for "
+               "(before: missing, so `ui.open(event.player, ...)` from an event failed)."]},
     {"version": "2.4", "date": "2026-10-16",
      "added": ["`http.get` / `http.post`: web requests through the host, to sites the module declares, the player "
                "approves and the server allows; the answer comes to a callback. API keys stay in the server config.",
