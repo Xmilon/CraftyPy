@@ -73,6 +73,14 @@ public final class PyForgePaths {
         return system().resolve("cache");
     }
 
+    /**
+     * Folders the player fills by hand ({@code shared/music} for the media player). Modules read a folder only when
+     * they declare it ({@code "permissions": {"shared": ["music"]}}) and it was approved; nothing writes there.
+     */
+    public static Path shared() {
+        return root().resolve("shared");
+    }
+
     public static Path slotsFile() {
         return system().resolve("slots.json");
     }
@@ -82,7 +90,7 @@ public final class PyForgePaths {
     }
 
     public static void ensureLayout() {
-        for (Path path : new Path[]{root(), projects(), modules(), system(), runtime(), logs()}) {
+        for (Path path : new Path[]{root(), projects(), modules(), system(), runtime(), logs(), shared().resolve("music")}) {
             try {
                 Files.createDirectories(path);
             } catch (IOException e) {

@@ -17,7 +17,7 @@ import net.xmilon.craftpy.server.ProjectRequestHandler;
 import net.xmilon.craftpy.util.Json;
 
 public final class CraftPyNetwork {
-    public static final String PROTOCOL_VERSION = "2"; // 2: compressed text fields (PayloadText)
+    public static final String PROTOCOL_VERSION = "3"; // 2: compressed text fields (PayloadText); 3: shared media
 
     private CraftPyNetwork() {
     }
@@ -27,6 +27,13 @@ public final class CraftPyNetwork {
         PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
         registrar.playToServer(RequestPayload.TYPE, RequestPayload.STREAM_CODEC, CraftPyNetwork::handleRequest);
         registrar.playToClient(ResponsePayload.TYPE, ResponsePayload.STREAM_CODEC, CraftPyNetwork::handleResponse);
+        registrar.playBidirectional(MediaPayload.TYPE, MediaPayload.STREAM_CODEC, (payload, context) -> {
+            if (context.player() instanceof net.minecraft.server.level.ServerPlayer player) {
+                context.enqueueWork(() -> net.xmilon.craftpy.server.MediaRelay.receive(player, payload));
+            } else {
+                context.enqueueWork(() -> net.xmilon.craftpy.client.media.MediaShare.receive(payload));
+            }
+        });
     }
 
     /** Tells the client which projects are currently loaded so it can reload resources. */

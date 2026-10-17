@@ -66,11 +66,11 @@ public final class Config {
             .defineInRange("slotPool.items", 256, 0, 4096);
 
     public static final ModConfigSpec.IntValue ENTITY_SLOTS = BUILDER
-            .comment("Number of generic entity slots pre-registered at startup.")
+            .comment("Ignored: mobs have fixed pools (32 passive + 32 hostile).")
             .defineInRange("slotPool.entities", 64, 0, 1024);
 
     public static final ModConfigSpec.IntValue EFFECT_SLOTS = BUILDER
-            .comment("Number of generic mob effect slots pre-registered at startup.")
+            .comment("Ignored: effects have a fixed pool of 32.")
             .defineInRange("slotPool.effects", 32, 0, 512);
 
     public static final ModConfigSpec.IntValue SOUND_SLOTS = BUILDER
@@ -80,6 +80,22 @@ public final class Config {
     public static final ModConfigSpec.IntValue BLOCK_ENTITY_SLOTS = BUILDER
             .comment("Number of generic block entity slots pre-registered at startup.")
             .defineInRange("slotPool.blockEntities", 16, 0, 256);
+
+    public static final ModConfigSpec.BooleanValue MEDIA_SHARE = BUILDER
+            .comment("Server: players may let nearby players hear the media they play (media player, 'nearby' checkbox).")
+            .define("media.shareNearby", true);
+
+    public static final ModConfigSpec.IntValue MEDIA_MAX_MB = BUILDER
+            .comment("Server: largest media file a player may share, in MiB.")
+            .defineInRange("media.maxShareMb", 16, 1, 64);
+
+    public static final ModConfigSpec.IntValue MEDIA_RANGE = BUILDER
+            .comment("Server: how far shared media is heard, in blocks.")
+            .defineInRange("media.shareRange", 48, 8, 256);
+
+    public static final ModConfigSpec.BooleanValue MEDIA_HEAR = BUILDER
+            .comment("Client: play the media other players share nearby.")
+            .define("media.hearOthers", true);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
 

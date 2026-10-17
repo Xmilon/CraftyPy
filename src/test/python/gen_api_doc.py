@@ -50,6 +50,8 @@ CHAPTERS = [
     ("Client side", ["hud.text", "hud.bar", "hud.item", "hud.remove", "hud.clear", "keys.bind", "client.player",
                      "client.looking_at", "client.fps", "client.chat", "client.sound", "client.toast",
                      "client.open_window", "client.close_window"]),
+    ("Media (client side)", ["media.files", "media.play", "media.play_sound", "media.sounds", "media.pause",
+                             "media.resume", "media.stop", "media.seek", "media.volume", "media.state"]),
     ("Web and files", ["http.get", "http.post", "http.request", "files.read", "files.write", "files.delete", "files.exists",
                        "files.list", "files.read_json", "files.write_json"]),
     ("Java bridge", ["java.available", "java.cls", "java.new", "java.on", "java.items", "java.members", "java.mods",

@@ -82,6 +82,27 @@ public final class ClientHost {
                 case "storage.set" -> ClientStorage.set(storageKey(p), p.get("value"));
                 case "storage.clear" -> ClientStorage.clear(string(p, "key").isBlank() ? null : storageKey(p),
                         string(p, "scope", "world") + "/");
+                case "media.files" -> mediaFiles(p);
+                case "media.play" -> mediaPlay(p);
+                case "media.play_sound" -> onClient(() -> {
+                    var id = net.minecraft.resources.ResourceLocation.tryParse(string(p, "sound"));
+                    if (id == null || Minecraft.getInstance().getSoundManager().getSoundEvent(id) == null) {
+                        return fail("Unknown sound event: " + string(p, "sound"));
+                    }
+                    net.xmilon.craftpy.client.media.MediaPlayer.get().playSound(id, (float) number(p, "volume", 1));
+                    return ok();
+                });
+                case "media.sounds" -> onClient(ClientHost::musicSounds);
+                case "media.pause" -> media(player -> player.pause());
+                case "media.resume" -> media(player -> player.resume());
+                case "media.stop" -> media(player -> player.stop());
+                case "media.seek" -> media(player -> player.seek(number(p, "seconds", 0)));
+                case "media.volume" -> media(player -> player.volume((float) number(p, "volume", 1)));
+                case "media.state" -> {
+                    JsonObject out = ok();
+                    out.add("state", net.xmilon.craftpy.client.media.MediaPlayer.get().state());
+                    yield out;
+                }
                 case "server.log" -> {
                     CraftPyLog.LOGGER.info("[client module] {}", string(p, "message"));
                     yield ok();
@@ -91,6 +112,80 @@ public final class ClientHost {
             };
         } catch (RuntimeException e) {
             return fail(e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
+    // -- media player ------------------------------------------------------------------------------------------------
+
+    /** The folder of pyforge/shared the owner declared and had approved, or an exception with the reason. */
+    private static java.nio.file.Path sharedFolder(JsonObject p) throws java.io.IOException {
+        String folder = string(p, "folder", "music");
+        if (!net.xmilon.craftpy.client.media.MediaLibrary.validFolder(folder)) {
+            throw new java.io.IOException("Folder names are plain words like 'music'");
+        }
+        String owner = string(p, "owner");
+        if (!net.xmilon.craftpy.security.PermissionStore.sharedAllowed(owner, folder)) {
+            throw new java.io.IOException("Reading pyforge/shared/" + folder + " needs \"permissions\": {\"shared\": [\""
+                    + folder + "\"]} in project.json / module.json, approved on the Modules page");
+        }
+        java.nio.file.Path dir = net.xmilon.craftpy.client.media.MediaLibrary.folder(folder);
+        java.nio.file.Files.createDirectories(dir);
+        return dir;
+    }
+
+    private static JsonObject mediaFiles(JsonObject p) {
+        try {
+            JsonObject out = ok();
+            JsonArray names = new JsonArray();
+            net.xmilon.craftpy.client.media.MediaLibrary.list(sharedFolder(p)).forEach(names::add);
+            out.add("files", names);
+            return out;
+        } catch (java.io.IOException e) {
+            return fail(e.getMessage());
+        }
+    }
+
+    private static JsonObject mediaPlay(JsonObject p) {
+        java.nio.file.Path file;
+        try {
+            file = net.xmilon.craftpy.client.media.MediaLibrary.resolve(sharedFolder(p), string(p, "file"));
+        } catch (java.io.IOException e) {
+            return fail(e.getMessage());
+        }
+        return onClient(() -> {
+            net.xmilon.craftpy.client.media.MediaPlayer.get().playFile(string(p, "file"), file, number(p, "seconds", 0),
+                    (float) number(p, "volume", 1), p.has("share") && p.get("share").getAsBoolean());
+            return ok();
+        });
+    }
+
+    private static JsonObject media(java.util.function.Consumer<net.xmilon.craftpy.client.media.MediaPlayer> action) {
+        return onClient(() -> {
+            action.accept(net.xmilon.craftpy.client.media.MediaPlayer.get());
+            return ok();
+        });
+    }
+
+    /** Music of the game, resource packs and mods: sound events whose id says music or record (music discs). */
+    private static JsonObject musicSounds() {
+        JsonObject out = ok();
+        JsonArray names = new JsonArray();
+        Minecraft.getInstance().getSoundManager().getAvailableSounds().stream()
+                .map(Object::toString)
+                .filter(id -> id.contains("music") || id.contains("record"))
+                .filter(id -> !id.equals("craftpy:media"))
+                .sorted()
+                .limit(1000)
+                .forEach(names::add);
+        out.add("sounds", names);
+        return out;
+    }
+
+    private static double number(JsonObject p, String key, double fallback) {
+        try {
+            return p.has(key) && !p.get(key).isJsonNull() ? p.get(key).getAsDouble() : fallback;
+        } catch (RuntimeException e) {
+            return fallback;
         }
     }
 

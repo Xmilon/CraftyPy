@@ -52,6 +52,9 @@ final class AssetBrowserPanel implements DockPanel {
     private final TextView status;
     private final EditText search;
     private final View[] chips = new View[KINDS.length];
+    private View sharedChip;
+    /** Showing the shared pool (pyforge/shared) instead of the game's assets. */
+    private boolean shared;
     private AssetKind kind = AssetKind.TEXTURE;
     private int generation;
     private boolean started;
@@ -70,11 +73,22 @@ final class AssetBrowserPanel implements DockPanel {
             chips[i].setClickable(true);
             chips[i].setOnClickListener(v -> {
                 kind = chipKind;
+                shared = false;
                 styleChips();
                 refresh();
             });
             chipRow.addView(chips[i]);
         }
+        sharedChip = label(context, "Shared", R.attr.textAppearanceLabelLarge);
+        sharedChip.setPadding(sharedChip.dp(8), sharedChip.dp(5), sharedChip.dp(8), sharedChip.dp(5));
+        sharedChip.setClickable(true);
+        sharedChip.setTooltipText("Your own files in pyforge/shared: import them into the project");
+        sharedChip.setOnClickListener(v -> {
+            shared = true;
+            styleChips();
+            refresh();
+        });
+        chipRow.addView(sharedChip);
         var chipScroll = new icyllis.modernui.widget.HorizontalScrollView(context);
         chipScroll.addView(chipRow);
         root.addView(chipScroll);
@@ -162,11 +176,18 @@ final class AssetBrowserPanel implements DockPanel {
 
     private void styleChips() {
         for (int i = 0; i < KINDS.length; i++) {
-            styleChip(chips[i], KINDS[i] == kind);
+            styleChip(chips[i], !shared && KINDS[i] == kind);
+        }
+        if (sharedChip != null) {
+            styleChip(sharedChip, shared);
         }
     }
 
     private void refresh() {
+        if (shared) {
+            refreshShared();
+            return;
+        }
         final int mine = ++generation;
         final AssetKind wanted = kind;
         final String query = search.getText().toString().trim();
@@ -225,6 +246,81 @@ final class AssetBrowserPanel implements DockPanel {
         status.setText(failed ? "Could not read the asset index (see the log)." : building ? "Building the asset index..." : total == 0 ? "Nothing found." : total > ids.size()
                 ? "Showing the first " + ids.size() + " of " + total + " - type to narrow it down."
                 : total + " found.");
+    }
+
+    private void refreshShared() {
+        final int mine = ++generation;
+        final String query = search.getText().toString().trim();
+        net.xmilon.craftpy.util.CraftPyExecutors.runAsync(() -> {
+            List<String> found;
+            String problem = null;
+            try {
+                java.nio.file.Files.createDirectories(net.xmilon.craftpy.client.assets.SharedAssets.pool());
+                found = net.xmilon.craftpy.client.assets.SharedAssets.list(net.xmilon.craftpy.client.assets.SharedAssets.pool(), query);
+            } catch (java.io.IOException e) {
+                found = List.of();
+                problem = e.getMessage();
+            }
+            List<String> rows = found;
+            String error = problem;
+            list.post(() -> {
+                if (mine == generation) {
+                    renderShared(rows, error);
+                }
+            });
+        });
+    }
+
+    private void renderShared(List<String> names, String error) {
+        list.removeAllViews();
+        for (String name : names) {
+            var line = row(context);
+            line.setPadding(line.dp(8), line.dp(4), line.dp(8), line.dp(4));
+            hoverBackground(line);
+            var label = label(context, name, R.attr.textAppearanceBodyMedium);
+            label.setSingleLine();
+            line.addView(label, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+            if (net.xmilon.craftpy.client.media.MediaDecoder.supported(name)) {
+                line.addView(button(context, "▶", R.attr.borderlessButtonStyle, v -> previewShared(name)));
+            }
+            line.addView(button(context, "Import", R.attr.borderlessButtonStyle, v -> importShared(name)));
+            list.addView(line);
+        }
+        status.setText(error != null ? "Could not read pyforge/shared: " + error
+                : names.isEmpty() ? "Nothing in pyforge/shared yet: put files there and click Shared again."
+                : names.size() + " file(s) in pyforge/shared. Import copies one into the project.");
+    }
+
+    private void importShared(String name) {
+        String project = net.xmilon.craftpy.client.ClientProjectStore.getInstance().activeProjectId();
+        if (project == null) {
+            status.setText("Open a project first: Import copies the file into it.");
+            return;
+        }
+        status.setText("Importing " + name + "...");
+        net.xmilon.craftpy.client.assets.SharedAssets.importInto(project, name, message -> list.post(() -> status.setText(message)));
+    }
+
+    private void previewShared(String name) {
+        IdeHost.get().execute(() -> {
+            if (!IdeHost.get().inGame()) {
+                list.post(() -> status.setText("Playing needs the game (open a world)."));
+                return;
+            }
+            try {
+                java.nio.file.Path base = net.xmilon.craftpy.client.assets.SharedAssets.pool();
+                java.nio.file.Path file = net.xmilon.craftpy.client.media.MediaLibrary.resolve(base, name);
+                var player = net.xmilon.craftpy.client.media.MediaPlayer.get();
+                if ("playing".equals(player.state().get("state").getAsString())
+                        && name.equals(player.state().get("name").getAsString())) {
+                    player.stop();
+                } else {
+                    player.playFile(name, file, 0, 1f, false);
+                }
+            } catch (java.io.IOException e) {
+                list.post(() -> status.setText(e.getMessage()));
+            }
+        });
     }
 
     private void play(String id) {

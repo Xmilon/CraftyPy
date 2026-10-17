@@ -144,6 +144,12 @@ dependencies {
     // JEI: compile against its API only; at runtime CraftPy uses it only when the JEI mod is installed
     compileOnly("mezz.jei:jei-1.21.1-common-api:19.64.0.455") { transitive = false }
     compileOnly("mezz.jei:jei-1.21.1-neoforge-api:19.64.0.455") { transitive = false }
+    // Audio decoders for the media player (Minecraft itself plays only OGG Vorbis): MP3 (JLayer, LGPL 2.1) and FLAC
+    // (jFLAC, Apache 2.0), pure Java, bundled inside the mod jar (jarJar) and on the dev runs' classpath.
+    jarJar(implementation("javazoom:jlayer:1.0.1") { transitive = false })
+    jarJar(implementation("org.jflac:jflac-codec:1.5.2") { transitive = false })
+    additionalRuntimeClasspath("javazoom:jlayer:1.0.1") { transitive = false }
+    additionalRuntimeClasspath("org.jflac:jflac-codec:1.5.2") { transitive = false }
     // GeckoLib: compile only; CraftPy uses it only when the GeckoLib mod is installed
     compileOnly("software.bernie.geckolib:geckolib-neoforge-1.21.1:4.9.3") { transitive = false }
 

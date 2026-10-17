@@ -95,13 +95,18 @@ public final class PermissionStore {
     public static synchronized boolean fullyApproved(String owner) {
         ModulePermissions asked = declared(owner);
         ModulePermissions ok = approved(owner);
-        return (!asked.files || ok.files) && ok.net.containsAll(asked.net);
+        return (!asked.files || ok.files) && ok.net.containsAll(asked.net) && ok.shared.containsAll(asked.shared);
     }
 
     /** The declared entry that covers {@code host} and is approved, or null: the owner may use this host. */
     public static synchronized String netEntry(String owner, String host) {
         String entry = declared(owner).covering(host);
         return entry != null && approved(owner).net.contains(entry) ? entry : null;
+    }
+
+    /** True when the owner declared {@code pyforge/shared/<folder>} and that was approved. */
+    public static synchronized boolean sharedAllowed(String owner, String folder) {
+        return declared(owner).shared.contains(folder) && approved(owner).shared.contains(folder);
     }
 
     public static synchronized boolean filesAllowed(String owner) {

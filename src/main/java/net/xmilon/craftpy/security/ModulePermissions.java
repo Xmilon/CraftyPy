@@ -15,6 +15,8 @@ public final class ModulePermissions {
     public List<String> net = new ArrayList<>();
     /** Wants {@code files.*} (its own data folder). */
     public boolean files = false;
+    /** Folders of {@code pyforge/shared/} it wants to read ({@code "music"}). */
+    public List<String> shared = new ArrayList<>();
 
     public ModulePermissions() {
     }
@@ -41,11 +43,20 @@ public final class ModulePermissions {
         }
         out.net = new ArrayList<>(domains);
         out.files = raw.files;
+        Set<String> folders = new LinkedHashSet<>();
+        if (raw.shared != null) {
+            for (String folder : raw.shared) {
+                if (folder != null && folder.matches("[a-z0-9_-]{1,32}") && folders.size() < 10) {
+                    folders.add(folder);
+                }
+            }
+        }
+        out.shared = new ArrayList<>(folders);
         return out;
     }
 
     public boolean isEmpty() {
-        return (net == null || net.isEmpty()) && !files;
+        return (net == null || net.isEmpty()) && !files && (shared == null || shared.isEmpty());
     }
 
     /** The entry of this list that covers {@code host}, or null. */

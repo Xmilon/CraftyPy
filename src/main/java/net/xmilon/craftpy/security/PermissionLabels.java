@@ -37,8 +37,12 @@ public final class PermissionLabels {
                 text.append(" (the server does not allow: ").append(String.join(", ", blocked)).append(")");
             }
             text.append(asked.files ? "; it also wants a data folder on this computer" : "");
-        } else {
+        } else if (asked.files) {
             text.append("This module wants a data folder on this computer (files it can read and write)");
+        }
+        if (!asked.shared.isEmpty()) {
+            text.append(asked.net.isEmpty() && !asked.files ? "This module wants to read " : "; it also wants to read ")
+                    .append("pyforge/shared/").append(String.join(", pyforge/shared/", asked.shared));
         }
         return text.append(" — continue at your own risk!").toString();
     }

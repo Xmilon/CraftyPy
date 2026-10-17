@@ -2979,6 +2979,60 @@ class _Files:
 
 files = _Files()
 
+
+class _Media:
+    """Client-side code: plays audio on this computer. Files come from pyforge/shared/<folder>/ (OGG, WAV, AIFF, MP3,
+    FLAC), which the module must declare: "permissions": {"shared": ["music"]}. Sound events (music discs, music of
+    resource packs and mods) need nothing. A track keeps playing after its window closes; one track at a time."""
+
+    def _call(self, method, **params):
+        result = _host_call(method, dict(params, owner=_OWNER[0]))
+        if isinstance(result, dict) and result.get("ok") is False:
+            raise PermissionError(result.get("error") or "media refused")
+        return result
+
+    def files(self, folder="music"):
+        """Names of the audio files in pyforge/shared/<folder> (and its subfolders), sorted. Call again to refresh."""
+        return self._call("media.files", folder=str(folder))["files"]
+
+    def play(self, file, folder="music", seconds=0, volume=1.0, nearby=False):
+        """Plays a file of the folder from `seconds`; nearby=True lets players around you hear it too."""
+        self._call("media.play", file=str(file), folder=str(folder), seconds=float(seconds), volume=float(volume),
+                   share=bool(nearby))
+
+    def play_sound(self, sound, volume=1.0):
+        """Plays a sound event such as 'minecraft:music_disc.cat' or a music pack's sound."""
+        self._call("media.play_sound", sound=str(sound), volume=float(volume))
+
+    def sounds(self):
+        """Music sound events of the game, resource packs and mods (ids with 'music' or 'record')."""
+        return self._call("media.sounds")["sounds"]
+
+    def pause(self):
+        self._call("media.pause")
+
+    def resume(self):
+        self._call("media.resume")
+
+    def stop(self):
+        self._call("media.stop")
+
+    def seek(self, seconds):
+        """Jumps to a position (files only)."""
+        self._call("media.seek", seconds=float(seconds))
+
+    def volume(self, volume):
+        """0.0 to 1.0, on top of the game's Jukebox/Note Blocks slider."""
+        self._call("media.volume", volume=float(volume))
+
+    def state(self) -> dict:
+        """{'state': 'playing'|'paused'|'stopped'|'ended', 'name', 'kind': 'file'|'sound', 'position', 'duration'
+        (seconds, -1 unknown), 'volume', 'shared', 'error'}."""
+        return dict(self._call("media.state")["state"])
+
+
+media = _Media()
+
 _MODE = [None]
 _CLIENT_EVENT_NAMES = ("client_tick", "chat_received", "screen_open", "client_join", "client_leave")
 _ALL_EVENT_NAMES = _EVENT_NAMES + _CLIENT_EVENT_NAMES
@@ -3190,7 +3244,7 @@ _CLIENT_NAMES = frozenset({
     "on", "every", "after", "run_later", "run_every", "run_next_tick", "scheduler", "storage", "Pos", "has",
     "window", "Window", "ui", "action", "Label", "Button", "TextInput", "TextArea", "Checkbox", "Slider", "Dropdown",
     "ListView", "ProgressBar", "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView",
-    "hud", "keys", "client", "API_VERSION", "http", "files", "Response",
+    "hud", "keys", "client", "API_VERSION", "http", "files", "Response", "media",
 })
 
 
@@ -3217,7 +3271,7 @@ def _server_api_names():
         "advancement": advancement, "raw_json": raw_json, "recipe": recipe,
         "window": window, "Window": Window, "ui": ui, "cp": cp, "action": action,
         "world": world, "players": players, "server": server,
-        "hud": hud, "keys": keys, "client": client, "http": http, "files": files, "Response": Response,
+        "hud": hud, "keys": keys, "client": client, "http": http, "files": files, "Response": Response, "media": media,
         "storage": storage, "scheduler": scheduler,
         "run_later": run_later, "run_every": run_every, "run_next_tick": run_next_tick,
         "Label": Label, "Button": Button, "TextInput": TextInput, "TextArea": TextArea,
@@ -6139,6 +6193,19 @@ def _load_docs():
         "files.delete": ("Deletes a file of the data folder.", {"name": "File name."}, "True when it was there"),
         "files.exists": ("True when the file exists.", {"name": "File name.", "folder": "Shared folder name or None."}, "bool"),
         "files.list": ("Names of the files of the data folder (or of a shared folder).", {"folder": "Shared folder name or None."}, "list of str"),
+        "media.files": ("Client side: the audio files of pyforge/shared/<folder> (declare \"shared\": [\"music\"] in permissions). Call again to refresh.", {"folder": "Folder of pyforge/shared (default 'music')."}, "list of str"),
+        "media.play": ("Client side: plays a file of the shared folder; it keeps playing when the window closes.", {
+            "file": "Name from media.files().", "folder": "Folder of pyforge/shared (default 'music').",
+            "seconds": "Where to start.", "volume": "0.0 to 1.0.",
+            "nearby": "True: players around you hear it too (if the server allows it, up to media.maxShareMb)."}, ""),
+        "media.play_sound": ("Client side: plays a sound event (music disc, music of a resource pack or mod).", {"sound": "Id such as 'minecraft:music_disc.cat'.", "volume": "0.0 to 1.0."}, ""),
+        "media.sounds": ("Client side: music sound events the game, packs and mods have (ids with 'music' or 'record').", {}, "list of str"),
+        "media.pause": ("Client side: pauses the track.", {}, ""),
+        "media.resume": ("Client side: plays on from where it paused.", {}, ""),
+        "media.stop": ("Client side: stops the track.", {}, ""),
+        "media.seek": ("Client side: jumps to a position (files only).", {"seconds": "Seconds from the start."}, ""),
+        "media.volume": ("Client side: sets the volume.", {"volume": "0.0 to 1.0, on top of the Jukebox/Note Blocks slider."}, ""),
+        "media.state": ("Client side: what plays now.", {}, "dict: state ('playing', 'paused', 'stopped', 'ended'), name, kind, position, duration (-1 unknown), volume, shared, error"),
         "files.read_json": ("Reads a JSON file.", {"name": "File name.", "default": "Returned when the file does not exist."}, "the value"),
         "files.write_json": ("Writes a value as a JSON file.", {"name": "File name.", "value": "Dict, list, number, text..."}, ""),
         "hud.remove": ("Takes one element off the screen.", {"id": "Name of the element."}, ""),

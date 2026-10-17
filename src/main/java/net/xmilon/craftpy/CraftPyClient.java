@@ -123,6 +123,7 @@ public class CraftPyClient {
     @SubscribeEvent
     static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
         net.xmilon.craftpy.client.ClientPython.get().onTick();
+        net.xmilon.craftpy.client.media.MediaPlayer.get().tick();
     }
 
     @SubscribeEvent
@@ -137,6 +138,7 @@ public class CraftPyClient {
         net.xmilon.craftpy.client.ClientPython python = net.xmilon.craftpy.client.ClientPython.get();
         python.event("client_leave", new com.google.gson.JsonObject());
         python.shutdown();
+        net.xmilon.craftpy.client.media.MediaPlayer.get().stopAll();
     }
 
     @SubscribeEvent

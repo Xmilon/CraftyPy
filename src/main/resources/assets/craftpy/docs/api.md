@@ -2478,6 +2478,79 @@ Closes a window of yours.
 | --- | --- | --- |
 | `window_id` | `None` | Which one; omit to close any. |
 
+### Media (client side)
+
+#### `media.files(folder='music')`
+
+Client side: the audio files of pyforge/shared/<folder> (declare "shared": ["music"] in permissions). Call again to refresh.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `folder` | `'music'` | Folder of pyforge/shared (default 'music'). |
+
+Returns: list of str
+
+#### `media.play(file, folder='music', seconds=0, volume=1.0, nearby=False)`
+
+Client side: plays a file of the shared folder; it keeps playing when the window closes.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `file` |  | Name from media.files(). |
+| `folder` | `'music'` | Folder of pyforge/shared (default 'music'). |
+| `seconds` | `0` | Where to start. |
+| `volume` | `1.0` | 0.0 to 1.0. |
+| `nearby` | `False` | True: players around you hear it too (if the server allows it, up to media.maxShareMb). |
+
+#### `media.play_sound(sound, volume=1.0)`
+
+Client side: plays a sound event (music disc, music of a resource pack or mod).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `sound` |  | Id such as 'minecraft:music_disc.cat'. |
+| `volume` | `1.0` | 0.0 to 1.0. |
+
+#### `media.sounds()`
+
+Client side: music sound events the game, packs and mods have (ids with 'music' or 'record').
+
+Returns: list of str
+
+#### `media.pause()`
+
+Client side: pauses the track.
+
+#### `media.resume()`
+
+Client side: plays on from where it paused.
+
+#### `media.stop()`
+
+Client side: stops the track.
+
+#### `media.seek(seconds)`
+
+Client side: jumps to a position (files only).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `seconds` |  | Seconds from the start. |
+
+#### `media.volume(volume)`
+
+Client side: sets the volume.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `volume` |  | 0.0 to 1.0, on top of the Jukebox/Note Blocks slider. |
+
+#### `media.state() -> dict`
+
+Client side: what plays now.
+
+Returns: dict: state ('playing', 'paused', 'stopped', 'ended'), name, kind, position, duration (-1 unknown), volume, shared, error
+
 ### Web and files
 
 #### `http.get(url, on_done=None, headers=None, key=None, timeout=10)`

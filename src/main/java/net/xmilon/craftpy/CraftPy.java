@@ -51,6 +51,7 @@ public class CraftPy {
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.EventBridge.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.ItemAttributes.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.RestartManager.class);
+        NeoForge.EVENT_BUS.register(net.xmilon.craftpy.server.MediaRelay.class);
 
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
         // what Python may reach outside the game (sites, keys, data folders): the server owner's lists
