@@ -20,9 +20,11 @@ import java.util.zip.ZipFile;
 /**
  * Loads .cpm (CraftPy Module) files into the game.
  *
- * Modules live in {@code pyforge/modules/} (installed ones and the ones the IDE builds). Each module can be
- * enabled or disabled from the IDE's Modules page; that choice is persisted in
- * {@code pyforge/system/modules.json} so it survives restarts.
+ * Modules live in {@code pyforge/modules/} (installed ones and the ones the IDE builds). Which ones are on belongs to
+ * the world: {@code <world>/craftpy/modules.json} lists them, and a new world starts with none. On a server you join,
+ * the server's world decides for its modules and {@code pyforge/system/servers/<address>.json} on your computer for
+ * your client-side ones (also none at first). Without a world (the standalone IDE) the old
+ * {@code pyforge/system/modules.json} is used.
  */
 public final class ModuleLoader {
     private static final Object LOCK = new Object();
@@ -34,11 +36,79 @@ public final class ModuleLoader {
 
     private static ModuleState state;
     private static boolean stateLoaded = false;
+    /** The world's (or server's) list; null: the global file of the standalone IDE. */
+    private static Path worldStateFile;
 
-    /** User preference persisted to {@code pyforge/system/modules.json}. */
+    /** Which modules are on. */
     public static class ModuleState {
-        /** Ids the user turned off; everything else defaults to enabled. */
+        /** Ids that are on (a world's list). Null in the old global file, which lists only {@link #disabled}. */
+        public List<String> enabled;
+        /** Old global file: ids the user turned off; everything else is on. */
         public List<String> disabled = new ArrayList<>();
+    }
+
+    /**
+     * Uses the list of a world or server from now on. When the file does not exist yet, a new world ({@code fresh})
+     * starts with every module off; an older world keeps what was on before this list existed (the global file).
+     */
+    public static void useStateFile(Path file, boolean fresh) {
+        synchronized (LOCK) {
+            if (!Files.isRegularFile(file)) {
+                List<String> on = new ArrayList<>();
+                if (!fresh) {
+                    worldStateFile = null;
+                    stateLoaded = false;
+                    loadState();
+                    for (Path module : scanAll()) {
+                        try {
+                            String id = readInfo(module).id;
+                            if (id != null && isEnabledState(id) && !on.contains(id)) {
+                                on.add(id);
+                            }
+                        } catch (IOException ignored) {
+                            // an unreadable file is not a module that was on
+                        }
+                    }
+                }
+                ModuleState initial = new ModuleState();
+                initial.enabled = on;
+                try {
+                    Json.write(file, initial);
+                } catch (IOException e) {
+                    CraftPyLog.LOGGER.error("Failed to write {}", file, e);
+                }
+                CraftPyLog.LOGGER.info("Module list of this world created ({}): {}", fresh ? "new world, all off" : "kept", on);
+            }
+            worldStateFile = file;
+            stateLoaded = false;
+            loadState();
+        }
+    }
+
+    /**
+     * Back to the global file (the world closed). What was loaded belongs to that world and its Python worker, which
+     * stops with it: forgotten, so the next world loads its own modules.
+     */
+    public static void useGlobalState() {
+        synchronized (LOCK) {
+            worldStateFile = null;
+            stateLoaded = false;
+            LOADED_MODULES.clear();
+            MODULE_FILES.clear();
+            PENDING_UNLOAD.clear();
+        }
+    }
+
+    /** True when {@code id} is running as a module now. */
+    public static boolean isLoaded(String id) {
+        synchronized (LOCK) {
+            return LOADED_MODULES.containsKey(id);
+        }
+    }
+
+    /** True while a world's or server's list is used. */
+    public static boolean usesWorldState() {
+        return worldStateFile != null;
     }
 
     public static void discoverAndLoad() {
@@ -114,7 +184,12 @@ public final class ModuleLoader {
         }
         synchronized (LOCK) {
             loadState();
-            if (enabled) {
+            if (state.enabled != null) {
+                state.enabled.remove(id);
+                if (enabled) {
+                    state.enabled.add(id);
+                }
+            } else if (enabled) {
                 state.disabled.remove(id);
             } else if (!state.disabled.contains(id)) {
                 state.disabled.add(id);
@@ -620,7 +695,7 @@ public final class ModuleLoader {
     // ------------------------------------------------------------------
 
     private static Path stateFile() {
-        return PyForgePaths.moduleStateFile();
+        return worldStateFile != null ? worldStateFile : PyForgePaths.moduleStateFile();
     }
 
     private static void loadState() {
@@ -643,6 +718,9 @@ public final class ModuleLoader {
         if (state.disabled == null) {
             state.disabled = new ArrayList<>();
         }
+        if (worldStateFile != null && state.enabled == null) {
+            state.enabled = new ArrayList<>();
+        }
     }
 
     private static void saveState() {
@@ -655,6 +733,6 @@ public final class ModuleLoader {
 
     private static boolean isEnabledState(String id) {
         loadState();
-        return !state.disabled.contains(id);
+        return state.enabled != null ? state.enabled.contains(id) : !state.disabled.contains(id);
     }
 }

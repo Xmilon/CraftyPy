@@ -99,6 +99,45 @@ public class CraftPyClient {
         }, net.xmilon.craftpy.registry.ModItems.SPAWN_EGG.get());
     }
 
+    /**
+     * {@code /craftpy_client modules [enable|disable <id>]}: your client-side modules on a server you joined (the
+     * Modules page and {@code /craftpy module} change the server's modules).
+     */
+    @SubscribeEvent
+    static void onClientCommands(net.neoforged.neoforge.client.event.RegisterClientCommandsEvent event) {
+        var dispatcher = event.getDispatcher();
+        dispatcher.register(net.minecraft.commands.Commands.literal("craftpy_client")
+                .then(net.minecraft.commands.Commands.literal("modules").executes(ctx -> {
+                    for (var info : net.xmilon.craftpy.project.ModuleLoader.list()) {
+                        if (net.xmilon.craftpy.project.ModuleSide.of(info.side) == net.xmilon.craftpy.project.ModuleSide.CLIENT) {
+                            ctx.getSource().sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                                    (info.enabled ? "[on]  " : "[off] ") + info.id + " - " + info.name));
+                        }
+                    }
+                    return 1;
+                })
+                        .then(clientToggle("enable", true))
+                        .then(clientToggle("disable", false))));
+    }
+
+    private static com.mojang.brigadier.builder.LiteralArgumentBuilder<net.minecraft.commands.CommandSourceStack> clientToggle(
+            String name, boolean on) {
+        return net.minecraft.commands.Commands.literal(name).then(net.minecraft.commands.Commands.argument("id",
+                com.mojang.brigadier.arguments.StringArgumentType.word()).executes(ctx -> {
+            String id = com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "id");
+            if (Minecraft.getInstance().isLocalServer()) {
+                ctx.getSource().sendFailure(net.minecraft.network.chat.Component.literal(
+                        "In your own world use the Modules page or /craftpy module " + name + " " + id));
+                return 0;
+            }
+            net.xmilon.craftpy.project.ModuleLoader.setEnabled(id, on);
+            net.xmilon.craftpy.client.ClientPython.get().loadModules();
+            ctx.getSource().sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    id + (on ? " is on for this server" : " is off for this server")));
+            return 1;
+        }));
+    }
+
     @SubscribeEvent
     static void onRegisterMenuScreens(RegisterMenuScreensEvent event) {
         // The computer block opens the CraftPy home screen (Modern UI).
@@ -129,6 +168,12 @@ public class CraftPyClient {
     @SubscribeEvent
     static void onJoin(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingIn event) {
         net.xmilon.craftpy.client.ClientPython python = net.xmilon.craftpy.client.ClientPython.get();
+        var server = Minecraft.getInstance().getCurrentServer();
+        if (!Minecraft.getInstance().isLocalServer() && server != null) {
+            // a server of someone else: your client-side modules have a list per server, all off the first time
+            net.xmilon.craftpy.project.ModuleLoader.useStateFile(net.xmilon.craftpy.project.PyForgePaths.system()
+                    .resolve("servers").resolve(server.ip.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9._-]", "_") + ".json"), true);
+        }
         python.loadModules();
         python.event("client_join", new com.google.gson.JsonObject());
     }
@@ -139,6 +184,9 @@ public class CraftPyClient {
         python.event("client_leave", new com.google.gson.JsonObject());
         python.shutdown();
         net.xmilon.craftpy.client.media.MediaPlayer.get().stopAll();
+        if (!Minecraft.getInstance().isLocalServer()) {
+            net.xmilon.craftpy.project.ModuleLoader.useGlobalState();
+        }
     }
 
     @SubscribeEvent

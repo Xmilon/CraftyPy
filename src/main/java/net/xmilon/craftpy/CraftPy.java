@@ -68,6 +68,10 @@ public class CraftPy {
         ProjectManager.init();
         // Python's storage values of this world, before any module runs
         net.xmilon.craftpy.lifecycle.StorageData.open(event.getServer());
+        // which modules are on is part of the world; a world made just now starts with all of them off
+        net.xmilon.craftpy.project.ModuleLoader.useStateFile(event.getServer()
+                        .getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("craftpy").resolve("modules.json"),
+                event.getServer().overworld().getGameTime() < 200);
         net.xmilon.craftpy.project.ModuleLoader.discoverAndLoad();
         LOGGER.info("CraftPy project manager ready");
         // Silent: writes system/catalog/<mod>.json for mods that changed, so the IDE can complete their names.
@@ -75,6 +79,13 @@ public class CraftPy {
         // Rebuild generated packs and re-apply previously active projects.
         ProjectController.startup(event.getServer());
         for (String projectId : net.xmilon.craftpy.registry.SlotRegistry.activeProjectIds()) {
+            if (net.xmilon.craftpy.project.ModuleLoader.findFileById(projectId) != null) {
+                // a module: it loaded above when this world has it on; otherwise its content is detached
+                if (!net.xmilon.craftpy.project.ModuleLoader.isLoaded(projectId)) {
+                    net.xmilon.craftpy.registry.SlotRegistry.releaseProject(projectId);
+                }
+                continue;
+            }
             ProjectController.get().load(projectId, event.getServer());
         }
         // Probe the Python worker off-thread; logs the discovered runtime version.
@@ -99,6 +110,7 @@ public class CraftPy {
     public void onServerStopping(ServerStoppingEvent event) {
         ProjectManager.shutdown();
         net.xmilon.craftpy.python.PyRuntime.shutdown();
+        net.xmilon.craftpy.project.ModuleLoader.useGlobalState();
     }
 
     @SubscribeEvent
