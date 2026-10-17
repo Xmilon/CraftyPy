@@ -321,7 +321,8 @@ def downloadPython = tasks.register('downloadPython') {
 }
 
 tasks.named('jar', Jar) {
-    from('LICENSE', 'THIRD_PARTY_NOTICES.md') { into 'META-INF' }
+    from(layout.projectDirectory.file('LICENSE')) { into 'META-INF' }
+    from(layout.projectDirectory.file('THIRD_PARTY_NOTICES.md')) { into 'META-INF' }
     if (bundlePython) {
         dependsOn downloadPython
         from(pythonDir) {
