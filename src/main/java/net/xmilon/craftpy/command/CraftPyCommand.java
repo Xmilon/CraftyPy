@@ -60,6 +60,7 @@ public final class CraftPyCommand {
         dispatcher.register(Commands.literal("craftpy")
                 .executes(CraftPyCommand::rootHelp)
                 .then(give())
+                .then(summon())
                 .then(ide())
                 .then(project())
                 .then(moduleGroup())
@@ -103,7 +104,93 @@ public final class CraftPyCommand {
                                         .executes(ctx -> give(ctx, SlotRegistry.Kind.ITEM, 1))
                                         .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
                                                 .executes(ctx -> give(ctx, SlotRegistry.Kind.ITEM,
-                                                        IntegerArgumentType.getInteger(ctx, "count")))))));
+                                                        IntegerArgumentType.getInteger(ctx, "count")))))
+                                .then(Commands.literal("egg")
+                                        .executes(ctx -> giveEgg(ctx, 1))
+                                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
+                                                .executes(ctx -> giveEgg(ctx, IntegerArgumentType.getInteger(ctx, "count")))))));
+    }
+
+    // /craftpy summon <project:mob> [pos]
+    private static LiteralArgumentBuilder<CommandSourceStack> summon() {
+        return Commands.literal("summon")
+                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
+                .then(Commands.argument("id", ResourceLocationArgument.id())
+                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(mobIds(), builder))
+                        .executes(ctx -> summon(ctx, net.minecraft.core.BlockPos.containing(ctx.getSource().getPosition())))
+                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
+                                .executes(ctx -> summon(ctx, net.minecraft.commands.arguments.coordinates.BlockPosArgument
+                                        .getSpawnablePos(ctx, "pos")))));
+    }
+
+    /** The slot of a declared mob ({@code project:id} or a bare id), or null after telling the source why not. */
+    private static SlotRegistry.SlotRef mobSlot(CommandContext<CommandSourceStack> ctx) {
+        ResourceLocation id = ResourceLocationArgument.getId(ctx, "id");
+        String resolution = resolve(id, SlotRegistry.Kind.ENTITY);
+        SlotRegistry.Kind kind = SlotRegistry.Kind.ENTITY;
+        if (resolution.startsWith("ERROR:")) {
+            String monster = resolve(id, SlotRegistry.Kind.MONSTER);
+            if (!monster.startsWith("ERROR:")) {
+                resolution = monster;
+                kind = SlotRegistry.Kind.MONSTER;
+            }
+        }
+        if (resolution.startsWith("ERROR:")) {
+            ctx.getSource().sendFailure(Component.literal(resolution.substring("ERROR:".length())
+                    .replace("@block/@item", "Mob(...)")));
+            return null;
+        }
+        return new SlotRegistry.SlotRef(kind, Integer.parseInt(resolution.substring(resolution.indexOf('#') + 1)));
+    }
+
+    private static int summon(CommandContext<CommandSourceStack> ctx, net.minecraft.core.BlockPos pos) {
+        if (!allowed(ctx, CraftPyPermissions.GIVE)) {
+            fail(ctx, "Missing permission " + CraftPyPermissions.GIVE.getNodeName() + ".");
+            return 0;
+        }
+        SlotRegistry.SlotRef slot = mobSlot(ctx);
+        if (slot == null) {
+            return 0;
+        }
+        var mob = net.xmilon.craftpy.registry.ModEntities.type(slot).spawn(ctx.getSource().getLevel(), pos,
+                net.minecraft.world.entity.MobSpawnType.COMMAND);
+        if (mob == null) {
+            fail(ctx, "Could not summon it there.");
+            return 0;
+        }
+        String holder = SlotRegistry.holderFor(slot.kind(), slot.index());
+        ctx.getSource().sendSuccess(() -> Component.literal("Summoned " + stripKind(holder)), true);
+        return 1;
+    }
+
+    private static int giveEgg(CommandContext<CommandSourceStack> ctx, int count) throws CommandSyntaxException {
+        if (!allowed(ctx, CraftPyPermissions.GIVE)) {
+            fail(ctx, "Missing permission " + CraftPyPermissions.GIVE.getNodeName() + ".");
+            return 0;
+        }
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        SlotRegistry.SlotRef slot = mobSlot(ctx);
+        if (slot == null) {
+            return 0;
+        }
+        ItemStack stack = net.xmilon.craftpy.registry.ModEntities.egg(slot, SlotRegistry.entityDef(slot.kind(), slot.index()), count);
+        if (!target.getInventory().add(stack)) {
+            target.drop(stack, false);
+        }
+        String holder = SlotRegistry.holderFor(slot.kind(), slot.index());
+        ctx.getSource().sendSuccess(() -> Component.literal("Gave " + count + " [" + stripKind(holder) + " (egg)] to "
+                + target.getName().getString()), true);
+        return 1;
+    }
+
+    private static Iterable<String> mobIds() {
+        TreeSet<String> ids = new TreeSet<>();
+        for (var entry : SlotRegistry.snapshotByHolder().entrySet()) {
+            if (entry.getValue().kind() == SlotRegistry.Kind.ENTITY || entry.getValue().kind() == SlotRegistry.Kind.MONSTER) {
+                ids.add(stripKind(entry.getKey()));
+            }
+        }
+        return ids;
     }
 
     /**

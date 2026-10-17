@@ -36,7 +36,41 @@ import net.xmilon.craftpy.util.Json;
  */
 public final class SlotRegistry {
     public enum Kind {
-        BLOCK, ITEM, EFFECT, ENTITY, SOUND
+        BLOCK, ITEM, EFFECT, ENTITY, SOUND, MONSTER
+    }
+
+    /** Mobs (passive ones are {@code pcentity_N}, hostile ones {@code pcmonster_N}) and effects: fixed pools. */
+    public static final int ENTITY_SLOTS = 32;
+    public static final int MONSTER_SLOTS = 32;
+    public static final int EFFECT_SLOTS = 32;
+
+    /** The registry path of a slot: {@code pcblock_3}, {@code pcitem_3}, {@code pcentity_3}, {@code pcmonster_3}... */
+    public static String slotName(SlotRef ref) {
+        return switch (ref.kind()) {
+            case BLOCK -> "pcblock_" + ref.index();
+            case ITEM -> "pcitem_" + ref.index();
+            case ENTITY -> "pcentity_" + ref.index();
+            case MONSTER -> "pcmonster_" + ref.index();
+            case EFFECT -> "pceffect_" + ref.index();
+            case SOUND -> "pcsound_" + ref.index();
+        };
+    }
+
+    /**
+     * {@code project:id} of a declared mob or effect to the registry id ({@code craftpy:pcentity_3}); anything else
+     * (vanilla, other mods, unknown) comes back unchanged.
+     */
+    public static String resolve(String ref, Kind... kinds) {
+        if (ref == null) {
+            return null;
+        }
+        for (Kind kind : kinds) {
+            SlotRef slot = MAPPING.get(kind.name() + ":" + ref);
+            if (slot != null) {
+                return CraftPyLog.MODID + ":" + slotName(slot);
+            }
+        }
+        return ref;
     }
 
     public record SlotRef(Kind kind, int index) {
@@ -62,8 +96,6 @@ public final class SlotRegistry {
 
     private static final List<SlottedBlock> SLOT_BLOCKS = new ArrayList<>();
     private static final List<SlottedItem> SLOT_ITEMS = new ArrayList<>();
-    private static final List<Object> SLOT_EFFECTS = new ArrayList<>();
-    private static final List<Object> SLOT_ENTITIES = new ArrayList<>();
     private static final List<String> EVENT_HANDLER_PROJECTS = new ArrayList<>();
 
     private static boolean loaded = false;
@@ -74,7 +106,8 @@ public final class SlotRegistry {
             return false;
         }
         String path = id.getPath();
-        return path.startsWith("pcblock_") || path.startsWith("pcitem_");
+        return path.startsWith("pcblock_") || path.startsWith("pcitem_") || path.startsWith("pcentity_")
+                || path.startsWith("pcmonster_") || path.startsWith("pceffect_");
     }
 
     private SlotRegistry() {
@@ -122,6 +155,15 @@ public final class SlotRegistry {
         return ITEM_DEFS.get(key(ref.kind, ref.index));
     }
 
+    /** The live definition of a mob slot ({@link Kind#ENTITY} or {@link Kind#MONSTER}), null when unloaded. */
+    public static Defs.EntityDef entityDef(Kind kind, int index) {
+        return ENTITY_DEFS.get(key(kind, index));
+    }
+
+    public static Defs.EffectDef effectDef(int index) {
+        return EFFECT_DEFS.get(key(Kind.EFFECT, index));
+    }
+
     /** A SlotRef is its kind and index: no need to look it up (this used to scan the whole mapping on every call). */
     private static SlotRef refByIndex(Kind kind, int index) {
         return new SlotRef(kind, index);
@@ -154,7 +196,8 @@ public final class SlotRegistry {
         return holderFor(Kind.ITEM, index);
     }
 
-    private static String holderFor(Kind kind, int index) {
+    /** The content key of a slot ({@code ENTITY:project:id}), or {@code entity_3} when nothing was ever mapped to it. */
+    public static String holderFor(Kind kind, int index) {
         String holder = reverse().get(refByIndex(kind, index));
         return holder != null ? holder : kind.name().toLowerCase() + "_" + index;
     }
@@ -272,6 +315,9 @@ public final class SlotRegistry {
         return switch (kind) {
             case BLOCK -> SLOT_BLOCKS.isEmpty() ? blockSlotCount() : SLOT_BLOCKS.size();
             case ITEM -> SLOT_ITEMS.isEmpty() ? itemSlotCount() : SLOT_ITEMS.size();
+            case ENTITY -> ENTITY_SLOTS;
+            case MONSTER -> MONSTER_SLOTS;
+            case EFFECT -> EFFECT_SLOTS;
             default -> configured;
         };
     }
@@ -315,6 +361,8 @@ public final class SlotRegistry {
         switch (ref.kind()) {
             case BLOCK -> BLOCK_DEFS.remove(key(Kind.BLOCK, ref.index()));
             case ITEM -> ITEM_DEFS.remove(key(Kind.ITEM, ref.index()));
+            case ENTITY, MONSTER -> ENTITY_DEFS.remove(key(ref.kind(), ref.index()));
+            case EFFECT -> EFFECT_DEFS.remove(key(Kind.EFFECT, ref.index()));
             default -> {
             }
         }
@@ -331,10 +379,19 @@ public final class SlotRegistry {
     public static synchronized void applyAll(String projectId, Declarations declarations) {
         Map<String, Defs.BlockDef> blocks = new LinkedHashMap<>();
         Map<String, Defs.ItemDef> items = new LinkedHashMap<>();
+        Map<String, Defs.EntityDef> mobs = new LinkedHashMap<>();
+        Map<String, Defs.EntityDef> monsters = new LinkedHashMap<>();
+        Map<String, Defs.EffectDef> effects = new LinkedHashMap<>();
         for (Declarations.Content content : declarations.contents()) {
             switch (content.kind()) {
                 case "block" -> blocks.put(content.id(), Defs.BlockDef.from(content.definition()));
                 case "item" -> items.put(content.id(), Defs.ItemDef.from(content.definition()));
+                case "entity" -> {
+                    // hostile mobs need the MONSTER spawn category, which an entity type gets once, at startup
+                    Defs.EntityDef def = Defs.EntityDef.from(content.definition());
+                    (def.hostile() ? monsters : mobs).put(content.id(), def);
+                }
+                case "effect" -> effects.put(content.id(), Defs.EffectDef.from(content.definition()));
                 default -> {
                 }
             }
@@ -346,13 +403,19 @@ public final class SlotRegistry {
             itemCap = Config.get(Config.ITEM_SLOTS);
         } catch (Throwable ignored) {
         }
-        Map<String, SlotRef> next = SlotPlan.allocate(MAPPING, projectId, blocks.keySet(), items.keySet(),
-                poolSize(Kind.BLOCK, blockCap), poolSize(Kind.ITEM, itemCap));
+        Map<String, SlotRef> next = SlotPlan.allocate(MAPPING, projectId,
+                Map.of(Kind.BLOCK, blocks.keySet(), Kind.ITEM, items.keySet(), Kind.ENTITY, mobs.keySet(),
+                        Kind.MONSTER, monsters.keySet(), Kind.EFFECT, effects.keySet()),
+                Map.of(Kind.BLOCK, poolSize(Kind.BLOCK, blockCap), Kind.ITEM, poolSize(Kind.ITEM, itemCap),
+                        Kind.ENTITY, ENTITY_SLOTS, Kind.MONSTER, MONSTER_SLOTS, Kind.EFFECT, EFFECT_SLOTS));
 
         // Commit: nothing below can fail for lack of room.
         java.util.Set<String> declared = new java.util.HashSet<>();
         blocks.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.BLOCK, projectId, id)));
         items.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.ITEM, projectId, id)));
+        mobs.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.ENTITY, projectId, id)));
+        monsters.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.MONSTER, projectId, id)));
+        effects.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.EFFECT, projectId, id)));
         for (String contentKey : SlotPlan.keysOf(MAPPING, projectId)) {
             if (!declared.contains(contentKey)) {
                 detach(MAPPING.get(contentKey));
@@ -362,6 +425,9 @@ public final class SlotRegistry {
         mappingChanged();
         blocks.forEach((id, def) -> BLOCK_DEFS.put(key(Kind.BLOCK, next.get(SlotPlan.key(Kind.BLOCK, projectId, id)).index()), def));
         items.forEach((id, def) -> ITEM_DEFS.put(key(Kind.ITEM, next.get(SlotPlan.key(Kind.ITEM, projectId, id)).index()), def));
+        mobs.forEach((id, def) -> ENTITY_DEFS.put(key(Kind.ENTITY, next.get(SlotPlan.key(Kind.ENTITY, projectId, id)).index()), def));
+        monsters.forEach((id, def) -> ENTITY_DEFS.put(key(Kind.MONSTER, next.get(SlotPlan.key(Kind.MONSTER, projectId, id)).index()), def));
+        effects.forEach((id, def) -> EFFECT_DEFS.put(key(Kind.EFFECT, next.get(SlotPlan.key(Kind.EFFECT, projectId, id)).index()), def));
         ACTIVE_PROJECTS.put(projectId, Boolean.TRUE);
         PROJECT_DECLS.put(projectId, declarations);
         save();
@@ -406,6 +472,8 @@ public final class SlotRegistry {
         mappingChanged();
         BLOCK_DEFS.clear();
         ITEM_DEFS.clear();
+        ENTITY_DEFS.clear();
+        EFFECT_DEFS.clear();
         PROJECT_DECLS.clear();
         ACTIVE_PROJECTS.clear();
         save();

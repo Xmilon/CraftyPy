@@ -560,7 +560,8 @@ raw_json("worldgen/configured_feature/ruby.json", {...})          # any data fil
 ## Limits
 
 - Blocks and items are slots registered when the game starts (a pool per kind), so content appears without a restart.
-- Custom entities and custom mob effects can be declared but are not wired into the game yet.
+- Mobs and effects are slots too: 32 passive mobs, 32 hostile mobs and 32 effects at a time. Natural spawns of a new
+  or changed mob start the next time the world is opened.
 - Python runs in a sandbox: no files, network or OS access. Handlers get about 50 ms.
 - Client-side code cannot change the world; keys cannot be rebound in the controls screen (the code chooses them).
 - The sandbox also refuses the insides of the interpreter: attributes such as `__globals__`, `__subclasses__`,
@@ -592,11 +593,17 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.5** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.6** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.6 (2026-10-17)
+
+- **Added:** `Mob(...)`: mobs in the game, with a vanilla body or a GeckoLib model, stats, hostile or passive AI, drops, a spawn egg (`/craftpy give <player> <project>:<id> egg`), `/craftpy summon` and natural spawns (`Spawn(...)`). `world.spawn` takes them.
+- **Added:** `Effect(...)`: potion effects with name, icon, color, category and attribute modifiers per level; `player.effect(rage)` and `Item(effect=...)` take them; `@on.effect_tick(effect=rage)` runs once a second on whoever has it.
+- **Added:** Entities in events and `world.entities` report Python mobs as `<project>:<id>`.
 
 ### 2.5 (2026-10-17)
 
@@ -709,6 +716,64 @@ Class form of Item(...): attributes id, name, texture, stack, glow, food, fuel, 
 #### `BlockType()`
 
 Class form of Block(...): attributes id, name, texture, hardness, resistance, light, tool, needs_tool, sound, drops and extensions are the keyword arguments.
+
+### Mobs and effects
+
+#### `Mob(id, name=None, texture=None, model='humanoid', animation=None, health=10, speed=0.25, damage=2, armor=0, hostile=False, width=0.6, height=1.8, scale=1.0, follow_range=16, egg=None, spawns=(), drops=None, **extra) -> 'Content'`
+
+Declares a mob and returns it: world.spawn(mob, x, y, z), /craftpy summon, a spawn egg (/craftpy give <player> <project>:<id> egg) or natural spawns.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
+| `name` | `None` | Display name; default is the id in title case. |
+| `texture` | `None` | PNG in assets/textures/ ('goblin.png') or a vanilla one ('minecraft:entity/pig/pig'); default: the model's vanilla skin. |
+| `model` | `'humanoid'` | Body: 'humanoid', 'player', 'pig', 'cow', 'chicken', 'spider', 'creeper', 'villager', 'slime', or a GeckoLib model 'goblin.geo.json' (assets/models/, needs GeckoLib; without it the mob is humanoid). |
+| `animation` | `None` | GeckoLib animation file (assets/animations/); default '<model name>.animation.json'. Animations ending in 'walk' and 'idle' play by themselves. |
+| `health` | `10` | Maximum health (a heart is 2). |
+| `speed` | `0.25` | Movement speed (zombie 0.23, pig 0.25). |
+| `damage` | `2` | Damage of a hit (hostile mobs). |
+| `armor` | `0` | Armor points, 0 to 30. |
+| `hostile` | `False` | True: attacks players, spawns in the dark, gone in peaceful. False: wanders and flees when hurt. |
+| `width` | `0.6` | Hit box width in blocks. |
+| `height` | `1.8` | Hit box height in blocks. |
+| `scale` | `1.0` | Draws the model bigger or smaller (the hit box is width x height). |
+| `follow_range` | `16` | How far it notices players, in blocks. |
+| `egg` | `None` | Spawn egg colors: '#3d8f5a' or ('#3d8f5a', '#c9e86b') for base and spots. |
+| `spawns` | `()` | Natural spawns: [Spawn('#minecraft:is_forest', weight=8)]. They start the next time the world is opened. |
+| `drops` | `None` | What it drops: an item, a list, (item, count) / (item, count, weight). |
+| `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
+
+Returns: The mob (a string 'project:id').
+
+#### `Spawn(biomes='#minecraft:is_overworld', weight=10, min=1, max=3)`
+
+Where a Mob appears by itself (for Mob(spawns=[...])).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `biomes` | `'#minecraft:is_overworld'` | A biome ('minecraft:plains'), a biome tag ('#minecraft:is_overworld') or a list of them. |
+| `weight` | `10` | How often, next to other mobs (zombie 100, pig 10). |
+| `min` | `1` | Smallest group. |
+| `max` | `3` | Largest group. |
+
+Returns: A dict for spawns=.
+
+#### `Effect(id, name=None, icon=None, color='#8899ff', category='neutral', attributes=(), **extra) -> 'Content'`
+
+Declares a potion effect and returns it: player.effect(rage), Item(effect=rage), @on.effect_tick(effect=rage).
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
+| `name` | `None` | Display name; default is the id in title case. |
+| `icon` | `None` | 18x18 PNG in assets/textures/ ('rage.png'); default: CraftPy's flask. |
+| `color` | `'#8899ff'` | Particle color, '#rrggbb'. |
+| `category` | `'neutral'` | 'beneficial', 'harmful' or 'neutral' (how the game shows it). |
+| `attributes` | `()` | Stat changes while active: [Attributes('minecraft:generic.attack_damage', 2)]; the amount is per level. |
+| `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
+
+Returns: The effect (a string 'project:id').
 
 ### Extensions
 

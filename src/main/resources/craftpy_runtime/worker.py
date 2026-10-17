@@ -556,8 +556,8 @@ class Content(str):
         return "%s(%r)" % (self.kind.capitalize(), str(self))
 
 
-def _declared(local_id):
-    for key in ("blocks", "items"):
+def _declared(local_id, keys=("blocks", "items", "entities")):
+    for key in keys:
         for entry in _DECLS[key]:
             if entry.get("id") == local_id:
                 return True
@@ -692,6 +692,88 @@ def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, e
     return item.extends(*extensions)
 
 
+_MOB_MODELS = ("humanoid", "player", "pig", "cow", "chicken", "spider", "creeper", "villager", "slime")
+
+
+def Spawn(biomes="#minecraft:is_overworld", weight=10, min=1, max=3):
+    """Where a Mob appears by itself: Mob(..., spawns=[Spawn("#minecraft:is_forest", weight=8)])."""
+    names = [biomes] if isinstance(biomes, str) else list(biomes)
+    if not names or not all(isinstance(b, str) and b for b in names):
+        raise ValueError("Spawn biomes: a biome id ('minecraft:plains'), a biome tag ('#minecraft:is_overworld') or a list")
+    low = _num("Spawn min", min, 1, 64, whole=True)
+    return {"biomes": names, "weight": _num("Spawn weight", weight, 1, 1000, whole=True), "min": low,
+            "max": max_(low, _num("Spawn max", max, 1, 64, whole=True))}
+
+
+max_ = max  # Spawn(max=...) shadows the builtin
+
+
+def Mob(id, name=None, texture=None, model="humanoid", animation=None, health=10, speed=0.25, damage=2, armor=0,
+        hostile=False, width=0.6, height=1.8, scale=1.0, follow_range=16, egg=None, spawns=(), drops=None,
+        **extra) -> "Content":
+    """Declares a mob and returns it.
+
+    ``model`` is a vanilla body ('humanoid', 'player', 'pig', 'cow', 'chicken', 'spider', 'creeper', 'villager',
+    'slime') drawn with ``texture``, or a GeckoLib model file ('goblin.geo.json' in assets/models/, needs GeckoLib).
+    Hostile mobs attack players; passive ones wander and flee. Get one with world.spawn(mob, x, y, z),
+    /craftpy summon, a spawn egg (/craftpy give <player> <project>:<id> egg) or ``spawns=[Spawn(...)]``."""
+    _check_id(id)
+    if extra:
+        raise TypeError("Mob(%r) has no attribute %s. Valid attributes: %s"
+                        % (id, ", ".join(repr(k) for k in sorted(extra)), ", ".join(_MOB_ATTRS)))
+    model = str(model)
+    if model not in _MOB_MODELS and not model.endswith(".geo.json"):
+        raise ValueError("Mob model must be one of %s or a GeckoLib '.geo.json' file, got %r"
+                         % (", ".join(_MOB_MODELS), model))
+    definition = {"name": name or _pretty(id), "model": model, "base": "hostile" if hostile else "passive",
+                  "health": _num("Mob health", health, 1, 1024), "speed": _num("Mob speed", speed, 0, 4),
+                  "damage": _num("Mob damage", damage, 0, 1024), "armor": _num("Mob armor", armor, 0, 30),
+                  "width": _num("Mob width", width, 0.1, 16), "height": _num("Mob height", height, 0.1, 16),
+                  "scale": _num("Mob scale", scale, 0.05, 16), "follow_range": _num("Mob follow_range", follow_range, 1, 128)}
+    if texture is not None:
+        definition["texture"] = str(texture)
+    if animation is not None:
+        definition["animation"] = str(animation)
+    if egg is not None:
+        color, spots = (list(egg) + ["#c9e86b"])[:2] if isinstance(egg, (tuple, list)) else (egg, "#c9e86b")
+        definition["egg_color"], definition["egg_spots"] = str(color), str(spots)
+    found = [spawns] if isinstance(spawns, dict) else list(spawns or ())
+    if found:
+        if not all(isinstance(s, dict) and "biomes" in s for s in found):
+            raise TypeError("Mob spawns: a list of Spawn(...)")
+        definition["spawns"] = found
+    _DECLS["entities"].append({"id": id, "definition": definition})
+    mob = Content("%s:%s" % (_namespace(), id), "entity", id, definition["name"], definition)
+    if drops is not None:
+        _block_drops(id, drops)
+    return mob
+
+
+_MOB_ATTRS = ("name", "texture", "model", "animation", "health", "speed", "damage", "armor", "hostile", "width",
+              "height", "scale", "follow_range", "egg", "spawns", "drops")
+
+
+def Effect(id, name=None, icon=None, color="#8899ff", category="neutral", attributes=(), **extra) -> "Content":
+    """Declares a potion effect and returns it: player.effect(rage, seconds=20), Item(effect=rage).
+
+    ``attributes=[Attributes("minecraft:generic.attack_damage", 2)]`` change stats while it is active (the amount
+    is per level). ``@on.effect_tick(effect=rage)`` runs once a second on whoever has it."""
+    _check_id(id)
+    if extra:
+        raise TypeError("Effect(%r) has no attribute %s. Valid attributes: name, icon, color, category, attributes"
+                        % (id, ", ".join(repr(k) for k in sorted(extra))))
+    _choice("Effect category", category, ("beneficial", "harmful", "neutral"))
+    found = [attributes] if isinstance(attributes, Attributes) else list(attributes or ())
+    if not all(isinstance(a, Attributes) for a in found):
+        raise TypeError("Effect attributes: a list of Attributes(...)")
+    definition = {"name": name or _pretty(id), "color": str(color), "category": category,
+                  "attributes": [{"attribute": a.attribute, "amount": a.amount, "operation": a.operation} for a in found]}
+    if icon is not None:
+        definition["icon"] = str(icon)
+    _DECLS["effects"].append({"id": id, "definition": definition})
+    return Content("%s:%s" % (_namespace(), id), "effect", id, definition["name"], definition)
+
+
 def _content_tags(tags, kind, full_id):
     """Item(..., tags=[...]) / Block(..., tags=[...]): one tag entry per tag; the pack merges entries of the same tag."""
     for name in ([tags] if isinstance(tags, str) else list(tags or ())):
@@ -714,7 +796,9 @@ def _effect_spec(effect):
 
 def _ref_effect(name):
     name = str(name).strip()
-    return name if ":" in name else "minecraft:" + name
+    if ":" in name:
+        return name
+    return "%s:%s" % (_namespace(), name) if _declared(name, ("effects",)) else "minecraft:" + name
 
 
 
@@ -1400,12 +1484,12 @@ def loot_entry(item, count=1, weight=1, **kwargs):
 
 # -- events ------------------------------------------------------------------
 
-_FILTER_KEYS = ("block", "item", "entity")
+_FILTER_KEYS = ("block", "item", "entity", "effect")
 
 
 _EVENT_NAMES = ("block_break", "block_place", "block_interact", "block_tick", "item_use", "item_hit", "item_mine",
                 "item_hold_tick", "item_craft", "item_pickup", "player_join", "player_leave", "player_respawn",
-                "player_death", "entity_death", "entity_hurt", "chat")
+                "player_death", "entity_death", "entity_hurt", "chat", "effect_tick")
 
 
 class _On:
@@ -2005,7 +2089,7 @@ class Player(_Thing):
 
     def effect(self, name, seconds=10, level=1, particles=True):
         """player.effect("speed", seconds=30, level=2)"""
-        return self._call("player.effect", effect=str(name), seconds=seconds, level=level, particles=particles)
+        return self._call("player.effect", effect=_ref_effect(name), seconds=seconds, level=level, particles=particles)
 
     def clear_effects(self):
         return self._call("player.clear_effects")
@@ -2672,9 +2756,17 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.5"
+API_VERSION = "2.6"
 
 API_CHANGES = [
+    {"version": "2.6", "date": "2026-10-17",
+     "added": ["`Mob(...)`: mobs in the game, with a vanilla body or a GeckoLib model, stats, hostile or passive AI, "
+               "drops, a spawn egg (`/craftpy give <player> <project>:<id> egg`), `/craftpy summon` and natural "
+               "spawns (`Spawn(...)`). `world.spawn` takes them.",
+               "`Effect(...)`: potion effects with name, icon, color, category and attribute modifiers per level; "
+               "`player.effect(rage)` and `Item(effect=...)` take them; `@on.effect_tick(effect=rage)` runs once a "
+               "second on whoever has it.",
+               "Entities in events and `world.entities` report Python mobs as `<project>:<id>`."]},
     {"version": "2.5", "date": "2026-10-17",
      "added": ["`ctx.player` in a window's `build(self, ctx)`: the player the window is drawn for "
                "(before: missing, so `ui.open(event.player, ...)` from an event failed)."]},
@@ -3134,7 +3226,7 @@ def _server_api_names():
         "VBox": VBox, "HBox": HBox, "Grid": Grid, "TabView": TabView, "ScrollView": ScrollView,
         "has": has, "core": core, "requires_restart": requires_restart,
         # simple API
-        "Block": Block, "Item": Item, "Food": Food, "Content": Content,
+        "Block": Block, "Item": Item, "Food": Food, "Content": Content, "Mob": Mob, "Spawn": Spawn, "Effect": Effect,
         "shaped": shaped, "shapeless": shapeless, "smelt": smelt, "stonecut": stonecut,
         "after": after, "Pos": Pos, "Player": Player, "Entity": Entity,
         "player": player, "say": say, "run": run, "java": java, "JavaError": JavaError,
@@ -5779,6 +5871,35 @@ def _load_docs():
             "tags": "Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag).",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The block."),
+        "Mob": ("Declares a mob and returns it: world.spawn(mob, x, y, z), /craftpy summon, a spawn egg (/craftpy give <player> <project>:<id> egg) or natural spawns.", {
+            "id": ID, "name": "Display name; default is the id in title case.",
+            "texture": "PNG in assets/textures/ ('goblin.png') or a vanilla one ('minecraft:entity/pig/pig'); default: the model's vanilla skin.",
+            "model": "Body: 'humanoid', 'player', 'pig', 'cow', 'chicken', 'spider', 'creeper', 'villager', 'slime', or a GeckoLib model 'goblin.geo.json' (assets/models/, needs GeckoLib; without it the mob is humanoid).",
+            "animation": "GeckoLib animation file (assets/animations/); default '<model name>.animation.json'. Animations ending in 'walk' and 'idle' play by themselves.",
+            "health": "Maximum health (a heart is 2).", "speed": "Movement speed (zombie 0.23, pig 0.25).",
+            "damage": "Damage of a hit (hostile mobs).", "armor": "Armor points, 0 to 30.",
+            "hostile": "True: attacks players, spawns in the dark, gone in peaceful. False: wanders and flees when hurt.",
+            "width": "Hit box width in blocks.", "height": "Hit box height in blocks.",
+            "scale": "Draws the model bigger or smaller (the hit box is width x height).",
+            "follow_range": "How far it notices players, in blocks.",
+            "egg": "Spawn egg colors: '#3d8f5a' or ('#3d8f5a', '#c9e86b') for base and spots.",
+            "spawns": "Natural spawns: [Spawn('#minecraft:is_forest', weight=8)]. They start the next time the world is opened.",
+            "drops": "What it drops: an item, a list, (item, count) / (item, count, weight).",
+            "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
+        }, "The mob (a string 'project:id')."),
+        "Spawn": ("Where a Mob appears by itself (for Mob(spawns=[...])).", {
+            "biomes": "A biome ('minecraft:plains'), a biome tag ('#minecraft:is_overworld') or a list of them.",
+            "weight": "How often, next to other mobs (zombie 100, pig 10).",
+            "min": "Smallest group.", "max": "Largest group.",
+        }, "A dict for spawns=."),
+        "Effect": ("Declares a potion effect and returns it: player.effect(rage), Item(effect=rage), @on.effect_tick(effect=rage).", {
+            "id": ID, "name": "Display name; default is the id in title case.",
+            "icon": "18x18 PNG in assets/textures/ ('rage.png'); default: CraftPy's flask.",
+            "color": "Particle color, '#rrggbb'.",
+            "category": "'beneficial', 'harmful' or 'neutral' (how the game shows it).",
+            "attributes": "Stat changes while active: [Attributes('minecraft:generic.attack_damage', 2)]; the amount is per level.",
+            "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
+        }, "The effect (a string 'project:id')."),
         "Food": ("Food values for Item(food=...).", {
             "hunger": "Hunger points restored (each is half a drumstick).",
             "saturation": "Saturation modifier; 0.6 is bread, 1.2 cooked meat.",

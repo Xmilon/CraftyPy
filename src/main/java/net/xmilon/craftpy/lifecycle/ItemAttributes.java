@@ -71,7 +71,7 @@ public final class ItemAttributes {
     }
 
     /** The attribute holder for an id such as {@code irons_spellbooks:fire_spell_power}, null when no mod provides it. */
-    static Holder<Attribute> attribute(String id) {
+    public static Holder<Attribute> attribute(String id) {
         ResourceLocation location = ResourceLocation.tryParse(id.contains(":") ? id : "minecraft:" + id);
         return location == null ? null : BuiltInRegistries.ATTRIBUTE.getHolder(location).orElse(null);
     }
@@ -85,7 +85,7 @@ public final class ItemAttributes {
         return EquipmentSlotGroup.MAINHAND;
     }
 
-    static AttributeModifier.Operation operation(String name) {
+    public static AttributeModifier.Operation operation(String name) {
         return switch (name) {
             case "add_multiplied_base" -> AttributeModifier.Operation.ADD_MULTIPLIED_BASE;
             case "add_multiplied_total" -> AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL;

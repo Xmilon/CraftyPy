@@ -312,6 +312,60 @@ class Bad(Window):
     assert any("ZeroDivisionError" in line for line in result["log"]), result
 
 
+def test_mobs_and_effects_are_declared_and_used():
+    d = run_main("zoo", """
+from craftpy import *
+rage = Effect("rage", color="#ff3300", category="beneficial", icon="rage.png",
+              attributes=[Attributes("minecraft:generic.attack_damage", 2)])
+goblin = Mob("goblin", texture="goblin.png", model="goblin.geo.json", hostile=True, health=24,
+             egg=("#336633", "#99cc33"), spawns=[Spawn("#minecraft:is_forest", weight=8, min=1, max=2)],
+             drops=[("minecraft:emerald", 1)])
+pig = Mob("big_pig", model="pig", scale=1.5)
+potion_apple = Item("rage_apple", effect=("rage", 2, 10))
+
+@on.effect_tick(effect=rage)
+def burn(event):
+    event.player.say("level %d" % event.level)
+
+@on.player_join
+def hi(event):
+    world.spawn("goblin", 0, 64, 0)
+    event.player.effect("rage", seconds=5)
+""")
+    mobs = {e["id"]: e["definition"] for e in d["entities"]}
+    assert mobs["goblin"]["base"] == "hostile" and mobs["goblin"]["health"] == 24, mobs
+    assert mobs["goblin"]["spawns"] == [{"biomes": ["#minecraft:is_forest"], "weight": 8, "min": 1, "max": 2}]
+    assert mobs["goblin"]["egg_color"] == "#336633" and mobs["big_pig"]["model"] == "pig"
+    effect = d["effects"][0]
+    assert effect["id"] == "rage" and effect["definition"]["attributes"][0]["amount"] == 2.0, effect
+    items = {i["id"]: i["definition"] for i in d["items"]}
+    assert items["rage_apple"]["use_effect"] == "zoo:rage:1:10", items
+    assert any(t.get("id") == "goblin" for t in d.get("loot_tables", [])) or d.get("datapack"), d.keys()
+
+    CALLS.clear()
+    w._handle("trigger_event", {"event": "player_join", "context": {"player": DEV}})
+    assert ("world.spawn", "zoo:goblin") in [(m, p.get("entity")) for m, p in CALLS], CALLS
+    assert ("player.effect", "zoo:rage") in [(m, p.get("effect")) for m, p in CALLS], CALLS
+
+    CALLS.clear()
+    result = w._handle("trigger_event", {"event": "effect_tick", "context": {
+        "player": DEV, "entity": dict(DEV, type="minecraft:player"), "effect": {"id": "zoo:rage"}, "level": 2}})
+    assert result["handlers"] == 1 and not result["log"], result
+    assert any(m == "player.send_message" and "level 2" in p["message"] for m, p in CALLS), CALLS
+    other = w._handle("trigger_event", {"event": "effect_tick", "context": {
+        "player": DEV, "effect": {"id": "minecraft:speed"}, "level": 1}})
+    assert other["handlers"] == 0, other
+
+
+def test_mob_and_effect_mistakes_are_explained():
+    for code, message in (('Mob("m", model="dragon")', "Mob model"), ('Mob("m", wings=2)', "no attribute"),
+                          ('Effect("e", category="nice")', "category"), ('Spawn([])', "Spawn biomes"),
+                          ('Effect("e", attributes=["speed"])', "Attributes")):
+        result = w._handle("run_main", {"project": "bad", "code": "from craftpy import *\n" + code,
+                                        "file": "code/main.py", "sources": {}})
+        assert result.get("error") and message in result.get("message", ""), (code, result)
+
+
 def test_window_build_gets_the_player():
     run_main("wp", """
 from craftpy import *

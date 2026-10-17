@@ -155,6 +155,8 @@ public final class PackBuilder {
             lang.addProperty("item.craftpy." + id, name);
         }
 
+        writeMobsAndEffects(assets, lang);
+
         // Merge translations declared from Python via lang("key", "value").
         for (String projectId : SlotRegistry.activeProjectIds()) {
             Declarations declarations = SlotRegistry.declarations(projectId);
@@ -176,6 +178,7 @@ public final class PackBuilder {
         // namespace (assets/<projectId>/...) so textures, models and sounds are
         // actually resolvable in-game and show up in the asset bank.
         copyProjectAssets(root);
+        copyGeoModels(root);
         writeProjectResourceExtras(root);
         writeJson(blockAtlas(root, usedTextures), root.resolve("assets/minecraft/atlases/blocks.json"));
     }
@@ -299,6 +302,79 @@ public final class PackBuilder {
         return merged;
     }
 
+    /**
+     * Mob and effect names (lang) and effect icons: the icon a project gave ({@code icon="rage.png"}, a file in its
+     * assets/textures/) or CraftPy's default one, at the path the effect atlas reads ({@code mob_effect/pceffect_N}).
+     */
+    private static void writeMobsAndEffects(Path assets, JsonObject lang) throws Exception {
+        for (SlotRegistry.Kind kind : new SlotRegistry.Kind[]{SlotRegistry.Kind.ENTITY, SlotRegistry.Kind.MONSTER}) {
+            int count = kind == SlotRegistry.Kind.ENTITY ? SlotRegistry.ENTITY_SLOTS : SlotRegistry.MONSTER_SLOTS;
+            for (int i = 0; i < count; i++) {
+                Defs.EntityDef def = SlotRegistry.entityDef(kind, i);
+                String name = SlotRegistry.slotName(new SlotRegistry.SlotRef(kind, i));
+                lang.addProperty("entity.craftpy." + name, def != null ? def.name : "Unloaded mob");
+            }
+        }
+        for (int i = 0; i < SlotRegistry.EFFECT_SLOTS; i++) {
+            Defs.EffectDef def = SlotRegistry.effectDef(i);
+            lang.addProperty("effect.craftpy.pceffect_" + i, def != null ? def.name : "Unloaded effect");
+            Path icon = assets.resolve("textures/mob_effect/pceffect_" + i + ".png");
+            Files.createDirectories(icon.getParent());
+            Path own = def == null || def.icon.isBlank() ? null
+                    : projectTexture(ownerOf(SlotRegistry.holderFor(SlotRegistry.Kind.EFFECT, i)), def.icon);
+            if (own != null) {
+                Files.copy(own, icon, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                try (var in = PackBuilder.class.getResourceAsStream("/assets/craftpy/textures/mob_effect/default.png")) {
+                    if (in != null) {
+                        Files.copy(in, icon, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            }
+        }
+    }
+
+    /** A PNG of a project's (or module's) assets/textures/ folder, or null when there is no such file. */
+    private static Path projectTexture(String projectId, String file) {
+        String name = file.contains(":") ? file.substring(file.indexOf(':') + 1) : file;
+        name = name.startsWith("textures/") ? name.substring("textures/".length()) : name;
+        name = name.endsWith(".png") ? name : name + ".png";
+        net.xmilon.craftpy.project.ProjectManager manager = net.xmilon.craftpy.project.ProjectManager.get();
+        Path assets = manager != null && Files.isDirectory(manager.projectsDir().resolve(projectId))
+                ? manager.projectsDir().resolve(projectId).resolve("assets")
+                : net.xmilon.craftpy.project.ModuleLoader.assetsOf(projectId);
+        if (assets == null || name.contains("..")) {
+            return null;
+        }
+        Path png = assets.resolve("textures").resolve(name).normalize();
+        return png.startsWith(assets) && Files.isRegularFile(png) ? png : null;
+    }
+
+    /** GeckoLib reads models from {@code geo/}: a project's {@code models/*.geo.json} are put there too. */
+    private static void copyGeoModels(Path root) throws Exception {
+        Path assets = root.resolve("assets");
+        if (!Files.isDirectory(assets)) {
+            return;
+        }
+        try (var namespaces = Files.list(assets)) {
+            for (Path namespace : (Iterable<Path>) namespaces::iterator) {
+                Path models = namespace.resolve("models");
+                if (!Files.isDirectory(models)) {
+                    continue;
+                }
+                try (var files = Files.walk(models)) {
+                    for (Path file : (Iterable<Path>) files::iterator) {
+                        if (file.getFileName().toString().endsWith(".geo.json") && Files.isRegularFile(file)) {
+                            Path target = namespace.resolve("geo").resolve(models.relativize(file).toString());
+                            Files.createDirectories(target.getParent());
+                            Files.copy(file, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private static void copyProjectAssets(Path root) {
         net.xmilon.craftpy.project.ProjectManager manager = net.xmilon.craftpy.project.ProjectManager.get();
         if (manager == null) {
@@ -343,7 +419,7 @@ public final class PackBuilder {
     /** Folders of a resource pack namespace; directly under {@code assets/} they belong to the project's own namespace. */
     private static final java.util.Set<String> RESOURCE_FOLDERS = java.util.Set.of(
             "textures", "models", "blockstates", "sounds", "lang", "font", "particles", "atlases", "shaders", "texts",
-            "items", "equipment", "post_effect", "gpu_warnlist", "regional_compliancies");
+            "items", "equipment", "post_effect", "gpu_warnlist", "regional_compliancies", "geo", "animations");
 
     /**
      * Where an entry directly under a project's {@code assets/} goes. {@code textures/}, {@code models/}, {@code lang/}...
@@ -428,7 +504,59 @@ public final class PackBuilder {
                 }
             }
             writeBlockLootTables(data, projectId, declaredLoot);
+            writeMobData(root.resolve("data").resolve("craftpy"), projectId, declaredLoot);
         }
+    }
+
+    /**
+     * For every mob of a project: its drops ({@code loot_table("<mob id>", ...)}, at the table the mob type asks for) and
+     * its natural spawns as NeoForge biome modifiers (read when a world opens).
+     */
+    private static void writeMobData(Path data, String projectId, java.util.Map<String, JsonObject> declaredLoot)
+            throws Exception {
+        for (var entry : SlotRegistry.snapshotByHolder().entrySet()) {
+            SlotRegistry.SlotRef slot = entry.getValue();
+            String prefix = slot.kind().name() + ":" + projectId + ":";
+            if ((slot.kind() != SlotRegistry.Kind.ENTITY && slot.kind() != SlotRegistry.Kind.MONSTER)
+                    || !entry.getKey().startsWith(prefix)) {
+                continue;
+            }
+            Defs.EntityDef def = SlotRegistry.entityDef(slot.kind(), slot.index());
+            if (def == null) {
+                continue;
+            }
+            String name = SlotRegistry.slotName(slot);
+            JsonObject loot = declaredLoot.get(entry.getKey().substring(prefix.length()));
+            if (loot != null) {
+                JsonObject table = buildLootTable(projectId, loot, "entities/" + name);
+                table.addProperty("type", "minecraft:entity");
+                writeJson(table, data.resolve("loot_table/entities/" + name + ".json"));
+            }
+            for (int i = 0; i < def.spawns.size(); i++) {
+                Defs.EntityDef.Spawn spawn = def.spawns.get(i);
+                writeJson(biomeModifier(name, spawn), data.resolve("neoforge/biome_modifier/" + name + "_" + i + ".json"));
+            }
+        }
+    }
+
+    /** {@code neoforge:add_spawns} for one mob slot. Package-visible for tests. */
+    static JsonObject biomeModifier(String slotName, Defs.EntityDef.Spawn spawn) {
+        JsonObject modifier = new JsonObject();
+        modifier.addProperty("type", "neoforge:add_spawns");
+        if (spawn.biomes().size() == 1) {
+            modifier.addProperty("biomes", spawn.biomes().get(0));
+        } else {
+            JsonArray biomes = new JsonArray();
+            spawn.biomes().forEach(biomes::add);
+            modifier.add("biomes", biomes);
+        }
+        JsonObject spawner = new JsonObject();
+        spawner.addProperty("type", "craftpy:" + slotName);
+        spawner.addProperty("weight", spawn.weight());
+        spawner.addProperty("minCount", spawn.min());
+        spawner.addProperty("maxCount", spawn.max());
+        modifier.add("spawners", spawner);
+        return modifier;
     }
 
     /**
@@ -1012,10 +1140,7 @@ public final class PackBuilder {
 
     /** Project (or module) id of a slot holder key such as {@code BLOCK:ruby_rush:ruby_ore}. */
     static String ownerOf(String holder) {
-        String rest = holder;
-        if (rest.startsWith("BLOCK:") || rest.startsWith("ITEM:")) {
-            rest = rest.substring(rest.indexOf(':') + 1);
-        }
+        String rest = net.xmilon.craftpy.lifecycle.EventBridge.projectId(holder);
         int colon = rest.indexOf(':');
         return colon > 0 ? rest.substring(0, colon) : "craftpy";
     }

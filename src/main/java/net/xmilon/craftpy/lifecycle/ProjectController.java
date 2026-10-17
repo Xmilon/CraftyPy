@@ -156,15 +156,21 @@ public final class ProjectController {
             List<String> notes = new ArrayList<>();
             int blocks = 0;
             int items = 0;
+            int mobs = 0;
+            int effects = 0;
             for (Declarations.Content content : declarations.contents()) {
                 switch (content.kind()) {
                     case "block" -> blocks++;
                     case "item" -> items++;
-                    case "effect", "entity" -> notes.add(content.kind() + " '" + content.id()
-                            + "' declared, but that slot type is not wired yet (later milestone)");
+                    case "entity" -> mobs++;
+                    case "effect" -> effects++;
                     default -> {
                     }
                 }
+            }
+            if (mobs > 0 && declarations.contents().stream().anyMatch(c -> "entity".equals(c.kind())
+                    && c.definition().has("spawns"))) {
+                notes.add("natural spawns of new or changed mobs start the next time the world is opened");
             }
             try {
                 SlotRegistry.applyAll(projectId, declarations);
@@ -203,12 +209,15 @@ public final class ProjectController {
                 manager.markLoaded(projectId, true);
                 manager.setLastError(projectId, null);
                 net.xmilon.craftpy.network.CraftPyNetwork.notifyEditors(server,
-                        projectId + " loaded: " + blocks + " block(s), " + items + " item(s)", false);
+                        projectId + " loaded: " + blocks + " block(s), " + items + " item(s)"
+                                + (mobs > 0 ? ", " + mobs + " mob(s)" : "") + (effects > 0 ? ", " + effects + " effect(s)" : ""),
+                        false);
                 CraftPyLog.LOGGER.info("Loaded project {} ({} block(s), {} item(s), {} datapack entr{}), scripts: {}",
                         projectId, blocks, items, declarations.datapack().size(),
                         declarations.datapack().size() == 1 ? "y" : "ies", declarations.log());
                 for (String note : notes) {
                     CraftPyLog.LOGGER.info("[{}] {}", projectId, note);
+                    net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[" + projectId + "] " + note);
                 }
                 for (String line : declarations.log()) {
                     net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[" + projectId + "] " + line);

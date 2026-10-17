@@ -19,6 +19,11 @@ public final class ModItems {
     public static final DeferredItem<Item> PYTHON_WRENCH = ITEMS.registerSimpleItem("python_wrench",
             new Item.Properties().stacksTo(1));
 
+    /** One spawn egg for every Python mob: the stack's entity data names the mob (see ModEntities.egg). */
+    public static final DeferredItem<net.neoforged.neoforge.common.DeferredSpawnEggItem> SPAWN_EGG = ITEMS.register("spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(() -> ModEntities.MOBS.get(0).get(),
+                    0x3d8f5a, 0xc9e86b, new Item.Properties()));
+
     /** Block items backing the generic block slot pool. */
     public static final List<DeferredItem<BlockItem>> SLOT_BLOCK_ITEMS = new ArrayList<>();
     /** Standalone items for the generic item slot pool. */

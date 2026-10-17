@@ -244,56 +244,108 @@ public final class Defs {
     }
 
     /**
-     * A declared mob effect. Behaviour is a marker (no attribute modifiers in
-     * v1); name, colour, category and icon are data-driven.
+     * A declared mob effect: name, icon, color and category, plus attribute modifiers per level while it is active.
+     * {@code @on.effect_tick} handlers in Python do the rest.
      */
     public static final class EffectDef {
         public String name;
         public String icon;
         public String category;
         public int color;
+        /** Amount is per level: level 2 gives twice the amount. The slot field is unused. */
+        public final List<ItemDef.AttributeSpec> attributes = new ArrayList<>();
 
         public static EffectDef from(JsonObject json) {
             EffectDef def = new EffectDef();
             def.name = s(json, "name", "CraftPy Effect");
             def.icon = s(json, "icon", "");
-            def.category = s(json, "category", "neutral");
+            def.category = s(json, "category", "neutral").toLowerCase(java.util.Locale.ROOT);
             def.color = parseColor(s(json, "color", "#8899ff"));
+            if (json.get("attributes") instanceof JsonArray list) {
+                for (JsonElement element : list) {
+                    if (element.isJsonObject() && def.attributes.size() < 16) {
+                        JsonObject a = element.getAsJsonObject();
+                        if (!s(a, "attribute", "").isEmpty()) {
+                            def.attributes.add(new ItemDef.AttributeSpec(s(a, "attribute", ""), f(a, "amount", 0f),
+                                    s(a, "operation", "add_value"), ""));
+                        }
+                    }
+                }
+            }
             return def;
         }
     }
 
     /**
-     * A declared entity. v1 reskins a generic {@code PathfinderMob} with
-     * configurable stats; there is no custom Java AI.
+     * A declared mob: a generic {@code PathfinderMob} with these stats, a vanilla body ({@code model="pig"}) or a
+     * GeckoLib model ({@code model="goblin.geo.json"}), a spawn egg and optional natural spawns.
      */
     public static final class EntityDef {
         public String name;
         public String texture;
+        public String model;
+        public String animation;
+        public float scale;
         public String base;
         public float health;
         public float speed;
         public float damage;
+        public float armor;
         public float width;
         public float height;
         public float followRange;
+        public int eggColor;
+        public int eggSpots;
+        public final List<Spawn> spawns = new ArrayList<>();
+
+        /** Natural spawning in biomes ({@code "#minecraft:is_overworld"} or {@code "minecraft:plains"}). */
+        public record Spawn(List<String> biomes, int weight, int min, int max) {
+        }
 
         public static EntityDef from(JsonObject json) {
             EntityDef def = new EntityDef();
             def.name = s(json, "name", "CraftPy Entity");
             def.texture = s(json, "texture", "");
+            def.model = s(json, "model", "humanoid");
+            def.animation = s(json, "animation", "");
+            def.scale = Math.max(0.05f, Math.min(16f, f(json, "scale", 1.0f)));
             def.base = s(json, "base", "passive").toLowerCase(java.util.Locale.ROOT);
             def.health = Math.max(1.0f, f(json, "health", 10.0f));
             def.speed = f(json, "speed", 0.25f);
             def.damage = f(json, "damage", 2.0f);
-            def.width = Math.max(0.1f, f(json, "width", 0.6f));
-            def.height = Math.max(0.1f, f(json, "height", 1.8f));
+            def.armor = Math.max(0f, f(json, "armor", 0f));
+            def.width = Math.max(0.1f, Math.min(16f, f(json, "width", 0.6f)));
+            def.height = Math.max(0.1f, Math.min(16f, f(json, "height", 1.8f)));
             def.followRange = Math.max(1.0f, f(json, "follow_range", 16.0f));
+            def.eggColor = parseColor(s(json, "egg_color", "#3d8f5a"));
+            def.eggSpots = parseColor(s(json, "egg_spots", "#c9e86b"));
+            if (json.get("spawns") instanceof JsonArray list) {
+                for (JsonElement element : list) {
+                    if (!element.isJsonObject() || def.spawns.size() >= 16) {
+                        continue;
+                    }
+                    JsonObject spawn = element.getAsJsonObject();
+                    List<String> biomes = new ArrayList<>();
+                    if (spawn.get("biomes") instanceof JsonArray names) {
+                        names.forEach(name -> biomes.add(name.getAsString()));
+                    } else {
+                        biomes.add(s(spawn, "biomes", "#minecraft:is_overworld"));
+                    }
+                    int min = Math.max(1, i(spawn, "min", 1));
+                    def.spawns.add(new Spawn(biomes, Math.max(1, i(spawn, "weight", 10)), min,
+                            Math.max(min, i(spawn, "max", 3))));
+                }
+            }
             return def;
         }
 
         public boolean hostile() {
             return base.contains("hostile") || base.contains("monster") || base.contains("enemy");
+        }
+
+        /** A GeckoLib model ({@code .geo.json}) instead of a vanilla body. */
+        public boolean geckoModel() {
+            return model.endsWith(".geo.json");
         }
     }
 

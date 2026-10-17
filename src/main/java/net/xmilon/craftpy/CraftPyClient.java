@@ -80,6 +80,26 @@ public class CraftPyClient {
     }
 
     @SubscribeEvent
+    static void onRegisterRenderers(net.neoforged.neoforge.client.event.EntityRenderersEvent.RegisterRenderers event) {
+        net.xmilon.craftpy.registry.ModEntities.MOBS.forEach(type ->
+                event.registerEntityRenderer(type.get(), net.xmilon.craftpy.client.SlottedEntityRenderer::new));
+        net.xmilon.craftpy.registry.ModEntities.MONSTERS.forEach(type ->
+                event.registerEntityRenderer(type.get(), net.xmilon.craftpy.client.SlottedEntityRenderer::new));
+    }
+
+    /** The spawn egg takes the colors of the mob it names (stored on the stack by /craftpy give ... egg). */
+    @SubscribeEvent
+    static void onItemColors(net.neoforged.neoforge.client.event.RegisterColorHandlersEvent.Item event) {
+        event.register((stack, tint) -> {
+            var data = stack.getOrDefault(net.minecraft.core.component.DataComponents.CUSTOM_DATA,
+                    net.minecraft.world.item.component.CustomData.EMPTY).copyTag();
+            int color = tint == 0 ? (data.contains("craftpy_egg") ? data.getInt("craftpy_egg") : 0x3d8f5a)
+                    : (data.contains("craftpy_egg_spots") ? data.getInt("craftpy_egg_spots") : 0xc9e86b);
+            return 0xFF000000 | color;
+        }, net.xmilon.craftpy.registry.ModItems.SPAWN_EGG.get());
+    }
+
+    @SubscribeEvent
     static void onRegisterMenuScreens(RegisterMenuScreensEvent event) {
         // The computer block opens the CraftPy home screen (Modern UI).
         event.register(ModMenus.COMPUTER.get(),

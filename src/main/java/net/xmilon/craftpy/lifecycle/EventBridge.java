@@ -230,6 +230,29 @@ public class EventBridge {
         fire("entity_hurt", entity.level(), context);
     }
 
+    /** Once a second while a Python effect is active ({@code @on.effect_tick(effect=...)}). Server thread. */
+    public static void effectTick(LivingEntity entity, String effectId, int amplifier) {
+        if (!SlotRegistry.handlesEvent("effect_tick")) {
+            return;
+        }
+        JsonObject context = new JsonObject();
+        context.add("entity", wrapEntity(entity));
+        if (entity instanceof Player player) {
+            context.add("player", wrapPlayer(player));
+        }
+        JsonObject effect = new JsonObject();
+        effect.addProperty("id", effectId);
+        context.add("effect", effect);
+        context.addProperty("level", amplifier + 1);
+        for (var instance : entity.getActiveEffects()) {
+            if (instance.getEffect().value() instanceof net.xmilon.craftpy.entity.SlottedEffect slotted
+                    && slotted.contentId().equals(effectId)) {
+                context.addProperty("seconds", instance.getDuration() / 20);
+            }
+        }
+        fire("effect_tick", entity.level(), context);
+    }
+
     private static void playerEvent(String name, Player player) {
         JsonObject context = new JsonObject();
         context.add("player", wrapPlayer(player));
@@ -332,7 +355,8 @@ public class EventBridge {
 
     public static JsonObject wrapEntity(Entity entity) {
         JsonObject obj = new JsonObject();
-        obj.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString());
+        obj.addProperty("type", entity instanceof net.xmilon.craftpy.entity.SlottedEntity mob
+                ? projectId(mob.holder()) : BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString());
         obj.addProperty("name", entity.getName().getString());
         obj.addProperty("uuid", entity.getUUID().toString());
         obj.addProperty("x", entity.getX());
@@ -380,10 +404,15 @@ public class EventBridge {
     }
 
     /** Slot keys are {@code BLOCK:project:id}; Python sees {@code project:id}. */
-    static String projectId(String holder) {
+    public static String projectId(String holder) {
         int colon = holder.indexOf(':');
-        if (colon > 0 && (holder.startsWith("BLOCK:") || holder.startsWith("ITEM:"))) {
-            return holder.substring(colon + 1);
+        if (colon > 0 && holder.indexOf(':', colon + 1) > 0) {
+            try {
+                SlotRegistry.Kind.valueOf(holder.substring(0, colon));
+                return holder.substring(colon + 1);
+            } catch (IllegalArgumentException notAKind) {
+                return holder;
+            }
         }
         return holder;
     }

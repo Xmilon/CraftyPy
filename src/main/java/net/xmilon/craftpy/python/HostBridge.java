@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.python;
 
+import net.xmilon.craftpy.registry.SlotRegistry;
 import net.xmilon.craftpy.CraftPyLog;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -214,7 +215,8 @@ public final class HostBridge {
         if (level == null) {
             return error("unknown dimension");
         }
-        ResourceLocation id = parseId(string(p, "entity", ""));
+        ResourceLocation id = parseId(SlotRegistry.resolve(string(p, "entity", ""),
+                SlotRegistry.Kind.ENTITY, SlotRegistry.Kind.MONSTER));
         if (id == null) {
             return error("bad entity id");
         }
@@ -223,12 +225,10 @@ public final class HostBridge {
             return error("unknown entity: " + id);
         }
         BlockPos pos = pos(p);
-        Entity entity = type.create(level);
+        Entity entity = type.spawn(level, pos, net.minecraft.world.entity.MobSpawnType.COMMAND);
         if (entity == null) {
             return error("cannot create entity: " + id);
         }
-        entity.moveTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, 0f, 0f);
-        level.addFreshEntity(entity);
         JsonObject result = ok();
         result.addProperty("uuid", entity.getUUID().toString());
         return result;
@@ -306,7 +306,8 @@ public final class HostBridge {
         JsonArray out = new JsonArray();
         for (Entity entity : level.getEntities((Entity) null, box)) {
             JsonObject entry = new JsonObject();
-            entry.addProperty("type", id(entity.getType()));
+            entry.addProperty("type", entity instanceof net.xmilon.craftpy.entity.SlottedEntity mob
+                    ? net.xmilon.craftpy.lifecycle.EventBridge.projectId(mob.holder()) : id(entity.getType()));
             entry.addProperty("uuid", entity.getUUID().toString());
             entry.addProperty("x", entity.getX());
             entry.addProperty("y", entity.getY());
@@ -584,7 +585,7 @@ public final class HostBridge {
     }
 
     private static JsonObject effect(ServerPlayer player, JsonObject p) {
-        ResourceLocation id = parseId(string(p, "effect", ""));
+        ResourceLocation id = parseId(SlotRegistry.resolve(string(p, "effect", ""), SlotRegistry.Kind.EFFECT));
         if (id == null) {
             return error("unknown effect: " + string(p, "effect", ""));
         }

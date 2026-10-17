@@ -90,6 +90,11 @@ New UI in dark, with CraftPy's green as the accent:
 
 ### Runtime
 - Declarative Python API (`@block`, `@item`, recipes, loot tables, tags, events).
+- **Mobs** (`Mob(...)`): a vanilla body (humanoid, player, pig, cow, chicken, spider, creeper, villager, slime) or a
+  GeckoLib `.geo.json` model with walk / idle animations, stats, hostile or passive AI, drops, a spawn egg
+  (`/craftpy give <player> <project>:<id> egg`), `/craftpy summon` and natural spawns (`Spawn(...)`).
+- **Effects** (`Effect(...)`): name, icon, color, category and attributes per level; `@on.effect_tick` runs once a
+  second on whoever has one.
 - Projects load/unload/reload at runtime with automatic resource + data pack regeneration and multiplayer sync.
 - Persistent slot mapping (`pyforge/slots.json`) so placed blocks survive reloads and restarts.
 
@@ -250,6 +255,8 @@ Examples:
 - **Tab completes** the full list of project content ids, and the `block`/`item` kinds — like vanilla item commands.
 - `<project>:<id>` is the id used in `@block`/`@item` (`project_`-prefixed aliases like `project_bb:ruby` for project `bb` are accepted).
 - `count` is optional (1–64).
+- `egg` instead of `block`/`item` gives a spawn egg of a `Mob(...)`: `/craftpy give Dev zoo:goblin egg`.
+- `/craftpy summon <project>:<mob> [pos]` puts a mob in the world (Tab completes the mobs).
 - Commands declared with `@command("name")` in a project become `/<project>:<name>` and tab-complete as soon as the project runs.
 - `/craftpy module enable|disable|info|reload <module>` complete every discovered module.
 
@@ -302,7 +309,7 @@ Everything is stored as plain files, so projects can also be edited with any ext
 | `maxPacketSizeKb` | `32768` | Cap for project file packets |
 | `maxAssetSizeKb` | `8192` | Cap for imported asset files |
 | `slotPool.blocks` / `.items` | `256` | Deprecated, ignored. The pool size is `config/craftpy-slots.properties` (default 256, max 4096) |
-| `slotPool.entities` / `.effects` / `.sounds` | `64 / 32 / 32` | Reserved pools for later milestones |
+| `slotPool.entities` / `.effects` / `.sounds` | `64 / 32 / 32` | Ignored: mobs and effects have fixed pools (32 passive + 32 hostile mobs, 32 effects) |
 
 ## Security
 
@@ -312,7 +319,9 @@ Project Python runs in an external subprocess with a denylist of OS, filesystem,
 
 ## Known Limitations
 
-- **Entities and effects** can be declared but are not yet wired into the game (later milestone).
+- Mobs and effects use fixed pools: 32 passive mobs, 32 hostile mobs, 32 effects. A mob that switches between
+  hostile and passive takes a new slot. Natural spawns (`Spawn(...)`) are read when a world opens, so new ones start
+  after the next world load.
 - Slot pools are fixed at startup (default 256 blocks / 256 items, at most 4096 each via `config/craftpy-slots.properties`); more at the same time needs a restart.
 - Binary asset previews are capped at 288 KB per file (larger files open with a notice).
 - Only CPython 3.13+ is supported (no Jython/GraalPy). The shipped Python covers Windows x64, macOS and glibc Linux

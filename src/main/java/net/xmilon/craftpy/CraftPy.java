@@ -33,6 +33,8 @@ public class CraftPy {
     public CraftPy(IEventBus modEventBus, ModContainer modContainer) {
         ModBlocks.BLOCKS.register(modEventBus);
         ModItems.ITEMS.register(modEventBus);
+        net.xmilon.craftpy.registry.ModEntities.register(modEventBus);
+        net.xmilon.craftpy.registry.ModEffects.EFFECTS.register(modEventBus);
         ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);

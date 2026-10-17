@@ -41,6 +41,19 @@ class SlotPlanTest {
     }
 
     @Test
+    void mobsMonstersAndEffectsHaveTheirOwnPools() {
+        Map<String, SlotRef> current = new LinkedHashMap<>();
+        current.put("ITEM:zoo:gem", new SlotRef(Kind.ITEM, 0));
+        var next = SlotPlan.allocate(current, "zoo", Map.of(Kind.ENTITY, List.of("pig"), Kind.MONSTER, List.of("goblin"),
+                Kind.EFFECT, List.of("rage")), Map.of(Kind.ENTITY, 2, Kind.MONSTER, 2, Kind.EFFECT, 2));
+        assertEquals(0, next.get("ENTITY:zoo:pig").index());
+        assertEquals(0, next.get("MONSTER:zoo:goblin").index());
+        assertEquals(0, next.get("EFFECT:zoo:rage").index());
+        assertEquals(List.of("ITEM:zoo:gem", "ENTITY:zoo:pig", "MONSTER:zoo:goblin", "EFFECT:zoo:rage").stream().sorted().toList(),
+                SlotPlan.keysOf(next, "zoo").stream().sorted().toList());
+    }
+
+    @Test
     void keysOfMatchesTheWholeProjectSegment() {
         Map<String, SlotRef> mapping = new LinkedHashMap<>();
         mapping.put("BLOCK:ab:x", new SlotRef(Kind.BLOCK, 0));

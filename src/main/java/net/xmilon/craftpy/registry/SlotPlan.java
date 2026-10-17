@@ -24,7 +24,7 @@ final class SlotPlan {
     /** Mapping keys that belong to {@code projectId}. Matches the whole project segment, not a substring. */
     static List<String> keysOf(Map<String, SlotRef> mapping, String projectId) {
         List<String> out = new ArrayList<>();
-        for (Kind kind : new Kind[]{Kind.BLOCK, Kind.ITEM}) {
+        for (Kind kind : Kind.values()) {
             String prefix = kind.name() + ":" + projectId + ":";
             for (String key : mapping.keySet()) {
                 if (key.startsWith(prefix)) {
@@ -42,9 +42,19 @@ final class SlotPlan {
      */
     static Map<String, SlotRef> allocate(Map<String, SlotRef> current, String projectId, Collection<String> blockIds,
                                          Collection<String> itemIds, int blockPool, int itemPool) {
+        return allocate(current, projectId, Map.of(Kind.BLOCK, blockIds, Kind.ITEM, itemIds),
+                Map.of(Kind.BLOCK, blockPool, Kind.ITEM, itemPool));
+    }
+
+    /** The same for any kinds: every kind in {@code ids} gets slots from its own pool in {@code pools}. */
+    static Map<String, SlotRef> allocate(Map<String, SlotRef> current, String projectId,
+                                         Map<Kind, ? extends Collection<String>> ids, Map<Kind, Integer> pools) {
         Map<String, SlotRef> next = new LinkedHashMap<>(current);
-        assign(next, Kind.BLOCK, projectId, blockIds, blockPool);
-        assign(next, Kind.ITEM, projectId, itemIds, itemPool);
+        for (Kind kind : Kind.values()) {
+            if (ids.containsKey(kind)) {
+                assign(next, kind, projectId, ids.get(kind), pools.getOrDefault(kind, 0));
+            }
+        }
         return next;
     }
 

@@ -346,7 +346,9 @@ public class SlottedItem extends Item {
         int amplifier = parts.length >= 2 ? parsePositive(parts[parts.length - 2], 0) : 0;
         float seconds = parts.length >= 3 ? parsePositive(parts[parts.length - 1], 5.0f) : 5.0f;
         try {
-            Holder.Reference<MobEffect> holder = BuiltInRegistries.MOB_EFFECT.getHolder(ResourceLocation.parse(id)).orElse(null);
+            Holder.Reference<MobEffect> holder = BuiltInRegistries.MOB_EFFECT.getHolder(ResourceLocation.parse(
+                    net.xmilon.craftpy.registry.SlotRegistry.resolve(id, net.xmilon.craftpy.registry.SlotRegistry.Kind.EFFECT)))
+                    .orElse(null);
             if (holder == null) {
                 return null;
             }

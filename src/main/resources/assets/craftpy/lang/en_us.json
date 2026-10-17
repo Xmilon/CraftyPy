@@ -6,6 +6,7 @@
   "item.craftpy.python_wrench": "Python Wrench",
   "block.craftpy.unloaded": "Unloaded Project Block",
   "item.craftpy.unloaded": "Unloaded Project Item",
+  "item.craftpy.spawn_egg": "CraftPy Spawn Egg",
 
   "craftpy.configuration.title": "CraftPy Configs",
   "craftpy.configuration.section.craftpy.common.toml": "CraftPy Configs",
