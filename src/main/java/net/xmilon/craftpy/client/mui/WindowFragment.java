@@ -162,6 +162,11 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         return fragment.build(context, root, new HashMap<>());
     }
 
+    /** True while the player drags a slider: a new tree waits in {@link #pending} so the drag is not cut off. */
+    private boolean tracking;
+    @Nullable
+    private JsonObject pending;
+
     /** Swaps in a new tree (any thread). Input values the server did not change keep what the player typed. */
     public void update(JsonObject next) {
         View view = content;
@@ -170,6 +175,10 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
             return;
         }
         view.post(() -> {
+            if (tracking) {
+                pending = next; // a window that refreshes every second would rebuild the slider under the pointer
+                return;
+            }
             this.tree = next;
             rebuild();
         });
@@ -391,6 +400,7 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 int min = (int) num(node, "min", 0);
                 int max = Math.max(min + 1, (int) num(node, "max", 100));
                 var bar = new SeekBar(context);
+                bar.setMinimumWidth(bar.dp(120));
                 bar.setMax(max - min);
                 String id = str(node, "id", "");
                 int value = (int) Math.round(shownValue(id, new JsonPrimitive(num(node, "value", min)), nextServer)
@@ -406,8 +416,22 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                     }
 
                     @Override
+                    public void onStartTrackingTouch(SeekBar seekBar) {
+                        tracking = true;
+                    }
+
+                    @Override
                     public void onStopTrackingTouch(SeekBar seekBar) {
+                        tracking = false;
+                        if (!id.isEmpty()) {
+                            values.put(id, new JsonPrimitive(seekBar.getProgress() + min));
+                        }
                         send(token, new JsonPrimitive(seekBar.getProgress() + min));
+                        if (pending != null) {
+                            JsonObject next = pending;
+                            pending = null;
+                            update(next);
+                        }
                     }
                 });
                 return bar;
@@ -577,6 +601,11 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         for (JsonObject child : children(node)) {
             View view = build(context, child, nextServer);
             double weight = num(child, "weight", 0);
+            String kind = str(child, "type", "");
+            if (horizontal && weight <= 0 && !child.has("width")
+                    && ("slider".equals(kind) || "progress".equals(kind) || "text_input".equals(kind))) {
+                weight = 1; // in a row these take the free space; at their own width a slider is a few pixels wide
+            }
             LinearLayout.LayoutParams lp = horizontal
                     ? new LinearLayout.LayoutParams(weight > 0 ? 0 : WRAP_CONTENT, WRAP_CONTENT, (float) weight)
                     : new LinearLayout.LayoutParams(MATCH_PARENT, weight > 0 ? 0 : WRAP_CONTENT, (float) weight);
