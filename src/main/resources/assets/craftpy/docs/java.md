@@ -31,15 +31,13 @@ To reach live game objects: `player.java` / `entity.java` (from an event or `pla
 
 ## Using objects
 
-| In Python | What happens in Java |
-| --- | --- |
-| `obj.field` | reads a public field (`obj.field = 3` writes it, unless final) |
-| `obj.method(a, b)` | calls the public method that fits the arguments best (`add(int)` over `add(double)` for `2`) |
-| `Cls.STATIC`, `Cls.staticMethod()` | static field / method |
-| `Cls(a, b)` or `java.new("a.b.Cls", a, b)` | constructor |
-| `for x in obj` / `java.items(obj)` | iterate a List, Set, array, Stream, Optional; a Map yields `[key, value]` pairs |
-| `str(obj)` | Java's `toString()` |
-| `obj == other` | the same Java object |
+- `obj.field`: reads a public field (`obj.field = 3` writes it, unless final)
+- `obj.method(a, b)`: calls the public method that fits the arguments best (`add(int)` over `add(double)` for `2`)
+- `Cls.STATIC`, `Cls.staticMethod()`: static field / method
+- `Cls(a, b)` or `java.new("a.b.Cls", a, b)`: constructor
+- `for x in obj` / `java.items(obj)`: iterate a List, Set, array, Stream, Optional; a Map yields `[key, value]` pairs
+- `str(obj)`: Java's `toString()`
+- `obj == other`: the same Java object
 
 Arguments are converted to what the Java parameter wants:
 

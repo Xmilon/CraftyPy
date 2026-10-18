@@ -1,7 +1,6 @@
 package net.xmilon.craftpy.client.mui;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -13,17 +12,12 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import icyllis.modernui.R;
-import icyllis.modernui.annotation.NonNull;
 import icyllis.modernui.core.Context;
-import icyllis.modernui.graphics.Canvas;
-import icyllis.modernui.graphics.Paint;
 import icyllis.modernui.graphics.drawable.ColorDrawable;
 import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.TextWatcher;
-import icyllis.modernui.view.MotionEvent;
 import icyllis.modernui.view.View;
 import icyllis.modernui.widget.EditText;
-import icyllis.modernui.widget.FrameLayout;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.TextView;
@@ -32,11 +26,15 @@ import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 
 /**
- * The mod map tool window. One node is in focus: in the middle what it is, what it does (description), what it adds and
- * may do (tags); on the left what it needs, imports or uses, on the right what needs, imports or uses it, each card
- * saying why ("needs it to load", "imports songs, VOLUME", "uses create:mixing ..."). A click on a card puts that one in
- * focus. Below: details (commands, the events it reacts to and who else reacts to them), then search, filters and the list.
- * Lines: green = needs, purple = imports its code, blue = uses its content, gray = optional, red = missing.
+ * The mod map tool window, read top to bottom:
+ * <ol>
+ * <li><b>Problems</b> of the whole setup (a missing dependency, mods that don't work together, modules waiting for
+ * approval or failing, events many modules handle); a click shows the one it is about.</li>
+ * <li>The item <b>in focus</b>: what it is, what it does, what it adds, where it runs and what it may do.</li>
+ * <li>How it is tied to the rest, one row per link in plain words ("Needs Create: it does not load without it",
+ * "Imported by jukebox: songs, VOLUME"); a click on a row puts that one in focus.</li>
+ * <li>Its details (commands, the events it reacts to and who else reacts to them), then everything, searchable.</li>
+ * </ol>
  */
 final class ModMapPanel {
     interface Host {
@@ -56,12 +54,15 @@ final class ModMapPanel {
     private final LinearLayout view;
     private final EditText search;
     private final TextView status;
-    private final Links focus;
+    private final LinearLayout problems;
+    private final LinearLayout focus;
     private final LinearLayout list;
     private final LinearLayout details;
     private final View[] chips = new View[4];
     private final List<Node> nodes = new ArrayList<>();
     private final List<Edge> edges = new ArrayList<>();
+    private final List<JsonObject> problemList = new ArrayList<>();
+    private boolean allProblems;
     private String kindFilter = "";
     private String selected;
 
@@ -117,35 +118,35 @@ final class ModMapPanel {
         status.setTextColor(IdeColors.TEXT_SECONDARY);
         status.setPadding(view.dp(10), 0, view.dp(10), view.dp(2));
         view.addView(status);
-        var legend = CraftPyFragment.row(context);
-        legend.setPadding(view.dp(10), 0, view.dp(10), view.dp(4));
-        String[][] kindsOfLinks = {{"required", "needs"}, {"imports", "imports code"}, {"uses", "uses content"},
-                {"optional", "optional"}, {"missing", "missing"}};
-        for (String[] link : kindsOfLinks) {
-            var item = CraftPyFragment.label(context, "— " + link[1] + "   ", R.attr.textAppearanceBodySmall);
-            item.setTextColor(lineColor(link[0]));
-            legend.addView(item);
+        problems = column(context);
+        focus = column(context);
+        details = column(context);
+        list = column(context);
+        var hint = CraftPyFragment.label(context, "Click any name to look at it.", R.attr.textAppearanceBodySmall);
+        hint.setTextColor(IdeColors.TEXT_DISABLED);
+        var all = CraftPyFragment.label(context, "Everything", R.attr.textAppearanceLabelLarge);
+        all.setTextColor(IdeColors.TEXT);
+        all.setPadding(view.dp(10), view.dp(8), view.dp(10), view.dp(2));
+        var content = column(context);
+        content.addView(problems);
+        content.addView(hint);
+        content.addView(focus);
+        content.addView(details);
+        content.addView(all);
+        content.addView(list);
+        for (View part : new View[] {problems, hint, focus, details}) {
+            part.setPadding(view.dp(10), view.dp(4), view.dp(10), view.dp(4));
         }
-        view.addView(legend);
+        var scroll = new ScrollView(context);
+        scroll.setBackground(new ColorDrawable(IdeColors.EDITOR));
+        scroll.addView(content, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        view.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+    }
 
-        focus = new Links(context);
-        var focusScroll = new ScrollView(context);
-        focusScroll.setBackground(new ColorDrawable(IdeColors.EDITOR));
-        focusScroll.addView(focus, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        view.addView(focusScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1.2f));
-
-        details = new LinearLayout(context);
-        details.setOrientation(LinearLayout.VERTICAL);
-        details.setPadding(view.dp(10), view.dp(4), view.dp(10), view.dp(4));
-        list = new LinearLayout(context);
-        list.setOrientation(LinearLayout.VERTICAL);
+    private static LinearLayout column(Context context) {
         var column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
-        column.addView(details);
-        column.addView(list);
-        var scroll = new ScrollView(context);
-        scroll.addView(column, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        view.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+        return column;
     }
 
     View view() {
@@ -176,6 +177,10 @@ final class ModMapPanel {
         for (JsonElement e : reply.getAsJsonArray("edges")) {
             JsonObject o = e.getAsJsonObject();
             edges.add(new Edge(o.get("from").getAsString(), o.get("to").getAsString(), o.get("kind").getAsString(), o));
+        }
+        problemList.clear();
+        if (reply.has("problems")) {
+            reply.getAsJsonArray("problems").forEach(e -> problemList.add(e.getAsJsonObject()));
         }
         if (selected == null || nodes.stream().noneMatch(n -> n.key().equals(selected))) {
             selected = defaultFocus();
@@ -222,6 +227,7 @@ final class ModMapPanel {
         long projects = nodes.stream().filter(n -> n.kind().equals("project")).count();
         status.setText(mods + " mods, " + modules + " modules, " + projects + " projects, " + edges.size() + " links"
                 + (shown.size() < nodes.size() ? " - showing " + shown.size() : ""));
+        showProblems();
         buildFocus();
         Context context = list.getContext();
         list.removeAllViews();
@@ -278,23 +284,7 @@ final class ModMapPanel {
             return;
         }
         Context context = details.getContext();
-        var name = CraftPyFragment.label(context, node.name() + "  (" + node.kind() + ")", R.attr.textAppearanceTitleSmall);
-        name.setTextColor(IdeColors.TEXT);
-        details.addView(name);
         JsonObject data = node.data();
-        // what it does
-        if (data.has("description")) {
-            line(context, data.get("description").getAsString());
-        } else if (node.kind().equals("module") || node.kind().equals("project")) {
-            line(context, "No description (add one to its " + (node.kind().equals("module") ? "module.json" : "project.json") + ").");
-        }
-        if (data.has("author")) {
-            line(context, "By " + data.get("author").getAsString());
-        }
-        // what it adds to the game
-        if (data.has("adds") && data.getAsJsonObject("adds").size() > 0) {
-            section(context, "Adds", addsText(data));
-        }
         if (data.has("commands") && data.getAsJsonArray("commands").size() > 0) {
             section(context, "Commands", String.join(", ", strings(data.getAsJsonArray("commands"), 20)));
         }
@@ -311,53 +301,14 @@ final class ModMapPanel {
         } else if (data.has("state") && !data.get("state").getAsString().equals("loaded")) {
             section(context, "Reacts to", "known once it runs");
         }
-        // what it may do and where it stands
-        if (data.has("warning")) {
-            var warning = CraftPyFragment.label(context, data.get("warning").getAsString(), R.attr.textAppearanceBodySmall);
-            warning.setTextColor(IdeColors.ERROR);
-            details.addView(warning);
-        }
-        var tags = tagsOf(context, data);
-        if (!tags.isEmpty()) {
-            details.addView(CraftPyFragment.tags(context, tags));
-        }
         if (data.has("decompiledTo")) {
             line(context, node.kind().equals("project") ? "Decompiled " + data.get("decompiledTo").getAsString()
                     : "Decompiled into project " + data.get("decompiledTo").getAsString()
                     + (data.has("changed") && data.get("changed").getAsBoolean() ? ", rebuilt since" : ""));
         }
-        // how it is tied to the rest
-        group(context, "Needs", e -> e.from().equals(node.key()) && isDependency(e), Edge::to);
-        group(context, "Needed by", e -> e.to().equals(node.key()) && isDependency(e), Edge::from);
-        group(context, "Imports from", e -> e.from().equals(node.key()) && e.kind().equals("imports"), Edge::to);
-        group(context, "Imported by", e -> e.to().equals(node.key()) && e.kind().equals("imports"), Edge::from);
-        group(context, "Uses content of", e -> e.from().equals(node.key()) && e.kind().equals("uses"), Edge::to);
-        group(context, "Its content is used by", e -> e.to().equals(node.key()) && e.kind().equals("uses"), Edge::from);
         var separator = new View(context);
         separator.setBackground(new ColorDrawable(IdeColors.SEPARATOR));
         details.addView(separator, new LinearLayout.LayoutParams(MATCH_PARENT, view.dp(1)));
-    }
-
-    private void group(Context context, String title, java.util.function.Predicate<Edge> which,
-                       java.util.function.Function<Edge, String> other) {
-        List<String> parts = new ArrayList<>();
-        for (Edge edge : edges) {
-            if (which.test(edge)) {
-                String key = other.apply(edge);
-                String label = nameOf(key) + (edge.kind().equals("optional") ? " (optional)" : "")
-                        + (edge.data().has("ids") ? " " + edge.data().getAsJsonArray("ids").toString().replace("\"", "") : "")
-                        + (edge.data().has("names") && edge.data().getAsJsonArray("names").size() > 0
-                        ? " " + edge.data().getAsJsonArray("names").toString().replace("\"", "") : "");
-                parts.add(label);
-            }
-        }
-        if (!parts.isEmpty()) {
-            line(context, title + ": " + String.join(", ", parts));
-        }
-    }
-
-    private static boolean isDependency(Edge edge) {
-        return !edge.kind().equals("uses") && !edge.kind().equals("imports");
     }
 
     private void section(Context context, String title, String text) {
@@ -393,108 +344,158 @@ final class ModMapPanel {
         };
     }
 
-    // -- the focus view ------------------------------------------------------------------------------------------------
+    // -- problems -----------------------------------------------------------------------------------------------------
 
-    private static final int MAX_CARDS = 12;
+    private static final int SHOWN_PROBLEMS = 5;
 
-    private void buildFocus() {
-        focus.clear();
-        Node center = nodes.stream().filter(n -> n.key().equals(selected)).findFirst().orElse(null);
-        if (center == null) {
-            focus.empty(nodes.isEmpty() ? "Reading the mods ..." : "Pick something in the list below.");
+    private void showProblems() {
+        problems.removeAllViews();
+        Context context = problems.getContext();
+        if (problemList.isEmpty()) {
+            if (!nodes.isEmpty()) {
+                var ok = CraftPyFragment.label(context, "✓ No problems found", R.attr.textAppearanceLabelLarge);
+                ok.setTextColor(IdeColors.SUCCESS);
+                problems.addView(ok);
+            }
             return;
         }
-        Context context = focus.getContext();
-        List<Edge> outgoing = new ArrayList<>();
-        List<Edge> incoming = new ArrayList<>();
-        for (Edge edge : edges) {
-            if (edge.from().equals(center.key())) {
-                outgoing.add(edge);
-            } else if (edge.to().equals(center.key())) {
-                incoming.add(edge);
+        var title = CraftPyFragment.label(context, "Problems (" + problemList.size() + ")", R.attr.textAppearanceLabelLarge);
+        title.setTextColor(IdeColors.TEXT);
+        problems.addView(title);
+        int shown = allProblems ? problemList.size() : Math.min(SHOWN_PROBLEMS, problemList.size());
+        for (int i = 0; i < shown; i++) {
+            JsonObject problem = problemList.get(i);
+            boolean error = "error".equals(problem.get("level").getAsString());
+            var row = CraftPyFragment.label(context, (error ? "✖ " : "⚠ ") + problem.get("text").getAsString(),
+                    R.attr.textAppearanceBodySmall);
+            row.setTextColor(error ? IdeColors.ERROR : IdeColors.WARNING);
+            row.setPadding(view.dp(4), view.dp(2), view.dp(4), view.dp(2));
+            var keys = problem.getAsJsonArray("keys");
+            if (!keys.isEmpty()) {
+                String key = keys.get(0).getAsString();
+                row.setClickable(true);
+                CraftPyFragment.hoverBackground(row);
+                row.setOnClickListener(v -> select(key));
             }
+            problems.addView(row);
         }
-        focus.left.addView(heading(context, "Needs / uses (" + outgoing.size() + ")"));
-        for (int i = 0; i < Math.min(MAX_CARDS, outgoing.size()); i++) {
-            focus.addLeft(card(context, outgoing.get(i).to(), outgoing.get(i)), outgoing.get(i).kind());
-        }
-        more(context, focus.left, outgoing.size());
-        focus.right.addView(heading(context, "Needed / used by (" + incoming.size() + ")"));
-        for (int i = 0; i < Math.min(MAX_CARDS, incoming.size()); i++) {
-            focus.addRight(card(context, incoming.get(i).from(), incoming.get(i)), incoming.get(i).kind());
-        }
-        more(context, focus.right, incoming.size());
-        focus.setCenter(centerCard(context, center));
-    }
-
-    private TextView heading(Context context, String text) {
-        var label = CraftPyFragment.label(context, text, R.attr.textAppearanceLabelSmall);
-        label.setTextColor(IdeColors.TEXT_SECONDARY);
-        label.setPadding(0, 0, 0, view.dp(4));
-        return label;
-    }
-
-    private void more(Context context, LinearLayout column, int count) {
-        if (count > MAX_CARDS) {
-            column.addView(heading(context, "+ " + (count - MAX_CARDS) + " more (see below)"));
-        }
-        if (count == 0) {
-            column.addView(heading(context, "nothing"));
+        if (problemList.size() > SHOWN_PROBLEMS) {
+            var more = CraftPyFragment.label(context, allProblems ? "Show fewer" : "Show all " + problemList.size(),
+                    R.attr.textAppearanceBodySmall);
+            more.setTextColor(IdeColors.ACCENT);
+            more.setClickable(true);
+            more.setOnClickListener(v -> {
+                allProblems = !allProblems;
+                showProblems();
+            });
+            problems.addView(more);
         }
     }
 
-    /** A neighbour: its name and kind, and the reason of the link in one or two short lines. */
-    private View card(Context context, String key, Edge edge) {
-        Node node = nodes.stream().filter(n -> n.key().equals(key)).findFirst().orElse(null);
-        String kind = node == null ? "missing" : node.kind();
-        var box = box(context, colorOf(kind));
-        var name = CraftPyFragment.label(context, badge(kind) + " " + (node == null ? key : node.name()), R.attr.textAppearanceLabelLarge);
-        name.setTextColor(IdeColors.TEXT);
-        name.setSingleLine();
-        box.addView(name);
-        var why = CraftPyFragment.label(context, reason(edge) + (kind.equals("missing") ? "  - not installed" : ""),
-                R.attr.textAppearanceBodySmall);
-        why.setTextColor(kind.equals("missing") ? IdeColors.ERROR : IdeColors.TEXT_SECONDARY);
-        why.setMaxLines(2);
-        box.addView(why);
-        if (node != null && node.data().has("description")) {
-            box.setTooltipText(node.data().get("description").getAsString());
+    // -- the item in focus and its links ----------------------------------------------------------------------------------
+
+    private static final int MAX_ROWS = 30;
+
+    private void buildFocus() {
+        focus.removeAllViews();
+        Context context = focus.getContext();
+        Node center = nodes.stream().filter(n -> n.key().equals(selected)).findFirst().orElse(null);
+        if (center == null) {
+            var empty = CraftPyFragment.label(context, nodes.isEmpty() ? "Reading the mods ..." : "Pick something below.",
+                    R.attr.textAppearanceBodySmall);
+            empty.setTextColor(IdeColors.TEXT_SECONDARY);
+            focus.addView(empty);
+            return;
         }
-        box.setClickable(true);
-        box.setOnClickListener(v -> select(key));
-        return box;
+        var cardLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        cardLp.bottomMargin = view.dp(6);
+        focus.addView(centerCard(context, center), cardLp);
+        String key = center.key();
+        int groups = 0;
+        groups += relation(context, "Needs", e -> e.from().equals(key) && e.kind().equals("required"), Edge::to);
+        groups += relation(context, "Can work with", e -> e.from().equals(key) && e.kind().equals("optional"), Edge::to);
+        groups += relation(context, "Doesn't work with", e -> (e.from().equals(key) || e.to().equals(key))
+                        && (e.kind().equals("incompatible") || e.kind().equals("discouraged")),
+                e -> e.from().equals(key) ? e.to() : e.from());
+        groups += relation(context, "Imports code from", e -> e.from().equals(key) && e.kind().equals("imports"), Edge::to);
+        groups += relation(context, "Uses blocks and items of", e -> e.from().equals(key) && e.kind().equals("uses"), Edge::to);
+        groups += relation(context, "Needed by", e -> e.to().equals(key) && e.kind().equals("required"), Edge::from);
+        groups += relation(context, "Optional for", e -> e.to().equals(key) && e.kind().equals("optional"), Edge::from);
+        groups += relation(context, "Its code is imported by", e -> e.to().equals(key) && e.kind().equals("imports"), Edge::from);
+        groups += relation(context, "Its blocks and items are used by", e -> e.to().equals(key) && e.kind().equals("uses"),
+                Edge::from);
+        if (groups == 0) {
+            var alone = CraftPyFragment.label(context, "Not tied to anything else here.", R.attr.textAppearanceBodySmall);
+            alone.setTextColor(IdeColors.TEXT_SECONDARY);
+            focus.addView(alone);
+        }
     }
 
-    /** Why two nodes are linked, in plain words. */
-    private static String reason(Edge edge) {
+    /** A heading and one clickable row per linked item ("■ Create   create:mixing, ..."); 1 when shown, else 0. */
+    private int relation(Context context, String title, java.util.function.Predicate<Edge> which,
+                         java.util.function.Function<Edge, String> other) {
+        List<Edge> matching = edges.stream().filter(which).toList();
+        if (matching.isEmpty()) {
+            return 0;
+        }
+        var heading = CraftPyFragment.label(context, title + " (" + matching.size() + ")", R.attr.textAppearanceLabelMedium);
+        heading.setTextColor(IdeColors.TEXT_SECONDARY);
+        heading.setPadding(0, view.dp(6), 0, view.dp(2));
+        focus.addView(heading);
+        for (int i = 0; i < Math.min(MAX_ROWS, matching.size()); i++) {
+            Edge edge = matching.get(i);
+            String key = other.apply(edge);
+            Node node = nodes.stream().filter(n -> n.key().equals(key)).findFirst().orElse(null);
+            String kind = node == null ? "missing" : node.kind();
+            String detail = kind.equals("missing") ? "not installed" : detail(edge);
+            var text = new icyllis.modernui.text.SpannableStringBuilder();
+            text.append(badge(kind) + " " + (node == null ? key.substring(key.indexOf(':') + 1) : node.name()));
+            text.setSpan(new icyllis.modernui.text.style.ForegroundColorSpan(colorOf(kind)), 0, text.length(),
+                    icyllis.modernui.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if (!detail.isEmpty()) {
+                int start = text.length();
+                text.append("   ").append(detail);
+                text.setSpan(new icyllis.modernui.text.style.ForegroundColorSpan(
+                                kind.equals("missing") ? IdeColors.ERROR : IdeColors.TEXT_SECONDARY), start, text.length(),
+                        icyllis.modernui.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            var row = CraftPyFragment.label(context, "", R.attr.textAppearanceBodySmall);
+            row.setText(text);
+            row.setPadding(view.dp(8), view.dp(2), view.dp(4), view.dp(2));
+            row.setClickable(true);
+            CraftPyFragment.hoverBackground(row);
+            if (node != null && node.data().has("description")) {
+                row.setTooltipText(node.data().get("description").getAsString());
+            }
+            row.setOnClickListener(v -> select(key));
+            focus.addView(row);
+        }
+        if (matching.size() > MAX_ROWS) {
+            var more = CraftPyFragment.label(context, "+ " + (matching.size() - MAX_ROWS) + " more (search below)",
+                    R.attr.textAppearanceBodySmall);
+            more.setTextColor(IdeColors.TEXT_DISABLED);
+            focus.addView(more);
+        }
+        return 1;
+    }
+
+    /** What the link carries: the imported names or the ids used. */
+    private static String detail(Edge edge) {
         JsonObject data = edge.data();
-        return switch (edge.kind()) {
-            case "required" -> "needs it to load";
-            case "optional" -> "works with it if installed";
-            case "imports" -> data.has("names") && data.getAsJsonArray("names").size() > 0
-                    ? "imports " + String.join(", ", strings(data.getAsJsonArray("names"), 4))
-                    + (data.getAsJsonArray("names").size() > 4 ? " ..." : "") : "imports its code";
-            case "uses" -> "uses " + (data.has("count") ? data.get("count").getAsInt() + " of its id(s): " : "")
-                    + (data.has("ids") ? String.join(", ", strings(data.getAsJsonArray("ids"), 3)) : "");
-            case "incompatible", "discouraged" -> edge.kind() + " with it";
-            default -> edge.kind();
-        };
-    }
-
-    /** Line and legend colour of a link kind. */
-    static int lineColor(String kind) {
-        return switch (kind) {
-            case "required" -> IdeColors.SUCCESS;
-            case "imports" -> 0xFFB07CD8;
-            case "uses" -> IdeColors.INFO;
-            case "optional" -> IdeColors.TEXT_DISABLED;
-            default -> IdeColors.ERROR;
-        };
+        if (data.has("names") && data.getAsJsonArray("names").size() > 0) {
+            return String.join(", ", strings(data.getAsJsonArray("names"), 6))
+                    + (data.getAsJsonArray("names").size() > 6 ? ", ..." : "");
+        }
+        if (data.has("ids") && data.getAsJsonArray("ids").size() > 0) {
+            int count = data.has("count") ? data.get("count").getAsInt() : data.getAsJsonArray("ids").size();
+            return String.join(", ", strings(data.getAsJsonArray("ids"), 3)) + (count > 3 ? " and " + (count - 3) + " more" : "");
+        }
+        return "";
     }
 
     private View centerCard(Context context, Node node) {
         var box = box(context, IdeColors.ACCENT);
-        var name = CraftPyFragment.label(context, node.name(), R.attr.textAppearanceTitleSmall);
+        var name = CraftPyFragment.label(context, badge(node.kind()) + " " + node.name(), R.attr.textAppearanceTitleSmall);
         name.setTextColor(IdeColors.TEXT);
         box.addView(name);
         var kind = CraftPyFragment.label(context, node.kind() + (node.version().isEmpty() ? "" : "  " + node.version()),
@@ -505,17 +506,32 @@ final class ModMapPanel {
         if (data.has("description")) {
             var description = CraftPyFragment.label(context, data.get("description").getAsString(), R.attr.textAppearanceBodySmall);
             description.setTextColor(IdeColors.TEXT);
-            description.setMaxLines(2);
             box.addView(description);
+        } else if (node.kind().equals("module") || node.kind().equals("project")) {
+            var none = CraftPyFragment.label(context, "No description (add one to its "
+                    + (node.kind().equals("module") ? "module.json" : "project.json") + ").", R.attr.textAppearanceBodySmall);
+            none.setTextColor(IdeColors.TEXT_DISABLED);
+            box.addView(none);
+        }
+        if (data.has("author")) {
+            var author = CraftPyFragment.label(context, "by " + data.get("author").getAsString(), R.attr.textAppearanceBodySmall);
+            author.setTextColor(IdeColors.TEXT_SECONDARY);
+            box.addView(author);
         }
         if (data.has("adds") && data.getAsJsonObject("adds").size() > 0) {
             var adds = CraftPyFragment.label(context, "adds " + addsText(data), R.attr.textAppearanceBodySmall);
             adds.setTextColor(IdeColors.TEXT_SECONDARY);
             box.addView(adds);
         }
-        var tags = tagsOf(context, data);
-        if (!tags.isEmpty()) {
-            var row = CraftPyFragment.tags(context, tags);
+        if (data.has("warning")) {
+            var warning = CraftPyFragment.label(context, data.get("warning").getAsString(), R.attr.textAppearanceBodySmall);
+            warning.setTextColor(IdeColors.ERROR);
+            box.addView(warning);
+        }
+        // a few tags per row, so a narrow panel never cuts them off
+        List<TextView> tags = tagsOf(context, data);
+        for (int i = 0; i < tags.size(); i += 3) {
+            var row = CraftPyFragment.tags(context, tags.subList(i, Math.min(tags.size(), i + 3)));
             row.setPadding(0, view.dp(3), 0, 0);
             box.addView(row);
         }
@@ -601,115 +617,5 @@ final class ModMapPanel {
             out.add(array.get(i).getAsString());
         }
         return out;
-    }
-
-    /**
-     * Three columns (left cards, the center card, right cards) with a line from each side card to the center card,
-     * drawn behind them. Positions come from the laid-out views, so nothing overlaps and all text stays horizontal.
-     */
-    private final class Links extends LinearLayout {
-        final LinearLayout left;
-        final LinearLayout right;
-        private final LinearLayout middle;
-        private final List<View> leftCards = new ArrayList<>();
-        private final List<View> rightCards = new ArrayList<>();
-        private final List<String> leftKinds = new ArrayList<>();
-        private final List<String> rightKinds = new ArrayList<>();
-        private View center;
-        private final Paint paint = new Paint();
-
-        Links(Context context) {
-            super(context);
-            setOrientation(HORIZONTAL);
-            setPadding(dp(8), dp(8), dp(8), dp(8));
-            setWillNotDraw(false);
-            left = column(context);
-            middle = column(context);
-            middle.setGravity(icyllis.modernui.view.Gravity.CENTER_VERTICAL);
-            right = column(context);
-            var side = new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1);
-            var mid = new LinearLayout.LayoutParams(0, MATCH_PARENT, 1);
-            mid.leftMargin = mid.rightMargin = dp(18);
-            addView(left, side);
-            addView(middle, mid);
-            addView(right, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-        }
-
-        private LinearLayout column(Context context) {
-            var column = new LinearLayout(context);
-            column.setOrientation(VERTICAL);
-            return column;
-        }
-
-        void clear() {
-            left.removeAllViews();
-            right.removeAllViews();
-            middle.removeAllViews();
-            leftCards.clear();
-            rightCards.clear();
-            leftKinds.clear();
-            rightKinds.clear();
-            center = null;
-        }
-
-        void empty(String text) {
-            var label = CraftPyFragment.label(getContext(), text, R.attr.textAppearanceBodySmall);
-            label.setTextColor(IdeColors.TEXT_SECONDARY);
-            middle.addView(label);
-        }
-
-        void addLeft(View card, String kind) {
-            add(left, card);
-            leftCards.add(card);
-            leftKinds.add(kind);
-        }
-
-        void addRight(View card, String kind) {
-            add(right, card);
-            rightCards.add(card);
-            rightKinds.add(kind);
-        }
-
-        private void add(LinearLayout column, View card) {
-            var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-            lp.bottomMargin = dp(6);
-            column.addView(card, lp);
-        }
-
-        void setCenter(View card) {
-            center = card;
-            middle.addView(card, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(@NonNull Canvas canvas) {
-            super.onDraw(canvas);
-            if (center == null) {
-                return;
-            }
-            float cy = middle.getTop() + center.getTop() + center.getHeight() / 2f;
-            float cl = middle.getLeft() + center.getLeft();
-            float cr = middle.getLeft() + center.getRight();
-            paint.setStyle(Paint.STROKE);
-            paint.setStrokeWidth(dp(1.5f));
-            for (int i = 0; i < leftCards.size(); i++) {
-                View card = leftCards.get(i);
-                line(canvas, left.getLeft() + card.getRight(), left.getTop() + card.getTop() + card.getHeight() / 2f, cl, cy, leftKinds.get(i));
-            }
-            for (int i = 0; i < rightCards.size(); i++) {
-                View card = rightCards.get(i);
-                line(canvas, cr, cy, right.getLeft() + card.getLeft(), right.getTop() + card.getTop() + card.getHeight() / 2f, rightKinds.get(i));
-            }
-        }
-
-        private void line(Canvas canvas, float x0, float y0, float x1, float y1, String kind) {
-            paint.setColor(0xFF000000 | (lineColor(kind) & 0xFFFFFF));
-            // a soft S: across, then over, then across (reads better than a straight diagonal)
-            float mid = (x0 + x1) / 2f;
-            canvas.drawLine(x0, y0, mid, y0, paint);
-            canvas.drawLine(mid, y0, mid, y1, paint);
-            canvas.drawLine(mid, y1, x1, y1, paint);
-        }
     }
 }

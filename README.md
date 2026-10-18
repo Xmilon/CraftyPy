@@ -41,13 +41,11 @@ The `welcome` project is a guided tour, and `examples/` has more.
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `/craftpy give <player> <project>:<id> <block\|item\|egg> [count]` | Content of a project (vanilla `/give` can't) |
-| `/craftpy summon <project>:<mob> [pos]` | Spawns a project mob |
-| `/craftpy place <template> [pos] [rotation]` | Places a structure template |
-| `/craftpy module list\|enable\|disable\|info\|reload <module>` | Manages modules (also from the server console) |
-| `/craftpy project trust <project>` | Lets a project that came from elsewhere use what it declares |
+- `/craftpy give <player> <project>:<id> <block|item|egg> [count]`: Content of a project (vanilla `/give` can't)
+- `/craftpy summon <project>:<mob> [pos]`: Spawns a project mob
+- `/craftpy place <template> [pos] [rotation]`: Places a structure template
+- `/craftpy module list|enable|disable|info|reload <module>`: Manages modules (also from the server console)
+- `/craftpy project trust <project>`: Lets a project that came from elsewhere use what it declares
 
 A project's own `@command("name")` becomes `/<project>:<name>`. All of these need op (level 2).
 
@@ -121,7 +119,10 @@ trust.
 - 32 passive mobs, 32 hostile mobs and 32 effects at a time. Block and item pools default to 256 each, up to 4096 in
   `config/craftpy-slots.properties`, and a bigger pool needs a restart.
 - New world generation (structures, natural spawns) applies when a world is opened.
-- CPython 3.13+ only. On 32-bit Windows or musl Linux, install Python yourself and set `pythonPath`.
+- CPython 3.13+ only. Python is bundled for Windows x64, macOS (Intel and Apple Silicon) and Linux x64/arm64. On
+  Windows on ARM, 32-bit Windows or musl Linux (Alpine) there is no bundled build: install Python 3.13 yourself and
+  set `pythonPath`.
+- Built and tested on Windows; macOS and Linux are untested.
 
 ## License
 

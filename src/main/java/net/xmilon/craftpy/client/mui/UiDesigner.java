@@ -33,11 +33,16 @@ import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
  * the user saves that tab. UI thread only.
  */
 final class UiDesigner {
-    private static final Set<String> CONTAINERS = Set.of("vbox", "hbox", "grid", "tabs", "scroll");
+    private static final Set<String> CONTAINERS = Set.of("vbox", "hbox", "grid", "tabs", "scroll", "canvas");
     private static final List<String> TYPES = List.of("label", "button", "text_input", "text_area", "checkbox",
-            "slider", "dropdown", "list", "progress", "image", "item_icon", "vbox", "hbox", "grid", "tabs", "scroll");
+            "slider", "dropdown", "list", "progress", "image", "item_icon", "canvas", "vbox", "hbox", "grid", "tabs",
+            "scroll");
     private static final Set<String> NUMBERS = Set.of("size", "weight", "spacing", "padding", "columns", "min", "max",
-            "selected");
+            "selected", "width", "height", "x", "y");
+    /** Positions and sizes snap to this many dp. */
+    static final int GRID = 4;
+    /** The smallest width or height a handle makes. */
+    static final int MIN_SIZE = 16;
     private static final Set<String> LISTS = Set.of("options", "items");
 
     private final Context context;
@@ -211,8 +216,8 @@ final class UiDesigner {
         size.add(320);
         size.add(220);
         fresh.add("size", size);
-        JsonObject root = newNode("vbox");
-        root.addProperty("padding", 4);
+        JsonObject root = newNode("canvas");
+        root.addProperty("height", 160);
         fresh.add("root", root);
         return fresh;
     }
@@ -243,7 +248,8 @@ final class UiDesigner {
             var add = button(context, type.replace('_', ' '), R.attr.borderlessButtonStyle, v -> add(type));
             line.addView(add, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         }
-        var dragHint = label(context, "Move a widget: drag it in the tree, above or below another, or into a box.",
+        var dragHint = label(context, "In the window: click to select, drag to move (free in a canvas, into place in a"
+                + " box), drag the corner squares to resize. In the tree: drag above, below or into a box.",
                 R.attr.textAppearanceBodySmall);
         dragHint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         palette.addView(dragHint);
@@ -567,21 +573,354 @@ final class UiDesigner {
 
     private void refreshPreview() {
         previewHolder.removeAllViews();
-        int[] size = {320, 220};
-        if (window.has("size") && window.get("size").isJsonArray() && window.getAsJsonArray("size").size() >= 2) {
-            size[0] = window.getAsJsonArray("size").get(0).getAsInt();
-            size[1] = window.getAsJsonArray("size").get(1).getAsInt();
-        }
+        int[] size = windowSize();
         var frame = card(context);
         int pad = frame.dp(10);
         frame.setPadding(pad, pad, pad, pad);
         frame.addView(label(context, WindowFragment.str(window, "title", ""), R.attr.textAppearanceTitleMedium));
+        java.util.Map<View, JsonObject> shown = new java.util.HashMap<>();
         try {
-            frame.addView(WindowFragment.previewView(context, window.getAsJsonObject("root")));
+            JsonObject root = window.getAsJsonObject("root");
+            var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+            WindowFragment.sized(frame, root, lp);
+            frame.addView(WindowFragment.previewView(context, root, shown), lp);
         } catch (RuntimeException e) {
             frame.addView(label(context, "Preview failed: " + e.getMessage(), R.attr.textAppearanceBodySmall));
         }
-        previewHolder.addView(frame, new LinearLayout.LayoutParams(frame.dp(Math.max(120, size[0])), WRAP_CONTENT));
+        // the window as big as in game, with room around it for the handles; the overlay takes every click and drag
+        var stage = new icyllis.modernui.widget.FrameLayout(context);
+        int margin = stage.dp(8);
+        var frameLp = new icyllis.modernui.widget.FrameLayout.LayoutParams(frame.dp(size[0]), frame.dp(size[1]));
+        frameLp.leftMargin = frameLp.topMargin = frameLp.rightMargin = frameLp.bottomMargin = margin;
+        stage.addView(frame, frameLp);
+        stage.addView(new PreviewOverlay(context, shown, frame),
+                new icyllis.modernui.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        previewHolder.addView(stage, new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
+    }
+
+    private int[] windowSize() {
+        int[] size = {320, 220};
+        if (window.has("size") && window.get("size").isJsonArray() && window.getAsJsonArray("size").size() >= 2) {
+            size[0] = Math.max(120, Math.min(900, window.getAsJsonArray("size").get(0).getAsInt()));
+            size[1] = Math.max(80, Math.min(600, window.getAsJsonArray("size").get(1).getAsInt()));
+        }
+        return size;
+    }
+
+    /**
+     * Drawn over the preview window, like the design surface of a window builder: a click selects the widget under the
+     * pointer, a drag moves it (to any spot in a canvas, into another place in a box), the corner squares resize it and
+     * the square at the window's bottom-right corner resizes the window. The real widgets under it never react. Each
+     * gesture is one change (one undo step in the editor tab).
+     */
+    private final class PreviewOverlay extends View {
+        private enum Mode { NONE, PRESS, MOVE, RESIZE, WINDOW }
+
+        private final java.util.Map<View, JsonObject> shown;
+        private final View frame;
+        private final icyllis.modernui.graphics.Paint paint = new icyllis.modernui.graphics.Paint();
+        private final float density;
+        private Mode mode = Mode.NONE;
+        private float downX;
+        private float downY;
+        private int corner; // 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
+        private JsonObject node;
+        @Nullable
+        private JsonObject parent;
+        private View nodeView;
+        private int startX;
+        private int startY;
+        private int startW;
+        private int startH;
+        @Nullable
+        private JsonObject dropTarget;
+        private Drop dropZone;
+        private boolean changedSomething;
+
+        PreviewOverlay(Context context, java.util.Map<View, JsonObject> shown, View frame) {
+            super(context);
+            this.shown = shown;
+            this.frame = frame;
+            this.density = context.getResources().getDisplayMetrics().density;
+        }
+
+        /** {@code view}'s rectangle in this overlay's coordinates: left, top, right, bottom. */
+        private float[] rect(View view) {
+            int[] mine = new int[2];
+            int[] its = new int[2];
+            getLocationInWindow(mine);
+            view.getLocationInWindow(its);
+            float left = its[0] - mine[0];
+            float top = its[1] - mine[1];
+            return new float[] {left, top, left + view.getWidth(), top + view.getHeight()};
+        }
+
+        @Nullable
+        private View viewOf(JsonObject which) {
+            for (var entry : shown.entrySet()) {
+                if (entry.getValue() == which && entry.getKey().isShown()) {
+                    return entry.getKey();
+                }
+            }
+            return null;
+        }
+
+        /** The deepest (smallest) widget under the point, skipping {@code skip} and what is inside it. */
+        @Nullable
+        private JsonObject hit(float x, float y, @Nullable JsonObject skip) {
+            JsonObject best = null;
+            float bestArea = Float.MAX_VALUE;
+            for (var entry : shown.entrySet()) {
+                if (!entry.getKey().isShown()) {
+                    continue;
+                }
+                if (skip != null && (entry.getValue() == skip || find(skip, entry.getValue(), new ArrayList<>()))) {
+                    continue;
+                }
+                float[] r = rect(entry.getKey());
+                float area = (r[2] - r[0]) * (r[3] - r[1]);
+                if (x >= r[0] && x < r[2] && y >= r[1] && y < r[3] && area <= bestArea) {
+                    best = entry.getValue();
+                    bestArea = area;
+                }
+            }
+            return best;
+        }
+
+        private boolean inCanvas() {
+            return parent != null && "canvas".equals(WindowFragment.str(parent, "type", ""));
+        }
+
+        @Override
+        public boolean onTouchEvent(icyllis.modernui.view.MotionEvent event) {
+            float x = event.getX();
+            float y = event.getY();
+            switch (event.getAction()) {
+                case icyllis.modernui.view.MotionEvent.ACTION_DOWN -> {
+                    if (getParent() != null) {
+                        getParent().requestDisallowInterceptTouchEvent(true); // a drag here is not a scroll
+                    }
+                    downX = x;
+                    downY = y;
+                    changedSomething = false;
+                    float[] w = rect(frame);
+                    if (near(x, y, w[2], w[3])) {
+                        mode = Mode.WINDOW;
+                        int[] size = windowSize();
+                        startW = size[0];
+                        startH = size[1];
+                        return true;
+                    }
+                    View current = viewOf(selected);
+                    if (current != null) {
+                        float[] r = rect(current);
+                        float[][] corners = {{r[0], r[1]}, {r[2], r[1]}, {r[0], r[3]}, {r[2], r[3]}};
+                        for (int i = 0; i < 4; i++) {
+                            if (near(x, y, corners[i][0], corners[i][1]) && selected != window.getAsJsonObject("root")) {
+                                begin(selected, current);
+                                corner = i;
+                                mode = Mode.RESIZE;
+                                return true;
+                            }
+                        }
+                    }
+                    JsonObject under = hit(x, y, null);
+                    if (under == null) {
+                        mode = Mode.NONE;
+                        return true;
+                    }
+                    View view = viewOf(under);
+                    if (under != selected) {
+                        select(under);
+                        refreshTree();
+                        refreshProps();
+                    }
+                    begin(under, view);
+                    mode = Mode.PRESS;
+                    invalidate();
+                    return true;
+                }
+                case icyllis.modernui.view.MotionEvent.ACTION_MOVE -> {
+                    float dx = (x - downX) / density;
+                    float dy = (y - downY) / density;
+                    switch (mode) {
+                        case PRESS -> {
+                            if (Math.abs(x - downX) + Math.abs(y - downY) > dp(4) && parent != null) {
+                                mode = Mode.MOVE;
+                            }
+                        }
+                        case MOVE -> drag(x, y, dx, dy);
+                        case RESIZE -> resize(dx, dy);
+                        case WINDOW -> {
+                            JsonArray size = new JsonArray();
+                            size.add(Math.max(120, Math.min(900, resized(startW, dx))));
+                            size.add(Math.max(80, Math.min(600, resized(startH, dy))));
+                            window.add("size", size);
+                            var lp = frame.getLayoutParams();
+                            lp.width = Math.round(size.get(0).getAsInt() * density);
+                            lp.height = Math.round(size.get(1).getAsInt() * density);
+                            frame.setLayoutParams(lp);
+                            changedSomething = true;
+                        }
+                        default -> {
+                        }
+                    }
+                    invalidate();
+                    return true;
+                }
+                case icyllis.modernui.view.MotionEvent.ACTION_UP, icyllis.modernui.view.MotionEvent.ACTION_CANCEL -> {
+                    boolean up = event.getAction() == icyllis.modernui.view.MotionEvent.ACTION_UP;
+                    if (up && mode == Mode.MOVE && !inCanvas() && dropTarget != null
+                            && moveNode(window.getAsJsonObject("root"), node, dropTarget, dropZone)) {
+                        select(node);
+                        changedSomething = true;
+                    }
+                    mode = Mode.NONE;
+                    dropTarget = null;
+                    if (changedSomething) {
+                        changed();
+                        post(UiDesigner.this::refreshAll); // rebuilds this overlay too, after the gesture
+                    }
+                    invalidate();
+                    return true;
+                }
+                default -> {
+                    return true;
+                }
+            }
+        }
+
+        private boolean near(float x, float y, float px, float py) {
+            return Math.abs(x - px) <= dp(7) && Math.abs(y - py) <= dp(7);
+        }
+
+        private void begin(JsonObject which, @Nullable View view) {
+            node = which;
+            nodeView = view;
+            Entry entry = entryOf(which);
+            parent = entry == null ? null : entry.parent;
+            startX = intOf(which, "x", 0);
+            startY = intOf(which, "y", 0);
+            startW = intOf(which, "width", view == null ? 40 : Math.round(view.getWidth() / density));
+            startH = intOf(which, "height", view == null ? 20 : Math.round(view.getHeight() / density));
+        }
+
+        /** Moves the widget: freely in a canvas, else marks where in the boxes it would go. */
+        private void drag(float x, float y, float dx, float dy) {
+            if (inCanvas()) {
+                View box = viewOf(parent);
+                int maxX = box == null ? Integer.MAX_VALUE : Math.round(box.getWidth() / density) - startW;
+                int maxY = box == null ? Integer.MAX_VALUE : Math.round(box.getHeight() / density) - startH;
+                int nx = moved(startX, dx, maxX);
+                int ny = moved(startY, dy, Math.max(maxY, startY)); // a canvas without a height grows downwards
+                node.addProperty("x", nx);
+                node.addProperty("y", ny);
+                if (nodeView != null && nodeView.getLayoutParams() instanceof icyllis.modernui.widget.FrameLayout.LayoutParams lp) {
+                    lp.leftMargin = Math.round(nx * density);
+                    lp.topMargin = Math.round(ny * density);
+                    nodeView.setLayoutParams(lp);
+                }
+                changedSomething = true;
+                return;
+            }
+            dropTarget = null;
+            JsonObject target = hit(x, y, node);
+            View targetView = target == null ? null : viewOf(target);
+            if (target == null || targetView == null) {
+                return;
+            }
+            Entry targetEntry = entryOf(target);
+            boolean across = targetEntry != null && targetEntry.parent != null
+                    && "hbox".equals(WindowFragment.str(targetEntry.parent, "type", ""));
+            float[] r = rect(targetView);
+            float fraction = across ? (x - r[0]) / Math.max(1, r[2] - r[0]) : (y - r[1]) / Math.max(1, r[3] - r[1]);
+            Drop zone = zone(target, fraction);
+            JsonObject root = window.getAsJsonObject("root");
+            JsonObject copy = root.deepCopy();
+            JsonObject copiedNode = nodeAt(copy, pathOf(root, node));
+            JsonObject copiedTarget = nodeAt(copy, pathOf(root, target));
+            if (copiedNode != null && copiedTarget != null && moveNode(copy, copiedNode, copiedTarget, zone)) {
+                dropTarget = target;
+                dropZone = zone;
+            }
+        }
+
+        private void resize(float dx, float dy) {
+            boolean left = corner == 0 || corner == 2;
+            boolean top = corner == 0 || corner == 1;
+            int width = resized(startW, left ? -dx : dx);
+            int height = resized(startH, top ? -dy : dy);
+            node.addProperty("width", width);
+            node.addProperty("height", height);
+            if (inCanvas()) {
+                if (left) {
+                    node.addProperty("x", Math.max(0, startX + startW - width));
+                }
+                if (top) {
+                    node.addProperty("y", Math.max(0, startY + startH - height));
+                }
+            }
+            if (nodeView != null) {
+                var lp = nodeView.getLayoutParams();
+                lp.width = Math.round(width * density);
+                lp.height = Math.round(height * density);
+                if (lp instanceof icyllis.modernui.widget.FrameLayout.LayoutParams frameLp) {
+                    frameLp.leftMargin = Math.round(intOf(node, "x", 0) * density);
+                    frameLp.topMargin = Math.round(intOf(node, "y", 0) * density);
+                }
+                if (lp instanceof LinearLayout.LayoutParams linearLp && linearLp.weight > 0) {
+                    linearLp.weight = 0; // a size set by hand wins over the share of the box
+                    node.remove("weight");
+                }
+                nodeView.setLayoutParams(lp);
+            }
+            changedSomething = true;
+        }
+
+        @Override
+        protected void onDraw(@icyllis.modernui.annotation.NonNull icyllis.modernui.graphics.Canvas canvas) {
+            float handle = dp(3);
+            // the window's resize corner
+            float[] w = rect(frame);
+            paint.setStyle(icyllis.modernui.graphics.Paint.FILL);
+            paint.setColor(IdeColors.TEXT_SECONDARY);
+            canvas.drawRect(w[2] - handle, w[3] - handle, w[2] + handle, w[3] + handle, paint);
+            View current = viewOf(selected);
+            if (current != null) {
+                float[] r = rect(current);
+                paint.setStyle(icyllis.modernui.graphics.Paint.STROKE);
+                paint.setStrokeWidth(dp(1));
+                paint.setColor(IdeColors.ACCENT);
+                canvas.drawRect(r[0], r[1], r[2], r[3], paint);
+                if (selected != window.getAsJsonObject("root")) {
+                    paint.setStyle(icyllis.modernui.graphics.Paint.FILL);
+                    for (float[] c : new float[][] {{r[0], r[1]}, {r[2], r[1]}, {r[0], r[3]}, {r[2], r[3]}}) {
+                        canvas.drawRect(c[0] - handle, c[1] - handle, c[0] + handle, c[1] + handle, paint);
+                    }
+                }
+            }
+            if (mode == Mode.MOVE && dropTarget != null) {
+                View target = viewOf(dropTarget);
+                if (target != null) {
+                    float[] r = rect(target);
+                    Entry entry = entryOf(dropTarget);
+                    boolean across = entry != null && entry.parent != null
+                            && "hbox".equals(WindowFragment.str(entry.parent, "type", ""));
+                    paint.setStyle(icyllis.modernui.graphics.Paint.FILL);
+                    paint.setColor(IdeColors.INFO);
+                    float t = dp(2);
+                    switch (dropZone) {
+                        case INTO -> {
+                            paint.setStyle(icyllis.modernui.graphics.Paint.STROKE);
+                            paint.setStrokeWidth(t);
+                            canvas.drawRect(r[0], r[1], r[2], r[3], paint);
+                        }
+                        case BEFORE -> canvas.drawRect(r[0], r[1], across ? r[0] + t : r[2], across ? r[3] : r[1] + t, paint);
+                        case AFTER -> canvas.drawRect(across ? r[2] - t : r[0], across ? r[1] : r[3] - t, r[2], r[3], paint);
+                    }
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -598,10 +937,67 @@ final class UiDesigner {
             container.add("children", new JsonArray());
         }
         JsonObject node = newNode(type);
+        if ("canvas".equals(WindowFragment.str(container, "type", ""))) {
+            place(container, node);
+        }
         container.getAsJsonArray("children").add(node);
         select(node);
         refreshAll();
         changed();
+    }
+
+    /** A new widget in a canvas: at the left, below the lowest one, with a size it is usable at. */
+    static void place(JsonObject canvas, JsonObject node) {
+        int bottom = 0;
+        if (canvas.has("children") && canvas.get("children").isJsonArray()) {
+            for (JsonElement child : canvas.getAsJsonArray("children")) {
+                if (child.isJsonObject()) {
+                    JsonObject c = child.getAsJsonObject();
+                    bottom = Math.max(bottom, intOf(c, "y", 0) + intOf(c, "height", 20));
+                }
+            }
+        }
+        node.addProperty("x", 8);
+        node.addProperty("y", snap(bottom + 8));
+        switch (WindowFragment.str(node, "type", "")) {
+            case "button", "checkbox", "dropdown" -> {
+                node.addProperty("width", 96);
+                node.addProperty("height", 24);
+            }
+            case "text_input", "slider", "progress" -> {
+                node.addProperty("width", 140);
+                node.addProperty("height", 24);
+            }
+            case "text_area", "list", "vbox", "hbox", "grid", "tabs", "scroll", "canvas" -> {
+                node.addProperty("width", 160);
+                node.addProperty("height", 80);
+            }
+            default -> {
+            }
+        }
+    }
+
+    static int intOf(JsonObject node, String key, int fallback) {
+        try {
+            return node.has(key) ? (int) Math.round(node.get(key).getAsDouble()) : fallback;
+        } catch (RuntimeException e) {
+            return fallback;
+        }
+    }
+
+    /** {@code value} on the {@link #GRID}. */
+    static int snap(float value) {
+        return Math.round(value / GRID) * GRID;
+    }
+
+    /** A position dragged by {@code delta} dp: snapped, never left of or above 0, never past {@code max}. */
+    static int moved(int start, float delta, int max) {
+        return Math.max(0, Math.min(Math.max(0, max), snap(start + delta)));
+    }
+
+    /** A size dragged by {@code delta} dp: snapped and at least {@link #MIN_SIZE}. */
+    static int resized(int start, float delta) {
+        return Math.max(MIN_SIZE, snap(start + delta));
     }
 
     private void delete() {
@@ -733,6 +1129,11 @@ final class UiDesigner {
             default -> {
             }
         }
+        if (type.equals("canvas")) {
+            list.add("padding");
+        }
+        list.add("width");
+        list.add("height");
         list.add("weight");
         list.add("title");
         return list;
@@ -750,7 +1151,12 @@ final class UiDesigner {
         }
         String type = WindowFragment.str(selected, "type", "?");
         props.addView(label(context, "Widget: " + type, R.attr.textAppearanceTitleSmall));
-        for (String key : propsOf(type)) {
+        List<String> keys = new ArrayList<>(propsOf(type));
+        Entry entry = entryOf(selected);
+        if (entry != null && entry.parent != null && "canvas".equals(WindowFragment.str(entry.parent, "type", ""))) {
+            keys.addAll(0, List.of("x", "y")); // placed freely in its canvas
+        }
+        for (String key : keys) {
             props.addView(field(context, key, nodeValue(selected, key), value -> setProp(key, value)));
         }
     }

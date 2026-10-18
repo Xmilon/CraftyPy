@@ -3,11 +3,9 @@
 Rubies as a full little mod: an ore that drops them, a ruby block, a sword, a ruby apple, recipes for all of them, and a
 "surge" event that rewards players who keep mining.
 
-| | |
-|---|---|
-| Module id | `ruby_rush` |
-| Works on | client and server |
-| CraftPy Python API | 2.2 |
+- Module id: `ruby_rush`
+- Works on: client and server
+- CraftPy Python API: 2.2
 
 ## What is inside
 
@@ -19,11 +17,9 @@ Rubies as a full little mod: an ore that drops them, a ruby block, a sword, a ru
 
 ## Files
 
-| File | What it does |
-|---|---|
-| `code/main.py` | imports the other files in the order they depend on each other |
-| `code/items.py`, `code/blocks.py` | the content |
-| `code/recipes.py` | every recipe |
-| `code/events.py`, `code/surge.py` | mining rewards and the surge timer |
-| `code/commands.py` | the commands |
-| `assets/textures/` | the PNG textures |
+- `code/main.py`: imports the other files in the order they depend on each other
+- `code/items.py`, `code/blocks.py`: the content
+- `code/recipes.py`: every recipe
+- `code/events.py`, `code/surge.py`: mining rewards and the surge timer
+- `code/commands.py`: the commands
+- `assets/textures/`: the PNG textures

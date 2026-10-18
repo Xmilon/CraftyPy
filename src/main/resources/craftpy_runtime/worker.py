@@ -2480,6 +2480,11 @@ def ScrollView(*children, **p):
     return w.add(*children)
 
 
+def Canvas(*children, **p):
+    w = Widget("canvas", **p)
+    return w.add(*children)
+
+
 class Window:
     """Base class for Python-defined in-game windows. Subclass and implement build()."""
 
@@ -2560,7 +2565,7 @@ _WIDGET_CALLS = {  # function -> (json type, its positional parameters; None for
     "Slider": ("slider", ["value", "min", "max"]), "Dropdown": ("dropdown", ["options", "selected"]),
     "ListView": ("list", ["items"]), "ProgressBar": ("progress", ["value"]), "Image": ("image", ["source"]),
     "ItemIcon": ("item_icon", ["item"]), "VBox": ("vbox", None), "HBox": ("hbox", None), "Grid": ("grid", None),
-    "TabView": ("tabs", None), "ScrollView": ("scroll", None),
+    "TabView": ("tabs", None), "ScrollView": ("scroll", None), "Canvas": ("canvas", None),
 }
 
 
@@ -2634,7 +2639,7 @@ def _window_to_json(sources, ident):
             window["root"] = _widget_json(returns[-1].value, path, notes)
         except _NotAWidget as exc:
             return {"error": str(exc)}
-        if window["root"]["type"] not in ("vbox", "hbox", "grid", "tabs", "scroll"):
+        if window["root"]["type"] not in ("vbox", "hbox", "grid", "tabs", "scroll", "canvas"):
             window["root"] = {"type": "vbox", "children": [window["root"]]}
         actions = sorted({n.split("'")[1] for n in notes if n.startswith("action '")})
         if actions:
@@ -3044,9 +3049,13 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.7"
+API_VERSION = "2.8"
 
 API_CHANGES = [
+    {"version": "2.8", "date": "2026-10-18",
+     "added": ["`Canvas(...)`: a window area where each widget sits at `x`, `y` with its own `width` and `height` (the "
+               "UI maker drags and resizes them). `width=` and `height=` also work on any widget in `VBox`, `HBox` and "
+               "`Grid`."]},
     {"version": "2.7", "date": "2026-10-17",
      "added": ["`media` (client side): play OGG, WAV, AIFF, MP3 and FLAC files of `pyforge/shared/<folder>` and music "
                "sound events; pause, seek, volume, state; `nearby=True` lets players around you hear it. A module reads "
@@ -3538,7 +3547,7 @@ client = _Client()
 _CLIENT_NAMES = frozenset({
     "on", "every", "after", "run_later", "run_every", "run_next_tick", "scheduler", "storage", "Pos", "has",
     "window", "Window", "ui", "action", "Label", "Button", "TextInput", "TextArea", "Checkbox", "Slider", "Dropdown",
-    "ListView", "ProgressBar", "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView",
+    "ListView", "ProgressBar", "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView", "Canvas",
     "hud", "keys", "client", "API_VERSION", "http", "files", "Response", "media",
 })
 
@@ -3572,7 +3581,7 @@ def _server_api_names():
         "Label": Label, "Button": Button, "TextInput": TextInput, "TextArea": TextArea,
         "Checkbox": Checkbox, "Slider": Slider, "Dropdown": Dropdown, "ListView": ListView,
         "ProgressBar": ProgressBar, "Image": Image, "ItemIcon": ItemIcon,
-        "VBox": VBox, "HBox": HBox, "Grid": Grid, "TabView": TabView, "ScrollView": ScrollView,
+        "VBox": VBox, "HBox": HBox, "Grid": Grid, "TabView": TabView, "ScrollView": ScrollView, "Canvas": Canvas,
         "has": has, "core": core, "requires_restart": requires_restart,
         # simple API
         "Block": Block, "Item": Item, "Food": Food, "Content": Content, "Mob": Mob, "Spawn": Spawn, "Effect": Effect,
@@ -6490,6 +6499,9 @@ def _load_docs():
         "Grid": ("Places children in a grid.", {"children": "Widgets.", "p": "columns, spacing, padding."}, "A widget."),
         "TabView": ("Tabs; each child is one tab.", {"children": "Widgets.", "p": "selected (index)."}, "A widget."),
         "ScrollView": ("A scrolling area.", {"children": "Widgets.", "p": "padding."}, "A widget."),
+        "Canvas": ("Places each child freely: x and y (from the top left) and width and height, all in pixels; what the"
+                   " UI maker makes when you drag and resize widgets.",
+                   {"children": "Widgets with x=, y=, width=, height=.", "p": "width, height, padding."}, "A widget."),
         "Window.build": ("Returns the widgets of the window. Called again after every callback.", {"ctx": "Window context: ctx.player, ctx.values, ctx.close."}, "A widget."),
         "hud.text": ("Shows text on your screen (client-side code only). Calling it again with the same id updates it.", {
             "id": "Name of this element (letters, digits, _ . -); the same id replaces it.", "text": "The text (at most 256 characters).",

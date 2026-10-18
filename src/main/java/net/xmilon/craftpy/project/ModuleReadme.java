@@ -67,20 +67,20 @@ public final class ModuleReadme {
         if (!blank(description)) {
             out.append(description.strip()).append("\n\n");
         }
-        out.append("| | |\n|---|---|\n");
-        out.append("| Module id | `").append(id).append("` |\n");
-        out.append("| Version | ").append(blank(version) ? "-" : version).append(" |\n");
+        // a list, not a table: the in-game Markdown viewer cannot draw tables
+        out.append("- **Module id**: `").append(id).append("`\n");
+        out.append("- **Version**: ").append(blank(version) ? "-" : version).append("\n");
         if (!blank(author)) {
-            out.append("| Author | ").append(author).append(" |\n");
+            out.append("- **Author**: ").append(author).append("\n");
         }
-        out.append("| Works on | ").append(switch (side) {
+        out.append("- **Works on**: ").append(switch (side) {
             case BOTH -> "client and server";
             case CLIENT -> "client only (a resource pack and Python that runs on the player's computer)";
             case SERVER -> "server only (behaviour; players install nothing)";
-        }).append(" |\n");
-        out.append("| CraftPy Python API | ").append(blank(apiVersion) ? "-" : apiVersion).append(" |\n");
+        }).append("\n");
+        out.append("- **CraftPy Python API**: ").append(blank(apiVersion) ? "-" : apiVersion).append("\n");
         if (!mods.isEmpty()) {
-            out.append("| Uses content of | ").append(String.join(", ", mods)).append(" |\n");
+            out.append("- **Uses content of**: ").append(String.join(", ", mods)).append("\n");
         }
         out.append("\n## What is inside\n\n");
         boolean any = false;

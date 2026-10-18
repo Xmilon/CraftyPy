@@ -20,13 +20,11 @@ Commands: `/sky_islands:open`, `/sky_islands:raise <small|medium|large> <theme>`
 
 ## How it is made
 
-| File | What it does |
-|---|---|
-| `code/islands.py` | The plan: where islands float and which bridges join them. Plain Python, tested in `test_islands.py`. |
-| `code/themes.py` | The blocks of each theme. Copy one to make your own. |
-| `code/builder.py` | Plan to blocks, a few pieces per tick. It remembers every box it touched so it can take them down. |
-| `code/expedition.py` | One player's run: raising, the crystal hunt, records, the safety net. |
-| `ui/archipelago.json` | The settings window, made in the UI maker. Its buttons call `@action` functions in `main.py`. |
+- `code/islands.py`: The plan: where islands float and which bridges join them. Plain Python, tested in `test_islands.py`.
+- `code/themes.py`: The blocks of each theme. Copy one to make your own.
+- `code/builder.py`: Plan to blocks, a few pieces per tick. It remembers every box it touched so it can take them down.
+- `code/expedition.py`: One player's run: raising, the crystal hunt, records, the safety net.
+- `ui/archipelago.json`: The settings window, made in the UI maker. Its buttons call `@action` functions in `main.py`.
 
 The status window (`sky_status`) is written in Python instead, because it changes while you play.
 

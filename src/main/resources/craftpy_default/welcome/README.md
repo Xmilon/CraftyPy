@@ -2,11 +2,9 @@
 
 The tour of CraftPy: each file in `code/` shows one thing, with comments, in the order you should read them.
 
-| | |
-|---|---|
-| Module id | `welcome` |
-| Works on | client and server |
-| CraftPy Python API | 2.2 |
+- Module id: `welcome`
+- Works on: client and server
+- CraftPy Python API: 2.2
 
 ## What is inside
 

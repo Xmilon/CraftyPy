@@ -84,6 +84,37 @@ class ModMapTest {
         assertEquals("project:party", event.getAsJsonArray("also").get(0).getAsString());
     }
 
+    @Test
+    void problemsOfTheWholeSetup() {
+        var mods = List.of(new ModMap.Mod("a", "Mod A", "1", List.of(new ModMap.Dependency("b", "incompatible"))),
+                new ModMap.Mod("b", "Mod B", "1", List.of()));
+        ModuleInfo gems = new ModuleInfo();
+        gems.id = "gems";
+        gems.name = "Gems";
+        gems.dependencies = List.of("ghost");
+        var facts = Map.of(
+                "module:gems", new ModMap.Facts("", "", "both", "loaded", null, "needed", List.of(), Map.of(), List.of(),
+                        List.of("block_break"), null, false),
+                "project:p1", new ModMap.Facts("", "", "both", "loaded", null, "own", List.of(), Map.of(), List.of(),
+                        List.of("block_break"), null, false),
+                "project:p2", new ModMap.Facts("", "", "both", "error", null, "own", List.of(), Map.of(), List.of(),
+                        List.of("block_break"), null, false));
+        var out = ModMap.build(mods, List.of(gems), Map.of("p1", Map.of(), "p2", Map.of()), Map.of(), CatalogView.EMPTY, facts);
+        var texts = new java.util.ArrayList<String>();
+        var levels = new java.util.ArrayList<String>();
+        out.getAsJsonArray("problems").forEach(p -> {
+            texts.add(p.getAsJsonObject().get("text").getAsString());
+            levels.add(p.getAsJsonObject().get("level").getAsString());
+        });
+        assertTrue(texts.contains("Gems needs ghost, which is not installed"), texts.toString());
+        assertTrue(texts.contains("Mod A does not work with Mod B"), texts.toString());
+        assertTrue(texts.contains("p2 failed to load (see the console)"), texts.toString());
+        assertTrue(texts.contains("Gems waits for your approval (Modules page)"), texts.toString());
+        assertTrue(texts.stream().anyMatch(t -> t.startsWith("block_break is handled by")), texts.toString());
+        assertEquals("error", levels.get(0)); // errors first
+        assertEquals("warn", levels.get(levels.size() - 1));
+    }
+
     private static boolean has(com.google.gson.JsonArray edges, String from, String to, String kind) {
         for (var e : edges) {
             JsonObject edge = e.getAsJsonObject();

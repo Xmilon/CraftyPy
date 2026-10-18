@@ -2,12 +2,10 @@
 
 One crafting chain that needs four mods at once, plus gear and behaviour that cross between them.
 
-| | |
-|---|---|
-| Module id | `mod_mashup` |
-| Works on | client and server |
-| CraftPy Python API | 2.2 |
-| Uses content of | Create, Mekanism, Iron's Spells 'n Spellbooks, Curios |
+- Module id: `mod_mashup`
+- Works on: client and server
+- CraftPy Python API: 2.2
+- Uses content of: Create, Mekanism, Iron's Spells 'n Spellbooks, Curios
 
 ## The chain
 

@@ -143,7 +143,73 @@ public final class ModMap {
         nodes.values().forEach(list::add);
         out.add("nodes", list);
         out.add("edges", edges);
+        out.add("problems", problems(nodes, edges, handlers));
         return out;
+    }
+
+    /**
+     * What is wrong in the whole setup, worst first: {@code {level: error|warn, text, keys[]}} where {@code keys} are the
+     * nodes it is about (the first one is focused when the row is clicked).
+     */
+    private static JsonArray problems(Map<String, JsonObject> nodes, JsonArray edges, Map<String, List<String>> handlers) {
+        JsonArray errors = new JsonArray();
+        JsonArray warnings = new JsonArray();
+        for (var element : edges) {
+            JsonObject edge = element.getAsJsonObject();
+            String from = edge.get("from").getAsString();
+            String to = edge.get("to").getAsString();
+            String kind = edge.get("kind").getAsString();
+            JsonObject target = nodes.get(to);
+            if (target != null && "missing".equals(target.get("kind").getAsString())
+                    && ("required".equals(kind) || "imports".equals(kind))) {
+                errors.add(problem("error", nameOf(nodes, from) + " needs " + nameOf(nodes, to) + ", which is not installed",
+                        from, to));
+            } else if ("incompatible".equals(kind)) {
+                errors.add(problem("error", nameOf(nodes, from) + " does not work with " + nameOf(nodes, to), from, to));
+            } else if ("discouraged".equals(kind)) {
+                warnings.add(problem("warn", nameOf(nodes, from) + " advises against " + nameOf(nodes, to), from, to));
+            }
+        }
+        for (var entry : nodes.entrySet()) {
+            JsonObject node = entry.getValue();
+            String name = nameOf(nodes, entry.getKey());
+            String state = node.has("state") ? node.get("state").getAsString() : "";
+            String approval = node.has("approval") ? node.get("approval").getAsString() : "";
+            if ("error".equals(state)) {
+                errors.add(problem("error", name + " failed to load (see the console)", entry.getKey()));
+            }
+            if ("needed".equals(approval)) {
+                warnings.add(problem("warn", name + " waits for your approval (Modules page)", entry.getKey()));
+            } else if ("changed".equals(approval)) {
+                warnings.add(problem("warn", name + " changed since you approved it: approve it again", entry.getKey()));
+            }
+        }
+        handlers.forEach((event, owners) -> {
+            if (owners.size() >= 3) {
+                List<String> names = owners.stream().map(key -> nameOf(nodes, key)).toList();
+                warnings.add(problem("warn", event + " is handled by " + String.join(", ", names)
+                        + ": check they don't undo each other", owners.toArray(String[]::new)));
+            }
+        });
+        errors.addAll(warnings);
+        return errors;
+    }
+
+    private static JsonObject problem(String level, String text, String... keys) {
+        JsonObject problem = new JsonObject();
+        problem.addProperty("level", level);
+        problem.addProperty("text", text);
+        JsonArray list = new JsonArray();
+        for (String key : keys) {
+            list.add(key);
+        }
+        problem.add("keys", list);
+        return problem;
+    }
+
+    private static String nameOf(Map<String, JsonObject> nodes, String key) {
+        JsonObject node = nodes.get(key);
+        return node != null && node.has("name") ? node.get("name").getAsString() : key.substring(key.indexOf(':') + 1);
     }
 
     /** "uses" edges: the other mods whose ids the code names, with how often, and which ids (a few). */

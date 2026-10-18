@@ -86,4 +86,31 @@ class UiDesignerTest {
         assertNotNull(UiDesigner.problem("[1, 2]"));
         assertNotNull(UiDesigner.problem("{\"root\": 5}"));
     }
+
+    @Test
+    void canvasPositionsSnapAndStayInside() {
+        assertEquals(12, UiDesigner.snap(13.2f));
+        assertEquals(24, UiDesigner.moved(8, 17f, 200)); // 25 -> 24 on the grid
+        assertEquals(0, UiDesigner.moved(8, -40f, 200)); // never left of the canvas
+        assertEquals(100, UiDesigner.moved(8, 500f, 100)); // never past its right edge
+        assertEquals(UiDesigner.MIN_SIZE, UiDesigner.resized(40, -200f));
+        assertEquals(64, UiDesigner.resized(40, 23f));
+    }
+
+    @Test
+    void newWindowsAreCanvasesAndNewWidgetsGoBelowTheOthers() {
+        JsonObject window = UiDesigner.parse("shop", "");
+        JsonObject root = window.getAsJsonObject("root");
+        assertEquals("canvas", root.get("type").getAsString());
+        JsonObject first = UiDesigner.newNode("button");
+        UiDesigner.place(root, first);
+        root.getAsJsonArray("children").add(first);
+        JsonObject second = UiDesigner.newNode("text_input");
+        UiDesigner.place(root, second);
+        assertEquals(8, first.get("x").getAsInt());
+        assertEquals(8, first.get("y").getAsInt());
+        assertEquals(96, first.get("width").getAsInt());
+        assertEquals(40, second.get("y").getAsInt()); // below the button (8 + 24) and 8 more
+        assertTrue(UiDesigner.isContainer("canvas"));
+    }
 }

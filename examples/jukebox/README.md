@@ -2,12 +2,10 @@
 
 A media player that runs on your own computer.
 
-| | |
-|---|---|
-| Module id | `jukebox` |
-| Works on | client (your computer; any server) |
-| CraftPy Python API | 2.6 |
-| Asks for | reading `pyforge/shared/music` |
+- Module id: `jukebox`
+- Works on: client (your computer; any server)
+- CraftPy Python API: 2.6
+- Asks for: reading `pyforge/shared/music`
 
 ## What it plays
 

@@ -2,11 +2,9 @@
 
 A client-side mod written in Python: it runs only on your computer and never touches the server.
 
-| | |
-|---|---|
-| Module id | `hud_pack` |
-| Works on | client only (Python that runs on the player's computer) |
-| CraftPy Python API | 2.3 |
+- Module id: `hud_pack`
+- Works on: client only (Python that runs on the player's computer)
+- CraftPy Python API: 2.3
 
 ## What it does
 

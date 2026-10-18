@@ -59,30 +59,28 @@ your .py files ──Run──> Python worker ──declarations──> CraftPy 
 
 ## Find what you need
 
-| I want to... | Section |
-| --- | --- |
-| split my code into several files | [Files and imports](#files-and-imports) |
-| add an item, food, a sword, armor | [Items](#items), [Extensions](#extensions) |
-| add a block, an ore, a lamp | [Blocks](#blocks) |
-| use my own pictures | [Textures](#textures) |
-| put things in tags (`minecraft:swords`...) | [Tags](#tags) |
-| give items and blocks behaviour | [Extensions](#extensions) |
-| add crafting or furnace recipes | [Recipes](#recipes) |
-| choose what a block drops | [Loot and drops](#loot-and-drops) |
-| react when something happens | [Events](#events) |
-| add a `/command` | [Commands](#commands) |
-| do something every few seconds | [Timers](#timers) |
-| talk to players, give items, teleport | [Players](#players) |
-| change blocks, spawn mobs, explode | [World](#world) |
-| remember numbers between events | [Storage](#storage) |
-| open a window with buttons | [Windows](#windows) |
-| draw on the screen, add hotkeys, make a client-side mod | [Client-side code](#client-side-code) |
-| use a web API, save files | [Web and files](#web-and-files) |
-| print, debug, try code live | [Chat, console and debugging](#chat-console-and-debugging) |
-| check my code with tests | [Tests](#tests) |
-| see what changed between versions | [API versions](#api-versions) |
-| use another mod's items or recipes | [Other mods](#other-mods) |
-| reach Java directly | [Java bridge](#java-bridge) |
+- split my code into several files: [Files and imports](#files-and-imports)
+- add an item, food, a sword, armor: [Items](#items), [Extensions](#extensions)
+- add a block, an ore, a lamp: [Blocks](#blocks)
+- use my own pictures: [Textures](#textures)
+- put things in tags (`minecraft:swords`...): [Tags](#tags)
+- give items and blocks behaviour: [Extensions](#extensions)
+- add crafting or furnace recipes: [Recipes](#recipes)
+- choose what a block drops: [Loot and drops](#loot-and-drops)
+- react when something happens: [Events](#events)
+- add a `/command`: [Commands](#commands)
+- do something every few seconds: [Timers](#timers)
+- talk to players, give items, teleport: [Players](#players)
+- change blocks, spawn mobs, explode: [World](#world)
+- remember numbers between events: [Storage](#storage)
+- open a window with buttons: [Windows](#windows)
+- draw on the screen, add hotkeys, make a client-side mod: [Client-side code](#client-side-code)
+- use a web API, save files: [Web and files](#web-and-files)
+- print, debug, try code live: [Chat, console and debugging](#chat-console-and-debugging)
+- check my code with tests: [Tests](#tests)
+- see what changed between versions: [API versions](#api-versions)
+- use another mod's items or recipes: [Other mods](#other-mods)
+- reach Java directly: [Java bridge](#java-bridge)
 
 ---
 
@@ -191,16 +189,14 @@ ruby_sword = Item("ruby_sword", texture="ruby_sword.png", stack=1).extends(
 ruby_ore.extends(MineableBy("pickaxe", tier="iron"), Flammable(chance=5, spread=20))
 ```
 
-| Extension | Goes on | What it adds |
-| --- | --- | --- |
-| `Sword`, `Pickaxe`, `Axe`, `Shovel`, `Hoe`, `Tool` | item | mining speed, damage, attack speed, durability and enchantability from the tier |
-| `Durability` | item | a durability bar and an anvil repair item |
-| `Weapon` | item | damage, attack speed and knockback for any item |
-| `Armor` | item | armor points in a slot (right click equips it) |
-| `Attributes` | item | any attribute of the game or a mod while held or worn |
-| `Fuel`, `Enchantable`, `Cooldown`, `Tooltip` | item | furnace fuel, enchanting, use cooldown, tooltip lines |
-| `MineableBy`, `Drops` | block | which tool and tier mine it, what it drops |
-| `Redstone`, `Flammable`, `Friction`, `Piston` | block | signal strength, fire, slipperiness, piston reaction |
+- `Sword`, `Pickaxe`, `Axe`, `Shovel`, `Hoe`, `Tool` (goes on: item; what it adds: mining speed, damage, attack speed, durability and enchantability from the tier)
+- `Durability` (goes on: item; what it adds: a durability bar and an anvil repair item)
+- `Weapon` (goes on: item; what it adds: damage, attack speed and knockback for any item)
+- `Armor` (goes on: item; what it adds: armor points in a slot (right click equips it))
+- `Attributes` (goes on: item; what it adds: any attribute of the game or a mod while held or worn)
+- `Fuel`, `Enchantable`, `Cooldown`, `Tooltip` (goes on: item; what it adds: furnace fuel, enchanting, use cooldown, tooltip lines)
+- `MineableBy`, `Drops` (goes on: block; what it adds: which tool and tier mine it, what it drops)
+- `Redstone`, `Flammable`, `Friction`, `Piston` (goes on: block; what it adds: signal strength, fire, slipperiness, piston reaction)
 
 - `.extends(...)` returns the same item or block, so it chains. `extensions=[...]` in `Item(...)`/`Block(...)` is the same.
 - In the editor, `extends(` lists the extensions that fit (yours and the modules' too), and `tier="`, `slot="`,
@@ -224,15 +220,13 @@ class LifeSteal(Extension):
 fang = Item("fang").extends(LifeSteal(hearts=2))
 ```
 
-| Hook | On | When | `event` has |
-| --- | --- | --- | --- |
-| `on_use` | item | right click with it | `player`, `item`, `hand` |
-| `on_hit` | item | a hit while holding it | `player`, `entity`, `item`, `damage` (you may change it) |
-| `on_mine` | item | a block broken with it | `player`, `item`, `block`, `pos` |
-| `on_hold_tick` | item | every second while held | `player`, `item` |
-| `on_interact` | block | right click on it | `player`, `block`, `item`, `pos` |
-| `on_break` / `on_place` | block | broken / placed | `player`, `block`, `pos` |
-| `on_tick` | block | every tick | `block`, `pos` |
+- `on_use` (on: item; when: right click with it; `event` has: `player`, `item`, `hand`)
+- `on_hit` (on: item; when: a hit while holding it; `event` has: `player`, `entity`, `item`, `damage` (you may change it))
+- `on_mine` (on: item; when: a block broken with it; `event` has: `player`, `item`, `block`, `pos`)
+- `on_hold_tick` (on: item; when: every second while held; `event` has: `player`, `item`)
+- `on_interact` (on: block; when: right click on it; `event` has: `player`, `block`, `item`, `pos`)
+- `on_break` / `on_place` (on: block; when: broken / placed; `event` has: `player`, `block`, `pos`)
+- `on_tick` (on: block; when: every tick; `event` has: `block`, `pos`)
 
 - `event.cancel()` stops the action in `on_use`, `on_hit`, `on_mine` and `on_break`.
 - `configure(self, target)` may change the item or block itself: `target.set("glow", True)`.
@@ -294,16 +288,14 @@ def mined(event):
     event.player.give(ruby)
 ```
 
-| Event | `event` has |
-| --- | --- |
-| `player_join`, `player_leave`, `player_respawn` | `player` |
-| `chat` | `player`, `message` |
-| `block_break`, `block_place` | `player`, `block`, `pos` |
-| `block_interact` (right click a block) | `player`, `block`, `item`, `hand`, `pos` |
-| `block_tick` | `block`, `pos` |
-| `item_use`, `item_hit`, `item_mine`, `item_hold_tick`, `item_craft`, `item_pickup` | `player`, `item` (+ `entity`, `damage` / `block`, `pos`) |
-| `entity_death`, `player_death` | `entity`, `cause`, `killer` (a player) or `attacker` |
-| `entity_hurt` | `entity`, `damage`, `cause`, `attacker`, `attacker_player` |
+- `player_join`, `player_leave`, `player_respawn`: `player`
+- `chat`: `player`, `message`
+- `block_break`, `block_place`: `player`, `block`, `pos`
+- `block_interact` (right click a block): `player`, `block`, `item`, `hand`, `pos`
+- `block_tick`: `block`, `pos`
+- `item_use`, `item_hit`, `item_mine`, `item_hold_tick`, `item_craft`, `item_pickup`: `player`, `item` (+ `entity`, `damage` / `block`, `pos`)
+- `entity_death`, `player_death`: `entity`, `cause`, `killer` (a player) or `attacker`
+- `entity_hurt`: `entity`, `damage`, `cause`, `attacker`, `attacker_player`
 
 - `event.block` and `event.item` have `.id` and `.name`; items also `.count`. Your content has your ids:
   `event.block.id == ruby_ore`.
@@ -599,11 +591,15 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.7** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.8** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.8 (2026-10-18)
+
+- **Added:** `Canvas(...)`: a window area where each widget sits at `x`, `y` with its own `width` and `height` (the UI maker drags and resizes them). `width=` and `height=` also work on any widget in `VBox`, `HBox` and `Grid`.
 
 ### 2.7 (2026-10-17)
 
@@ -669,20 +665,18 @@ Every function, class and method with all its parameters, by topic. Use the sear
 
 Declares an item and returns it; the result can be used anywhere an item id is expected.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
-| `name` | `None` | Display name; default is the id in title case. |
-| `texture` | `None` | PNG file name in assets/textures/ ('ruby.png'), a vanilla texture ('minecraft:item/diamond') or tex(...). |
-| `stack` | `64` | Largest stack, 1 to 64 (default 64; tools and armor set 1 themselves). |
-| `glow` | `False` | True draws the enchantment shimmer. |
-| `food` | `None` | A number (hunger points) or Food(...). Makes the item edible. |
-| `fuel` | `0` | Furnace burn time in seconds (0 = not a fuel). Same as .extends(Fuel(seconds)). |
-| `effect` | `None` | Right click applies an effect: 'speed' or (name, level, seconds), level 1 = normal. |
-| `extensions` | `()` | List of extensions (Sword(...), Durability(...), your own); same as .extends(...). |
-| `tags` | `()` | Item tags to join: ['minecraft:swords', 'gems'] (a bare name is this project's tag). |
-| `components` | `None` | Data components every stack gets, from any mod: {'apotheosis:affixes': {...}}. A listed component is filled in when a stack does not have it yet; later changes (a reforge) are kept. |
-| `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
+- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
+- `name` (default `None`): Display name; default is the id in title case.
+- `texture` (default `None`): PNG file name in assets/textures/ ('ruby.png'), a vanilla texture ('minecraft:item/diamond') or tex(...).
+- `stack` (default `64`): Largest stack, 1 to 64 (default 64; tools and armor set 1 themselves).
+- `glow` (default `False`): True draws the enchantment shimmer.
+- `food` (default `None`): A number (hunger points) or Food(...). Makes the item edible.
+- `fuel` (default `0`): Furnace burn time in seconds (0 = not a fuel). Same as .extends(Fuel(seconds)).
+- `effect` (default `None`): Right click applies an effect: 'speed' or (name, level, seconds), level 1 = normal.
+- `extensions` (default `()`): List of extensions (Sword(...), Durability(...), your own); same as .extends(...).
+- `tags` (default `()`): Item tags to join: ['minecraft:swords', 'gems'] (a bare name is this project's tag).
+- `components` (default `None`): Data components every stack gets, from any mod: {'apotheosis:affixes': {...}}. A listed component is filled in when a stack does not have it yet; later changes (a reforge) are kept.
+- `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The item (a string 'project:id' with .extends(...)).
 
@@ -690,21 +684,19 @@ Returns: The item (a string 'project:id' with .extends(...)).
 
 Declares a block and returns it; usable anywhere a block or item id is expected.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
-| `name` | `None` | Display name; default is the id in title case. |
-| `texture` | `None` | PNG file name in assets/textures/, a vanilla texture ('minecraft:block/stone') or tex(...). |
-| `hardness` | `2.0` | Mining time factor (stone 1.5, obsidian 50); -1 makes it unbreakable. Default 2.0. |
-| `resistance` | `None` | Explosion resistance; default 6.0 (stone). |
-| `light` | `0` | Light emitted, 0 to 15. |
-| `tool` | `None` | Tool that mines it fastest: 'pickaxe', 'axe', 'shovel', 'hoe' or 'sword'. See MineableBy. |
-| `needs_tool` | `False` | True: only drops anything when mined with the right tool (like ores). |
-| `sound` | `None` | Sound type: 'stone', 'wood', 'grass', 'glass', 'gravel', 'sand', 'wool', 'metal', 'anvil' or 'snow'. |
-| `drops` | `None` | What it drops: an item, a list, (item, count) / (item, count, weight), 'self' or [] for nothing. Default: the block itself. |
-| `extensions` | `()` | List of extensions (MineableBy(...), Redstone(...), your own); same as .extends(...). |
-| `tags` | `()` | Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag). |
-| `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
+- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
+- `name` (default `None`): Display name; default is the id in title case.
+- `texture` (default `None`): PNG file name in assets/textures/, a vanilla texture ('minecraft:block/stone') or tex(...).
+- `hardness` (default `2.0`): Mining time factor (stone 1.5, obsidian 50); -1 makes it unbreakable. Default 2.0.
+- `resistance` (default `None`): Explosion resistance; default 6.0 (stone).
+- `light` (default `0`): Light emitted, 0 to 15.
+- `tool` (default `None`): Tool that mines it fastest: 'pickaxe', 'axe', 'shovel', 'hoe' or 'sword'. See MineableBy.
+- `needs_tool` (default `False`): True: only drops anything when mined with the right tool (like ores).
+- `sound` (default `None`): Sound type: 'stone', 'wood', 'grass', 'glass', 'gravel', 'sand', 'wool', 'metal', 'anvil' or 'snow'.
+- `drops` (default `None`): What it drops: an item, a list, (item, count) / (item, count, weight), 'self' or [] for nothing. Default: the block itself.
+- `extensions` (default `()`): List of extensions (MineableBy(...), Redstone(...), your own); same as .extends(...).
+- `tags` (default `()`): Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag).
+- `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The block.
 
@@ -712,12 +704,10 @@ Returns: The block.
 
 Food values for Item(food=...).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `hunger` | `4` | Hunger points restored (each is half a drumstick). |
-| `saturation` | `0.6` | Saturation modifier; 0.6 is bread, 1.2 cooked meat. |
-| `always_eat` | `False` | True lets players eat it with a full hunger bar. |
-| `fast` | `False` | True eats in half the time (like dried kelp). |
+- `hunger` (default `4`): Hunger points restored (each is half a drumstick).
+- `saturation` (default `0.6`): Saturation modifier; 0.6 is bread, 1.2 cooked meat.
+- `always_eat` (default `False`): True lets players eat it with a full hunger bar.
+- `fast` (default `False`): True eats in half the time (like dried kelp).
 
 Returns: A dict to pass as food=.
 
@@ -735,26 +725,24 @@ Class form of Block(...): attributes id, name, texture, hardness, resistance, li
 
 Declares a mob and returns it: world.spawn(mob, x, y, z), /craftpy summon, a spawn egg (/craftpy give <player> <project>:<id> egg) or natural spawns.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
-| `name` | `None` | Display name; default is the id in title case. |
-| `texture` | `None` | PNG in assets/textures/ ('goblin.png') or a vanilla one ('minecraft:entity/pig/pig'); default: the model's vanilla skin. |
-| `model` | `'humanoid'` | Body: 'humanoid', 'player', 'pig', 'cow', 'chicken', 'spider', 'creeper', 'villager', 'slime', or a GeckoLib model 'goblin.geo.json' (assets/models/, needs GeckoLib; without it the mob is humanoid). |
-| `animation` | `None` | GeckoLib animation file (assets/animations/); default '<model name>.animation.json'. Animations ending in 'walk' and 'idle' play by themselves. |
-| `health` | `10` | Maximum health (a heart is 2). |
-| `speed` | `0.25` | Movement speed (zombie 0.23, pig 0.25). |
-| `damage` | `2` | Damage of a hit (hostile mobs). |
-| `armor` | `0` | Armor points, 0 to 30. |
-| `hostile` | `False` | True: attacks players, spawns in the dark, gone in peaceful. False: wanders and flees when hurt. |
-| `width` | `0.6` | Hit box width in blocks. |
-| `height` | `1.8` | Hit box height in blocks. |
-| `scale` | `1.0` | Draws the model bigger or smaller (the hit box is width x height). |
-| `follow_range` | `16` | How far it notices players, in blocks. |
-| `egg` | `None` | Spawn egg colors: '#3d8f5a' or ('#3d8f5a', '#c9e86b') for base and spots. |
-| `spawns` | `()` | Natural spawns: [Spawn('#minecraft:is_forest', weight=8)]. They start the next time the world is opened. |
-| `drops` | `None` | What it drops: an item, a list, (item, count) / (item, count, weight). |
-| `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
+- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
+- `name` (default `None`): Display name; default is the id in title case.
+- `texture` (default `None`): PNG in assets/textures/ ('goblin.png') or a vanilla one ('minecraft:entity/pig/pig'); default: the model's vanilla skin.
+- `model` (default `'humanoid'`): Body: 'humanoid', 'player', 'pig', 'cow', 'chicken', 'spider', 'creeper', 'villager', 'slime', or a GeckoLib model 'goblin.geo.json' (assets/models/, needs GeckoLib; without it the mob is humanoid).
+- `animation` (default `None`): GeckoLib animation file (assets/animations/); default '<model name>.animation.json'. Animations ending in 'walk' and 'idle' play by themselves.
+- `health` (default `10`): Maximum health (a heart is 2).
+- `speed` (default `0.25`): Movement speed (zombie 0.23, pig 0.25).
+- `damage` (default `2`): Damage of a hit (hostile mobs).
+- `armor` (default `0`): Armor points, 0 to 30.
+- `hostile` (default `False`): True: attacks players, spawns in the dark, gone in peaceful. False: wanders and flees when hurt.
+- `width` (default `0.6`): Hit box width in blocks.
+- `height` (default `1.8`): Hit box height in blocks.
+- `scale` (default `1.0`): Draws the model bigger or smaller (the hit box is width x height).
+- `follow_range` (default `16`): How far it notices players, in blocks.
+- `egg` (default `None`): Spawn egg colors: '#3d8f5a' or ('#3d8f5a', '#c9e86b') for base and spots.
+- `spawns` (default `()`): Natural spawns: [Spawn('#minecraft:is_forest', weight=8)]. They start the next time the world is opened.
+- `drops` (default `None`): What it drops: an item, a list, (item, count) / (item, count, weight).
+- `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The mob (a string 'project:id').
 
@@ -762,12 +750,10 @@ Returns: The mob (a string 'project:id').
 
 Where a Mob appears by itself (for Mob(spawns=[...])).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `biomes` | `'#minecraft:is_overworld'` | A biome ('minecraft:plains'), a biome tag ('#minecraft:is_overworld') or a list of them. |
-| `weight` | `10` | How often, next to other mobs (zombie 100, pig 10). |
-| `min` | `1` | Smallest group. |
-| `max` | `3` | Largest group. |
+- `biomes` (default `'#minecraft:is_overworld'`): A biome ('minecraft:plains'), a biome tag ('#minecraft:is_overworld') or a list of them.
+- `weight` (default `10`): How often, next to other mobs (zombie 100, pig 10).
+- `min` (default `1`): Smallest group.
+- `max` (default `3`): Largest group.
 
 Returns: A dict for spawns=.
 
@@ -775,15 +761,13 @@ Returns: A dict for spawns=.
 
 Declares a potion effect and returns it: player.effect(rage), Item(effect=rage), @on.effect_tick(effect=rage).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
-| `name` | `None` | Display name; default is the id in title case. |
-| `icon` | `None` | 18x18 PNG in assets/textures/ ('rage.png'); default: CraftPy's flask. |
-| `color` | `'#8899ff'` | Particle color, '#rrggbb'. |
-| `category` | `'neutral'` | 'beneficial', 'harmful' or 'neutral' (how the game shows it). |
-| `attributes` | `()` | Stat changes while active: [Attributes('minecraft:generic.attack_damage', 2)]; the amount is per level. |
-| `**extra` |  | Not accepted: any other attribute raises an error that lists the valid ones. |
+- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
+- `name` (default `None`): Display name; default is the id in title case.
+- `icon` (default `None`): 18x18 PNG in assets/textures/ ('rage.png'); default: CraftPy's flask.
+- `color` (default `'#8899ff'`): Particle color, '#rrggbb'.
+- `category` (default `'neutral'`): 'beneficial', 'harmful' or 'neutral' (how the game shows it).
+- `attributes` (default `()`): Stat changes while active: [Attributes('minecraft:generic.attack_damage', 2)]; the amount is per level.
+- `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The effect (a string 'project:id').
 
@@ -793,13 +777,11 @@ Returns: The effect (a string 'project:id').
 
 A jigsaw template pool: pieces (.nbt files of data/structure/) a jigsaw block can grow into.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
-| `pieces` |  | ['ruins/hall', ('ruins/tower', 3), (None, 1)]: templates with weights; None is an empty piece. |
-| `fallback` | `None` | Pool used when no piece fits (default none). |
-| `projection` | `'rigid'` | 'rigid' (as built) or 'terrain_matching' (follows the ground, for paths). |
-| `processors` | `'minecraft:empty'` | Processor list id applied to the pieces (default none). |
+- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
+- `pieces`: ['ruins/hall', ('ruins/tower', 3), (None, 1)]: templates with weights; None is an empty piece.
+- `fallback` (default `None`): Pool used when no piece fits (default none).
+- `projection` (default `'rigid'`): 'rigid' (as built) or 'terrain_matching' (follows the ground, for paths).
+- `processors` (default `'minecraft:empty'`): Processor list id applied to the pieces (default none).
 
 Returns: The pool (a string 'project:id').
 
@@ -807,20 +789,18 @@ Returns: The pool (a string 'project:id').
 
 A jigsaw structure generated in new chunks, like villages (after reopening the world).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'. |
-| `start` |  | The Pool of the first piece. |
-| `biomes` | `'#minecraft:is_overworld'` | Biome, biome tag ('#minecraft:is_forest') or a list. |
-| `size` | `7` | How many jigsaw steps it grows, 0 to 20. |
-| `max_distance` | `80` | How far pieces may reach, 1 to 128 blocks. |
-| `spacing` | `32` | About one every this many chunks. |
-| `separation` | `8` | At least this many chunks apart (smaller than spacing). |
-| `step` | `'surface_structures'` | Generation step, default 'surface_structures'. |
-| `terrain` | `'beard_thin'` | 'beard_thin' (ground fits around it), 'beard_box', 'bury', 'encapsulate' or 'none'. |
-| `height` | `0` | Start height; with on_surface it is added to the surface. |
-| `on_surface` | `True` | True: starts on the surface. |
-| `start_jigsaw` | `None` | Name of the jigsaw block of the first piece to start from. |
+- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
+- `start`: The Pool of the first piece.
+- `biomes` (default `'#minecraft:is_overworld'`): Biome, biome tag ('#minecraft:is_forest') or a list.
+- `size` (default `7`): How many jigsaw steps it grows, 0 to 20.
+- `max_distance` (default `80`): How far pieces may reach, 1 to 128 blocks.
+- `spacing` (default `32`): About one every this many chunks.
+- `separation` (default `8`): At least this many chunks apart (smaller than spacing).
+- `step` (default `'surface_structures'`): Generation step, default 'surface_structures'.
+- `terrain` (default `'beard_thin'`): 'beard_thin' (ground fits around it), 'beard_box', 'bury', 'encapsulate' or 'none'.
+- `height` (default `0`): Start height; with on_surface it is added to the surface.
+- `on_surface` (default `True`): True: starts on the surface.
+- `start_jigsaw` (default `None`): Name of the jigsaw block of the first piece to start from.
 
 Returns: The structure (a string 'project:id').
 
@@ -828,30 +808,26 @@ Returns: The structure (a string 'project:id').
 
 Places a structure template now (a project's data/structure/<name>.nbt after Run, or the game's).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `structure` |  | 'ruins/house' (this project) or 'mod:path'. |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `rotation` | `0` | 0, 90, 180 or 270 degrees. |
-| `mirror` | `False` | True mirrors it. |
-| `entities` | `True` | False leaves out the entities saved in it. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `structure`: 'ruins/house' (this project) or 'mod:path'.
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `rotation` (default `0`): 0, 90, 180 or 270 degrees.
+- `mirror` (default `False`): True mirrors it.
+- `entities` (default `True`): False leaves out the entities saved in it.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 #### `world.place_jigsaw(pool, x, y=None, z=None, target=None, depth=7, dimension='minecraft:overworld')`
 
 Generates a jigsaw structure from a Pool now (pools exist after the world was opened with the project).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `pool` |  | The Pool. |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `target` | `None` | Name of the jigsaw block of the first piece to start from. |
-| `depth` | `7` | Jigsaw steps, 1 to 20. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `pool`: The Pool.
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `target` (default `None`): Name of the jigsaw block of the first piece to start from.
+- `depth` (default `7`): Jigsaw steps, 1 to 20.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 ### Extensions
 
@@ -859,9 +835,7 @@ Generates a jigsaw structure from a Pool now (pools exist after the world was op
 
 Adds behaviour to an item or block; returns the same item or block so calls chain.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*extensions` |  | Extension objects, or lists of them. |
+- `*extensions`: Extension objects, or lists of them.
 
 Returns: The item or block.
 
@@ -873,9 +847,7 @@ Base class of every extension, built in or your own. Methods named like a hook r
 
 Marks your class as an extension: @extension class Vampiric(Extension): ...
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `cls` |  | The class. |
+- `cls`: The class.
 
 Returns: The class.
 
@@ -883,193 +855,153 @@ Returns: The class.
 
 Makes an item mine blocks and hit harder like a vanilla tool.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `kind` |  | 'pickaxe', 'axe', 'shovel', 'hoe' or 'sword'. |
-| `tier` | `'iron'` | 'wood', 'stone', 'iron' (default), 'gold', 'diamond' or 'netherite': mining level, speed, durability and damage defaults. |
-| `speed` | `None` | Mining speed; default from the tier (wood 2, stone 4, iron 6, gold 12, diamond 8, netherite 9). |
-| `damage` | `None` | Damage per hit as the tooltip shows it (a diamond sword is 7). |
-| `attack_speed` | `None` | Hits per second (sword 1.6, axe 1.0, pickaxe 1.2). |
+- `kind`: 'pickaxe', 'axe', 'shovel', 'hoe' or 'sword'.
+- `tier` (default `'iron'`): 'wood', 'stone', 'iron' (default), 'gold', 'diamond' or 'netherite': mining level, speed, durability and damage defaults.
+- `speed` (default `None`): Mining speed; default from the tier (wood 2, stone 4, iron 6, gold 12, diamond 8, netherite 9).
+- `damage` (default `None`): Damage per hit as the tooltip shows it (a diamond sword is 7).
+- `attack_speed` (default `None`): Hits per second (sword 1.6, axe 1.0, pickaxe 1.2).
 
 #### `Sword(tier='iron', speed=None, damage=None, attack_speed=None)`
 
 A sword (Tool with kind 'sword').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `tier` | `'iron'` | Material tier. |
-| `speed` | `None` | Mining speed. |
-| `damage` | `None` | Damage per hit. |
-| `attack_speed` | `None` | Hits per second. |
+- `tier` (default `'iron'`): Material tier.
+- `speed` (default `None`): Mining speed.
+- `damage` (default `None`): Damage per hit.
+- `attack_speed` (default `None`): Hits per second.
 
 #### `Pickaxe(tier='iron', speed=None, damage=None, attack_speed=None)`
 
 A pickaxe.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `tier` | `'iron'` | Material tier. |
-| `speed` | `None` | Mining speed. |
-| `damage` | `None` | Damage per hit. |
-| `attack_speed` | `None` | Hits per second. |
+- `tier` (default `'iron'`): Material tier.
+- `speed` (default `None`): Mining speed.
+- `damage` (default `None`): Damage per hit.
+- `attack_speed` (default `None`): Hits per second.
 
 #### `Axe(tier='iron', speed=None, damage=None, attack_speed=None)`
 
 An axe.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `tier` | `'iron'` | Material tier. |
-| `speed` | `None` | Mining speed. |
-| `damage` | `None` | Damage per hit. |
-| `attack_speed` | `None` | Hits per second. |
+- `tier` (default `'iron'`): Material tier.
+- `speed` (default `None`): Mining speed.
+- `damage` (default `None`): Damage per hit.
+- `attack_speed` (default `None`): Hits per second.
 
 #### `Shovel(tier='iron', speed=None, damage=None, attack_speed=None)`
 
 A shovel.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `tier` | `'iron'` | Material tier. |
-| `speed` | `None` | Mining speed. |
-| `damage` | `None` | Damage per hit. |
-| `attack_speed` | `None` | Hits per second. |
+- `tier` (default `'iron'`): Material tier.
+- `speed` (default `None`): Mining speed.
+- `damage` (default `None`): Damage per hit.
+- `attack_speed` (default `None`): Hits per second.
 
 #### `Hoe(tier='iron', speed=None, damage=None, attack_speed=None)`
 
 A hoe.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `tier` | `'iron'` | Material tier. |
-| `speed` | `None` | Mining speed. |
-| `damage` | `None` | Damage per hit. |
-| `attack_speed` | `None` | Hits per second. |
+- `tier` (default `'iron'`): Material tier.
+- `speed` (default `None`): Mining speed.
+- `damage` (default `None`): Damage per hit.
+- `attack_speed` (default `None`): Hits per second.
 
 #### `Durability(uses=250, repair_with=None)`
 
 A durability bar: 1 use is lost per block mined or entity hit; the item breaks at 0.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `uses` | `250` | Number of uses, 1 to 32767. |
-| `repair_with` | `None` | Item that repairs it in an anvil (optional). |
+- `uses` (default `250`): Number of uses, 1 to 32767.
+- `repair_with` (default `None`): Item that repairs it in an anvil (optional).
 
 #### `Weapon(damage=4.0, attack_speed=1.6, knockback=0.0)`
 
 Attack values for any item without making it a tool.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `damage` | `4.0` | Damage per hit as the tooltip shows it (a fist is 1). |
-| `attack_speed` | `1.6` | Hits per second. |
-| `knockback` | `0.0` | Extra knockback, 0 to 5. |
+- `damage` (default `4.0`): Damage per hit as the tooltip shows it (a fist is 1).
+- `attack_speed` (default `1.6`): Hits per second.
+- `knockback` (default `0.0`): Extra knockback, 0 to 5.
 
 #### `Fuel(seconds)`
 
 Lets a furnace burn the item.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `seconds` |  | Burn time in seconds, 1 to 100000 (200 smelts 20 items). |
+- `seconds`: Burn time in seconds, 1 to 100000 (200 smelts 20 items).
 
 #### `Armor(slot='chest', defense=3, toughness=0.0, knockback_resistance=0.0)`
 
 Makes an item wearable in an armor slot (no worn model is drawn).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `slot` | `'chest'` | 'head', 'chest', 'legs' or 'feet'. |
-| `defense` | `3` | Armor points, 0 to 30. |
-| `toughness` | `0.0` | Armor toughness, 0 to 20. |
-| `knockback_resistance` | `0.0` | 0 to 1. |
+- `slot` (default `'chest'`): 'head', 'chest', 'legs' or 'feet'.
+- `defense` (default `3`): Armor points, 0 to 30.
+- `toughness` (default `0.0`): Armor toughness, 0 to 20.
+- `knockback_resistance` (default `0.0`): 0 to 1.
 
 #### `Enchantable(value=15)`
 
 How good enchantments from an enchanting table are.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `value` | `15` | 0 (none) to 50; gold armor is 25. |
+- `value` (default `15`): 0 (none) to 50; gold armor is 25.
 
 #### `Cooldown(seconds=1.0)`
 
 The item can only be used again after a pause, shown as a bar.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `seconds` | `1.0` | 0.05 to 3600. |
+- `seconds` (default `1.0`): 0.05 to 3600.
 
 #### `Tooltip(*lines, color='gray')`
 
 Extra lines in the item tooltip.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*lines` |  | 1 to 10 texts of at most 120 characters. |
-| `color` | `'gray'` | One of the 16 chat colors ('gray', 'gold', 'aqua'...). |
+- `*lines`: 1 to 10 texts of at most 120 characters.
+- `color` (default `'gray'`): One of the 16 chat colors ('gray', 'gold', 'aqua'...).
 
 #### `MineableBy(tool='pickaxe', tier=None, required=True)`
 
 Which tool mines a block.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `tool` | `'pickaxe'` | 'pickaxe', 'axe', 'shovel' or 'hoe'. |
-| `tier` | `None` | Lowest tool tier that works ('wood' to 'netherite'; None = any). |
-| `required` | `True` | True (default): nothing drops without the right tool. |
+- `tool` (default `'pickaxe'`): 'pickaxe', 'axe', 'shovel' or 'hoe'.
+- `tier` (default `None`): Lowest tool tier that works ('wood' to 'netherite'; None = any).
+- `required` (default `True`): True (default): nothing drops without the right tool.
 
 #### `Drops(*drops)`
 
 What a block drops when mined.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*drops` |  | Items, (item, count) or (item, count, weight) tuples, or 'self'; none = nothing drops. |
+- `*drops`: Items, (item, count) or (item, count, weight) tuples, or 'self'; none = nothing drops.
 
 #### `Redstone(power=15)`
 
 The block emits a redstone signal.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `power` | `15` | Signal strength 0 to 15. |
+- `power` (default `15`): Signal strength 0 to 15.
 
 #### `Flammable(chance=5, spread=20)`
 
 Fire can burn the block.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `chance` | `5` | How easily it catches fire, 0 to 300 (wood 5, leaves 30). |
-| `spread` | `20` | How fast fire spreads over it, 0 to 300 (wood 20, leaves 60). |
+- `chance` (default `5`): How easily it catches fire, 0 to 300 (wood 5, leaves 30).
+- `spread` (default `20`): How fast fire spreads over it, 0 to 300 (wood 20, leaves 60).
 
 #### `Friction(value=0.98)`
 
 How slippery the block is.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `value` | `0.98` | 0.1 to 1.0 (normal 0.6, ice 0.98). |
+- `value` (default `0.98`): 0.1 to 1.0 (normal 0.6, ice 0.98).
 
 #### `Piston(reaction='normal')`
 
 What pistons do to the block.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `reaction` | `'normal'` | 'normal', 'destroy', 'block', 'ignore' or 'push_only'. |
+- `reaction` (default `'normal'`): 'normal', 'destroy', 'block', 'ignore' or 'push_only'.
 
 #### `Attributes(attribute, amount, operation='add', slot='mainhand')`
 
 Attribute modifiers on an item (any attribute of the game or of a mod): Attributes('irons_spellbooks:fire_spell_power', 0.1, slot='mainhand').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `attribute` |  | Attribute id; the IDE completes the ones of the installed mods. |
-| `amount` |  | Number added (or the factor, with a multiply operation). |
-| `operation` | `'add'` | 'add' (default), 'multiply_base' or 'multiply_total'. |
-| `slot` | `'mainhand'` | 'mainhand' (default), 'offhand', 'head', 'chest', 'legs', 'feet', 'hand', 'armor', 'body' or 'any'. |
+- `attribute`: Attribute id; the IDE completes the ones of the installed mods.
+- `amount`: Number added (or the factor, with a multiply operation).
+- `operation` (default `'add'`): 'add' (default), 'multiply_base' or 'multiply_total'.
+- `slot` (default `'mainhand'`): 'mainhand' (default), 'offhand', 'head', 'chest', 'legs', 'feet', 'hand', 'armor', 'body' or 'any'.
 
 ### Recipes
 
@@ -1077,54 +1009,44 @@ Attribute modifiers on an item (any attribute of the game or of a mod): Attribut
 
 Shaped crafting recipe: shaped(sword, ' R ', ' R ', ' S ', R=ruby, S='stick').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Item crafted. |
-| `*rows` |  | 1 to 3 strings of up to 3 characters; a space is an empty slot. |
-| `count` | `1` | How many items the recipe makes. |
-| `**keys` |  | One keyword per letter: the ingredient it stands for. |
+- `result`: Item crafted.
+- `*rows`: 1 to 3 strings of up to 3 characters; a space is an empty slot.
+- `count` (default `1`): How many items the recipe makes.
+- `**keys`: One keyword per letter: the ingredient it stands for.
 
 #### `shapeless(result, *ingredients, count=1)`
 
 Shapeless crafting recipe: shapeless(ruby, 'diamond', 'redstone').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Item crafted. |
-| `*ingredients` |  | Up to 9 ingredients, order does not matter. |
-| `count` | `1` | How many items the recipe makes. |
+- `result`: Item crafted.
+- `*ingredients`: Up to 9 ingredients, order does not matter.
+- `count` (default `1`): How many items the recipe makes.
 
 #### `smelt(ingredient, result, xp=0.1, seconds=10, using='furnace')`
 
 Furnace-style recipe: smelt(ruby_ore, ruby).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ingredient` |  | Item that is cooked. |
-| `result` |  | Item that comes out. |
-| `xp` | `0.1` | Experience given (default 0.1). |
-| `seconds` | `10` | Cooking time in seconds (default 10). |
-| `using` | `'furnace'` | 'furnace' (default), 'blast_furnace', 'smoker' or 'campfire'. |
+- `ingredient`: Item that is cooked.
+- `result`: Item that comes out.
+- `xp` (default `0.1`): Experience given (default 0.1).
+- `seconds` (default `10`): Cooking time in seconds (default 10).
+- `using` (default `'furnace'`): 'furnace' (default), 'blast_furnace', 'smoker' or 'campfire'.
 
 #### `stonecut(ingredient, result, count=1)`
 
 Stonecutter recipe.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ingredient` |  | Item put in. |
-| `result` |  | Item produced. |
-| `count` | `1` | Items produced per input. |
+- `ingredient`: Item put in.
+- `result`: Item produced.
+- `count` (default `1`): Items produced per input.
 
 #### `recipe(type, id=None, **fields)`
 
 A recipe of another mod's type: recipe('create:mixing', ingredients=[...], results=[...]).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `type` |  | Recipe type id 'mod:type' (the IDE lists the types of the installed mods). |
-| `id` | `None` | File name of the recipe (optional). |
-| `**fields` |  | The mod's own recipe fields as keywords; the IDE shows the ones it knows. |
+- `type`: Recipe type id 'mod:type' (the IDE lists the types of the installed mods).
+- `id` (default `None`): File name of the recipe (optional).
+- `**fields`: The mod's own recipe fields as keywords; the IDE shows the ones it knows.
 
 #### `recipe_shaped(result, pattern, keys, category='misc', **extra)`
 
@@ -1132,13 +1054,11 @@ Low-level shaped recipe with the raw pattern.
 
 Old API (replaced in 2.0, still works): use shaped(result, " R ", " R ", " S ", R=ingredient, S="stick").
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Result item id or dict. |
-| `pattern` |  | List of up to 3 strings. |
-| `keys` |  | Dict letter -> ingredient. |
-| `category` | `'misc'` | Recipe book category: 'building', 'redstone', 'equipment' or 'misc'. |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `result`: Result item id or dict.
+- `pattern`: List of up to 3 strings.
+- `keys`: Dict letter -> ingredient.
+- `category` (default `'misc'`): Recipe book category: 'building', 'redstone', 'equipment' or 'misc'.
+- `**extra`: Further fields written into the JSON as they are.
 
 #### `recipe_shapeless(result, ingredients, category='misc', **extra)`
 
@@ -1146,12 +1066,10 @@ Low-level shapeless recipe.
 
 Old API (replaced in 2.0, still works): use shapeless(result, ingredient, ...).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Result item id or dict. |
-| `ingredients` |  | List of ingredients. |
-| `category` | `'misc'` | Recipe book category. |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `result`: Result item id or dict.
+- `ingredients`: List of ingredients.
+- `category` (default `'misc'`): Recipe book category.
+- `**extra`: Further fields written into the JSON as they are.
 
 #### `recipe_smelting(result, ingredient, xp=0.0, cook_time=200, **extra)`
 
@@ -1159,13 +1077,11 @@ Furnace recipe.
 
 Old API (replaced in 2.0, still works): use smelt(ingredient, result, xp=..., seconds=...).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Result. |
-| `ingredient` |  | Input. |
-| `xp` | `0.0` | Experience given. |
-| `cook_time` | `200` | Ticks to cook (200 = 10 s). |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `result`: Result.
+- `ingredient`: Input.
+- `xp` (default `0.0`): Experience given.
+- `cook_time` (default `200`): Ticks to cook (200 = 10 s).
+- `**extra`: Further fields written into the JSON as they are.
 
 #### `recipe_blasting(result, ingredient, xp=0.0, cook_time=100, **extra)`
 
@@ -1173,13 +1089,11 @@ Blast furnace recipe.
 
 Old API (replaced in 2.0, still works): use smelt(ingredient, result, using="blast_furnace").
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Result. |
-| `ingredient` |  | Input. |
-| `xp` | `0.0` | Experience given. |
-| `cook_time` | `100` | Ticks to cook (100 = 5 s). |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `result`: Result.
+- `ingredient`: Input.
+- `xp` (default `0.0`): Experience given.
+- `cook_time` (default `100`): Ticks to cook (100 = 5 s).
+- `**extra`: Further fields written into the JSON as they are.
 
 #### `recipe_smoking(result, ingredient, xp=0.0, cook_time=100, **extra)`
 
@@ -1187,13 +1101,11 @@ Smoker recipe.
 
 Old API (replaced in 2.0, still works): use smelt(ingredient, result, using="smoker").
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Result. |
-| `ingredient` |  | Input. |
-| `xp` | `0.0` | Experience given. |
-| `cook_time` | `100` | Ticks to cook (100 = 5 s). |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `result`: Result.
+- `ingredient`: Input.
+- `xp` (default `0.0`): Experience given.
+- `cook_time` (default `100`): Ticks to cook (100 = 5 s).
+- `**extra`: Further fields written into the JSON as they are.
 
 #### `recipe_campfire(result, ingredient, cook_time=600, **extra)`
 
@@ -1201,12 +1113,10 @@ Campfire recipe.
 
 Old API (replaced in 2.0, still works): use smelt(ingredient, result, using="campfire").
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Result. |
-| `ingredient` |  | Input. |
-| `cook_time` | `600` | Ticks to cook (600 = 30 s). |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `result`: Result.
+- `ingredient`: Input.
+- `cook_time` (default `600`): Ticks to cook (600 = 30 s).
+- `**extra`: Further fields written into the JSON as they are.
 
 #### `recipe_stonecutting(result, ingredient, count=1, **extra)`
 
@@ -1214,24 +1124,20 @@ Stonecutter recipe.
 
 Old API (replaced in 2.0, still works): use stonecut(ingredient, result, count=...).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Result. |
-| `ingredient` |  | Input. |
-| `count` | `1` | Items produced. |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `result`: Result.
+- `ingredient`: Input.
+- `count` (default `1`): Items produced.
+- `**extra`: Further fields written into the JSON as they are.
 
 #### `recipe_smithing(result, template, base, addition, **extra)`
 
 Smithing table recipe.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `result` |  | Result. |
-| `template` |  | Smithing template item. |
-| `base` |  | Item that is upgraded. |
-| `addition` |  | Material added. |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `result`: Result.
+- `template`: Smithing template item.
+- `base`: Item that is upgraded.
+- `addition`: Material added.
+- `**extra`: Further fields written into the JSON as they are.
 
 ### Tags, names, loot and data
 
@@ -1239,43 +1145,35 @@ Smithing table recipe.
 
 Declares a tag, a named group of items or blocks.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ident` |  | Tag id without namespace ('ruby_gems' becomes <project>:ruby_gems). |
-| `values` |  | Items/blocks or '#other_tag' entries to include. |
-| `replace` | `False` | True drops the entries of a tag with the same id from other packs. |
-| `type` | `'item'` | 'item' (default), 'block', 'entity_type', 'fluid' or 'game_event'. |
+- `ident`: Tag id without namespace ('ruby_gems' becomes <project>:ruby_gems).
+- `values`: Items/blocks or '#other_tag' entries to include.
+- `replace` (default `False`): True drops the entries of a tag with the same id from other packs.
+- `type` (default `'item'`): 'item' (default), 'block', 'entity_type', 'fluid' or 'game_event'.
 
 #### `lang(key, value)`
 
 Adds a translation: lang('itemGroup.mypack', 'My Pack').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `key` |  | Translation key. |
-| `value` |  | English text. |
+- `key`: Translation key.
+- `value`: English text.
 
 #### `loot_table(ident, entries, rolls=1, **extra)`
 
 Declares a loot table (what chests, blocks or mobs drop).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ident` |  | Table id; a block's own id replaces what that block drops. |
-| `entries` |  | List of loot_entry(...) or 'self'. |
-| `rolls` | `1` | How many entries are picked (default 1). |
-| `**extra` |  | Further fields written into the JSON as they are. |
+- `ident`: Table id; a block's own id replaces what that block drops.
+- `entries`: List of loot_entry(...) or 'self'.
+- `rolls` (default `1`): How many entries are picked (default 1).
+- `**extra`: Further fields written into the JSON as they are.
 
 #### `loot_entry(item, count=1, weight=1, **kwargs)`
 
 One possible drop of a loot table.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `item` |  | Item to drop. |
-| `count` | `1` | Stack size dropped (default 1). |
-| `weight` | `1` | Relative chance against the other entries (default 1). |
-| `**kwargs` |  | Further fields written into the JSON as they are. |
+- `item`: Item to drop.
+- `count` (default `1`): Stack size dropped (default 1).
+- `weight` (default `1`): Relative chance against the other entries (default 1).
+- `**kwargs`: Further fields written into the JSON as they are.
 
 Returns: A dict for loot_table.
 
@@ -1287,38 +1185,30 @@ Marks a loot entry that drops the block itself.
 
 Declares a sound event (sounds.json).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `event` |  | Sound event id ('ruby_chime'). |
-| `**kwargs` |  | Further fields written into the JSON as they are. |
+- `event`: Sound event id ('ruby_chime').
+- `**kwargs`: Further fields written into the JSON as they are.
 
 #### `particle(ident, **kwargs)`
 
 Declares a particle definition.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ident` |  | Particle id. |
-| `**kwargs` |  | Further fields written into the JSON as they are. |
+- `ident`: Particle id.
+- `**kwargs`: Further fields written into the JSON as they are.
 
 #### `advancement(ident, **kwargs)`
 
 Declares an advancement; keywords are the fields of the advancement JSON.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ident` |  | Advancement id. |
-| `**kwargs` |  | Further fields written into the JSON as they are. |
+- `ident`: Advancement id.
+- `**kwargs`: Further fields written into the JSON as they are.
 
 #### `raw_json(path, data, namespace=None)`
 
 Writes any data pack JSON file as is (escape hatch; version specific).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `path` |  | Path inside the data pack, for example 'tags/item/foo.json'. |
-| `data` |  | A dict or list to write as JSON. |
-| `namespace` | `None` | Write to data/<namespace>/ instead of your project's own folder (for example 'minecraft'). |
+- `path`: Path inside the data pack, for example 'tags/item/foo.json'.
+- `data`: A dict or list to write as JSON.
+- `namespace` (default `None`): Write to data/<namespace>/ instead of your project's own folder (for example 'minecraft').
 
 #### `tex(ref)`
 
@@ -1326,9 +1216,7 @@ Reference to a texture by name.
 
 Old API (replaced in 2.0, still works): use the file name as text, like texture="ruby.png".
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ref` |  | Texture name or id. |
+- `ref`: Texture name or id.
 
 Returns: A texture reference.
 
@@ -1338,9 +1226,7 @@ Reference to a sound by name.
 
 Old API (replaced in 2.0, still works): use the sound id as text.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ref` |  | Sound event id. |
+- `ref`: Sound event id.
 
 Returns: A sound reference.
 
@@ -1350,9 +1236,7 @@ Reference to a model by name.
 
 Old API (replaced in 2.0, still works): use the model name as text.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ref` |  | Model id. |
+- `ref`: Model id.
 
 Returns: A model reference.
 
@@ -1362,30 +1246,24 @@ Returns: A model reference.
 
 Runs a function when something happens: @on('block_break'), @on.block_break(block=ruby_ore).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `event` |  | Event name: block_break, block_place, block_interact, block_tick, item_use, item_hit, item_mine, item_hold_tick, item_craft, item_pickup, player_join, player_leave, player_respawn, player_death, entity_death, entity_hurt, chat, or a command_<name> event. |
-| `every` | `None` | Run at most every this many ticks (optional). |
-| `priority` | `'normal'` | 'normal' (default); reserved for ordering. |
-| `**filters` |  | block=, item= or entity= : only for that block/item/entity (ids or Block/Item objects). |
+- `event`: Event name: block_break, block_place, block_interact, block_tick, item_use, item_hit, item_mine, item_hold_tick, item_craft, item_pickup, player_join, player_leave, player_respawn, player_death, entity_death, entity_hurt, chat, or a command_<name> event.
+- `every` (default `None`): Run at most every this many ticks (optional).
+- `priority` (default `'normal'`): 'normal' (default); reserved for ordering.
+- `**filters`: block=, item= or entity= : only for that block/item/entity (ids or Block/Item objects).
 
 #### `every(ticks=None, seconds=None)`
 
 Runs a function again and again: @every(seconds=5) or @every(100).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ticks` | `None` | Interval in ticks (20 = one second). |
-| `seconds` | `None` | Interval in seconds (wins over ticks). |
+- `ticks` (default `None`): Interval in ticks (20 = one second).
+- `seconds` (default `None`): Interval in seconds (wins over ticks).
 
 #### `after(seconds, fn=None)`
 
 Runs a function once after a delay: after(3, fn) or @after(3).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `seconds` |  | Delay in seconds. |
-| `fn` | `None` | Function to run (omit to use as a decorator). |
+- `seconds`: Delay in seconds.
+- `fn` (default `None`): Function to run (omit to use as a decorator).
 
 Returns: A Task that can be cancelled.
 
@@ -1393,10 +1271,8 @@ Returns: A Task that can be cancelled.
 
 Runs a function after a number of ticks.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ticks` |  | Delay in ticks. |
-| `fn` |  | Function to run. |
+- `ticks`: Delay in ticks.
+- `fn`: Function to run.
 
 Returns: A Task.
 
@@ -1404,10 +1280,8 @@ Returns: A Task.
 
 Runs a function every N ticks until cancelled.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ticks` |  | Interval in ticks. |
-| `fn` |  | Function; receives the tick count. |
+- `ticks`: Interval in ticks.
+- `fn`: Function; receives the tick count.
 
 Returns: A Task (task.cancel() stops it).
 
@@ -1415,9 +1289,7 @@ Returns: A Task (task.cancel() stops it).
 
 Runs a function on the next game tick.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `fn` |  | Function to run. |
+- `fn`: Function to run.
 
 Returns: A Task.
 
@@ -1425,34 +1297,26 @@ Returns: A Task.
 
 Registers /<project>:<name>. Arguments come from the function signature (int, float, bool, str, Player).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Command name. |
-| `**params` |  | Explicit argument types instead of annotations (optional). |
+- `name`: Command name.
+- `**params`: Explicit argument types instead of annotations (optional).
 
 #### `on_load(fn)`
 
 Runs the decorated function when the project or module is loaded.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `fn` |  | The function. |
+- `fn`: The function.
 
 #### `on_unload(fn)`
 
 Runs the decorated function when the project or module is unloaded.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `fn` |  | The function. |
+- `fn`: The function.
 
 #### `requires_restart(flag=True)`
 
 Declares that loading this module needs a full game restart.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `flag` | `True` | True (default) or False. |
+- `flag` (default `True`): True (default) or False.
 
 #### `core()`
 
@@ -1462,9 +1326,7 @@ Marks this module as 'core': it may need a full game restart.
 
 True when the game supports a capability: has('ui.window').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `capability` |  | Capability name. |
+- `capability`: Capability name.
 
 ### Chat and server
 
@@ -1472,17 +1334,13 @@ True when the game supports a capability: has('ui.window').
 
 Broadcasts a chat message to everyone.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*message` |  | Texts; non-text values are converted and joined with spaces. |
+- `*message`: Texts; non-text values are converted and joined with spaces.
 
 #### `run(command_text)`
 
 Runs a Minecraft command as the server: run('time set day').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `command_text` |  | Command without the leading slash. |
+- `command_text`: Command without the leading slash.
 
 Returns: what the command answered, as text (lines joined with a newline)
 
@@ -1490,9 +1348,7 @@ Returns: what the command answered, as text (lines joined with a newline)
 
 The online player with this name, or None.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Player name. |
+- `name`: Player name.
 
 Returns: A Player or None.
 
@@ -1500,17 +1356,13 @@ Returns: A Player or None.
 
 Chat message to everyone.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `message` |  | Text. |
+- `message`: Text.
 
 #### `server.run_command(command)`
 
 Runs a command at permission level 2, like a command block. Needs "permissions": {"commands": true} in project.json / module.json (modules: approved on the Modules page).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `command` |  | Without the leading slash. |
+- `command`: Without the leading slash.
 
 Returns: what the command answered, as text
 
@@ -1524,10 +1376,8 @@ Returns: a list of mod ids
 
 Writes to the server log and the IDE console.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `message` |  | Text. |
-| `level` | `'info'` | 'info' (default), 'warn' or 'error'. |
+- `message`: Text.
+- `level` (default `'info'`): 'info' (default), 'warn' or 'error'.
 
 #### `players.all()`
 
@@ -1545,9 +1395,7 @@ Returns: list of Player
 
 Snapshot of an online player.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Player name. |
+- `name`: Player name.
 
 Returns: A Player or None.
 
@@ -1555,32 +1403,26 @@ Returns: A Player or None.
 
 Gives items to a player by name.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Player name. |
-| `item` |  | Item or id. |
-| `count` | `1` | How many. |
+- `name`: Player name.
+- `item`: Item or id.
+- `count` (default `1`): How many.
 
 #### `players.send_message(name, message)`
 
 Chat message to one player by name.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Player name. |
-| `message` |  | Text. |
+- `name`: Player name.
+- `message`: Text.
 
 #### `players.teleport(name, x, y, z, dimension='minecraft:overworld')`
 
 Teleports a player by name.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Player name. |
-| `x` |  | X. |
-| `y` |  | Y. |
-| `z` |  | Z. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `name`: Player name.
+- `x`: X.
+- `y`: Y.
+- `z`: Z.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 ### Player
 
@@ -1588,53 +1430,41 @@ Teleports a player by name.
 
 Sends a chat message to this player only.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*message` |  | Texts, joined with spaces. |
+- `*message`: Texts, joined with spaces.
 
 #### `Player.send_message(*message)`
 
 Same as say.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*message` |  | Texts, joined with spaces. |
+- `*message`: Texts, joined with spaces.
 
 #### `Player.actionbar(text)`
 
 Shows text above the hotbar.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `text` |  | The text. |
+- `text`: The text.
 
 #### `Player.title(text, subtitle=None, seconds=3)`
 
 Shows a big title in the middle of the screen.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `text` |  | Title. |
-| `subtitle` | `None` | Smaller line under it (optional). |
-| `seconds` | `3` | How long it stays (default 3). |
+- `text`: Title.
+- `subtitle` (default `None`): Smaller line under it (optional).
+- `seconds` (default `3`): How long it stays (default 3).
 
 #### `Player.give(item, count=1)`
 
 Gives items; what does not fit is dropped.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `item` |  | Item or id. |
-| `count` | `1` | How many (default 1). |
+- `item`: Item or id.
+- `count` (default `1`): How many (default 1).
 
 #### `Player.take(item, count=1)`
 
 Removes items from the inventory.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `item` |  | Item or id. |
-| `count` | `1` | How many (default 1). |
+- `item`: Item or id.
+- `count` (default `1`): How many (default 1).
 
 Returns: How many were taken.
 
@@ -1642,10 +1472,8 @@ Returns: How many were taken.
 
 True when the inventory holds enough of an item.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `item` |  | Item or id. |
-| `count` | `1` | At least this many. |
+- `item`: Item or id.
+- `count` (default `1`): At least this many.
 
 Returns: bool
 
@@ -1659,37 +1487,29 @@ Returns: A list of stacks.
 
 Restores health.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `amount` | `None` | Health points (2 = one heart); omit for full health. |
+- `amount` (default `None`): Health points (2 = one heart); omit for full health.
 
 #### `Player.set_health(health)`
 
 Sets health.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `health` |  | Health points, 20 is full. |
+- `health`: Health points, 20 is full.
 
 #### `Player.feed(food=20, saturation=1.0)`
 
 Restores hunger.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `food` | `20` | Hunger points (default 20 = full). |
-| `saturation` | `1.0` | Saturation (default 1.0). |
+- `food` (default `20`): Hunger points (default 20 = full).
+- `saturation` (default `1.0`): Saturation (default 1.0).
 
 #### `Player.effect(name, seconds=10, level=1, particles=True)`
 
 Applies a potion effect: player.effect('speed', seconds=30, level=2).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Effect id ('speed', 'minecraft:regeneration'). |
-| `seconds` | `10` | Duration (default 10). |
-| `level` | `1` | 1 = normal, 2 = II ... (default 1). |
-| `particles` | `True` | False hides the swirl. |
+- `name`: Effect id ('speed', 'minecraft:regeneration').
+- `seconds` (default `10`): Duration (default 10).
+- `level` (default `1`): 1 = normal, 2 = II ... (default 1).
+- `particles` (default `True`): False hides the swirl.
 
 #### `Player.clear_effects()`
 
@@ -1699,47 +1519,37 @@ Removes every effect.
 
 Gives experience.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `levels` | `0` | Whole levels. |
-| `points` | `0` | Experience points. |
+- `levels` (default `0`): Whole levels.
+- `points` (default `0`): Experience points.
 
 #### `Player.teleport(x, y=None, z=None, dimension=None)`
 
 Moves the player.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X (or a Pos). |
-| `y` | `None` | Y. |
-| `z` | `None` | Z. |
-| `dimension` | `None` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X (or a Pos).
+- `y` (default `None`): Y.
+- `z` (default `None`): Z.
+- `dimension` (default `None`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 #### `Player.play_sound(sound, volume=1.0, pitch=1.0)`
 
 Plays a sound only this player hears.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `sound` |  | Sound event id ('minecraft:entity.blaze.shoot'). |
-| `volume` | `1.0` | 1.0 = normal. |
-| `pitch` | `1.0` | 1.0 = normal. |
+- `sound`: Sound event id ('minecraft:entity.blaze.shoot').
+- `volume` (default `1.0`): 1.0 = normal.
+- `pitch` (default `1.0`): 1.0 = normal.
 
 #### `Player.set_gamemode(mode)`
 
 Sets the game mode.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `mode` |  | 'survival', 'creative', 'adventure' or 'spectator'. |
+- `mode`: 'survival', 'creative', 'adventure' or 'spectator'.
 
 #### `Player.set_fire(seconds=3)`
 
 Sets the player on fire.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `seconds` | `3` | Burn time (default 3). |
+- `seconds` (default `3`): Burn time (default 3).
 
 #### `Player.kill()`
 
@@ -1755,9 +1565,7 @@ Returns: A Player.
 
 The online player with this name, or None.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Player name. |
+- `name`: Player name.
 
 Returns: A Player or None.
 
@@ -1771,19 +1579,15 @@ Kills the entity.
 
 Moves the entity.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X (or a Pos). |
-| `y` | `None` | Y. |
-| `z` | `None` | Z. |
+- `x`: X (or a Pos).
+- `y` (default `None`): Y.
+- `z` (default `None`): Z.
 
 #### `Entity.set_name(name)`
 
 Sets its custom name.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | The name. |
+- `name`: The name.
 
 #### `Entity.refresh() -> 'Entity'`
 
@@ -1797,19 +1601,15 @@ Returns: An Entity or None.
 
 An (x, y, z) position; supports pos + (0, 1, 0), pos.up(2).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X. |
-| `y` |  | Y. |
-| `z` |  | Z. |
+- `x`: X.
+- `y`: Y.
+- `z`: Z.
 
 #### `Pos.up(n=1) -> 'Pos'`
 
 The position n blocks higher.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `n` | `1` | Blocks (default 1). |
+- `n` (default `1`): Blocks (default 1).
 
 Returns: A Pos.
 
@@ -1817,9 +1617,7 @@ Returns: A Pos.
 
 The position n blocks lower.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `n` | `1` | Blocks (default 1). |
+- `n` (default `1`): Blocks (default 1).
 
 Returns: A Pos.
 
@@ -1835,12 +1633,10 @@ Returns: A Pos with whole numbers.
 
 The block id at a position.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: str, for example 'minecraft:stone'
 
@@ -1848,25 +1644,21 @@ Returns: str, for example 'minecraft:stone'
 
 Places a block: world.set_block(x, y, z, 'stone') or world.set_block(pos, 'stone').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` |  | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `block` | `None` | Block id or Block object. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
-| `replace` | `True` | False only places into air. |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y`: Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `block` (default `None`): Block id or Block object.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
+- `replace` (default `True`): False only places into air.
 
 #### `world.fill(start, end, block, dimension='minecraft:overworld')`
 
 Fills the box between two corners (at most 32768 blocks).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `start` |  | First corner (Pos or tuple). |
-| `end` |  | Opposite corner. |
-| `block` |  | Block id. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `start`: First corner (Pos or tuple).
+- `end`: Opposite corner.
+- `block`: Block id.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: Blocks changed.
 
@@ -1874,13 +1666,11 @@ Returns: Blocks changed.
 
 Blocks around a position.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` |  | Y coordinate (height). |
-| `z` |  | Z coordinate. |
-| `radius` | `0` | Distance in blocks in each direction. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y`: Y coordinate (height).
+- `z`: Z coordinate.
+- `radius` (default `0`): Distance in blocks in each direction.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: list
 
@@ -1888,13 +1678,11 @@ Returns: list
 
 Block entities around a position.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` |  | Y coordinate (height). |
-| `z` |  | Z coordinate. |
-| `radius` | `0` | Distance in blocks. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y`: Y coordinate (height).
+- `z`: Z coordinate.
+- `radius` (default `0`): Distance in blocks.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: list
 
@@ -1902,14 +1690,12 @@ Returns: list
 
 Entities near a position.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `radius` | `8` | Distance in blocks (default 8). |
-| `type` | `None` | Only this entity type ('minecraft:zombie'). |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `radius` (default `8`): Distance in blocks (default 8).
+- `type` (default `None`): Only this entity type ('minecraft:zombie').
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: list of Entity
 
@@ -1917,13 +1703,11 @@ Returns: list of Entity
 
 Entities in a cube around a position.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` |  | Y coordinate (height). |
-| `z` |  | Z coordinate. |
-| `radius` | `8` | Half the cube size. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y`: Y coordinate (height).
+- `z`: Z coordinate.
+- `radius` (default `8`): Half the cube size.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: list
 
@@ -1931,13 +1715,11 @@ Returns: list
 
 Spawns an entity ('zombie', 'minecraft:pig').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `entity` |  | Entity type id. |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `entity`: Entity type id.
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: The Entity.
 
@@ -1945,77 +1727,65 @@ Returns: The Entity.
 
 Drops an item stack on the ground.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `item` |  | Item or id. |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `count` | `1` | Stack size. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `item`: Item or id.
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `count` (default `1`): Stack size.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 #### `world.explode(x, y=None, z=None, power=3, fire=False, break_blocks=True, dimension='minecraft:overworld')`
 
 Creates an explosion.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `power` | `3` | Strength (TNT is 4, default 3). |
-| `fire` | `False` | True sets fires. |
-| `break_blocks` | `True` | False only damages. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `power` (default `3`): Strength (TNT is 4, default 3).
+- `fire` (default `False`): True sets fires.
+- `break_blocks` (default `True`): False only damages.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 #### `world.lightning(x, y=None, z=None, dimension='minecraft:overworld')`
 
 Strikes lightning.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 #### `world.particle(particle, x, y=None, z=None, count=1, dimension='minecraft:overworld')`
 
 Spawns particles.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `particle` |  | Particle id ('minecraft:flame'). |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `count` | `1` | How many. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `particle`: Particle id ('minecraft:flame').
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `count` (default `1`): How many.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 #### `world.play_sound(sound, x, y=None, z=None, volume=1.0, pitch=1.0, dimension='minecraft:overworld')`
 
 Plays a sound at a position.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `sound` |  | Sound event id. |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `volume` | `1.0` | 1.0 = normal. |
-| `pitch` | `1.0` | 1.0 = normal. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `sound`: Sound event id.
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `volume` (default `1.0`): 1.0 = normal.
+- `pitch` (default `1.0`): 1.0 = normal.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 #### `world.biome(x, y=None, z=None, dimension='minecraft:overworld')`
 
 Biome id at a position.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: str
 
@@ -2023,11 +1793,9 @@ Returns: str
 
 Height of the highest solid block in a column.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X. |
-| `z` |  | Z. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X.
+- `z`: Z.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: int
 
@@ -2035,12 +1803,10 @@ Returns: int
 
 Biome, highest_y, light, is_day, raining, thundering and time at a position.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `x` |  | X coordinate (or a Pos / (x, y, z) tuple when y and z are left out). |
-| `y` | `None` | Y coordinate (height). |
-| `z` | `None` | Z coordinate. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: dict
 
@@ -2048,9 +1814,7 @@ Returns: dict
 
 Time of day in ticks (0 to 24000).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: int
 
@@ -2058,18 +1822,14 @@ Returns: int
 
 Sets the time of day.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ticks` |  | 0 = sunrise, 6000 = noon, 13000 = night. |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `ticks`: 0 = sunrise, 6000 = noon, 13000 = night.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 #### `world.is_day(dimension='minecraft:overworld')`
 
 True during the day.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: bool
 
@@ -2077,11 +1837,9 @@ Returns: bool
 
 Sets the weather.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `weather` | `'clear'` | 'clear', 'rain' or 'thunder'. |
-| `duration` | `6000` | Ticks (default 6000). |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `weather` (default `'clear'`): 'clear', 'rain' or 'thunder'.
+- `duration` (default `6000`): Ticks (default 6000).
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 ### Storage and scheduler
 
@@ -2089,11 +1847,9 @@ Sets the weather.
 
 Reads a saved value (saved with the world, shared by all handlers).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `key` |  | Name. |
-| `default` | `None` | Returned when missing. |
-| `scope` | `'world'` | A name that keeps groups of values apart (default 'world'). |
+- `key`: Name.
+- `default` (default `None`): Returned when missing.
+- `scope` (default `'world'`): A name that keeps groups of values apart (default 'world').
 
 Returns: the value
 
@@ -2101,11 +1857,9 @@ Returns: the value
 
 Saves a value. storage['key'] = value does the same in the default scope.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `key` |  | Name. |
-| `value` |  | Number, text, bool, list or dict. |
-| `scope` | `'world'` | Group name (default 'world'). |
+- `key`: Name.
+- `value`: Number, text, bool, list or dict.
+- `scope` (default `'world'`): Group name (default 'world').
 
 Returns: the value
 
@@ -2113,19 +1867,15 @@ Returns: the value
 
 Deletes one value, or everything of the scope.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `key` | `None` | Name; omit to clear the whole scope. |
-| `scope` | `'world'` | Group name (default 'world'). |
+- `key` (default `None`): Name; omit to clear the whole scope.
+- `scope` (default `'world'`): Group name (default 'world').
 
 #### `scheduler.after(seconds, fn)`
 
 Runs fn once after a delay.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `seconds` |  | Delay. |
-| `fn` |  | Function. |
+- `seconds`: Delay.
+- `fn`: Function.
 
 Returns: A Task.
 
@@ -2133,10 +1883,8 @@ Returns: A Task.
 
 Runs fn repeatedly.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `seconds` |  | Interval. |
-| `fn` |  | Function. |
+- `seconds`: Interval.
+- `fn`: Function.
 
 Returns: A Task.
 
@@ -2144,10 +1892,8 @@ Returns: A Task.
 
 Runs fn every N ticks.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ticks` |  | Interval. |
-| `fn` |  | Function. |
+- `ticks`: Interval.
+- `fn`: Function.
 
 Returns: A Task.
 
@@ -2155,10 +1901,8 @@ Returns: A Task.
 
 Runs fn after N ticks.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ticks` |  | Delay. |
-| `fn` |  | Function. |
+- `ticks`: Delay.
+- `fn`: Function.
 
 Returns: A Task.
 
@@ -2166,9 +1910,7 @@ Returns: A Task.
 
 Runs fn on the next tick.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `fn` |  | Function. |
+- `fn`: Function.
 
 Returns: A Task.
 
@@ -2178,28 +1920,22 @@ Returns: A Task.
 
 Registers a Window subclass: @window('counter', title='Counter', size=(260, 170)).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ident` |  | Window id used by ui.open. |
-| `title` | `None` | Title bar text. |
-| `size` | `None` | (width, height) in pixels. |
-| `resizable` | `False` | True lets the player resize it. |
+- `ident`: Window id used by ui.open.
+- `title` (default `None`): Title bar text.
+- `size` (default `None`): (width, height) in pixels.
+- `resizable` (default `False`): True lets the player resize it.
 
 #### `action(name)`
 
 Names a function that buttons of ui/*.json windows can call: @action('save').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Action name used in on_click. |
+- `name`: Action name used in on_click.
 
 #### `Window.build(ctx)`
 
 Returns the widgets of the window. Called again after every callback.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `ctx` |  | Window context: ctx.player, ctx.values, ctx.close. |
+- `ctx`: Window context: ctx.player, ctx.values, ctx.close.
 
 Returns: A widget.
 
@@ -2207,9 +1943,7 @@ Returns: A widget.
 
 A value remembered between redraws.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `default` |  | Initial value. |
+- `default`: Initial value.
 
 Returns: A holder with .value.
 
@@ -2217,19 +1951,15 @@ Returns: A holder with .value.
 
 Opens a window for a player.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `player` |  | Player or name. |
-| `window_id` |  | Id of a @window class or ui/<id>.json. |
+- `player`: Player or name.
+- `window_id`: Id of a @window class or ui/<id>.json.
 
 #### `ui.close(player, window_id=None)`
 
 Closes the window.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `player` |  | Player or name. |
-| `window_id` | `None` | Which one; omit to close any. |
+- `player`: Player or name.
+- `window_id` (default `None`): Which one; omit to close any.
 
 #### `ui.windows()`
 
@@ -2241,10 +1971,8 @@ Returns: list of str
 
 Redraws a window that is open, from a timer or an event (callbacks redraw by themselves); it keeps its state.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `player` |  | Player or name. |
-| `window_id` |  | Which window. |
+- `player`: Player or name.
+- `window_id`: Which window.
 
 Returns: False when the player has closed it
 
@@ -2252,10 +1980,8 @@ Returns: False when the player has closed it
 
 Text.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `text` |  | The text. |
-| `**p` |  | style='title'\|'headline'\|'text', color='#rrggbb', id. |
+- `text`: The text.
+- `**p`: style='title'|'headline'|'text', color='#rrggbb', id.
 
 Returns: A widget.
 
@@ -2263,11 +1989,9 @@ Returns: A widget.
 
 A button.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `text` |  | Caption. |
-| `on_click` | `None` | An @action name or a function (called as fn(event)). |
-| `**p` |  | style='text' for a flat button, id. |
+- `text`: Caption.
+- `on_click` (default `None`): An @action name or a function (called as fn(event)).
+- `**p`: style='text' for a flat button, id.
 
 Returns: A widget.
 
@@ -2275,10 +1999,8 @@ Returns: A widget.
 
 One-line text field.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `value` | `''` | Initial text. |
-| `**p` |  | id (read it with ctx.values[id]), hint, on_change, on_submit. |
+- `value` (default `''`): Initial text.
+- `**p`: id (read it with ctx.values[id]), hint, on_change, on_submit.
 
 Returns: A widget.
 
@@ -2286,10 +2008,8 @@ Returns: A widget.
 
 Multi-line text field.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `value` | `''` | Initial text. |
-| `**p` |  | id, hint, on_change. |
+- `value` (default `''`): Initial text.
+- `**p`: id, hint, on_change.
 
 Returns: A widget.
 
@@ -2297,11 +2017,9 @@ Returns: A widget.
 
 A check box.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `label` | `''` | Caption. |
-| `checked` | `False` | Initial state. |
-| `**p` |  | id, on_change. |
+- `label` (default `''`): Caption.
+- `checked` (default `False`): Initial state.
+- `**p`: id, on_change.
 
 Returns: A widget.
 
@@ -2309,12 +2027,10 @@ Returns: A widget.
 
 A slider.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `value` | `0` | Initial value. |
-| `min` | `0` | Lowest value. |
-| `max` | `100` | Highest value. |
-| `**p` |  | id, on_change. |
+- `value` (default `0`): Initial value.
+- `min` (default `0`): Lowest value.
+- `max` (default `100`): Highest value.
+- `**p`: id, on_change.
 
 Returns: A widget.
 
@@ -2322,11 +2038,9 @@ Returns: A widget.
 
 A drop-down list.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `options` | `None` | List of texts. |
-| `selected` | `0` | Index of the chosen one. |
-| `**p` |  | id, on_select. |
+- `options` (default `None`): List of texts.
+- `selected` (default `0`): Index of the chosen one.
+- `**p`: id, on_select.
 
 Returns: A widget.
 
@@ -2334,10 +2048,8 @@ Returns: A widget.
 
 A list of texts.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `items` | `None` | List of texts. |
-| `**p` |  | id, on_select. |
+- `items` (default `None`): List of texts.
+- `**p`: id, on_select.
 
 Returns: A widget.
 
@@ -2345,10 +2057,8 @@ Returns: A widget.
 
 A progress bar.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `value` | `0` | Current value. |
-| `**p` |  | max (default 100), id. |
+- `value` (default `0`): Current value.
+- `**p`: max (default 100), id.
 
 Returns: A widget.
 
@@ -2356,10 +2066,8 @@ Returns: A widget.
 
 A picture.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `source` | `''` | Texture id or project asset. |
-| `**p` |  | id. |
+- `source` (default `''`): Texture id or project asset.
+- `**p`: id.
 
 Returns: A widget.
 
@@ -2367,10 +2075,8 @@ Returns: A widget.
 
 The icon of an item.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `item` | `''` | Item id. |
-| `**p` |  | id. |
+- `item` (default `''`): Item id.
+- `**p`: id.
 
 Returns: A widget.
 
@@ -2378,10 +2084,8 @@ Returns: A widget.
 
 Stacks children top to bottom.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*children` |  | Widgets. |
-| `**p` |  | spacing (pixels between), padding. |
+- `*children`: Widgets.
+- `**p`: spacing (pixels between), padding.
 
 Returns: A widget.
 
@@ -2389,10 +2093,8 @@ Returns: A widget.
 
 Places children side by side.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*children` |  | Widgets. |
-| `**p` |  | spacing, padding. |
+- `*children`: Widgets.
+- `**p`: spacing, padding.
 
 Returns: A widget.
 
@@ -2400,10 +2102,8 @@ Returns: A widget.
 
 Places children in a grid.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*children` |  | Widgets. |
-| `**p` |  | columns, spacing, padding. |
+- `*children`: Widgets.
+- `**p`: columns, spacing, padding.
 
 Returns: A widget.
 
@@ -2411,10 +2111,8 @@ Returns: A widget.
 
 Tabs; each child is one tab.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*children` |  | Widgets. |
-| `**p` |  | selected (index). |
+- `*children`: Widgets.
+- `**p`: selected (index).
 
 Returns: A widget.
 
@@ -2422,10 +2120,17 @@ Returns: A widget.
 
 A scrolling area.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `*children` |  | Widgets. |
-| `**p` |  | padding. |
+- `*children`: Widgets.
+- `**p`: padding.
+
+Returns: A widget.
+
+#### `Canvas(*children, **p)`
+
+Places each child freely: x and y (from the top left) and width and height, all in pixels; what the UI maker makes when you drag and resize widgets.
+
+- `*children`: Widgets with x=, y=, width=, height=.
+- `**p`: width, height, padding.
 
 Returns: A widget.
 
@@ -2435,56 +2140,48 @@ Returns: A widget.
 
 Shows text on your screen (client-side code only). Calling it again with the same id updates it.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Name of this element (letters, digits, _ . -); the same id replaces it. |
-| `text` |  | The text (at most 256 characters). |
-| `anchor` | `'top_left'` | Where on the screen: top_left, top_center, top_right, center_left, center, center_right, bottom_left, bottom_center, bottom_right. |
-| `x` | `0` | Pixels to the right of the anchor (negative = left). |
-| `y` | `0` | Pixels below the anchor (negative = above). |
-| `color` | `'white'` | One of the 16 chat colors ('gold', 'aqua'...) or '#rrggbb'. |
-| `scale` | `1.0` | Size, 0.25 to 8. |
-| `shadow` | `True` | Draw a shadow behind the text. |
+- `id`: Name of this element (letters, digits, _ . -); the same id replaces it.
+- `text`: The text (at most 256 characters).
+- `anchor` (default `'top_left'`): Where on the screen: top_left, top_center, top_right, center_left, center, center_right, bottom_left, bottom_center, bottom_right.
+- `x` (default `0`): Pixels to the right of the anchor (negative = left).
+- `y` (default `0`): Pixels below the anchor (negative = above).
+- `color` (default `'white'`): One of the 16 chat colors ('gold', 'aqua'...) or '#rrggbb'.
+- `scale` (default `1.0`): Size, 0.25 to 8.
+- `shadow` (default `True`): Draw a shadow behind the text.
 
 #### `hud.bar(id, value, max=100, anchor='top_left', x=0, y=0, width=80, height=6, color='green', background='dark_gray', label=None)`
 
 Shows a bar (health, mana, progress) on your screen.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Name of this element. |
-| `value` |  | Current value. |
-| `max` | `100` | Value when the bar is full. |
-| `anchor` | `'top_left'` | Where on the screen (see hud.text). |
-| `x` | `0` | Pixels right of the anchor. |
-| `y` | `0` | Pixels below the anchor. |
-| `width` | `80` | Width in pixels, 1 to 600. |
-| `height` | `6` | Height in pixels, 1 to 60. |
-| `color` | `'green'` | Color of the filled part. |
-| `background` | `'dark_gray'` | Color of the empty part. |
-| `label` | `None` | Text drawn on the bar (at most 64 characters), or None. |
+- `id`: Name of this element.
+- `value`: Current value.
+- `max` (default `100`): Value when the bar is full.
+- `anchor` (default `'top_left'`): Where on the screen (see hud.text).
+- `x` (default `0`): Pixels right of the anchor.
+- `y` (default `0`): Pixels below the anchor.
+- `width` (default `80`): Width in pixels, 1 to 600.
+- `height` (default `6`): Height in pixels, 1 to 60.
+- `color` (default `'green'`): Color of the filled part.
+- `background` (default `'dark_gray'`): Color of the empty part.
+- `label` (default `None`): Text drawn on the bar (at most 64 characters), or None.
 
 #### `hud.item(id, item, anchor='top_left', x=0, y=0, count=None, scale=1.0)`
 
 Shows an item icon on your screen.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Name of this element. |
-| `item` |  | Item id such as 'minecraft:diamond' or 'welcome:gem'. |
-| `anchor` | `'top_left'` | Where on the screen (see hud.text). |
-| `x` | `0` | Pixels right of the anchor. |
-| `y` | `0` | Pixels below the anchor. |
-| `count` | `None` | A number drawn in the corner, or None. |
-| `scale` | `1.0` | Size, 0.25 to 8. |
+- `id`: Name of this element.
+- `item`: Item id such as 'minecraft:diamond' or 'welcome:gem'.
+- `anchor` (default `'top_left'`): Where on the screen (see hud.text).
+- `x` (default `0`): Pixels right of the anchor.
+- `y` (default `0`): Pixels below the anchor.
+- `count` (default `None`): A number drawn in the corner, or None.
+- `scale` (default `1.0`): Size, 0.25 to 8.
 
 #### `hud.remove(id)`
 
 Takes one element off the screen.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `id` |  | Name of the element. |
+- `id`: Name of the element.
 
 #### `hud.clear()`
 
@@ -2494,10 +2191,8 @@ Takes every element of this module off the screen.
 
 Runs a function when you press a key (while no screen is open). Use it as @keys.bind('ctrl+k').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `combo` |  | One key with optional ctrl / shift / alt: 'r', 'f6', 'ctrl+shift+k'. Letters, digits, f1-f12, space, enter, tab, arrows, home, end, pageup, pagedown, insert, delete, backspace, minus, equals, comma, period, slash, semicolon, grave, bracket_left, bracket_right. |
-| `fn` | `None` | The function; leave out to use as a decorator. |
+- `combo`: One key with optional ctrl / shift / alt: 'r', 'f6', 'ctrl+shift+k'. Letters, digits, f1-f12, space, enter, tab, arrows, home, end, pageup, pagedown, insert, delete, backspace, minus, equals, comma, period, slash, semicolon, grave, bracket_left, bracket_right.
+- `fn` (default `None`): The function; leave out to use as a decorator.
 
 Returns: the function
 
@@ -2523,44 +2218,34 @@ Returns: number
 
 Writes a line in your own chat; nobody else sees it and the server is not told.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `text` |  | The text (at most 512 characters). |
+- `text`: The text (at most 512 characters).
 
 #### `client.sound(sound, volume=1.0, pitch=1.0)`
 
 Plays a sound only you hear.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `sound` |  | Sound event id. |
-| `volume` | `1.0` | 1.0 = normal. |
-| `pitch` | `1.0` | 1.0 = normal. |
+- `sound`: Sound event id.
+- `volume` (default `1.0`): 1.0 = normal.
+- `pitch` (default `1.0`): 1.0 = normal.
 
 #### `client.toast(title, message='')`
 
 Shows a small pop-up in the corner of the screen.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `title` |  | Title (at most 64 characters). |
-| `message` | `''` | Second line (at most 128 characters). |
+- `title`: Title (at most 64 characters).
+- `message` (default `''`): Second line (at most 128 characters).
 
 #### `client.open_window(window_id)`
 
 Opens one of your windows (see window) on this computer.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `window_id` |  | Id of a @window class or ui/<id>.json. |
+- `window_id`: Id of a @window class or ui/<id>.json.
 
 #### `client.close_window(window_id=None)`
 
 Closes a window of yours.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `window_id` | `None` | Which one; omit to close any. |
+- `window_id` (default `None`): Which one; omit to close any.
 
 ### Media (client side)
 
@@ -2568,9 +2253,7 @@ Closes a window of yours.
 
 Client side: the audio files of pyforge/shared/<folder> (declare "shared": ["music"] in permissions). Call again to refresh.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `folder` | `'music'` | Folder of pyforge/shared (default 'music'). |
+- `folder` (default `'music'`): Folder of pyforge/shared (default 'music').
 
 Returns: list of str
 
@@ -2578,22 +2261,18 @@ Returns: list of str
 
 Client side: plays a file of the shared folder; it keeps playing when the window closes.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `file` |  | Name from media.files(). |
-| `folder` | `'music'` | Folder of pyforge/shared (default 'music'). |
-| `seconds` | `0` | Where to start. |
-| `volume` | `1.0` | 0.0 to 1.0. |
-| `nearby` | `False` | True: players around you hear it too (if the server allows it, up to media.maxShareMb). |
+- `file`: Name from media.files().
+- `folder` (default `'music'`): Folder of pyforge/shared (default 'music').
+- `seconds` (default `0`): Where to start.
+- `volume` (default `1.0`): 0.0 to 1.0.
+- `nearby` (default `False`): True: players around you hear it too (if the server allows it, up to media.maxShareMb).
 
 #### `media.play_sound(sound, volume=1.0)`
 
 Client side: plays a sound event (music disc, music of a resource pack or mod).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `sound` |  | Id such as 'minecraft:music_disc.cat'. |
-| `volume` | `1.0` | 0.0 to 1.0. |
+- `sound`: Id such as 'minecraft:music_disc.cat'.
+- `volume` (default `1.0`): 0.0 to 1.0.
 
 #### `media.sounds()`
 
@@ -2617,17 +2296,13 @@ Client side: stops the track.
 
 Client side: jumps to a position (files only).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `seconds` |  | Seconds from the start. |
+- `seconds`: Seconds from the start.
 
 #### `media.volume(volume)`
 
 Client side: sets the volume.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `volume` |  | 0.0 to 1.0, on top of the Jukebox/Note Blocks slider. |
+- `volume`: 0.0 to 1.0, on top of the Jukebox/Note Blocks slider.
 
 #### `media.state() -> dict`
 
@@ -2641,13 +2316,11 @@ Returns: dict: state ('playing', 'paused', 'stopped', 'ended'), name, kind, posi
 
 Fetches a web page or API (https only). The answer comes later to on_done(response).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `url` |  | https:// address of a site the module declares in permissions.net and the server allows. |
-| `on_done` | `None` | Function called with a Response (ok, status, text, headers, error, json()). |
-| `headers` | `None` | Extra request headers (dict). |
-| `key` | `None` | Name of an API key in the server config; the key itself stays there. |
-| `timeout` | `10` | Seconds before giving up. |
+- `url`: https:// address of a site the module declares in permissions.net and the server allows.
+- `on_done` (default `None`): Function called with a Response (ok, status, text, headers, error, json()).
+- `headers` (default `None`): Extra request headers (dict).
+- `key` (default `None`): Name of an API key in the server config; the key itself stays there.
+- `timeout` (default `10`): Seconds before giving up.
 
 Returns: the request id
 
@@ -2655,15 +2328,13 @@ Returns: the request id
 
 Sends data to a web API (https only); the answer comes to on_done(response).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `url` |  | https:// address. |
-| `on_done` | `None` | Function called with a Response. |
-| `body` | `None` | Text to send. |
-| `json` | `None` | A dict or list sent as JSON instead of body. |
-| `headers` | `None` | Extra request headers (dict). |
-| `key` | `None` | Name of an API key in the server config. |
-| `timeout` | `10` | Seconds before giving up. |
+- `url`: https:// address.
+- `on_done` (default `None`): Function called with a Response.
+- `body` (default `None`): Text to send.
+- `json` (default `None`): A dict or list sent as JSON instead of body.
+- `headers` (default `None`): Extra request headers (dict).
+- `key` (default `None`): Name of an API key in the server config.
+- `timeout` (default `10`): Seconds before giving up.
 
 Returns: the request id
 
@@ -2671,16 +2342,14 @@ Returns: the request id
 
 Any of GET, POST, PUT, DELETE; see http.get.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `method` |  | GET, POST, PUT or DELETE. |
-| `url` |  | https:// address. |
-| `on_done` | `None` | Function called with a Response. |
-| `headers` | `None` | Extra headers. |
-| `body` | `None` | Text to send. |
-| `json_body` | `None` | A dict or list sent as JSON. |
-| `key` | `None` | API key name in the server config. |
-| `timeout` | `10` | Seconds. |
+- `method`: GET, POST, PUT or DELETE.
+- `url`: https:// address.
+- `on_done` (default `None`): Function called with a Response.
+- `headers` (default `None`): Extra headers.
+- `body` (default `None`): Text to send.
+- `json_body` (default `None`): A dict or list sent as JSON.
+- `key` (default `None`): API key name in the server config.
+- `timeout` (default `10`): Seconds.
 
 Returns: the request id
 
@@ -2688,11 +2357,9 @@ Returns: the request id
 
 Reads a text file of this project's data folder (or of a shared folder).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | File name, folders with /: 'notes/day1.txt'. |
-| `folder` | `None` | Name of a shared folder from the server config, or None for your own. |
-| `default` | `None` | Returned when the file does not exist (instead of an error). |
+- `name`: File name, folders with /: 'notes/day1.txt'.
+- `folder` (default `None`): Name of a shared folder from the server config, or None for your own.
+- `default` (default `None`): Returned when the file does not exist (instead of an error).
 
 Returns: the text
 
@@ -2700,18 +2367,14 @@ Returns: the text
 
 Writes a text file into this project's data folder.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | File name. |
-| `text` |  | The text. |
+- `name`: File name.
+- `text`: The text.
 
 #### `files.delete(name)`
 
 Deletes a file of the data folder.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | File name. |
+- `name`: File name.
 
 Returns: True when it was there
 
@@ -2719,10 +2382,8 @@ Returns: True when it was there
 
 True when the file exists.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | File name. |
-| `folder` | `None` | Shared folder name or None. |
+- `name`: File name.
+- `folder` (default `None`): Shared folder name or None.
 
 Returns: bool
 
@@ -2730,9 +2391,7 @@ Returns: bool
 
 Names of the files of the data folder (or of a shared folder).
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `folder` | `None` | Shared folder name or None. |
+- `folder` (default `None`): Shared folder name or None.
 
 Returns: list of str
 
@@ -2740,10 +2399,8 @@ Returns: list of str
 
 Reads a JSON file.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | File name. |
-| `default` | `None` | Returned when the file does not exist. |
+- `name`: File name.
+- `default` (default `None`): Returned when the file does not exist.
 
 Returns: the value
 
@@ -2751,10 +2408,8 @@ Returns: the value
 
 Writes a value as a JSON file.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | File name. |
-| `value` |  | Dict, list, number, text... |
+- `name`: File name.
+- `value`: Dict, list, number, text...
 
 ### Java bridge
 
@@ -2768,9 +2423,7 @@ Returns: bool
 
 The Java class with this full name.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Full class name, for example 'net.minecraft.world.level.block.Blocks'. |
+- `name`: Full class name, for example 'net.minecraft.world.level.block.Blocks'.
 
 Returns: A JavaClass: .FIELD, .method(...), Class(...) builds an object.
 
@@ -2778,10 +2431,8 @@ Returns: A JavaClass: .FIELD, .method(...), Class(...) builds an object.
 
 Builds a Java object.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `name` |  | Full class name. |
-| `*args` |  | Constructor arguments. |
+- `name`: Full class name.
+- `*args`: Constructor arguments.
 
 Returns: A JavaObject.
 
@@ -2789,19 +2440,15 @@ Returns: A JavaObject.
 
 Handles any NeoForge event: @java.on('net.neoforged...LivingIncomingDamageEvent').
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `event_class` |  | Event class name or JavaClass. |
-| `priority` | `'normal'` | 'highest', 'high', 'normal', 'low' or 'lowest'. |
-| `receive_cancelled` | `False` | True also receives events other handlers cancelled. |
+- `event_class`: Event class name or JavaClass.
+- `priority` (default `'normal'`): 'highest', 'high', 'normal', 'low' or 'lowest'.
+- `receive_cancelled` (default `False`): True also receives events other handlers cancelled.
 
 #### `java.items(obj)`
 
 A Java list, set, map (as pairs), array or stream as a Python list.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `obj` |  | The Java object. |
+- `obj`: The Java object.
 
 Returns: list
 
@@ -2809,9 +2456,7 @@ Returns: list
 
 Public fields and methods of a Java object or class.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `obj` |  | The Java object or class. |
+- `obj`: The Java object or class.
 
 Returns: dict
 
@@ -2831,9 +2476,7 @@ Returns: A JavaObject.
 
 A ServerLevel.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `dimension` | `'minecraft:overworld'` | Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end'). |
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: A JavaObject.
 
@@ -2841,9 +2484,7 @@ Returns: A JavaObject.
 
 The live entity or player with this uuid.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `uuid` |  | The uuid text. |
+- `uuid`: The uuid text.
 
 Returns: A JavaObject.
 

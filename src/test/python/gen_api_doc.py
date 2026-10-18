@@ -47,7 +47,7 @@ CHAPTERS = [
                                "scheduler.run_next_tick"]),
     ("Windows", ["window", "action", "Window.build", "Window.state", "ui.open", "ui.close", "ui.windows", "ui.refresh", "Label",
                  "Button", "TextInput", "TextArea", "Checkbox", "Slider", "Dropdown", "ListView", "ProgressBar",
-                 "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView"]),
+                 "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView", "Canvas"]),
     ("Client side", ["hud.text", "hud.bar", "hud.item", "hud.remove", "hud.clear", "keys.bind", "client.player",
                      "client.looking_at", "client.fps", "client.chat", "client.sound", "client.toast",
                      "client.open_window", "client.close_window"]),
@@ -119,8 +119,9 @@ def build(worker=None):
                         missing.append("%s: %s" % (key, p.name))
                     rows.append((prefix + p.name, default, text))
             if rows:
-                out += ["| Parameter | Default | Meaning |", "| --- | --- | --- |"]
-                out += ["| `%s` | %s | %s |" % (name, default, text.replace("|", "\\|")) for name, default, text in rows]
+                # a list, not a table: the in-game Markdown viewer (Modern UI Markflow) cannot draw tables
+                out += ["- `%s`%s: %s" % (name, " (default %s)" % default if default else "", text)
+                        for name, default, text in rows]
                 out.append("")
             if returns:
                 out += ["Returns: " + returns, ""]

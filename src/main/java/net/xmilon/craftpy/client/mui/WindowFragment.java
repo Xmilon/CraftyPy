@@ -150,9 +150,16 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
     }
 
     static View previewView(Context context, JsonObject root) {
+        return previewView(context, root, null);
+    }
+
+    /** The preview; {@code shown} (optional) receives which view shows which node of {@code root}. */
+    static View previewView(Context context, JsonObject root, @Nullable Map<View, JsonObject> shown) {
         JsonObject wrapper = new JsonObject();
         wrapper.add("root", root);
-        return new WindowFragment(wrapper, false).build(context, root, new HashMap<>());
+        WindowFragment fragment = new WindowFragment(wrapper, false);
+        fragment.shownNodes = shown;
+        return fragment.build(context, root, new HashMap<>());
     }
 
     /** Swaps in a new tree (any thread). Input values the server did not change keep what the player typed. */
@@ -237,7 +244,9 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         Map<String, JsonElement> nextServer = new HashMap<>();
         box.removeAllViews();
         JsonObject root = tree.has("root") && tree.get("root").isJsonObject() ? tree.getAsJsonObject("root") : new JsonObject();
-        box.addView(build(box.getContext(), root, nextServer), new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        sized(box, root, lp);
+        box.addView(build(box.getContext(), root, nextServer), lp);
         serverValues = nextServer;
     }
 
@@ -285,8 +294,20 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
     // Widget tree -> views
     // ------------------------------------------------------------------
 
+    /** Which view shows which node; filled only for the UI maker's preview. */
+    @Nullable
+    private Map<View, JsonObject> shownNodes;
+
     /** Builds the views of one node (recursive). {@code nextServer} collects the server-side value of each input. */
     View build(Context context, JsonObject node, Map<String, JsonElement> nextServer) {
+        View view = buildView(context, node, nextServer);
+        if (shownNodes != null) {
+            shownNodes.put(view, node);
+        }
+        return view;
+    }
+
+    private View buildView(Context context, JsonObject node, Map<String, JsonElement> nextServer) {
         String type = str(node, "type", "");
         switch (type) {
             case "label" -> {
@@ -463,6 +484,20 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
             case "vbox", "hbox" -> {
                 return linear(context, node, "hbox".equals(type), nextServer);
             }
+            case "canvas" -> {
+                // free placement: every child at x, y (dp from the top left) with its own width and height
+                var canvas = new FrameLayout(context);
+                int pad = canvas.dp((float) num(node, "padding", 0));
+                canvas.setPadding(pad, pad, pad, pad);
+                for (JsonObject child : children(node)) {
+                    var lp = new FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP | Gravity.START);
+                    sized(canvas, child, lp);
+                    lp.leftMargin = canvas.dp((float) num(child, "x", 0));
+                    lp.topMargin = canvas.dp((float) num(child, "y", 0));
+                    canvas.addView(build(context, child, nextServer), lp);
+                }
+                return canvas;
+            }
             case "grid" -> {
                 int columns = Math.max(1, (int) num(node, "columns", 2));
                 var grid = new LinearLayout(context);
@@ -475,7 +510,12 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                         rowView.setOrientation(LinearLayout.HORIZONTAL);
                         grid.addView(rowView, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
                     }
-                    rowView.addView(build(context, child, nextServer), new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+                    var cell = new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1);
+                    sized(rowView, child, cell);
+                    if (child.has("width")) {
+                        cell.weight = 0;
+                    }
+                    rowView.addView(build(context, child, nextServer), cell);
                 }
                 return grid;
             }
@@ -540,6 +580,7 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
             LinearLayout.LayoutParams lp = horizontal
                     ? new LinearLayout.LayoutParams(weight > 0 ? 0 : WRAP_CONTENT, WRAP_CONTENT, (float) weight)
                     : new LinearLayout.LayoutParams(MATCH_PARENT, weight > 0 ? 0 : WRAP_CONTENT, (float) weight);
+            sized(box, child, lp);
             if (!first) {
                 if (horizontal) {
                     lp.leftMargin = gap;
@@ -551,6 +592,27 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
             box.addView(view, lp);
         }
         return box;
+    }
+
+    /**
+     * The node's {@code width} / {@code height} (dp) into its layout params; an image without them keeps its square
+     * {@code size}.
+     */
+    static void sized(View parent, JsonObject node, ViewGroup.LayoutParams lp) {
+        String type = str(node, "type", "");
+        if (("image".equals(type) || "item_icon".equals(type)) && !node.has("width") && !node.has("height")) {
+            int size = node.has("size") && node.get("size").isJsonPrimitive() ? node.get("size").getAsInt()
+                    : ("item_icon".equals(type) ? 32 : 64);
+            lp.width = parent.dp(size);
+            lp.height = parent.dp(size);
+            return;
+        }
+        if (node.has("width") && num(node, "width", 0) > 0) {
+            lp.width = parent.dp((float) num(node, "width", 0));
+        }
+        if (node.has("height") && num(node, "height", 0) > 0) {
+            lp.height = parent.dp((float) num(node, "height", 0));
+        }
     }
 
     /** What to show for an input: the player's value when the server did not change it since the last tree. */

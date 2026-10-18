@@ -1513,6 +1513,19 @@ def test_python_windows_become_ui_maker_json():
     assert "No @window" in w._handle("window_to_json", {"sources": sources, "window": "nope"})["error"]
     # broken code elsewhere does not stop the others, and nothing ran
     assert w._handle("window_list", {"sources": {"code/a.py": "def (", "code/main.py": code}})["windows"]
+    # a free canvas keeps the place and size of each widget
+    free = "\n".join([
+        "from craftpy import *",
+        "@window('free')",
+        "class Free(Window):",
+        "    def build(self, ctx):",
+        "        return Canvas(Button('Go', on_click=self.go, x=8, y=12, width=96, height=24), height=160)",
+        ""])
+    root = w._handle("window_to_json", {"sources": {"code/free.py": free}, "window": "free"})["window"]["root"]
+    assert root["type"] == "canvas" and root["height"] == 160, root
+    assert root["children"][0] == {"type": "button", "text": "Go", "on_click": "go", "x": 8, "y": 12, "width": 96,
+                                   "height": 24}, root
+    assert w.Canvas(w.Label("a", x=4)).to_dict()["children"][0]["x"] == 4
 
 
 if __name__ == "__main__":

@@ -27,10 +27,10 @@ class ModuleReadmeTest {
         String text = ModuleReadme.generate("gems", "Gems", "Shiny things.", "Alex", "1.2.0", "2.2", ModuleSide.BOTH,
                 Map.of("code/main.py", code));
         assertTrue(text.startsWith("# Gems\n\nShiny things.\n"), text);
-        assertTrue(text.contains("| Module id | `gems` |") && text.contains("| Works on | client and server |"), text);
+        assertTrue(text.contains("- **Module id**: `gems`") && text.contains("- **Works on**: client and server"), text);
         assertTrue(text.contains("**Items**: `gems:gem`") && text.contains("**Blocks**: `gems:gem_ore`"), text);
         assertTrue(text.contains("`/gems:gift`") && text.contains("**Reacts to**: block_break") && text.contains("**Windows**: shop"), text);
-        assertTrue(text.contains("| Uses content of | create, mekanism |"), text);
+        assertTrue(text.contains("- **Uses content of**: create, mekanism"), text);
         assertFalse(text.contains("minecraft,"), text);
     }
 
