@@ -1473,6 +1473,36 @@ def test_a_library_load_keeps_the_names_but_runs_nothing_twice():
     assert not result.get("error"), result
 
 
+def test_content_only_modules_report_idle():
+    """A module that only declares content leaves nothing to call: the host stops its worker after the load."""
+    import tempfile
+    names = ["_OWNERS", "_SCHEDULE", "_FN_TABLE", "_WINDOWS", "_UI_NAMED", "_UI_OPEN", "_KEYS", "_HTTP_WAITING"]
+    saved = {name: getattr(w, name).copy() for name in names}
+    try:
+        for name in names:
+            getattr(w, name).clear()
+
+        def load(module_id, lines):
+            base = tempfile.mkdtemp()
+            os.makedirs(os.path.join(base, "code"))
+            with open(os.path.join(base, "code", "main.py"), "w", encoding="utf-8") as f:
+                f.write(NL.join(["from craftpy import *"] + lines + [""]))
+            loaded = w._handle("load_module", {"id": module_id, "dir": base})
+            assert not loaded.get("error"), loaded
+            idle = w._idle()
+            w._drop_owner("module:" + module_id, host=False)
+            return idle
+
+        assert load("gems", ["gem = Item('gem')", "ore = Block('gem_ore', drops=gem)", "shaped(gem, 'DD', D='diamond')"])
+        assert not load("greeter", ["@on.player_join", "def hi(event):", "    pass"])
+        assert not load("cmds", ["@command('hello')", "def hello(ctx):", "    pass"])
+        assert not load("timer", ["@every(seconds=5)", "def tick():", "    pass"])
+    finally:
+        for name in names:
+            getattr(w, name).clear()
+            getattr(w, name).update(saved[name]) if isinstance(saved[name], dict) else getattr(w, name).extend(saved[name])
+
+
 def test_python_windows_become_ui_maker_json():
     code = NL.join([
         "from craftpy import *",

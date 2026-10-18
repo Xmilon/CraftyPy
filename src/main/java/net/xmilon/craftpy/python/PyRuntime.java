@@ -149,7 +149,8 @@ public final class PyRuntime {
             throw new IllegalStateException("CraftPy is stopping: no Python worker is started");
         }
         String logName = "python_worker_" + owner.replaceAll("[^a-z0-9_]", "_") + ".log";
-        RpcClient rpc = new RpcClient(pythonRequired(), workerScript, PyForgePaths.logs().resolve(logName));
+        Path python = pythonRequired();
+        RpcClient rpc = new RpcClient(python, script(python), PyForgePaths.logs().resolve(logName));
         StringBuilder joined = new StringBuilder();
         for (Path root : roots) {
             if (!joined.isEmpty()) {
@@ -234,7 +235,14 @@ public final class PyRuntime {
                 JsonObject params = new JsonObject();
                 params.addProperty("id", id);
                 params.addProperty("dir", dir.toAbsolutePath().toString());
-                return note(worker, worker.rpc.call("load_module", params, DEFAULT_TIMEOUT_MS));
+                JsonObject result = note(worker, worker.rpc.call("load_module", params, DEFAULT_TIMEOUT_MS));
+                if (result.has("idle") && result.get("idle").getAsBoolean()) {
+                    // content only (blocks, items, recipes): nothing can call it again, so its process is not kept;
+                    // events and calls skip an owner without a worker, and a reload starts a new one
+                    stopWorker(owner);
+                    CraftPyLog.LOGGER.info("Module {} only declares content: its Python worker was stopped", id);
+                }
+                return result;
             } catch (Exception e) {
                 CraftPyLog.LOGGER.error("Failed to load Python module: " + id, e);
                 return new JsonObject();
@@ -547,6 +555,43 @@ public final class PyRuntime {
 
     /** Copies worker.py from the classpath into pyforge/runtime/, refreshing it
      *  whenever the bundled script differs (so mod updates ship new worker code). */
+    private Path compiled;
+    private Path compiledFor;
+
+    /**
+     * The worker to start with {@code python}: worker.py compiled once per game start (worker.pyc next to it). Started
+     * from source, every worker would compile its 7000 lines again and keep about 20 MB of that; from the compiled file
+     * a worker needs about half. Falls back to worker.py when compiling fails.
+     */
+    public synchronized Path script(Path python) {
+        if (compiled != null && python.equals(compiledFor) && Files.isRegularFile(compiled)) {
+            return compiled;
+        }
+        Path out = workerScript.resolveSibling("worker.pyc");
+        try {
+            Files.deleteIfExists(out); // never run a file of another start (or another Python version)
+            Process process = new ProcessBuilder(python.toString(), "-I", "-B", "-c",
+                    "import py_compile, sys; py_compile.compile(sys.argv[1], cfile=sys.argv[2], doraise=True)",
+                    workerScript.toString(), out.toString())
+                    .redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            if (process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) && process.exitValue() == 0
+                    && Files.isRegularFile(out)) {
+                compiled = out;
+                compiledFor = python;
+                return out;
+            }
+            process.destroyForcibly();
+            CraftPyLog.LOGGER.warn("Could not compile worker.py; workers start from the source (more memory each)");
+        } catch (IOException e) {
+            CraftPyLog.LOGGER.warn("Could not compile worker.py: {}", e.toString());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return workerScript;
+    }
+
     public void ensureWorkerScript() {
         try {
             Files.createDirectories(workerScript.getParent());

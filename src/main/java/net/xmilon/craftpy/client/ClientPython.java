@@ -352,7 +352,7 @@ public final class ClientPython {
      */
     private ClientWorker worker(String owner, Path dir, List<String> libraries) throws IOException {
         stopWorker(owner);
-        PyRuntime.get(); // writes worker.py next to the server's
+        PyRuntime runtime = PyRuntime.get(); // writes worker.py next to the server's
         Path python = PythonDiscovery.pythonExecutable();
         if (python == null) {
             throw new IOException("No Python for client-side code");
@@ -361,7 +361,7 @@ public final class ClientPython {
         for (String library : libraries) {
             roots.append(java.io.File.pathSeparatorChar).append(moduleDir(library).toAbsolutePath().normalize());
         }
-        RpcClient client = new RpcClient(python, PyForgePaths.runtime().resolve("worker.py"),
+        RpcClient client = new RpcClient(python, runtime.script(python),
                 PyForgePaths.logs().resolve("client_worker_" + owner.replaceAll("[^a-z0-9_]", "_") + ".log"));
         client.setEnvironment(Map.of("CRAFTPY_MODE", "client", "CRAFTPY_READ_ROOTS", roots.toString(),
                 "CRAFTPY_OWNER", owner));

@@ -6689,6 +6689,14 @@ def _reader_loop():
             _REQUEST_QUEUE.put(obj)
 
 
+def _idle():
+    """True when nothing in this worker can be called again: no handler (events, commands, Java listeners, hooks),
+    timer, Java callback, window, action, key or pending web reply. The host then stops a module's worker; what it
+    declared (blocks, items, recipes) stays registered in the game."""
+    return not (any(fns for state in _OWNERS.values() for fns in state["handlers"].values())
+                or _SCHEDULE or _FN_TABLE or _WINDOWS or _UI_NAMED or _UI_OPEN or _KEYS or _HTTP_WAITING)
+
+
 def _process(request):
     req_id = request.get("id")
     method = request.get("method", "")
@@ -6699,6 +6707,7 @@ def _process(request):
             # each owner has its own worker: the host only sends this worker the events it has handlers for
             result["events"] = sorted({name for state in _OWNERS.values() for name, fns in state["handlers"].items()
                                        if fns})
+            result["idle"] = _idle()
         if isinstance(result, dict) and _MODE[0] == "client":
             # the client only sends ticks while something needs them (a timer, a client_tick handler)
             result["ticking"] = bool(_SCHEDULE) or any(s["handlers"].get("client_tick") for s in _OWNERS.values())
