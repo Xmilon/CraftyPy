@@ -8,7 +8,7 @@ import java.util.Set;
  * What Python may touch through the Java bridge. Three modes (config {@code javaBridge.mode}):
  * <ul>
  *   <li>{@code OFF} - nothing.</li>
- *   <li>{@code RESTRICTED} (default) - Minecraft, NeoForge, Mojang libraries, CraftPy itself and the packages listed in
+ *   <li>{@code RESTRICTED} (default) - Minecraft, NeoForge, Mojang libraries, CraftPy's game objects and the packages listed in
  *       {@code javaBridge.extraPackages} (put the package of a mod you want to script there).</li>
  *   <li>{@code FULL} - every class that is not on the hard deny list.</li>
  * </ul>
@@ -27,7 +27,15 @@ public final class JavaAccess {
             "net.neoforged.bus.", "net.neoforged.jarjar.", "net.minecraft.client.");
 
     private static final List<String> RESTRICTED_ALLOW = List.of(
-            "net.minecraft.", "net.neoforged.", "com.mojang.", "it.unimi.dsi.fastutil.", "net.xmilon.craftpy.");
+            "net.minecraft.", "net.neoforged.", "com.mojang.", "it.unimi.dsi.fastutil.");
+
+    /**
+     * The only parts of CraftPy itself a script may touch, in every mode: the game objects it makes. Everything else
+     * (permissions, file store, paths, config, the worker, the bridge) would let a script approve or widen itself.
+     */
+    private static final List<String> CRAFTPY_EXPOSED = List.of(
+            "net.xmilon.craftpy.block.", "net.xmilon.craftpy.entity.", "net.xmilon.craftpy.registry.",
+            "net.xmilon.craftpy.content.");
 
     /** Plain JDK value types and collections: needed as arguments and results, harmless on their own. */
     private static final Set<String> JDK_VALUES = Set.of(
@@ -86,6 +94,9 @@ public final class JavaAccess {
             return false;
         }
         String name = type.getName();
+        if (name.startsWith("net.xmilon.craftpy.")) {
+            return CRAFTPY_EXPOSED.stream().anyMatch(name::startsWith);
+        }
         String lower = name.toLowerCase(Locale.ROOT);
         for (String prefix : DENY) {
             if (lower.startsWith(prefix.toLowerCase(Locale.ROOT))) {

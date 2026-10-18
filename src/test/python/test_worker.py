@@ -1112,6 +1112,12 @@ REFUSED_CODE = {
     "gc import": "import gc\n",
     "os import": "import os\n",
     "open": "open('x.txt', 'w')\n",
+    # the escape a tester reported: a stdlib module's namespace holds the real builtins
+    "real builtins through vars": "import random\nreal = vars(random)['__bui' + 'ltins__']\n",
+    "real builtins through vars, literal": "import random\nreal = vars(random)['__builtins__']\n",
+    "globals through attrgetter": "import operator\noperator.attrgetter('__globals__')(lambda: 0)\n",
+    "globals through format": "import string\nstring.Formatter().get_field('0.__globals__', (len,), {})\n",
+    "threading from the cache": "import threading\n",
 }
 
 
@@ -1146,6 +1152,10 @@ def test_sandbox_refuses_interpreter_internals_and_keeps_the_api():
         "setattr(c, 'n', 5)",
         "def named(): pass",
         "assert named.__name__ == 'named'",
+        "import random",
+        "names = vars(random)",
+        "assert 'randint' in names and not any(k.startswith('__b') for k in names)",
+        "if __name__ == '__main__': pass",
         ""])
     result = w._handle("run_main", {"project": "sbx", "code": ok, "file": "code/main.py"})
     assert not result.get("error"), result
@@ -1445,6 +1455,22 @@ def test_projects_import_what_modules_export():
     w._handle("unload_owner", {"owner": "module:jukebox"})
     gone = w._handle("run_main", {"project": "uses", "code": "import modules.jukebox" + NL, "file": "code/main.py"})
     assert "not installed" in str(gone), gone
+
+
+def test_a_library_load_keeps_the_names_but_runs_nothing_twice():
+    """Each owner has its own worker: a dependency is loaded into the importer's worker for its names only."""
+    import tempfile
+    base = tempfile.mkdtemp()
+    os.makedirs(os.path.join(base, "code"))
+    with open(os.path.join(base, "code", "main.py"), "w", encoding="utf-8") as f:
+        f.write(NL.join(["from craftpy import *", "GREETING = 'hi'", "@on.player_join", "def joined(event):",
+                         "    pass", ""]))
+    loaded = w._handle("load_module", {"id": "lib", "dir": base, "library": True})
+    assert not loaded.get("error") and "declarations" not in loaded, loaded
+    assert "module:lib" not in w._OWNERS, "a library's handlers belong to its own worker"
+    result = w._handle("run_main", {"project": "uses", "file": "code/main.py",
+                                    "code": "from modules.lib import GREETING" + NL + "assert GREETING == 'hi'" + NL})
+    assert not result.get("error"), result
 
 
 if __name__ == "__main__":

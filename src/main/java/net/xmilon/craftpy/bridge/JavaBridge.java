@@ -98,8 +98,27 @@ public final class JavaBridge {
     // Entry point
     // ------------------------------------------------------------------
 
+    /** The owner whose worker made the bridge call being handled: a Python function it hands over is called in its worker. */
+    private static final ThreadLocal<String> CALLER = new ThreadLocal<>();
+
+    static String caller() {
+        String owner = CALLER.get();
+        return owner == null ? "" : owner;
+    }
+
+    /** Handles {@code java.<method>} for {@code owner}; never throws, errors come back as {@code {ok:false,error}}. */
+    public static JsonObject handle(String owner, String method, JsonObject params) {
+        String previous = CALLER.get();
+        CALLER.set(owner);
+        try {
+            return handle(method, params);
+        } finally {
+            CALLER.set(previous);
+        }
+    }
+
     /** Handles {@code java.<method>}; never throws, errors come back as {@code {ok:false,error}}. */
-    public static JsonObject handle(String method, JsonObject params) {
+    static JsonObject handle(String method, JsonObject params) {
         JavaAccess.refreshFromConfig();
         JsonObject out = new JsonObject();
         try {

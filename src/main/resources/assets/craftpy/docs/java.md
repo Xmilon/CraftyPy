@@ -20,6 +20,10 @@ def probe(ctx):
     ctx.player.say("block:", state.getBlock().getDescriptionId())
 ```
 
+The bridge reaches anything the game can do, so a project must declare it in `project.json`:
+`"permissions": {"java": true}`. A module that declares it shows a FULL TRUST warning and works only after
+**Approve access** on the Modules page. CraftPy's own internals (permissions, files, paths, config) are never reachable.
+
 Names are the **Mojang-mapped** names the game itself uses (`getBlockState`, `setCanceled`, `isClientSide`).
 `java.members(Blocks)` lists the public fields and methods of a class or object, `java.mods()` the loaded mods.
 To reach live game objects: `player.java` / `entity.java` (from an event or `players.get`), `java.level("minecraft:the_nether")`,

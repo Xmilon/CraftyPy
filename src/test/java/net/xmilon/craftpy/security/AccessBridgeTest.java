@@ -31,8 +31,36 @@ class AccessBridgeTest {
         PermissionStore.forget();
     }
 
+    /** The owner is what the host knows of the worker; tests that put an owner in the JSON call as that owner. */
     private JsonObject call(String method, String json) {
-        return AccessBridge.handle(method, JsonParser.parseString(json).getAsJsonObject(), delivered::add);
+        JsonObject params = JsonParser.parseString(json).getAsJsonObject();
+        String owner = params.has("owner") ? params.get("owner").getAsString() : "a";
+        return AccessBridge.handle(owner, method, params, delivered::add);
+    }
+
+    @Test
+    void anOwnerInTheParamsIsIgnored() {
+        PermissionStore.declare("module:victim", new ModulePermissions(List.of(), true));
+        PermissionStore.approve("module:victim", new ModulePermissions(List.of(), true));
+        var write = AccessBridge.handle("module:victim", "files.write",
+                JsonParser.parseString("{\"name\":\"secret.txt\",\"text\":\"VICTIM_PRIVATE_SENTINEL\"}").getAsJsonObject(),
+                delivered::add);
+        assertTrue(write.get("ok").getAsBoolean(), write.toString());
+        // the attacker's worker claims to be the victim: the host answers as the attacker, who has no data folder
+        var stolen = AccessBridge.handle("module:attacker", "files.read",
+                JsonParser.parseString("{\"owner\":\"module:victim\",\"name\":\"secret.txt\"}").getAsJsonObject(),
+                delivered::add);
+        assertFalse(stolen.get("ok").getAsBoolean(), stolen.toString());
+        assertTrue(stolen.get("error").getAsString().startsWith("module:attacker"), stolen.toString());
+    }
+
+    @Test
+    void sharedFoldersNeedTheirOwnApproval() {
+        PermissionStore.declare("module:notes", new ModulePermissions(List.of(), true));
+        PermissionStore.approve("module:notes", new ModulePermissions(List.of(), true));
+        var read = call("files.list", "{\"owner\":\"module:notes\",\"folder\":\"music\"}");
+        assertFalse(read.get("ok").getAsBoolean(), read.toString());
+        assertTrue(read.get("error").getAsString().contains("shared folder"), read.toString());
     }
 
     @Test
@@ -91,10 +119,73 @@ class AccessBridgeTest {
         var danger = List.of("github.com");
         assertEquals("", PermissionLabels.warning(new ModulePermissions(), general, danger));
         String text = PermissionLabels.warning(new ModulePermissions(List.of("en.wikipedia.org", "api.github.com", "example.net"), true), general, danger);
-        assertTrue(text.startsWith("⚠ This module is trying to access these sites: en.wikipedia.org, api.github.com, example.net"), text);
+        assertTrue(text.startsWith("⚠ This module wants to access these sites: en.wikipedia.org, api.github.com, example.net"), text);
         assertTrue(text.contains("DANGER ZONE: api.github.com") && text.contains("the server does not allow: example.net"), text);
         assertTrue(text.contains("data folder") && text.endsWith("continue at your own risk!"), text);
         assertTrue(PermissionLabels.warning(new ModulePermissions(List.of(), true), general, danger).contains("data folder"));
         assertTrue(PermissionLabels.readmeBlock(new ModulePermissions(List.of("wikipedia.org"), false)).startsWith("> **"));
+        ModulePermissions trusted = new ModulePermissions();
+        trusted.java = true;
+        trusted.commands = true;
+        String full = PermissionLabels.warning(trusted, general, danger);
+        assertTrue(full.contains("FULL TRUST") && full.contains("server commands"), full);
+    }
+
+    @Test
+    void onlyProjectsMadeHereGetWhatTheyDeclare() throws Exception {
+        Path projects = java.nio.file.Files.createDirectories(
+                Path.of(System.getProperty("craftpy.home")).resolve("pyforge/projects/old"));
+        ModulePermissions asked = new ModulePermissions(List.of(), true);
+        // projects that were here before the list existed stay trusted
+        PermissionStore.declareProject("old", asked);
+        assertTrue(PermissionStore.filesAllowed("old"), projects.toString());
+        // a module opened as a project (or a folder copied in) gets nothing until it is trusted or approved
+        PermissionStore.distrust("unpacked");
+        PermissionStore.declareProject("unpacked", asked);
+        assertFalse(PermissionStore.filesAllowed("unpacked"));
+        PermissionStore.trust("unpacked");
+        PermissionStore.forget(); // the list is saved
+        PermissionStore.declareProject("unpacked", asked);
+        assertTrue(PermissionStore.filesAllowed("unpacked"));
+        // trust taken away again: the self-approval goes with it
+        PermissionStore.distrust("unpacked");
+        PermissionStore.declareProject("unpacked", asked);
+        assertFalse(PermissionStore.filesAllowed("unpacked"));
+    }
+
+    @Test
+    void anApprovalHoldsOnlyForTheModuleFileItWasGivenTo() {
+        ModulePermissions asked = new ModulePermissions(List.of(), true);
+        PermissionStore.declare("module:notes", asked, "aaa");
+        PermissionStore.approve("module:notes", asked);
+        assertTrue(PermissionStore.filesAllowed("module:notes"));
+        // the .cpm changed (a new version, or someone edited it): it asks again
+        PermissionStore.declare("module:notes", asked, "bbb");
+        assertTrue(PermissionStore.changedSinceApproval("module:notes"));
+        assertFalse(PermissionStore.filesAllowed("module:notes"));
+        assertFalse(PermissionStore.fullyApproved("module:notes"));
+        // it survives a restart: the hash is saved with the approval
+        PermissionStore.forget();
+        PermissionStore.declare("module:notes", asked, "aaa");
+        assertTrue(PermissionStore.filesAllowed("module:notes"));
+        PermissionStore.declare("module:notes", asked, "bbb");
+        PermissionStore.approve("module:notes", asked);
+        assertTrue(PermissionStore.filesAllowed("module:notes"));
+    }
+
+    @Test
+    void commandsAndJavaNeedDeclaringAndApproving() {
+        ModulePermissions asked = new ModulePermissions();
+        asked.commands = true;
+        asked.java = true;
+        assertFalse(PermissionStore.commandsAllowed("module:x"));
+        PermissionStore.declare("module:x", asked);
+        assertFalse(PermissionStore.commandsAllowed("module:x"));
+        assertFalse(PermissionStore.javaAllowed("module:x"));
+        assertFalse(PermissionStore.fullyApproved("module:x"));
+        PermissionStore.approve("module:x", asked);
+        assertTrue(PermissionStore.commandsAllowed("module:x"));
+        assertTrue(PermissionStore.javaAllowed("module:x"));
+        assertTrue(PermissionStore.fullyApproved("module:x"));
     }
 }

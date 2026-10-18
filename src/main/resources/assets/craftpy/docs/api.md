@@ -442,7 +442,12 @@ http.get("https://api.open-meteo.com/v1/forecast?latitude=52.5&longitude=13.4&cu
   An entry covers its subdomains (`wikipedia.org` covers `en.wikipedia.org`).
 - **Your own projects** may use what they declare. **Modules** (other people's code) also need **Approve access** on the Modules
   page; every module that declares sites shows a red warning there, in its README and in the console:
-  *"This module is trying to access ... continue at your own risk!"*
+  *"This module wants to access ... continue at your own risk!"* An approval holds for that version of the module file
+  only: a changed `.cpm` asks again.
+- Each project and module runs in **its own Python process** and the game knows which one is calling, so code cannot use
+  another module's sites, data folder or saved values, nor read its files.
+- Two more permissions: `"commands": true` for `server.run_command` (runs at level 2, like a command block) and
+  `"java": true` for the [Java bridge](java.md) (full trust: it can do anything the game can).
 - The **server owner** decides which sites exist at all: `config/craftpy-access.toml`, `net.allowedDomains` (general sites)
   and `net.dangerDomains` (sites where anyone can upload files or receive data, such as GitHub, pastebins, Discord webhooks:
   allowed only with approval and shown as DANGER ZONE). Remove a line to forbid a site.
@@ -451,7 +456,8 @@ http.get("https://api.open-meteo.com/v1/forecast?latitude=52.5&longitude=13.4&cu
 - **API keys** go into `net.httpKeys` (`openai=api.openai.com=Authorization: Bearer sk-...`); code writes `key="openai"` and
   never sees the key.
 - **Files**: `files.read / write / delete / exists / list / read_json / write_json` work in `pyforge/data/<project>/` only
-  (20 MB, no `..`, no links). Folders the server owner lists in `files.sharedFolders` can be read with `folder="name"`.
+  (20 MB, no `..`, no links). Folders the server owner lists in `files.sharedFolders` can be read with `folder="name"`
+  when the project declares that name under `"shared"` (and, for a module, it is approved).
 
 ## Windows
 
@@ -1500,7 +1506,7 @@ Chat message to everyone.
 
 #### `server.run_command(command)`
 
-Runs a command as the server.
+Runs a command at permission level 2, like a command block. Needs "permissions": {"commands": true} in project.json / module.json (modules: approved on the Modules page).
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |

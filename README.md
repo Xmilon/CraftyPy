@@ -347,9 +347,15 @@ Everything is stored as plain files, so projects can also be edited with any ext
 
 ## Security
 
-Project Python runs in an external subprocess with a denylist of OS, filesystem, network and dynamic-code modules (`os`, `subprocess`, `socket`, `ctypes`, `pickle`, ...), a restricted builtin set (`open`, `eval`, `exec` are blocked), and a per-call timeout.
+Every project and module runs in **its own** Python subprocess. The game knows which process is calling, so whatever a script does inside its own interpreter it cannot speak as another module, use another module's approved sites, data folder or saved values, or read another module's memory. Each process:
 
-**This is best-effort sandboxing, not a hard sandbox** — a determined attacker can escape it. Only run projects you trust. For hardening, run the game under a low-privilege OS account and consider OS-level isolation (Windows job objects, Linux namespaces/seccomp). Access to the IDE and project loading is additionally gated by `permissionLevel`, and `enableScripting=false` disables the scripting pipeline entirely.
+- starts with an empty environment (no secrets of the game's environment), `python -I`, a memory cap, and on Windows a job that forbids child processes;
+- can read only Python itself, `worker.py`, its own code folder and the code of the modules it imports; an audit hook refuses every write, other folders, processes, sockets and native libraries;
+- reaches the web, files, commands and the Java bridge only through the game, which checks what the project declared in `"permissions"` and, for modules, what was approved for that exact module file (a changed `.cpm` asks again). `commands` runs at level 2 and `java` is full trust.
+
+Inside the process there is also a denylist of OS, filesystem, network and dynamic-code modules (`os`, `subprocess`, `socket`, `ctypes`, `pickle`, ...), a restricted builtin set (`open`, `eval`, `exec` are blocked) and checks on interpreter internals, plus a per-call timeout.
+
+**The in-process checks are best-effort**: a determined attacker can escape the interpreter sandbox, and the process boundary above is what limits the damage. A native exploit of CPython itself is not covered. Only run projects you trust. For hardening, run the game under a low-privilege OS account and consider OS-level isolation (Windows job objects, Linux namespaces/seccomp). Access to the IDE and project loading is additionally gated by `permissionLevel`, and `enableScripting=false` disables the scripting pipeline entirely.
 
 ## Known Limitations
 

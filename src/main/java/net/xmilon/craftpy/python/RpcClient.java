@@ -29,6 +29,9 @@ import net.xmilon.craftpy.util.Json;
  */
 public final class RpcClient {
     private static final AtomicLong NEXT_ID = new AtomicLong(1);
+    /** The only variables of the game's environment the worker gets (Windows needs SYSTEMROOT to start CPython). */
+    private static final java.util.List<String> KEPT_ENVIRONMENT = java.util.List.of("SYSTEMROOT", "SystemRoot", "WINDIR",
+            "TEMP", "TMP", "TMPDIR", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH");
 
     private final Path python;
     private final Path workerScript;
@@ -55,7 +58,6 @@ public final class RpcClient {
     public void setEnvironment(Map<String, String> environment) {
         this.extraEnvironment = Map.copyOf(environment);
     }
-
     /** Installs the handler for reverse calls (Python -> Java). */
     public void setHostHandler(java.util.function.BiFunction<String, JsonObject, JsonObject> handler) {
         this.hostHandler = handler;
@@ -83,14 +85,30 @@ public final class RpcClient {
         }
         CraftPyLog.LOGGER.info("Starting CraftPy Python worker: {} {}", python, workerScript);
         try {
-            ProcessBuilder builder = new ProcessBuilder(python.toString(), workerScript.toString());
+            // -I: ignore PYTHON* variables, user site and the script folder on sys.path; -B -u replace the old
+            // PYTHONDONTWRITEBYTECODE / PYTHONUNBUFFERED; -X utf8 so the pipe encoding does not depend on the locale
+            ProcessBuilder builder = new ProcessBuilder(python.toString(), "-I", "-B", "-u", "-X", "utf8",
+                    workerScript.toString());
             builder.redirectErrorStream(false);
-            builder.environment().put("PYTHONDONTWRITEBYTECODE", "1");
-            builder.environment().put("PYTHONUNBUFFERED", "1");
-            // the worker's sandbox (worker.py _harden): the memory cap and the only folder project code may read
-            builder.environment().put("CRAFTPY_MEMORY_MB", String.valueOf(net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PYTHON_MEMORY_MB)));
-            builder.environment().putAll(extraEnvironment);
-            builder.environment().put("CRAFTPY_READ_ROOTS", net.xmilon.craftpy.project.PyForgePaths.root().toAbsolutePath().toString());
+            // start in Python's own folder: readable anyway, and never one the game deletes or renames (on Windows a
+            // process's folder cannot be deleted, so a project or pyforge folder here would be locked)
+            Path start = python.toAbsolutePath().getParent();
+            builder.directory((start != null && java.nio.file.Files.isDirectory(start) ? start : workerScript.getParent()).toFile());
+            Map<String, String> env = builder.environment();
+            Map<String, String> inherited = Map.copyOf(env);
+            // project code can read its environment: pass nothing of the game's (tokens, keys) except what CPython needs
+            env.clear();
+            for (String name : KEPT_ENVIRONMENT) {
+                String value = inherited.get(name);
+                if (value != null) {
+                    env.put(name, value);
+                }
+            }
+            // the worker's sandbox (worker.py _harden): the memory cap and the only folders project code may read
+            env.put("CRAFTPY_MEMORY_MB", String.valueOf(net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PYTHON_MEMORY_MB)));
+            // CRAFTPY_READ_ROOTS (the owner's own folders) comes from the caller; without it project code reads nothing
+            env.put("CRAFTPY_READ_ROOTS", "");
+            env.putAll(extraEnvironment);
             process = builder.start();
             out = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
             pending.clear();

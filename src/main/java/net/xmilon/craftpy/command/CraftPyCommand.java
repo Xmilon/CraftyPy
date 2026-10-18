@@ -476,7 +476,23 @@ public final class CraftPyCommand {
                 .then(Commands.literal("delete")
                         .then(Commands.argument("project", StringArgumentType.word())
                                 .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(projectIds(), builder))
-                                .executes(ctx -> projectDelete(ctx, StringArgumentType.getString(ctx, "project")))));
+                                .executes(ctx -> projectDelete(ctx, StringArgumentType.getString(ctx, "project")))))
+                .then(Commands.literal("trust")
+                        .then(Commands.argument("project", StringArgumentType.word())
+                                .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(projectIds(), builder))
+                                .executes(ctx -> projectTrust(ctx, StringArgumentType.getString(ctx, "project")))));
+    }
+
+    /** A project that came from elsewhere (a module opened as a project) gets what it declares once an op trusts it. */
+    private static int projectTrust(CommandContext<CommandSourceStack> ctx, String projectId) {
+        if (!projectIds().contains(projectId)) {
+            ctx.getSource().sendFailure(Component.literal("No project '" + projectId + "'"));
+            return 0;
+        }
+        net.xmilon.craftpy.security.PermissionStore.trust(projectId);
+        ctx.getSource().sendSuccess(() -> Component.literal("Project " + projectId
+                + " is trusted: it gets what its project.json declares from its next run."), true);
+        return 1;
     }
 
     private static int projectList(CommandContext<CommandSourceStack> ctx) {

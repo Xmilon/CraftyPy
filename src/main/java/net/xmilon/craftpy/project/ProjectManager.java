@@ -304,6 +304,7 @@ public final class ProjectManager {
                 String starter = chosenSide == ModuleSide.CLIENT ? "client" : template;
                 Json.writeString(dir.resolve("code").resolve("main.py"), ProjectTemplates.source(starter, id));
                 Json.writeString(dir.resolve("README.md"), templateReadme(id, metadata.name));
+                net.xmilon.craftpy.security.PermissionStore.trust(id); // made here: it gets what its project.json declares
                 return OpResult.ok(id, "Created project " + id);
             } catch (IOException e) {
                 CraftPyLog.LOGGER.error("Failed to create project {}", id, e);

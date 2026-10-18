@@ -143,15 +143,28 @@ def _attribute_error(name):
     return "'%s' is not available in CraftPy's sandbox: it reaches into the interpreter, not into the game" % name
 
 
+_DUNDER_IN_TEXT = None
+
+
 def _check_user_code(tree, filename):
     """Refuses code that names interpreter internals. Raises SyntaxError with the line, so the editor shows it."""
     import ast
+    import re
+    global _DUNDER_IN_TEXT
+    if _DUNDER_IN_TEXT is None:
+        _DUNDER_IN_TEXT = re.compile(r"__[A-Za-z0-9_]+?__")
     for node in ast.walk(tree):
         bad = None
         if isinstance(node, ast.Attribute) and not _attribute_allowed(node.attr):
             bad = node.attr
         elif isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
             bad = node.id
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and "__" in node.value:
+            # the same names as text: operator.attrgetter('__globals__'), '{0.__globals__}'.format(f), vars(m)[...]
+            for found in _DUNDER_IN_TEXT.findall(node.value):
+                if found not in _SAFE_DUNDERS and found != "__main__":
+                    bad = found
+                    break
         if bad is not None:
             raise SyntaxError(_attribute_error(bad), (filename, node.lineno, node.col_offset + 1, None))
 
@@ -180,6 +193,18 @@ def _safe_setattr(obj, name, value):
     if not _attribute_allowed(name):
         raise AttributeError(_attribute_error(name))
     setattr(obj, name, value)
+
+
+def _safe_vars(*obj):
+    """vars() without the interpreter's insides: the module of a stdlib import carries the real builtins in its
+    namespace (vars(random)['__builtins__'] was a way out). Returns a copy without such names."""
+    if obj:
+        if len(obj) > 1:
+            raise TypeError("vars() takes at most 1 argument")
+        found = vars(obj[0])
+    else:
+        found = sys._getframe(1).f_locals
+    return {k: v for k, v in found.items() if not isinstance(k, str) or _attribute_allowed(k)}
 
 
 _DENIED_EVENTS = frozenset({
@@ -318,7 +343,7 @@ def restricted_builtins(log):
         "set": set, "setattr": _safe_setattr, "slice": slice, "sorted": sorted,
         "staticmethod": staticmethod, "str": str, "sum": sum, "super": super,
         "tuple": tuple, "type": type, "zip": zip,
-        "print": _print_to(log), "dir": dir, "vars": vars, "LookupError": LookupError,
+        "print": _print_to(log), "dir": dir, "vars": _safe_vars, "LookupError": LookupError,
         "Exception": Exception, "BaseException": BaseException,
         "ValueError": ValueError, "TypeError": TypeError,
         "RuntimeError": RuntimeError, "KeyError": KeyError, "IndexError": IndexError,
@@ -453,13 +478,14 @@ def _profile_report():
     return {"rows": rows[:200]}
 
 
-def _drop_owner(owner):
-    """Forgets everything ``owner`` registered: declarations, handlers and timers."""
+def _drop_owner(owner, host=True):
+    """Forgets everything ``owner`` registered: declarations, handlers and timers. ``host``: also clear its HUD and
+    keys on the host (not for a dependency's names dropped after a library load: the host would clear the caller's)."""
     for key in [k for k in _KEYS if k[0] == owner]:
         del _KEYS[key]
     for key in [k for k in _HUD_LAST if k[0] == owner]:
         del _HUD_LAST[key]
-    if _MODE[0] == "client" and owner != "__console__":
+    if host and _MODE[0] == "client" and owner != "__console__":
         try:
             _host_call("hud.clear", {"owner": owner})
             _host_call("keys.set", {"owner": owner, "combos": []})
@@ -3685,11 +3711,21 @@ def _load_module(params):
     # Modules are loaded into their own namespace and are NOT reset on run_main
     # They behave like permanent additions to the API/registry
     owner = "module:%s" % module_id
-    _drop_owner(owner)
+    library = bool(params.get("library"))
+    _drop_owner(owner, host=not library)
     _read_ui_dir(base_dir, owner)
     result = _run_code(code, main_file, "module_%s" % module_id, persistent=True, owner=owner,
                        sources=_read_sources(base_dir))
     result["log"].extend(_api_notes(base_dir, "module.json"))
+    if library:
+        # a dependency loaded into the worker of the project (or module) that imports it: only its names are kept.
+        # Its handlers, timers and content belong to its own worker, so nothing it registers here may run twice.
+        export = _MODULE_EXPORTS.get(module_id)
+        _drop_owner(owner, host=False)
+        if export is not None:
+            _MODULE_EXPORTS[module_id] = export
+        _use_owner("__main__")
+        return {"log": result["log"], "scheduled": len(_SCHEDULE)}
     return result
 
 
@@ -6252,7 +6288,7 @@ def _load_docs():
         "scheduler.run_later": ("Runs fn after N ticks.", {"ticks": "Delay.", "fn": "Function."}, "A Task."),
         "scheduler.run_next_tick": ("Runs fn on the next tick.", {"fn": "Function."}, "A Task."),
         "server.broadcast": ("Chat message to everyone.", {"message": "Text."}, ""),
-        "server.run_command": ("Runs a command as the server.", {"command": "Without the leading slash."}, "what the command answered, as text"),
+        "server.run_command": ("Runs a command at permission level 2, like a command block. Needs \"permissions\": {\"commands\": true} in project.json / module.json (modules: approved on the Modules page).", {"command": "Without the leading slash."}, "what the command answered, as text"),
         "server.log": ("Writes to the server log and the IDE console.", {"message": "Text.", "level": "'info' (default), 'warn' or 'error'."}, ""),
         "ui.open": ("Opens a window for a player.", {"player": "Player or name.", "window_id": "Id of a @window class or ui/<id>.json."}, ""),
         "ui.close": ("Closes the window.", {"player": "Player or name.", "window_id": "Which one; omit to close any."}, ""),
@@ -6471,6 +6507,10 @@ def _process(request):
     params = request.get("params", {}) or {}
     try:
         result = _handle(method, params)
+        if isinstance(result, dict) and "scheduled" in result:
+            # each owner has its own worker: the host only sends this worker the events it has handlers for
+            result["events"] = sorted({name for state in _OWNERS.values() for name, fns in state["handlers"].items()
+                                       if fns})
         if isinstance(result, dict) and _MODE[0] == "client":
             # the client only sends ticks while something needs them (a timer, a client_tick handler)
             result["ticking"] = bool(_SCHEDULE) or any(s["handlers"].get("client_tick") for s in _OWNERS.values())

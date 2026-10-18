@@ -117,6 +117,76 @@ public final class ModuleLoader {
         }
     }
 
+    /**
+     * The loaded modules a project or module importing {@code direct} needs, each after the ones it needs itself
+     * ("foo>=1.2" names "foo"). Every owner runs in its own Python worker, so these are loaded into that worker too.
+     */
+    public static List<String> libraries(java.util.Collection<String> direct) {
+        synchronized (LOCK) {
+            Map<String, List<String>> graph = new java.util.LinkedHashMap<>();
+            java.util.Deque<String> todo = new java.util.ArrayDeque<>();
+            direct.forEach(d -> todo.add(dependencyId(d)));
+            while (!todo.isEmpty()) {
+                String id = todo.poll();
+                ModuleBuilder.ModuleMetadata meta = LOADED_MODULES.get(id);
+                if (meta == null || graph.containsKey(id)) {
+                    continue;
+                }
+                List<String> deps = new ArrayList<>();
+                for (String dep : meta.dependencies == null ? new String[0] : meta.dependencies) {
+                    if (dep != null && !dep.isBlank()) {
+                        deps.add(dependencyId(dep));
+                    }
+                }
+                graph.put(id, deps);
+                todo.addAll(deps);
+            }
+            return net.xmilon.craftpy.analysis.ModuleGraph.loadOrder(graph);
+        }
+    }
+
+    /** The dependencies a loaded module declares (empty when it is not loaded). */
+    public static List<String> dependenciesOf(String id) {
+        synchronized (LOCK) {
+            ModuleBuilder.ModuleMetadata meta = LOADED_MODULES.get(id);
+            return meta == null || meta.dependencies == null ? List.of()
+                    : java.util.Arrays.stream(meta.dependencies).filter(d -> d != null && !d.isBlank()).toList();
+        }
+    }
+
+    private record HashKey(Path path, long size, long modified) {
+    }
+
+    private static final Map<HashKey, String> HASHES = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** SHA-256 of a module file (cached while its size and time stay the same), or null when it cannot be read. */
+    static String sha256(Path path) {
+        try {
+            HashKey key = new HashKey(path.toAbsolutePath().normalize(), Files.size(path),
+                    Files.getLastModifiedTime(path).toMillis());
+            String known = HASHES.get(key);
+            if (known != null) {
+                return known;
+            }
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            try (InputStream in = Files.newInputStream(path)) {
+                byte[] buffer = new byte[65536];
+                for (int read; (read = in.read(buffer)) > 0; ) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            String hash = java.util.HexFormat.of().formatHex(digest.digest());
+            HASHES.put(key, hash);
+            return hash;
+        } catch (IOException | java.security.NoSuchAlgorithmException e) {
+            return null;
+        }
+    }
+
+    private static String dependencyId(String dependency) {
+        return dependency.split("[<>=!~ ;]", 2)[0].trim();
+    }
+
     /** True while a world's or server's list is used. */
     public static boolean usesWorldState() {
         return worldStateFile != null;
@@ -350,13 +420,17 @@ public final class ModuleLoader {
                 extractZip(zip, cacheDir);
 
                 LOADED_MODULES.put(meta.id, meta);
-                net.xmilon.craftpy.security.PermissionStore.declare("module:" + meta.id, meta.permissions);
+                String owner = "module:" + meta.id;
+                net.xmilon.craftpy.security.PermissionStore.declare(owner, meta.permissions, sha256(path));
                 String warning = net.xmilon.craftpy.security.PermissionLabels.warning(
                         net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions));
                 if (!warning.isEmpty()) {
+                    String state = net.xmilon.craftpy.security.PermissionStore.changedSinceApproval(owner)
+                            ? " (this module CHANGED since it was approved: review it again on the Modules page)"
+                            : net.xmilon.craftpy.security.PermissionStore.fullyApproved(owner) ? ""
+                            : " (not approved yet: Modules page)";
                     net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(ServerLifecycleHooks.getCurrentServer(),
-                            "[module " + meta.id + "] " + warning + (net.xmilon.craftpy.security.PermissionStore
-                                    .fullyApproved("module:" + meta.id) ? "" : " (not approved yet: Modules page)"));
+                            "[module " + meta.id + "] " + warning + state);
                 }
                 MODULE_FILES.put(meta.id, path);
                 CraftPyLog.LOGGER.info("Loaded module: {} ({})", meta.name, meta.id);
@@ -490,7 +564,13 @@ public final class ModuleLoader {
             info.id = fileNameId(path);
         }
         info.enabled = isEnabledState(info.id);
-        net.xmilon.craftpy.security.PermissionStore.declare("module:" + info.id, info.permissions);
+        Path loaded;
+        synchronized (LOCK) {
+            loaded = MODULE_FILES.get(info.id);
+        }
+        // a duplicate .cpm with the same id must not stand in for the file that runs
+        String hash = loaded == null || loaded.equals(path) ? sha256(path) : null;
+        net.xmilon.craftpy.security.PermissionStore.declare("module:" + info.id, info.permissions, hash);
         info.permissionWarning = net.xmilon.craftpy.security.PermissionLabels.warning(info.permissions);
         info.permissionsApproved = net.xmilon.craftpy.security.PermissionStore.fullyApproved("module:" + info.id);
         if (!ProjectManager.isValidId(info.id)) {

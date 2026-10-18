@@ -187,7 +187,7 @@ final class JavaCodec {
             throw new BridgeException("A class is not a " + type.getSimpleName());
         }
         if (o.has("$fn")) {
-            return JavaEvents.callback(o.get("$fn").getAsInt(), type);
+            return JavaEvents.callback(JavaBridge.caller(), o.get("$fn").getAsInt(), type);
         }
         if (type.isAssignableFrom(LinkedHashMap.class)) {
             Map<String, Object> map = new LinkedHashMap<>();

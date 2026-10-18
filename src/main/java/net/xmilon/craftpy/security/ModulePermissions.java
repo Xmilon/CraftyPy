@@ -17,6 +17,10 @@ public final class ModulePermissions {
     public boolean files = false;
     /** Folders of {@code pyforge/shared/} it wants to read ({@code "music"}). */
     public List<String> shared = new ArrayList<>();
+    /** Wants {@code server.command} (runs at permission level 2, like a command block). */
+    public boolean commands = false;
+    /** Wants the Java bridge: full trust, it can do anything the game can. */
+    public boolean java = false;
 
     public ModulePermissions() {
     }
@@ -52,11 +56,13 @@ public final class ModulePermissions {
             }
         }
         out.shared = new ArrayList<>(folders);
+        out.commands = raw.commands;
+        out.java = raw.java;
         return out;
     }
 
     public boolean isEmpty() {
-        return (net == null || net.isEmpty()) && !files && (shared == null || shared.isEmpty());
+        return (net == null || net.isEmpty()) && !files && (shared == null || shared.isEmpty()) && !commands && !java;
     }
 
     /** The entry of this list that covers {@code host}, or null. */

@@ -60,13 +60,17 @@ public final class ProjectController {
         if (sides != null) {
             net.xmilon.craftpy.project.ProjectMetadata meta = sides.metadataOf(projectId);
             if (meta != null) {
-                net.xmilon.craftpy.security.PermissionStore.declareOwn(projectId, meta.permissions);
+                net.xmilon.craftpy.security.PermissionStore.declareProject(projectId, meta.permissions);
                 String warning = net.xmilon.craftpy.security.PermissionLabels.warning(
                         net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions));
                 if (!warning.isEmpty()) {
+                    boolean own = net.xmilon.craftpy.security.PermissionStore.isTrusted(projectId);
                     net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[" + projectId + "] "
                             + warning.replace("This module", "This project").replace(" — continue at your own risk!", "")
-                            + " (your own project: allowed as declared in project.json)");
+                            + (own ? " (your own project: allowed as declared in project.json)"
+                                    : net.xmilon.craftpy.security.PermissionStore.fullyApproved(projectId) ? " (approved)"
+                                    : " (NOT made on this computer, so nothing is allowed yet: read its code, then"
+                                            + " /craftpy project trust " + projectId + ")"));
                 }
             }
         }

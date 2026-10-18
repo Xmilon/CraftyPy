@@ -2,34 +2,64 @@ package net.xmilon.craftpy.python;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import net.xmilon.craftpy.CraftPyLog;
+import net.xmilon.craftpy.project.ModuleLoader;
 import net.xmilon.craftpy.project.PyForgePaths;
 import net.xmilon.craftpy.util.CraftPyExecutors;
 
 /**
- * High-level facade over the CPython worker. All blocking operations run on the
- * shared worker pool so the game thread is never blocked. The worker is shared
- * across projects (requests are processed sequentially by CPython).
+ * High-level facade over the CPython workers. All blocking operations run on the shared worker pool so the game
+ * thread is never blocked.
+ * <p>
+ * Every owner (a project {@code <id>}, a module {@code module:<id>}) runs in its OWN worker process. The host knows who
+ * a worker is because it started it, so a script cannot speak as another owner, read another owner's memory or reach
+ * another owner's folders, whatever it does inside its own interpreter. Each worker can read only its own code folder
+ * and the folders of the modules it imports (which are loaded into it as libraries). Editor tools (completion,
+ * validation) use one more worker that reads nothing.
  */
 public final class PyRuntime {
     private static final long DEFAULT_TIMEOUT_MS = 20_000;
+    /** The worker of the editor tools: completion, hover, validation, ping. No project code runs in it. */
+    static final String TOOLS = "__tools__";
+    /** The worker of console lines typed without a project. */
+    static final String CONSOLE = "__console__";
 
     private static PyRuntime instance;
 
     private final Path workerScript;
-    private RpcClient client;
-    private final java.util.concurrent.atomic.AtomicInteger scheduledTasks = new java.util.concurrent.atomic.AtomicInteger();
+    private final Map<String, Worker> workers = new ConcurrentHashMap<>();
+    /** Player name + window id -> the owner that opened it, so a click only reaches that owner's worker. */
+    private final Map<String, String> windowOwners = new ConcurrentHashMap<>();
+
+    /** One owner's worker process and what the host knows of it. */
+    private static final class Worker {
+        final String owner;
+        final RpcClient rpc;
+        final List<Path> roots;
+        volatile Set<String> events = Set.of();
+        volatile int scheduled;
+
+        Worker(String owner, RpcClient rpc, List<Path> roots) {
+            this.owner = owner;
+            this.rpc = rpc;
+            this.roots = roots;
+        }
+    }
 
     private PyRuntime() {
         this.workerScript = PyForgePaths.runtime().resolve("worker.py");
@@ -47,16 +77,159 @@ public final class PyRuntime {
         return PythonDiscovery.pythonExecutable() != null;
     }
 
-    /** Loads a persistent module from the given directory. */
+    /** The owner string of a project ({@code module = false}) or module. */
+    public static String owner(String id, boolean module) {
+        return (module ? "module:" : "") + id;
+    }
+
+    // ------------------------------------------------------------------
+    // Workers
+    // ------------------------------------------------------------------
+
+    /** The folder an owner's code lives in, or null for the tools and console workers. */
+    private static Path codeDir(String owner) {
+        if (owner.startsWith("module:")) {
+            return PyForgePaths.cache().resolve(owner.substring("module:".length()));
+        }
+        if (owner.equals(TOOLS) || owner.equals(CONSOLE)) {
+            return null;
+        }
+        return PyForgePaths.projects().resolve(owner);
+    }
+
+    /** The modules an owner imports (dependencies first): they are loaded into its worker as libraries. */
+    private static List<String> librariesOf(String owner) {
+        List<String> direct;
+        if (owner.startsWith("module:")) {
+            direct = ModuleLoader.dependenciesOf(owner.substring("module:".length()));
+        } else {
+            var manager = net.xmilon.craftpy.project.ProjectManager.get();
+            var meta = manager == null || owner.equals(TOOLS) || owner.equals(CONSOLE) ? null : manager.metadataOf(owner);
+            direct = meta == null || meta.dependencies == null ? List.of() : meta.dependencies;
+        }
+        List<String> libraries = new ArrayList<>(ModuleLoader.libraries(direct));
+        if (owner.startsWith("module:")) {
+            libraries.remove(owner.substring("module:".length()));
+        }
+        return libraries;
+    }
+
+    /** The only folders an owner's worker may read (besides Python itself and worker.py). */
+    private static List<Path> readRoots(String owner, List<String> libraries) {
+        List<Path> roots = new ArrayList<>();
+        Path own = codeDir(owner);
+        if (own != null) {
+            roots.add(own.toAbsolutePath().normalize());
+        }
+        for (String library : libraries) {
+            roots.add(PyForgePaths.cache().resolve(library).toAbsolutePath().normalize());
+        }
+        return List.copyOf(roots);
+    }
+
+    /**
+     * The owner's worker, started on first use. A worker started with other read roots (its dependencies changed) is
+     * replaced, since a running worker cannot be given new folders.
+     */
+    private Worker worker(String owner) {
+        return worker(owner, readRoots(owner, librariesOf(owner)));
+    }
+
+    private synchronized Worker worker(String owner, List<Path> roots) {
+        Worker current = workers.get(owner);
+        if (current != null && current.roots.equals(roots)) {
+            return current;
+        }
+        if (current != null) {
+            current.rpc.stop();
+        }
+        String logName = "python_worker_" + owner.replaceAll("[^a-z0-9_]", "_") + ".log";
+        RpcClient rpc = new RpcClient(pythonRequired(), workerScript, PyForgePaths.logs().resolve(logName));
+        StringBuilder joined = new StringBuilder();
+        for (Path root : roots) {
+            if (!joined.isEmpty()) {
+                joined.append(java.io.File.pathSeparatorChar);
+            }
+            joined.append(root);
+        }
+        rpc.setEnvironment(Map.of("CRAFTPY_READ_ROOTS", joined.toString(), "CRAFTPY_OWNER", owner));
+        // the worker starts in the runtime folder, not the owner's: on Windows a process's folder cannot be deleted
+        // every reverse call is answered as the owner this process was started for, whatever the script sends
+        rpc.setHostHandler((method, params) -> HostBridge.handle(owner, method, params));
+        rpc.start();
+        Worker created = new Worker(owner, rpc, roots);
+        workers.put(owner, created);
+        return created;
+    }
+
+    /** The owner's worker if it runs, else null (nothing to tell a worker that was never started). */
+    private Worker existing(String owner) {
+        return workers.get(owner);
+    }
+
+    private List<Worker> running() {
+        return List.copyOf(workers.values());
+    }
+
+    private void stopWorker(String owner) {
+        Worker removed;
+        synchronized (this) {
+            removed = workers.remove(owner);
+        }
+        if (removed != null) {
+            removed.rpc.stop();
+        }
+        windowOwners.values().removeIf(owner::equals);
+    }
+
+    /** Loads the owner's libraries into its worker: each module's names, without its handlers (they run in its own worker). */
+    private void loadLibraries(Worker worker, List<String> libraries) throws IOException {
+        for (String library : libraries) {
+            JsonObject params = new JsonObject();
+            params.addProperty("id", library);
+            params.addProperty("dir", PyForgePaths.cache().resolve(library).toAbsolutePath().toString());
+            params.addProperty("library", true);
+            JsonObject result = worker.rpc.call("load_module", params, DEFAULT_TIMEOUT_MS);
+            if (result.has("error") && result.get("error").isJsonPrimitive()) {
+                CraftPyLog.LOGGER.warn("Library {} could not be loaded for {}: {}", library, worker.owner,
+                        result.get("error").getAsString());
+            }
+        }
+    }
+
+    /** Remembers what a reply says about the worker: pending timers and the events it has handlers for. */
+    private static JsonObject note(Worker worker, JsonObject result) {
+        if (result == null) {
+            return null;
+        }
+        if (result.has("scheduled") && result.get("scheduled").isJsonPrimitive()) {
+            worker.scheduled = result.get("scheduled").getAsInt();
+        }
+        if (result.has("events") && result.get("events").isJsonArray()) {
+            Set<String> events = new HashSet<>();
+            result.getAsJsonArray("events").forEach(e -> events.add(e.getAsString()));
+            worker.events = Set.copyOf(events);
+            result.remove("events");
+        }
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // Projects and modules
+    // ------------------------------------------------------------------
+
+    /** Loads a persistent module from the given directory into its own worker. */
     public CompletableFuture<JsonObject> loadModule(String id, Path dir) {
         return CraftPyExecutors.supplyAsync(() -> {
+            String owner = owner(id, true);
             try {
+                List<String> libraries = librariesOf(owner);
+                Worker worker = worker(owner, readRoots(owner, libraries));
+                loadLibraries(worker, libraries);
                 JsonObject params = new JsonObject();
                 params.addProperty("id", id);
                 params.addProperty("dir", dir.toAbsolutePath().toString());
-                JsonObject result = client().call("load_module", params, DEFAULT_TIMEOUT_MS);
-                noteSchedule(result);
-                return result;
+                return note(worker, worker.rpc.call("load_module", params, DEFAULT_TIMEOUT_MS));
             } catch (Exception e) {
                 CraftPyLog.LOGGER.error("Failed to load Python module: " + id, e);
                 return new JsonObject();
@@ -64,42 +237,41 @@ public final class PyRuntime {
         }, CraftPyExecutors.rpc());
     }
 
-
-    /** Sends an interrupt request to the worker to stop running code. */
+    /** Sends an interrupt request to every worker to stop running code. */
     public CompletableFuture<Void> interrupt() {
         return CraftPyExecutors.runAsync(() -> {
-            try {
-                client().call("interrupt", new JsonObject(), 500);
-            } catch (Exception e) {
-                CraftPyLog.LOGGER.warn("Interrupt failed: {}", e.getMessage());
+            for (Worker worker : running()) {
+                try {
+                    worker.rpc.call("interrupt", new JsonObject(), 500);
+                } catch (Exception e) {
+                    CraftPyLog.LOGGER.warn("Interrupt of {} failed: {}", worker.owner, e.getMessage());
+                }
             }
         }, CraftPyExecutors.rpc());
     }
 
     /**
-     * Drops everything a project or module registered in the worker (handlers, timers, declarations),
-     * so a stopped project stops reacting to events. {@code module} selects the module owner namespace.
+     * Stops a project's or module's worker: its handlers, timers and windows end with the process. {@code module}
+     * selects the module owner namespace.
      */
     public CompletableFuture<Void> unloadOwner(String id, boolean module) {
-        return CraftPyExecutors.runAsync(() -> {
-            try {
-                JsonObject params = new JsonObject();
-                params.addProperty("owner", (module ? "module:" : "") + id);
-                noteSchedule(client().call("unload_owner", params, DEFAULT_TIMEOUT_MS));
-            } catch (Exception e) {
-                CraftPyLog.LOGGER.warn("Failed to unload Python owner {}: {}", id, e.toString());
-            }
-        }, CraftPyExecutors.rpc());
+        return CraftPyExecutors.runAsync(() -> stopWorker(owner(id, module)), CraftPyExecutors.rpc());
     }
 
-    /** Calls a Python function the script handed to Java (see the Java bridge). Completes with {value} or {error}. */
-    public CompletableFuture<JsonObject> callFunction(int functionId, com.google.gson.JsonArray args) {
+    /** Calls a Python function {@code owner}'s script handed to Java (see the Java bridge). Completes with {value} or {error}. */
+    public CompletableFuture<JsonObject> callFunction(String owner, int functionId, JsonArray args) {
         return CraftPyExecutors.supplyAsync(() -> {
             JsonObject params = new JsonObject();
             params.addProperty("id", functionId);
             params.add("args", args);
+            Worker worker = existing(owner);
+            if (worker == null) {
+                JsonObject failure = new JsonObject();
+                failure.addProperty("error", "that Python function was unloaded");
+                return failure;
+            }
             try {
-                return client().call("call_fn", params, 5000);
+                return worker.rpc.call("call_fn", params, 5000);
             } catch (Exception e) {
                 JsonObject failure = new JsonObject();
                 failure.addProperty("error", String.valueOf(e.getMessage()));
@@ -111,10 +283,14 @@ public final class PyRuntime {
     /** Puts back what the project registered before its last run (the host could not apply the new version). */
     public CompletableFuture<Void> revert(String projectId) {
         return CraftPyExecutors.supplyAsync(() -> {
+            Worker worker = existing(owner(projectId, false));
+            if (worker == null) {
+                return null;
+            }
             try {
                 JsonObject params = new JsonObject();
                 params.addProperty("owner", projectId);
-                client().call("revert_owner", params, DEFAULT_TIMEOUT_MS);
+                note(worker, worker.rpc.call("revert_owner", params, DEFAULT_TIMEOUT_MS));
             } catch (Exception e) {
                 CraftPyLog.LOGGER.warn("Failed to revert Python owner {}: {}", projectId, e.toString());
             }
@@ -138,28 +314,43 @@ public final class PyRuntime {
                 if (sources != null) {
                     params.add("sources", sources);
                 }
-                return client().call(method, params, 2000);
+                return worker(TOOLS).rpc.call(method, params, 2000);
             } catch (Exception e) {
                 return new JsonObject();
             }
         }, CraftPyExecutors.rpc());
     }
 
-    /** Handler profiler data (call counts and timings per handler / timer); {@code reset} clears it afterwards. */
+    /** Handler profiler data (call counts and timings per handler / timer) of every worker; {@code reset} clears it. */
     public CompletableFuture<JsonObject> profile(boolean reset) {
         return CraftPyExecutors.supplyAsync(() -> {
+            List<JsonObject> rows = new ArrayList<>();
             try {
-                JsonObject result = client().call("profile", new JsonObject(), DEFAULT_TIMEOUT_MS);
-                if (reset) {
-                    client().call("profile_reset", new JsonObject(), DEFAULT_TIMEOUT_MS);
+                for (Worker worker : running()) {
+                    JsonObject result = worker.rpc.call("profile", new JsonObject(), DEFAULT_TIMEOUT_MS);
+                    if (result.has("rows") && result.get("rows").isJsonArray()) {
+                        result.getAsJsonArray("rows").forEach(row -> rows.add(row.getAsJsonObject()));
+                    }
+                    if (reset) {
+                        worker.rpc.call("profile_reset", new JsonObject(), DEFAULT_TIMEOUT_MS);
+                    }
                 }
-                return result;
             } catch (Exception e) {
                 JsonObject failure = new JsonObject();
                 failure.addProperty("error", String.valueOf(e.getMessage()));
                 return failure;
             }
+            rows.sort((a, b) -> Double.compare(number(b, "total_ms"), number(a, "total_ms")));
+            JsonArray out = new JsonArray();
+            rows.stream().limit(200).forEach(out::add);
+            JsonObject result = new JsonObject();
+            result.add("rows", out);
+            return result;
         }, CraftPyExecutors.rpc());
+    }
+
+    private static double number(JsonObject object, String key) {
+        return object.has(key) && object.get(key).isJsonPrimitive() ? object.get(key).getAsDouble() : 0;
     }
 
     /**
@@ -173,7 +364,11 @@ public final class PyRuntime {
             params.add("sources", sources == null ? new JsonObject() : sources);
             params.addProperty("file", file == null ? "" : file);
             try {
-                return client().call("run_tests", params, 60_000);
+                String owner = owner(projectId, false);
+                List<String> libraries = librariesOf(owner);
+                Worker worker = worker(owner, readRoots(owner, libraries));
+                loadLibraries(worker, libraries);
+                return note(worker, worker.rpc.call("run_tests", params, 60_000));
             } catch (Exception e) {
                 JsonObject failure = new JsonObject();
                 failure.addProperty("error", String.valueOf(e.getMessage()));
@@ -186,7 +381,11 @@ public final class PyRuntime {
     public CompletableFuture<JsonObject> debug(JsonObject params) {
         return CraftPyExecutors.supplyAsync(() -> {
             try {
-                return client().call("debug", params, DEFAULT_TIMEOUT_MS);
+                String project = params.has("project") ? params.get("project").getAsString() : "";
+                if (project.isBlank()) {
+                    throw new IOException("no project");
+                }
+                return worker(owner(project, false)).rpc.call("debug", params, DEFAULT_TIMEOUT_MS);
             } catch (Exception e) {
                 JsonObject failure = new JsonObject();
                 failure.addProperty("error", String.valueOf(e.getMessage()));
@@ -195,62 +394,125 @@ public final class PyRuntime {
         }, CraftPyExecutors.rpc());
     }
 
-    /** Triggers a registered Python event handler. */
+    // ------------------------------------------------------------------
+    // Events
+    // ------------------------------------------------------------------
+
+    /** A window {@code owner} opened for {@code player}: its clicks go to that owner's worker only. */
+    void noteWindow(String owner, String player, String windowId) {
+        windowOwners.put(player + "|" + windowId, owner);
+    }
+
+    /**
+     * Triggers a Python event in every worker with a handler for it, one after the other: a later worker sees the
+     * damage or state an earlier one set, and the replies are merged (logs and results joined, any cancel cancels).
+     */
     public CompletableFuture<JsonObject> triggerEvent(String eventName, JsonObject context) {
-        return net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(() -> {
-            try {
-                JsonObject params = new JsonObject();
-                params.addProperty("event", eventName);
-                params.add("context", context);
-                JsonObject result = client().call("trigger_event", params, DEFAULT_TIMEOUT_MS);
-                noteSchedule(result);
-                return result;
-            } catch (Exception e) {
-                CraftPyLog.LOGGER.error("Failed to trigger Python event: " + eventName, e);
-                return new JsonObject();
-            }
-        }, net.xmilon.craftpy.util.CraftPyExecutors.rpc());
-    }
-
-    private synchronized RpcClient client() {
-        if (client == null) {
-            RpcClient created = new RpcClient(pythonRequired(), workerScript,
-                    PyForgePaths.logs().resolve("python_worker.log"));
-            created.setHostHandler(HostBridge::handle);
-            created.start();
-            client = created;
-        }
-        return client;
-    }
-
-    /** True while the worker has pending scheduler tasks (drives tick events). */
-    public boolean hasScheduledTasks() {
-        return scheduledTasks.get() > 0;
-    }
-
-    private void noteSchedule(JsonObject result) {
-        if (result != null && result.has("scheduled") && result.get("scheduled").isJsonPrimitive()) {
-            scheduledTasks.set(result.get("scheduled").getAsInt());
-        }
-    }
-
-    /** Delivers a server tick to the worker so scheduled tasks can run. */
-    public CompletableFuture<Void> tick(long tick) {
-        return CraftPyExecutors.runAsync(() -> {
-            try {
-                JsonObject params = new JsonObject();
-                params.addProperty("tick", tick);
-                JsonObject result = client().call("tick", params, 5000);
-                noteSchedule(result);
-                if (result != null && result.has("log") && result.get("log").isJsonArray()) {
-                    var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
-                    for (var line : result.getAsJsonArray("log")) {
-                        CraftPyLog.LOGGER.info("[Python timer] {}", line.getAsString());
-                        net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[timer] " + line.getAsString());
+        return CraftPyExecutors.supplyAsync(() -> {
+            List<Worker> targets = new ArrayList<>();
+            if ("http_response".equals(eventName)) {
+                String owner = context.has("owner") ? context.get("owner").getAsString() : "";
+                Worker worker = existing(owner);
+                if (worker != null) {
+                    targets.add(worker);
+                }
+            } else if ("ui_event".equals(eventName)) {
+                String player = context.has("player") && context.get("player").isJsonObject()
+                        && context.getAsJsonObject("player").has("name")
+                        ? context.getAsJsonObject("player").get("name").getAsString() : "";
+                String window = context.has("window") ? context.get("window").getAsString() : "";
+                String owner = windowOwners.get(player + "|" + window);
+                Worker worker = owner == null ? null : existing(owner);
+                if (worker != null) {
+                    targets.add(worker);
+                }
+            } else {
+                for (Worker worker : running()) {
+                    if (worker.events.contains(eventName)) {
+                        targets.add(worker);
                     }
                 }
-            } catch (Exception e) {
-                scheduledTasks.set(0);
+            }
+            JsonObject merged = new JsonObject();
+            JsonArray log = new JsonArray();
+            JsonArray results = new JsonArray();
+            int handlers = 0;
+            double ms = 0;
+            JsonObject current = context;
+            for (Worker worker : targets) {
+                try {
+                    JsonObject params = new JsonObject();
+                    params.addProperty("event", eventName);
+                    params.add("context", current);
+                    JsonObject result = note(worker, worker.rpc.call("trigger_event", params, DEFAULT_TIMEOUT_MS));
+                    if (result == null) {
+                        continue;
+                    }
+                    if (result.has("log") && result.get("log").isJsonArray()) {
+                        log.addAll(result.getAsJsonArray("log"));
+                    }
+                    if (result.has("results") && result.get("results").isJsonArray()) {
+                        results.addAll(result.getAsJsonArray("results"));
+                    }
+                    handlers += result.has("handlers") ? result.get("handlers").getAsInt() : 0;
+                    ms += number(result, "ms");
+                    for (String key : List.of("cancel", "damage", "state", "global_state")) {
+                        if (result.has(key)) {
+                            merged.add(key, result.get(key));
+                        }
+                    }
+                    if (result.has("damage") || result.has("state") || result.has("global_state")) {
+                        current = current.deepCopy(); // the next worker sees what this one changed
+                        for (String key : List.of("damage", "state", "global_state")) {
+                            if (result.has(key)) {
+                                current.add(key, result.get(key));
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    CraftPyLog.LOGGER.error("Failed to trigger Python event {} in {}", eventName, worker.owner, e);
+                }
+            }
+            merged.add("log", log);
+            merged.add("results", results);
+            merged.addProperty("handlers", handlers);
+            merged.addProperty("ms", ms);
+            merged.addProperty("scheduled", running().stream().mapToInt(w -> w.scheduled).sum());
+            return merged;
+        }, CraftPyExecutors.rpc());
+    }
+
+    /** True while a worker has pending scheduler tasks (drives tick events). */
+    public boolean hasScheduledTasks() {
+        for (Worker worker : workers.values()) {
+            if (worker.scheduled > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Delivers a server tick to every worker with pending timers. */
+    public CompletableFuture<Void> tick(long tick) {
+        return CraftPyExecutors.runAsync(() -> {
+            for (Worker worker : running()) {
+                if (worker.scheduled <= 0) {
+                    continue;
+                }
+                try {
+                    JsonObject params = new JsonObject();
+                    params.addProperty("tick", tick);
+                    JsonObject result = note(worker, worker.rpc.call("tick", params, 5000));
+                    if (result != null && result.has("log") && result.get("log").isJsonArray()) {
+                        var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+                        for (var line : result.getAsJsonArray("log")) {
+                            CraftPyLog.LOGGER.info("[Python timer] {}", line.getAsString());
+                            net.xmilon.craftpy.network.CraftPyNetwork.broadcastConsole(server, "[timer] " + line.getAsString());
+                        }
+                    }
+                } catch (Exception e) {
+                    worker.scheduled = 0;
+                }
             }
         }, CraftPyExecutors.rpc());
     }
@@ -297,7 +559,7 @@ public final class PyRuntime {
     public CompletableFuture<String> ping() {
         return CraftPyExecutors.supplyAsync(() -> {
             try {
-                JsonObject result = client().call("ping", new JsonObject(), DEFAULT_TIMEOUT_MS);
+                JsonObject result = worker(TOOLS).rpc.call("ping", new JsonObject(), DEFAULT_TIMEOUT_MS);
                 return "Python " + result.get("version").getAsString() + " OK, CraftPy Python API "
                         + (result.has("api") ? result.get("api").getAsString() : "?");
             } catch (Exception e) {
@@ -325,7 +587,7 @@ public final class PyRuntime {
                     params.addProperty("file", pyFiles.get(i));
                     params.addProperty("code", contents.get(i));
                     params.addProperty("side", side);
-                    JsonObject result = client().call("validate", params, DEFAULT_TIMEOUT_MS);
+                    JsonObject result = worker(TOOLS).rpc.call("validate", params, DEFAULT_TIMEOUT_MS);
                     JsonArray raw = result.getAsJsonArray("problems");
                     for (JsonElement element : raw) {
                         JsonObject problem = element.getAsJsonObject();
@@ -368,9 +630,11 @@ public final class PyRuntime {
             params.addProperty("dir", projectId == null ? "" : PyForgePaths.projects().resolve(projectId).toString());
             params.addProperty("debug", debug);
             try {
-                JsonObject result = client().call("run_main", params, DEFAULT_TIMEOUT_MS);
-                noteSchedule(result);
-                return Declarations.parse(result, fileName);
+                String owner = projectId == null ? CONSOLE : owner(projectId, false);
+                List<String> libraries = librariesOf(owner);
+                Worker worker = worker(owner, readRoots(owner, libraries));
+                loadLibraries(worker, libraries); // fresh each run: a module updated since is imported as it is now
+                return Declarations.parse(note(worker, worker.rpc.call("run_main", params, DEFAULT_TIMEOUT_MS)), fileName);
             } catch (Exception e) {
                 CraftPyLog.LOGGER.error("run_main failed for {}", projectId, e);
                 return Declarations.error("Worker failed: " + e.getMessage());
@@ -396,8 +660,8 @@ public final class PyRuntime {
                 params.addProperty("player", player);
             }
             try {
-                JsonObject result = client().call("eval", params, DEFAULT_TIMEOUT_MS);
-                noteSchedule(result);
+                Worker worker = worker(projectId == null ? CONSOLE : owner(projectId, false));
+                JsonObject result = note(worker, worker.rpc.call("eval", params, DEFAULT_TIMEOUT_MS));
                 List<String> output = new ArrayList<>();
                 if (result.has("output") && result.get("output").isJsonArray()) {
                     for (com.google.gson.JsonElement element : result.getAsJsonArray("output")) {
@@ -420,17 +684,24 @@ public final class PyRuntime {
         }, CraftPyExecutors.rpc());
     }
 
-    /** Clears the worker's persistent REPL namespace. */
+    /** Clears the persistent REPL namespace in every worker. */
     public CompletableFuture<Void> resetConsole(String session) {
         return CraftPyExecutors.runAsync(() -> {
-            try {
-                JsonObject params = new JsonObject();
-                if (session != null) params.addProperty("session", session);
-                client().call("reset_console", params, DEFAULT_TIMEOUT_MS);
-            } catch (Exception e) {
-                CraftPyLog.LOGGER.warn("reset_console failed: {}", e.getMessage());
+            for (Worker worker : running()) {
+                try {
+                    JsonObject params = new JsonObject();
+                    if (session != null) params.addProperty("session", session);
+                    worker.rpc.call("reset_console", params, DEFAULT_TIMEOUT_MS);
+                } catch (Exception e) {
+                    CraftPyLog.LOGGER.warn("reset_console failed: {}", e.getMessage());
+                }
             }
         }, CraftPyExecutors.rpc());
+    }
+
+    /** The owners with a running worker (for the profiler and tests). */
+    public Set<String> runningOwners() {
+        return new LinkedHashSet<>(workers.keySet());
     }
 
     public record EvalResult(List<String> output, String value, String error, int errorLine) {
@@ -439,9 +710,11 @@ public final class PyRuntime {
     public static void shutdown() {
         PyRuntime current = instance;
         instance = null;
-        if (current != null && current.client != null) {
-            current.client.stop();
-            current.client = null;
+        if (current != null) {
+            for (Worker worker : current.running()) {
+                worker.rpc.stop();
+            }
+            current.workers.clear();
         }
     }
 }

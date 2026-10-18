@@ -106,7 +106,8 @@ final class JavaEvents {
     // Python functions as Java interfaces
     // ------------------------------------------------------------------
 
-    static Object callback(int functionId, Class<?> type) {
+    /** A Java interface that calls Python function {@code functionId} in the worker of {@code owner}, who handed it over. */
+    static Object callback(String owner, int functionId, Class<?> type) {
         if (!type.isInterface() || !JavaAccess.allowed(type)) {
             throw new BridgeException("A Python function can only be passed where Java expects an interface"
                     + " (Runnable, Consumer, Function, Predicate, Supplier...), not " + type.getSimpleName());
@@ -122,12 +123,12 @@ final class JavaEvents {
             if (method.isDefault()) {
                 return InvocationHandler.invokeDefault(proxy, method, args);
             }
-            return callPython(functionId, method, args);
+            return callPython(owner, functionId, method, args);
         };
         return Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, handler);
     }
 
-    private static Object callPython(int functionId, Method method, Object[] args) {
+    private static Object callPython(String owner, int functionId, Method method, Object[] args) {
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         JsonArray encoded = new JsonArray();
         if (args != null) {
@@ -135,7 +136,7 @@ final class JavaEvents {
                 encoded.add(JavaCodec.encode(arg));
             }
         }
-        CompletableFuture<JsonObject> future = PyRuntime.get().callFunction(functionId, encoded);
+        CompletableFuture<JsonObject> future = PyRuntime.get().callFunction(owner, functionId, encoded);
         if (server != null && server.isSameThread()) {
             await(server, future);
         }

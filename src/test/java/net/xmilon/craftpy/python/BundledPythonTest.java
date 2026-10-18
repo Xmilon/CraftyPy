@@ -45,6 +45,22 @@ class BundledPythonTest {
         assertEquals("ok (3, 13)", output);
     }
 
+    /** The list written at unpack time catches a changed executable or DLL; an old unpack without a list is reported. */
+    @Test
+    void aChangedRuntimeFileIsNoticed(@TempDir Path dir) throws Exception {
+        Path exe = dir.resolve("python.exe");
+        Files.writeString(exe, "real");
+        Files.writeString(dir.resolve("python313.dll"), "core");
+        assertEquals("has no list of its files", BundledPython.verify(exe));
+        Files.writeString(dir.resolve(BundledPython.MANIFEST), BundledPython.manifest(exe));
+        assertNull(BundledPython.verify(exe));
+        Files.writeString(dir.resolve("python313.dll"), "patched");
+        assertEquals("was changed since it was unpacked", BundledPython.verify(exe));
+        Files.writeString(dir.resolve("python313.dll"), "core");
+        Files.writeString(dir.resolve("extra.dll"), "planted");
+        assertEquals("was changed since it was unpacked", BundledPython.verify(exe));
+    }
+
     /** Another platform's archive (links in it) still unpacks completely on this computer. */
     @Test
     void aLinuxArchiveUnpacksHereToo(@TempDir Path dir) throws Exception {

@@ -438,6 +438,8 @@ public final class ProjectRequestHandler {
                             // the project and the module must not both run
                             net.xmilon.craftpy.project.ModuleLoader.setEnabled(result.moduleId(), false);
                         }
+                        // code of other people: it gets nothing it declares until someone trusts it
+                        net.xmilon.craftpy.security.PermissionStore.distrust(result.projectId());
                         String skipped = result.report().skipped().isEmpty() ? ""
                                 : "; left out " + result.report().skipped().size() + " file(s): "
                                 + String.join(", ", result.report().skipped().stream().limit(8).toList());
@@ -445,7 +447,8 @@ public final class ProjectRequestHandler {
                         return ResponsePayload.success(action, "Opened " + known.getFileName() + " as project '"
                                 + result.projectId() + "' (" + result.report().written().size() + " files"
                                 + (result.moduleId() == null ? "" : ", module " + result.moduleId() + " disabled") + skipped
-                                + "). Nothing ran: review the code, then press Run.", result.projectId());
+                                + "). Nothing ran: review the code, then press Run. What it declares under \"permissions\""
+                                + " stays off until /craftpy project trust " + result.projectId() + ".", result.projectId());
                     } catch (java.io.IOException | RuntimeException e) {
                         return fail(action, "Could not open the module as a project: " + e.getMessage());
                     }

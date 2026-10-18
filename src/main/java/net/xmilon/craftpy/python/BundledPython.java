@@ -21,6 +21,8 @@ import net.xmilon.craftpy.util.TarGz;
  */
 public final class BundledPython {
     private static final String INDEX = "/craftpy_python/runtimes.properties";
+    /** The executable whose files were verified in this game start. */
+    private static Path checked;
 
     private BundledPython() {
     }
@@ -36,8 +38,24 @@ public final class BundledPython {
         Path home = PyForgePaths.system().resolve("python");
         Path dir = home.resolve(platform + "-" + version.replace('+', '-'));
         Path exe = dir.resolve(platform.contains("windows") ? "python.exe" : "bin/python3");
+        if (exe.equals(checked) && Files.isRegularFile(exe)) {
+            return exe; // checked once per game start: every worker start asks for it
+        }
         if (Files.isRegularFile(exe)) {
-            return exe;
+            String problem = verify(exe);
+            if (problem == null) {
+                checked = exe;
+                return exe;
+            }
+            CraftPyLog.LOGGER.warn("The unpacked Python in {} {}: unpacking it again", dir, problem);
+            deleteTree(dir);
+            if (Files.exists(dir)) {
+                if (problem.startsWith(UNCHECKED)) {
+                    return exe; // unpacked by an older CraftPy and in use by another process: checked next time
+                }
+                CraftPyLog.LOGGER.error("The changed Python in {} could not be replaced (in use?): not starting it", dir);
+                return null;
+            }
         }
         try {
             unpack(platform, index.getProperty(platform + ".sha256"), home, dir);
@@ -68,6 +86,8 @@ public final class BundledPython {
             if (!actual.equalsIgnoreCase(sha256)) {
                 throw new IOException("bundled Python " + platform + " is damaged (sha256 " + actual + ")");
             }
+            Path exe = temp.resolve(platform.contains("windows") ? "python.exe" : "bin/python3");
+            Files.writeString(temp.resolve(MANIFEST), manifest(exe));
             try {
                 Files.move(temp, dir);
             } catch (java.nio.file.FileAlreadyExistsException other) {
@@ -80,6 +100,58 @@ public final class BundledPython {
         }
         CraftPyLog.LOGGER.info("Unpacked the bundled Python ({}) to {} in {} ms", platform, dir,
                 System.currentTimeMillis() - started);
+    }
+
+    /** Next to the unpacked runtime: the SHA-256 of the files the interpreter starts from, written at unpack time. */
+    static final String MANIFEST = ".craftpy-files.sha256";
+    private static final String UNCHECKED = "has no list of its files";
+
+    /**
+     * The files every start loads: the executable and the other files of its folder (on Windows python3XX.dll and the
+     * runtime DLLs sit there), one {@code <sha256> <name>} line each. Links are skipped (bin/python3 points to
+     * python3.13, which is listed itself).
+     */
+    static String manifest(Path exe) throws IOException {
+        StringBuilder out = new StringBuilder();
+        try (var files = Files.list(exe.getParent())) {
+            for (Path file : files.filter(f -> Files.isRegularFile(f, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    && !f.getFileName().toString().equals(MANIFEST)).sorted().toList()) {
+                out.append(sha256(file)).append(' ').append(file.getFileName()).append('\n');
+            }
+        }
+        return out.toString();
+    }
+
+    /**
+     * Null when the files of the unpacked runtime are still the ones it was unpacked with; otherwise what is wrong. A
+     * changed python.exe or DLL would run with the game's rights for every project, so it is not started.
+     */
+    static String verify(Path exe) {
+        Path dir = exe.getParent();
+        Path root = dir.getFileName() != null && dir.getFileName().toString().equals("bin") ? dir.getParent() : dir;
+        Path list = root.resolve(MANIFEST);
+        if (!Files.isRegularFile(list)) {
+            return UNCHECKED;
+        }
+        try {
+            String expected = Files.readString(list);
+            return expected.equals(manifest(exe)) ? null : "was changed since it was unpacked";
+        } catch (IOException e) {
+            return "could not be checked (" + e.getMessage() + ")";
+        }
+    }
+
+    private static String sha256(Path file) throws IOException {
+        try (InputStream in = Files.newInputStream(file)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[65536];
+            for (int read; (read = in.read(buffer)) > 0; ) {
+                digest.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
     }
 
     /** Runtimes of older CraftPy versions; one still in use (Windows locks it) stays until next time. */

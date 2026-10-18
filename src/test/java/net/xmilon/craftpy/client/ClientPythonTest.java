@@ -49,7 +49,7 @@ class ClientPythonTest {
         assertTrue(waitFor(() -> ClientHud.idsOf("cproj").contains("pressed")), "the key press did not reach the function");
 
         // the server side of the API is simply not there
-        var refused = ClientHost.handle("world.set_block", new com.google.gson.JsonObject());
+        var refused = ClientHost.handle("module:test", "world.set_block", new com.google.gson.JsonObject());
         assertFalse(refused.get("ok").getAsBoolean());
         assertTrue(refused.get("error").getAsString().contains("not available in client-side code"));
         assertEquals(3, ClientHud.idsOf("cproj").size());

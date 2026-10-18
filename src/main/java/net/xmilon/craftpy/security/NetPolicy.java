@@ -109,6 +109,21 @@ public final class NetPolicy {
             if ((first & 0xfe) == 0xfc) {
                 return false; // unique local fc00::/7
             }
+            int second = b[1] & 0xff;
+            // addresses that carry an IPv4 address the network turns back into one (it may be 127.0.0.1 or 192.168.x):
+            // NAT64 64:ff9b::/96 and 64:ff9b:1::/48, 6to4 2002::/16, Teredo 2001:0::/32
+            if ((first == 0x00 && second == 0x64 && (b[2] & 0xff) == 0xff && (b[3] & 0xff) == 0x9b)
+                    || (first == 0x20 && second == 0x02)
+                    || (first == 0x20 && second == 0x01 && b[2] == 0 && b[3] == 0)) {
+                return false;
+            }
+            boolean compatible = true; // ::a.b.c.d, the old IPv4-compatible form
+            for (int i = 0; i < 12; i++) {
+                compatible &= b[i] == 0;
+            }
+            if (compatible) {
+                return false;
+            }
             boolean mapped = true; // ::ffff:a.b.c.d is the IPv4 address in disguise
             for (int i = 0; i < 10; i++) {
                 mapped &= b[i] == 0;

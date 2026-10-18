@@ -1,5 +1,6 @@
 package net.xmilon.craftpy.client;
 
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -46,8 +47,32 @@ public final class ClientHost {
         BOUND.clear();
     }
 
-    public static JsonObject handle(String method, JsonObject p) {
-        JsonObject access = net.xmilon.craftpy.security.AccessBridge.handle(method, p,
+    /** The owners that bound {@code combo}: a key press goes to their workers only. */
+    static List<String> ownersOf(String combo) {
+        List<String> owners = new java.util.ArrayList<>();
+        KEYS.forEach((owner, combos) -> {
+            if (combos.contains(combo)) {
+                owners.add(owner);
+            }
+        });
+        return owners;
+    }
+
+    /** An owner's worker stopped: take its HUD and keys away. */
+    static void forget(String owner) {
+        ClientHud.clear(owner);
+        KEYS.remove(owner);
+        BOUND.clear();
+        KEYS.values().forEach(BOUND::addAll);
+    }
+
+    /**
+     * A reverse call from the client worker of {@code owner}. Each owner has its own worker, so the host knows who calls:
+     * the owner the script may have put in {@code p} is replaced by that one before anything reads it.
+     */
+    public static JsonObject handle(String owner, String method, JsonObject p) {
+        p.addProperty("owner", owner);
+        JsonObject access = net.xmilon.craftpy.security.AccessBridge.handle(owner, method, p,
                 event -> ClientPython.get().event("http_response", event));
         if (access != null) {
             return access;
@@ -81,7 +106,7 @@ public final class ClientHost {
                 case "storage.get" -> ClientStorage.get(storageKey(p));
                 case "storage.set" -> ClientStorage.set(storageKey(p), p.get("value"));
                 case "storage.clear" -> ClientStorage.clear(string(p, "key").isBlank() ? null : storageKey(p),
-                        string(p, "scope", "world") + "/");
+                        owner + "/" + string(p, "scope", "world") + "/");
                 case "media.files" -> mediaFiles(p);
                 case "media.play" -> mediaPlay(p);
                 case "media.play_sound" -> onClient(() -> {
@@ -189,8 +214,9 @@ public final class ClientHost {
         }
     }
 
+    /** Kept per owner (handle sets {@code owner} from the host): one module cannot read or wipe another's values. */
     private static String storageKey(JsonObject p) {
-        return string(p, "scope", "world") + "/" + string(p, "key");
+        return string(p, "owner") + "/" + string(p, "scope", "world") + "/" + string(p, "key");
     }
 
     private static JsonObject setKeys(JsonObject p) {
@@ -329,6 +355,7 @@ public final class ClientHost {
             }
             JsonObject copy = JsonParser.parseString(tree.toString()).getAsJsonObject();
             copy.addProperty("local", true);
+            ClientPython.get().noteWindow(string(p, "owner"), string(copy, "id"));
             net.xmilon.craftpy.client.mui.WindowFragment.apply("open", copy.toString());
         } else {
             net.xmilon.craftpy.client.mui.WindowFragment.apply("close", string(p, "id"));

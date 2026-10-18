@@ -12,9 +12,9 @@ import com.google.gson.JsonObject;
 
 /**
  * The calls {@code http.*} and {@code files.*} of Python, shared by the server's host and the client's host. The owner (a
- * project id or {@code module:<id>}) comes from the worker, which sets it itself from the code that is running; every call
- * checks it against what was approved. Web requests answer at once ("started") and deliver the result later as the event
- * {@code http_response}, so a slow site never holds up the game.
+ * project id or {@code module:<id>}) is the one the host started the calling worker for (each owner has its own worker
+ * process), never what the script says; every call checks it against what was approved. Web requests answer at once
+ * ("started") and deliver the result later as the event {@code http_response}, so a slow site never holds up the game.
  */
 public final class AccessBridge {
     private static final Pattern OWNER = Pattern.compile("(module:)?[a-z][a-z0-9_]{0,63}");
@@ -22,13 +22,15 @@ public final class AccessBridge {
     private AccessBridge() {
     }
 
-    /** Null when {@code method} is not one of ours, so the host can go on with its own. */
-    public static JsonObject handle(String method, JsonObject p, Consumer<JsonObject> deliver) {
+    /**
+     * Null when {@code method} is not one of ours, so the host can go on with its own. {@code owner} comes from the
+     * host; an {@code owner} in {@code p} is ignored.
+     */
+    public static JsonObject handle(String owner, String method, JsonObject p, Consumer<JsonObject> deliver) {
         if (!method.startsWith("http.") && !method.startsWith("files.")) {
             return null;
         }
-        String owner = string(p, "owner");
-        if (!OWNER.matcher(owner).matches()) {
+        if (owner == null || !OWNER.matcher(owner).matches()) {
             return fail("Unknown owner");
         }
         try {
@@ -91,6 +93,11 @@ public final class AccessBridge {
         }
         String name = string(p, "name");
         String folder = string(p, "folder");
+        if (!folder.isEmpty() && !PermissionStore.sharedAllowed(owner, folder)) {
+            // a shared folder is read only by an owner that declared it under "shared" and was approved for it
+            return fail(owner + " may not read the shared folder '" + folder + "': add it to \"permissions\": {\"shared\": [\""
+                    + folder + "\"]} and approve it on the Modules page");
+        }
         JsonObject out = new JsonObject();
         out.addProperty("ok", true);
         switch (method) {

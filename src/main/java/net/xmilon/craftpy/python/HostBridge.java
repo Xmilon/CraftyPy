@@ -41,16 +41,24 @@ public final class HostBridge {
     private HostBridge() {
     }
 
-    public static JsonObject handle(String method, JsonObject params) {
+    /**
+     * A reverse call from the worker of {@code owner}. The owner is the one the host started that worker for; an
+     * {@code owner} the script puts in {@code params} is ignored.
+     */
+    public static JsonObject handle(String owner, String method, JsonObject params) {
         // web and data folder: permission-checked, the result of a web request arrives later as the event http_response
-        JsonObject access = net.xmilon.craftpy.security.AccessBridge.handle(method, params,
+        JsonObject access = net.xmilon.craftpy.security.AccessBridge.handle(owner, method, params,
                 event -> PyRuntime.get().triggerEvent("http_response", event));
         if (access != null) {
             return access;
         }
         if (method.startsWith("java.")) {
-            // the generic Java bridge: Minecraft/NeoForge/mod classes by name (see bridge.JavaBridge)
-            return onServer(server -> net.xmilon.craftpy.bridge.JavaBridge.handle(method.substring(5), params));
+            // the generic Java bridge: Minecraft/NeoForge/mod classes by name (see bridge.JavaBridge). It reaches
+            // anything the game can do, so only an owner approved for "java" may use it.
+            if (!net.xmilon.craftpy.security.PermissionStore.javaAllowed(owner)) {
+                return javaRefused(owner);
+            }
+            return onServer(server -> net.xmilon.craftpy.bridge.JavaBridge.handle(owner, method.substring(5), params));
         }
         try {
             return switch (method) {
@@ -72,7 +80,12 @@ public final class HostBridge {
                 case "players.all" -> onServer(HostBridge::playersAll);
                 case "players.get" -> onServer(server2 -> playersGet(server2, params));
                 case "server.broadcast" -> onServer(server2 -> broadcast(server2, params));
-                case "server.command" -> onServer(server2 -> command(server2, params));
+                case "server.command" -> net.xmilon.craftpy.security.PermissionStore.commandsAllowed(owner)
+                        ? onServer(server2 -> command(server2, params))
+                        : error(net.xmilon.craftpy.security.PermissionStore.declared(owner).commands
+                                ? owner + " asked to run commands but it is not approved yet: approve it on the Modules page"
+                                : owner + " did not declare commands: add \"permissions\": {\"commands\": true} to its"
+                                        + " project.json / module.json");
                 case "world.fill" -> onServer(server -> fill(server, params));
                 case "world.explode" -> onServer(server -> explode(server, params));
                 case "world.lightning" -> onServer(server -> lightning(server, params));
@@ -111,7 +124,15 @@ public final class HostBridge {
                 case "player.take_item" -> onServer(server -> withPlayer(server, params, HostBridge::takeItem));
                 case "storage.get" -> {
                     JsonObject result = ok();
-                    JsonElement stored = STORAGE.get(storageKey(params));
+                    String key = storageKey(owner, params);
+                    JsonElement stored = STORAGE.get(key);
+                    String legacy = legacyStorageKey(params);
+                    if (stored == null && STORAGE.containsKey(legacy)) {
+                        // saved before storage was kept per owner (it was shared then): each owner gets its own copy
+                        stored = STORAGE.get(legacy).deepCopy();
+                        STORAGE.put(key, stored);
+                        net.xmilon.craftpy.lifecycle.StorageData.changed();
+                    }
                     if (stored != null) {
                         result.add("value", stored);
                     }
@@ -119,15 +140,15 @@ public final class HostBridge {
                 }
                 case "storage.set" -> {
                     JsonElement stored = params.get("value");
-                    STORAGE.put(storageKey(params), stored == null ? new JsonObject() : stored);
+                    STORAGE.put(storageKey(owner, params), stored == null ? new JsonObject() : stored);
                     net.xmilon.craftpy.lifecycle.StorageData.changed();
                     yield ok();
                 }
                 case "storage.clear" -> {
                     if (params.has("key") && !string(params, "key", "").isBlank()) {
-                        STORAGE.remove(storageKey(params));
+                        STORAGE.remove(storageKey(owner, params));
                     } else {
-                        String scope = string(params, "scope", "world") + "/";
+                        String scope = owner + "/" + string(params, "scope", "world") + "/";
                         STORAGE.keySet().removeIf(key -> key.startsWith(scope));
                     }
                     net.xmilon.craftpy.lifecycle.StorageData.changed();
@@ -138,7 +159,12 @@ public final class HostBridge {
                     yield ok();
                 }
                 case "capabilities" -> ok();
-                case "ui.open" -> onServer(server -> uiSend(server, params, "open"));
+                case "ui.open" -> {
+                    JsonObject window = params.has("window") && params.get("window").isJsonObject()
+                            ? params.getAsJsonObject("window") : new JsonObject();
+                    PyRuntime.get().noteWindow(owner, string(params, "player", ""), string(window, "id", ""));
+                    yield onServer(server -> uiSend(server, params, "open"));
+                }
                 case "ui.close" -> onServer(server -> uiSend(server, params, "close"));
                 default -> unsupported(method);
             };
@@ -430,7 +456,9 @@ public final class HostBridge {
         }
         JsonObject result = ok();
         JsonArray output = new JsonArray();
-        net.xmilon.craftpy.server.CommandOutput.run(server, server.createCommandSourceStack(), command).forEach(output::add);
+        // level 2 (what command blocks get), not the server's own level 4: no /op, /stop, /deop...
+        net.xmilon.craftpy.server.CommandOutput.run(server, server.createCommandSourceStack().withPermission(2), command)
+                .forEach(output::add);
         result.add("output", output);
         return result;
     }
@@ -849,7 +877,13 @@ public final class HostBridge {
         return id;
     }
 
-    private static String storageKey(JsonObject p) {
+    /** Values are kept per owner: one project or module cannot read or wipe another's. */
+    static String storageKey(String owner, JsonObject p) {
+        return owner + "/" + legacyStorageKey(p);
+    }
+
+    /** How values were keyed before they were kept per owner (old worlds still have them). */
+    private static String legacyStorageKey(JsonObject p) {
         return string(p, "scope", "world") + "/" + string(p, "key", "");
     }
 
@@ -879,5 +913,12 @@ public final class HostBridge {
         result.addProperty("ok", false);
         result.addProperty("error", message);
         return result;
+    }
+
+    private static JsonObject javaRefused(String owner) {
+        return error(net.xmilon.craftpy.security.PermissionStore.declared(owner).java
+                ? owner + " asked for the Java bridge but it is not approved yet: approve it on the Modules page"
+                : owner + " did not declare the Java bridge: add \"permissions\": {\"java\": true} to its"
+                        + " project.json / module.json (full trust: it can do anything the game can)");
     }
 }

@@ -16,7 +16,6 @@ public final class PermissionLabels {
         if (asked == null || asked.isEmpty()) {
             return "";
         }
-        StringBuilder text = new StringBuilder("⚠ ");
         List<String> dangerous = new ArrayList<>();
         List<String> blocked = new ArrayList<>();
         for (String site : asked.net) {
@@ -27,24 +26,31 @@ public final class PermissionLabels {
                 }
             }
         }
+        List<String> parts = new ArrayList<>();
+        if (asked.java) {
+            parts.add("use the Java bridge (FULL TRUST: it can do anything the game can, files and other modules included)");
+        }
+        if (asked.commands) {
+            parts.add("run server commands (like a command block)");
+        }
         if (!asked.net.isEmpty()) {
-            text.append("This module is trying to access ").append(asked.net.size() == 1 ? "this site: " : "these sites: ")
+            StringBuilder sites = new StringBuilder("access ").append(asked.net.size() == 1 ? "this site: " : "these sites: ")
                     .append(String.join(", ", asked.net));
             if (!dangerous.isEmpty()) {
-                text.append(" (DANGER ZONE: ").append(String.join(", ", dangerous)).append(")");
+                sites.append(" (DANGER ZONE: ").append(String.join(", ", dangerous)).append(")");
             }
             if (!blocked.isEmpty()) {
-                text.append(" (the server does not allow: ").append(String.join(", ", blocked)).append(")");
+                sites.append(" (the server does not allow: ").append(String.join(", ", blocked)).append(")");
             }
-            text.append(asked.files ? "; it also wants a data folder on this computer" : "");
-        } else if (asked.files) {
-            text.append("This module wants a data folder on this computer (files it can read and write)");
+            parts.add(sites.toString());
+        }
+        if (asked.files) {
+            parts.add("keep a data folder on this computer (files it can read and write)");
         }
         if (!asked.shared.isEmpty()) {
-            text.append(asked.net.isEmpty() && !asked.files ? "This module wants to read " : "; it also wants to read ")
-                    .append("pyforge/shared/").append(String.join(", pyforge/shared/", asked.shared));
+            parts.add("read pyforge/shared/" + String.join(", pyforge/shared/", asked.shared));
         }
-        return text.append(" — continue at your own risk!").toString();
+        return "⚠ This module wants to " + String.join("; ", parts) + " — continue at your own risk!";
     }
 
     public static String warning(ModulePermissions asked) {

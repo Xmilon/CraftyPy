@@ -13,49 +13,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 class JavaBridgeTest {
-    public static class Fixture {
-        public int count = 3;
-        public static final String NAME = "fx";
-        public final String locked = "x";
-        public enum Color { RED, GREEN }
-
-        public Fixture() {
-        }
-
-        public Fixture(int start, String label) {
-            count = start;
-        }
-
-        public int add(int a, int b) {
-            return a + b;
-        }
-
-        public double add(double a, double b) {
-            return a + b;
-        }
-
-        public String paint(Color color) {
-            return color.name();
-        }
-
-        public int sum(int[] values) {
-            int total = 0;
-            for (int v : values) {
-                total += v;
-            }
-            return total;
-        }
-
-        public int size(List<Object> items) {
-            return items.size();
-        }
-
-        public static Fixture make() {
-            return new Fixture(9, "made");
-        }
-    }
-
-    private static final String FX = "net.xmilon.craftpy.bridge.JavaBridgeTest.Fixture";
+    private static final String FX = "net.xmilon.craftpy.content.BridgeFixture";
 
     @AfterEach
     void reset() {
@@ -104,7 +62,7 @@ class JavaBridgeTest {
         assertEquals("fx", call("get", "{target:{'$c':'" + FX + "'},name:'NAME'}").get("value").getAsString());
         JsonObject made = value(call("invoke", "{target:{'$c':'" + FX + "'},name:'make',args:[]}"));
         assertEquals(9, call("get", "{target:{'$h':" + made.get("$h").getAsInt() + "},name:'count'}").get("value").getAsInt());
-        assertEquals(FX.replace("Test.Fixture", "Test$Fixture"), made.get("$t").getAsString());
+        assertEquals(FX, made.get("$t").getAsString());
     }
 
     @Test
@@ -123,7 +81,11 @@ class JavaBridgeTest {
             JavaAccess.configure(mode, List.of());
             for (String name : List.of("java.lang.Runtime", "java.lang.System", "java.lang.ProcessBuilder", "java.io.File",
                     "java.nio.file.Files", "java.net.URL", "java.lang.Thread", "java.lang.Class", "java.lang.reflect.Method",
-                    "java.lang.ClassLoader", "javax.script.ScriptEngine", "sun.misc.Unsafe", "net.neoforged.fml.loading.FMLLoader")) {
+                    "java.lang.ClassLoader", "javax.script.ScriptEngine", "sun.misc.Unsafe", "net.neoforged.fml.loading.FMLLoader",
+                    // CraftPy's own internals: a script must not approve itself or read the permission store
+                    "net.xmilon.craftpy.security.PermissionStore", "net.xmilon.craftpy.security.FileStore",
+                    "net.xmilon.craftpy.project.PyForgePaths", "net.xmilon.craftpy.Config",
+                    "net.xmilon.craftpy.bridge.JavaAccess", "net.xmilon.craftpy.python.HostBridge")) {
                 assertFalse(call("class", "{name:'" + name + "'}").get("ok").getAsBoolean(), mode + " " + name);
             }
         }
