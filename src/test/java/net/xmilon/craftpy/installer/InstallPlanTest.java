@@ -24,17 +24,29 @@ class InstallPlanTest {
     @Test
     void freshPcGetsNeoForgeModernUiAndCraftPyInOrder() {
         List<Step> steps = InstallPlan.build(env(21, false, Set.of()), REQ, WORK);
-        assertEquals(4, steps.size(), steps.toString());
+        assertEquals(5, steps.size(), steps.toString());
         assertTrue(steps.get(0) instanceof Step.Download d && d.url().contains("neoforge-21.1.259-installer.jar"));
         assertTrue(steps.get(1) instanceof Step.Run r && r.command().containsAll(List.of("--installClient", MC.toString())));
         assertTrue(steps.get(2) instanceof Step.Download d && d.target().equals(MC.resolve("mods").resolve(REQ.modernUiFile())));
         assertTrue(steps.get(3) instanceof Step.CopyMod);
+        assertTrue(steps.get(4) instanceof Step.PythonChoice p && p.bundled());
+    }
+
+    @Test
+    void sayingNoToCPythonWritesTheOptOut() throws Exception {
+        java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("craftpy-installer-test");
+        Step.PythonChoice no = new Step.PythonChoice(InstallPlan.pythonMarker(dir), false);
+        assertTrue(new Installer(null, line -> { }).run(List.of(no)));
+        assertTrue(java.nio.file.Files.isRegularFile(dir.resolve("pyforge/system/no_bundled_python")));
+        assertTrue(new Installer(null, line -> { }).run(List.of(new Step.PythonChoice(no.marker(), true))));
+        assertTrue(java.nio.file.Files.notExists(no.marker()));
     }
 
     @Test
     void existingPartsAreSkipped() {
         List<Step> steps = InstallPlan.build(env(21, true, Set.of(REQ.modernUiFile())), REQ, WORK);
-        assertEquals(List.of(new Step.CopyMod(MC.resolve("mods").resolve("craftpy.jar"))), steps);
+        assertEquals(List.of(new Step.CopyMod(MC.resolve("mods").resolve("craftpy.jar")),
+                new Step.PythonChoice(InstallPlan.pythonMarker(MC), true)), steps);
     }
 
     @Test

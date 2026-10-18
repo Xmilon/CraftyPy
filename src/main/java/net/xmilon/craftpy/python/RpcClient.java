@@ -28,6 +28,18 @@ import net.xmilon.craftpy.util.Json;
  * pending calls fail and the next call attempts a restart.
  */
 public final class RpcClient {
+    /** Every worker process that runs; the game closing (or crashing) kills them, Windows would keep them otherwise. */
+    private static final java.util.Set<Process> LIVE = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    static {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            for (Process process : LIVE) {
+                process.descendants().forEach(ProcessHandle::destroyForcibly);
+                process.destroyForcibly();
+            }
+        }, "CraftPy worker cleanup"));
+    }
+
     private static final AtomicLong NEXT_ID = new AtomicLong(1);
     /** The only variables of the game's environment the worker gets (Windows needs SYSTEMROOT to start CPython). */
     private static final java.util.List<String> KEPT_ENVIRONMENT = java.util.List.of("SYSTEMROOT", "SystemRoot", "WINDIR",
@@ -110,6 +122,7 @@ public final class RpcClient {
             env.put("CRAFTPY_READ_ROOTS", "");
             env.putAll(extraEnvironment);
             process = builder.start();
+            LIVE.add(process);
             out = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
             pending.clear();
 
@@ -339,6 +352,7 @@ public final class RpcClient {
             if (process.isAlive()) {
                 process.destroyForcibly();
             }
+            LIVE.remove(process);
             process = null;
         }
     }

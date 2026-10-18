@@ -49,6 +49,10 @@ description='''
 Write Minecraft content in Python: items, blocks, recipes, events, commands, windows and more, with an IntelliJ-style IDE
 inside the game (also runnable on its own), completion that knows every installed mod, building blocks you insert with
 one click, and modules you can share.
+
+Disclaimer: modules are code written by other people. The author of CraftPy is not responsible for how the mod is used
+or for anything harmful done through modules or on servers that run them. Be careful with modules and with servers that
+use modules, and trust only third parties you trust.
 '''
 
 # The [[mixins]] block allows you to declare your mixin config to FML so that it gets loaded.

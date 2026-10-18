@@ -16,7 +16,8 @@ import javax.swing.SwingUtilities;
 /**
  * Entry point. {@code --cli} (or no display) asks in the terminal; otherwise a small window shows the plan first.
  * Flags: {@code --dry-run} print the plan only, {@code --yes} no question, {@code --dir <minecraft folder>},
- * {@code --craftpy <jar>}. Python is not installed: the mod ships its own.
+ * {@code --craftpy <jar>}, {@code --no-python} do not install CPython. Before anything runs the player is asked
+ * whether CPython (shipped in the mod jar) is installed.
  */
 public final class InstallerMain {
 
@@ -38,8 +39,29 @@ public final class InstallerMain {
         }
     }
 
+    /** The question asked before anything is installed. */
+    static final String PYTHON_QUESTION = "CPython (the Python of the Python Software Foundation) is going to be installed:"
+            + " CraftPy unpacks it into pyforge/system/python on its first start. Without it CraftPy needs a Python 3.13+"
+            + " already on this computer. Install CPython?";
+
+    private static Scanner input;
+
+    /** One reader for every question (a second Scanner would lose what the first one buffered). */
+    private static Scanner input() {
+        if (input == null) {
+            input = new Scanner(System.in);
+        }
+        return input;
+    }
+
     private static void cli(List<String> a, Path dir, Path jar, Requirements req, Path work) {
-        List<Step> steps = InstallPlan.build(Detector.detect(dir, req), req, work);
+        boolean python = !a.contains("--no-python");
+        if (python && !a.contains("--yes") && !a.contains("--dry-run")) {
+            System.out.print(PYTHON_QUESTION + " [Y/n] ");
+            String answer = input().nextLine().trim();
+            python = answer.isEmpty() || answer.equalsIgnoreCase("y") || answer.equalsIgnoreCase("yes");
+        }
+        List<Step> steps = InstallPlan.build(Detector.detect(dir, req), req, work, python);
         System.out.println("CraftPy installer, Minecraft folder: " + dir);
         steps.forEach(s -> System.out.println(" - " + s.text()));
         if (a.contains("--dry-run")) {
@@ -47,7 +69,7 @@ public final class InstallerMain {
         }
         if (!a.contains("--yes")) {
             System.out.print("Run these steps? [y/N] ");
-            if (!new Scanner(System.in).nextLine().trim().equalsIgnoreCase("y")) {
+            if (!input().nextLine().trim().equalsIgnoreCase("y")) {
                 return;
             }
         }
@@ -67,9 +89,16 @@ public final class InstallerMain {
         };
         show.run();
         install.addActionListener(e -> {
+            int answer = javax.swing.JOptionPane.showConfirmDialog(frame,
+                    "<html><body style='width: 360px'>" + PYTHON_QUESTION + "</body></html>", "Install CPython?",
+                    javax.swing.JOptionPane.YES_NO_CANCEL_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE);
+            if (answer != javax.swing.JOptionPane.YES_OPTION && answer != javax.swing.JOptionPane.NO_OPTION) {
+                return;
+            }
+            boolean python = answer == javax.swing.JOptionPane.YES_OPTION;
             install.setEnabled(false);
             Thread worker = new Thread(() -> {
-                List<Step> steps = InstallPlan.build(Detector.detect(dir, req), req, work);
+                List<Step> steps = InstallPlan.build(Detector.detect(dir, req), req, work, python);
                 text.setText("");
                 boolean done = new Installer(jar, line -> SwingUtilities.invokeLater(() -> text.append(line + "\n"))).run(steps);
                 SwingUtilities.invokeLater(() -> {
@@ -81,7 +110,7 @@ public final class InstallerMain {
             worker.start();
         });
         JPanel bottom = new JPanel(new BorderLayout());
-        bottom.add(new javax.swing.JLabel("Python is included in CraftPy: nothing else to install."), BorderLayout.CENTER);
+        bottom.add(new javax.swing.JLabel("CraftPy includes CPython; Install asks whether to use it."), BorderLayout.CENTER);
         bottom.add(install, BorderLayout.EAST);
         frame.add(new JScrollPane(text), BorderLayout.CENTER);
         frame.add(bottom, BorderLayout.SOUTH);

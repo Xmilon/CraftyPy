@@ -57,6 +57,34 @@ public final class PermissionLabels {
         return warning(asked, AccessConfig.strings(AccessConfig.ALLOWED_DOMAINS), AccessConfig.strings(AccessConfig.DANGER_DOMAINS));
     }
 
+    /** Short names of what the owner asks for ("web: a.com", "files", "commands", "Java: FULL TRUST"), for chips and lists. */
+    public static List<String> chips(ModulePermissions asked) {
+        List<String> out = new ArrayList<>();
+        if (asked == null) {
+            return out;
+        }
+        if (asked.java) {
+            out.add("Java: FULL TRUST");
+        }
+        if (asked.commands) {
+            out.add("commands");
+        }
+        if (!asked.net.isEmpty()) {
+            out.add("web: " + String.join(", ", asked.net));
+        }
+        if (asked.files) {
+            out.add("files");
+        }
+        for (String folder : asked.shared) {
+            out.add("shared/" + folder);
+        }
+        return out;
+    }
+
+    public static String shortList(ModulePermissions asked) {
+        return String.join("; ", chips(asked));
+    }
+
     /** The warning as a quote block for the top of a README (Markdown). */
     public static String readmeBlock(ModulePermissions asked) {
         String text = warning(asked);

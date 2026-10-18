@@ -16,8 +16,8 @@ public final class ModItems {
     public static final DeferredItem<BlockItem> PYTHON_COMPUTER = ITEMS.registerSimpleBlockItem(ModBlocks.PYTHON_COMPUTER);
     public static final DeferredItem<BlockItem> UNLOADED_BLOCK = ITEMS.registerSimpleBlockItem(ModBlocks.UNLOADED_BLOCK);
 
-    public static final DeferredItem<Item> PYTHON_WRENCH = ITEMS.registerSimpleItem("python_wrench",
-            new Item.Properties().stacksTo(1));
+    public static final DeferredItem<net.xmilon.craftpy.block.PythonWrenchItem> PYTHON_WRENCH = ITEMS.registerItem(
+            "python_wrench", net.xmilon.craftpy.block.PythonWrenchItem::new, new Item.Properties().stacksTo(1));
 
     /** One spawn egg for every Python mob: the stack's entity data names the mob (see ModEntities.egg). */
     public static final DeferredItem<net.neoforged.neoforge.common.DeferredSpawnEggItem> SPAWN_EGG = ITEMS.register("spawn_egg",

@@ -196,6 +196,28 @@ folder), `"shared"` (folders of `pyforge/shared`), `"commands"` (`server.run_com
 Java bridge: full trust). Modules from others also need **Approve access** on the Modules page, for that exact file.
 `server.mods()` lists the loaded mods without any permission.
 
+## Playing on a server
+
+On a dedicated server the server owner approves a module by putting it in `pyforge/modules/` and enabling it;
+`/craftpy module list|enable|disable <id>` also works from the server console (`⚠` marks modules that ask for
+permissions). Nothing is asked in game there.
+
+When you join from another computer, CraftPy shows the modules that ask for permissions before the world loads: what
+each one can do and its README (click it). **Leave** disconnects; **Continue** joins, and "Don't show again" skips the
+screen on that server until its modules change. `/craftpy_client server_modules` shows the list again. Then the server
+sends its resource pack (textures, models, sounds and names of its projects and modules, never code); you keep it in
+`pyforge/cache/serverpacks/`, so the next visit only downloads what changed. Singleplayer and the LAN host skip all
+of this.
+
+Be careful with modules you didn't write and with servers that use them: trust only people you trust. The CraftPy
+author is not responsible for what anyone does through modules.
+
+## The Python Wrench
+
+Right-click a block or mob with the **Python Wrench** (iron, redstone, iron in a V): chat shows its id, its block
+state, the project or module that adds it, and a **[copy Python]** line (`world.set_block(...)` / `world.spawn(...)`).
+Sneak + right-click content of one of your projects to open that project in the IDE.
+
 ## Editor font
 
 The code area, line numbers, console and completion list use JetBrains Mono (SIL Open Font License), shipped with the mod. The rest
@@ -223,6 +245,8 @@ To replace a game texture for everyone instead of adding your own copy, save it 
 See the *Java bridge* topic: `java.cls("net.minecraft...")`, `java.new(...)`, `@java.on(EventClass)`.
 
 ## Keyboard shortcuts
+
+The quick IDE key (`I`, in Controls) works once you have crafted a CraftPy Computer; until then open the computer block.
 
 | Key | Action |
 | --- | --- |

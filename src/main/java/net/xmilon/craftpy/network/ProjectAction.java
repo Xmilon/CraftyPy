@@ -41,5 +41,7 @@ public enum ProjectAction {
     /** An in-game window sent to the player (server to client). */
     WINDOW,
     /** A click or input in an in-game window (client to server). */
-    WINDOW_EVENT
+    WINDOW_EVENT,
+    /** Whether the quick IDE key works for this player (message "true"/"false"): unlocked by crafting a CraftPy Computer. */
+    IDE_KEY
 }

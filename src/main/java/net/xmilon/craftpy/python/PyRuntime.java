@@ -40,6 +40,8 @@ public final class PyRuntime {
     static final String CONSOLE = "__console__";
 
     private static PyRuntime instance;
+    /** False from the world's shutdown until the next start: no worker is started meanwhile, so none is left behind. */
+    private static volatile boolean open = true;
 
     private final Path workerScript;
     private final Map<String, Worker> workers = new ConcurrentHashMap<>();
@@ -142,6 +144,9 @@ public final class PyRuntime {
         }
         if (current != null) {
             current.rpc.stop();
+        }
+        if (!open) {
+            throw new IllegalStateException("CraftPy is stopping: no Python worker is started");
         }
         String logName = "python_worker_" + owner.replaceAll("[^a-z0-9_]", "_") + ".log";
         RpcClient rpc = new RpcClient(pythonRequired(), workerScript, PyForgePaths.logs().resolve(logName));
@@ -720,7 +725,14 @@ public final class PyRuntime {
     public record EvalResult(List<String> output, String value, String error, int errorLine) {
     }
 
+    /** A world (or server) starts: workers may run again. */
+    public static void open() {
+        open = true;
+    }
+
+    /** The world (or server) closes: every worker of it stops, and none starts until {@link #open}. */
     public static void shutdown() {
+        open = false;
         PyRuntime current = instance;
         instance = null;
         if (current != null) {

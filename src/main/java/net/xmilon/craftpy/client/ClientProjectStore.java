@@ -44,6 +44,8 @@ public final class ClientProjectStore {
     private final java.util.Map<String, java.util.function.Consumer<String>> readmeCallbacks = new java.util.HashMap<>();
     private final java.util.Set<String> virtualFiles = new java.util.HashSet<>();
     private boolean debugMode;
+    /** The quick IDE key works once this player crafted a CraftPy Computer (the server says so on join and on craft). */
+    private boolean ideKeyUnlocked;
     private java.util.function.BiConsumer<String, Integer> definitionCallback;
     private String pendingIdeProject;
     /** File to open once the selected project's file list arrives (instead of main.py). */
@@ -603,6 +605,10 @@ public final class ClientProjectStore {
         return json.length() <= 120 ? json : json.substring(0, 120) + "...";
     }
 
+    public boolean ideKeyUnlocked() {
+        return ideKeyUnlocked;
+    }
+
     public void onResponse(ResponsePayload payload) {
         switch (payload.action()) {
             case LIST -> {
@@ -681,6 +687,7 @@ public final class ClientProjectStore {
                 }
             }
             case WINDOW -> net.xmilon.craftpy.client.mui.WindowFragment.apply(payload.message(), payload.json());
+            case IDE_KEY -> ideKeyUnlocked = "true".equals(payload.message());
             case SET_ACTIVE -> {
                 List<String> parsed = tryParse(payload.action(), payload.json(),
                         new com.google.gson.reflect.TypeToken<List<String>>() {

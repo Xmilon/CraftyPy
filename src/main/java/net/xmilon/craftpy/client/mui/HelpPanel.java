@@ -147,7 +147,7 @@ final class HelpPanel {
     }
 
     /** Markdown in the IDE's look: green headings rules, raised code blocks, monospaced code. */
-    private static Markflow markflow(Context context) {
+    static Markflow markflow(Context context) {
         return Markflow.builder(context).usePlugin(new MarkflowPlugin() {
             @Override
             public void configureTheme(MarkflowTheme.Builder theme) {

@@ -107,6 +107,14 @@ public class CraftPyClient {
     static void onClientCommands(net.neoforged.neoforge.client.event.RegisterClientCommandsEvent event) {
         var dispatcher = event.getDispatcher();
         dispatcher.register(net.minecraft.commands.Commands.literal("craftpy_client")
+                .then(net.minecraft.commands.Commands.literal("server_modules").executes(ctx -> {
+                    // the server's modules that ask for permissions, with their READMEs (the screen shown on joining)
+                    if (!net.xmilon.craftpy.client.ServerPack.showLast()) {
+                        ctx.getSource().sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                                "This server runs no modules that ask for permissions."));
+                    }
+                    return 1;
+                }))
                 .then(net.minecraft.commands.Commands.literal("modules").executes(ctx -> {
                     for (var info : net.xmilon.craftpy.project.ModuleLoader.list()) {
                         if (net.xmilon.craftpy.project.ModuleSide.of(info.side) == net.xmilon.craftpy.project.ModuleSide.CLIENT) {
@@ -168,6 +176,9 @@ public class CraftPyClient {
     @SubscribeEvent
     static void onJoin(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingIn event) {
         net.xmilon.craftpy.client.ClientPython python = net.xmilon.craftpy.client.ClientPython.get();
+        if (Minecraft.getInstance().isLocalServer()) {
+            net.xmilon.craftpy.client.ServerPack.forget(); // a join to another server that was cut short left its pack
+        }
         var server = Minecraft.getInstance().getCurrentServer();
         if (!Minecraft.getInstance().isLocalServer() && server != null) {
             // a server of someone else: your client-side modules have a list per server, all off the first time
@@ -184,6 +195,7 @@ public class CraftPyClient {
         python.event("client_leave", new com.google.gson.JsonObject());
         python.shutdown();
         net.xmilon.craftpy.client.media.MediaPlayer.get().stopAll();
+        net.xmilon.craftpy.client.ServerPack.forget();
         if (!Minecraft.getInstance().isLocalServer()) {
             net.xmilon.craftpy.project.ModuleLoader.useGlobalState();
         }
@@ -215,7 +227,10 @@ public class CraftPyClient {
             Minecraft mc = Minecraft.getInstance();
             // admins, or the owner of a singleplayer world (the server checks again on every request)
             if (mc.player != null && (mc.player.hasPermissions(2) || mc.hasSingleplayerServer())) {
-                if (mc.screen == null) {
+                if (!ClientProjectStore.getInstance().ideKeyUnlocked()) {
+                    mc.player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                            "Craft a CraftPy Computer to unlock this key (until then, open the computer block)."), true);
+                } else if (mc.screen == null) {
                     boolean project = net.xmilon.craftpy.client.ClientProjectStore.getInstance().selectedId() != null;
                     mc.setScreen(CraftPyFragment.createScreen(project ? CraftPyFragment.PAGE_EDITOR : CraftPyFragment.PAGE_HOME));
                 }

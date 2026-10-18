@@ -153,6 +153,9 @@ public class EventBridge {
 
     @SubscribeEvent
     public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            sendIdeKey(player);
+        }
         playerEvent("player_join", event.getEntity());
     }
 
@@ -177,6 +180,14 @@ public class EventBridge {
 
     @SubscribeEvent
     public static void onItemCraft(PlayerEvent.ItemCraftedEvent event) {
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
+                && event.getCrafting().is(net.xmilon.craftpy.registry.ModItems.PYTHON_COMPUTER.get())
+                && !player.getData(net.xmilon.craftpy.registry.ModAttachments.IDE_UNLOCKED)) {
+            player.setData(net.xmilon.craftpy.registry.ModAttachments.IDE_UNLOCKED, true);
+            sendIdeKey(player);
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    "CraftPy: the quick IDE key is unlocked (see Controls)."), true);
+        }
         JsonObject context = new JsonObject();
         context.add("player", wrapPlayer(event.getEntity()));
         context.add("item", wrapItem(event.getCrafting()));
@@ -404,6 +415,12 @@ public class EventBridge {
     }
 
     /** Slot keys are {@code BLOCK:project:id}; Python sees {@code project:id}. */
+    /** Tells the player whether the quick IDE key works for them. */
+    private static void sendIdeKey(net.minecraft.server.level.ServerPlayer player) {
+        net.xmilon.craftpy.network.CraftPyNetwork.sendTo(player, net.xmilon.craftpy.network.ProjectAction.IDE_KEY, true,
+                String.valueOf(player.getData(net.xmilon.craftpy.registry.ModAttachments.IDE_UNLOCKED)), "");
+    }
+
     public static String projectId(String holder) {
         int colon = holder.indexOf(':');
         if (colon > 0 && holder.indexOf(':', colon + 1) > 0) {

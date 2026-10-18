@@ -31,7 +31,7 @@ The first start unpacks Python to `pyforge/system/python/` and checks it against
 
 ## First steps
 
-1. Get a **CraftPy Computer** (creative tab or crafting) and right-click it. Ops can also press `I`.
+1. Craft a **CraftPy Computer** and right-click it. Once you have crafted one, ops can also press `I`.
 2. Make a project on the Home page and edit `code/main.py`.
 3. Press **Run** (`Ctrl+R`). Output goes to the console at the bottom.
 4. `/craftpy give <you> <project>:<id> block` gives you what you made.
@@ -46,7 +46,7 @@ The `welcome` project is a guided tour, and `examples/` has more.
 | `/craftpy give <player> <project>:<id> <block\|item\|egg> [count]` | Content of a project (vanilla `/give` can't) |
 | `/craftpy summon <project>:<mob> [pos]` | Spawns a project mob |
 | `/craftpy place <template> [pos] [rotation]` | Places a structure template |
-| `/craftpy module enable\|disable\|info\|reload <module>` | Manages modules |
+| `/craftpy module list\|enable\|disable\|info\|reload <module>` | Manages modules (also from the server console) |
 | `/craftpy project trust <project>` | Lets a project that came from elsewhere use what it declares |
 
 A project's own `@command("name")` becomes `/<project>:<name>`. All of these need op (level 2).
@@ -87,7 +87,16 @@ Web access, a data folder, shared folders, server commands and the Java bridge a
 them in `"permissions"`. A module from someone else also needs your approval, and that approval is tied to the exact
 file, so a changed module has to ask again. `commands` run at level 2. `java` means full trust.
 
-The checks inside Python (blocked imports, no `open`/`eval`) are a second layer, not the wall. Only run modules you
+On a dedicated server, putting a module in `pyforge/modules/` and enabling it (`/craftpy module enable <id>` works
+from the console) counts as the approval. Players who join from another computer see the modules that ask for
+permissions, with their READMEs, before anything loads, and choose Continue or Leave. Only the server's textures,
+models, sounds and names are sent to them, never code.
+
+The checks inside Python (blocked imports, no `open`/`eval`) are a second layer, not the wall.
+
+**Disclaimer.** CraftPy runs code written by other people. I am not responsible for how anyone uses this mod, or for
+anything harmful done through modules or on servers that run them. Be careful with modules you didn't write and with
+servers that use modules: read what a module asks for, and install modules or join servers only from people you
 trust.
 
 ## Config

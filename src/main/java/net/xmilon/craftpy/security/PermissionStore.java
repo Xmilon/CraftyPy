@@ -53,7 +53,16 @@ public final class PermissionStore {
         if (sha256 != null) {
             CURRENT_HASH.put(owner, sha256);
         }
+        if (adminApproves) {
+            // a dedicated server: whoever put the module in pyforge/modules/ and enabled it approved it; players are
+            // told what it can do when they join (ServerModules)
+            OWN.put(owner, ModulePermissions.clean(asked));
+        }
     }
+
+    /** True on a dedicated server: installing a module is its approval. Tests set it. */
+    static boolean adminApproves = net.neoforged.fml.loading.FMLEnvironment.dist != null
+            && net.neoforged.fml.loading.FMLEnvironment.dist.isDedicatedServer();
 
     /** True when the owner was approved, but for another version of its module file than the one installed now. */
     public static synchronized boolean changedSinceApproval(String owner) {

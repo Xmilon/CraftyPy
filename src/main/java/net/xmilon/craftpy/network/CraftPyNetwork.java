@@ -17,7 +17,7 @@ import net.xmilon.craftpy.server.ProjectRequestHandler;
 import net.xmilon.craftpy.util.Json;
 
 public final class CraftPyNetwork {
-    public static final String PROTOCOL_VERSION = "3"; // 2: compressed text fields (PayloadText); 3: shared media
+    public static final String PROTOCOL_VERSION = "4"; // 2: compressed text fields (PayloadText); 3: shared media; 4: server modules on join
 
     private CraftPyNetwork() {
     }
@@ -32,6 +32,14 @@ public final class CraftPyNetwork {
                 context.enqueueWork(() -> net.xmilon.craftpy.server.MediaRelay.receive(player, payload));
             } else {
                 context.enqueueWork(() -> net.xmilon.craftpy.client.media.MediaShare.receive(payload));
+            }
+        });
+        // configuration (while joining) and play: the modules of the server and its resource pack
+        registrar.commonBidirectional(ServerModulesPayload.TYPE, ServerModulesPayload.STREAM_CODEC, (payload, context) -> {
+            if (context.flow().isServerbound()) {
+                ServerModules.receive(payload, context);
+            } else {
+                context.enqueueWork(() -> net.xmilon.craftpy.client.ServerPack.receive(payload, context));
             }
         });
     }
@@ -49,6 +57,7 @@ public final class CraftPyNetwork {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             PacketDistributor.sendToPlayer(player, payload);
         }
+        ServerModules.modulesChanged(server);
     }
 
     /**

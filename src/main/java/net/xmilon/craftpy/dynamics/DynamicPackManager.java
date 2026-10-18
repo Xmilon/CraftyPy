@@ -35,6 +35,9 @@ public final class DynamicPackManager {
             if (root == null || !Files.isDirectory(root)) {
                 return;
             }
+            if (type == PackType.CLIENT_RESOURCES && net.xmilon.craftpy.client.ServerPack.active()) {
+                return; // on a server of another computer its pack (below) replaces the one of your own projects
+            }
             Pack pack = Pack.readMetaAndCreate(
                     new PackLocationInfo(PACK_ID, Component.literal("CraftPy Projects"),
                             PackSource.BUILT_IN, Optional.empty()),
@@ -48,6 +51,21 @@ public final class DynamicPackManager {
             }
         });
         if (type == PackType.CLIENT_RESOURCES) {
+            // the server you joined from this computer: its projects' and modules' resources (ServerPack)
+            event.addRepositorySource(consumer -> {
+                if (!net.xmilon.craftpy.client.ServerPack.active()) {
+                    return;
+                }
+                Pack pack = Pack.readMetaAndCreate(
+                        new PackLocationInfo("craftpy:server", Component.literal("CraftPy: this server"),
+                                PackSource.SERVER, Optional.empty()),
+                        new PathPackResources.PathResourcesSupplier(net.xmilon.craftpy.client.ServerPack.root()),
+                        type,
+                        new PackSelectionConfig(true, Pack.Position.TOP, false));
+                if (pack != null) {
+                    consumer.accept(pack);
+                }
+            });
             // client-side modules: this computer's own pack, on any server (rebuilt here when the modules changed)
             event.addRepositorySource(consumer -> {
                 ClientModulePack.refresh();

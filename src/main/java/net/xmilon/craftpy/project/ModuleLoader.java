@@ -160,7 +160,7 @@ public final class ModuleLoader {
     private static final Map<HashKey, String> HASHES = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** SHA-256 of a module file (cached while its size and time stay the same), or null when it cannot be read. */
-    static String sha256(Path path) {
+    public static String sha256(Path path) {
         try {
             HashKey key = new HashKey(path.toAbsolutePath().normalize(), Files.size(path),
                     Files.getLastModifiedTime(path).toMillis());

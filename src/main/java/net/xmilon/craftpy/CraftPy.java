@@ -38,7 +38,9 @@ public class CraftPy {
         ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);
+        net.xmilon.craftpy.registry.ModAttachments.TYPES.register(modEventBus);
         modEventBus.register(net.xmilon.craftpy.network.CraftPyNetwork.class);
+        modEventBus.register(net.xmilon.craftpy.network.ServerModules.class);
         modEventBus.addListener(DynamicPackManager::registerSources);
         // Curios slots for CraftPy items (only when Curios is installed)
         modEventBus.addListener((net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent event) ->
@@ -64,6 +66,7 @@ public class CraftPy {
 
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
+        net.xmilon.craftpy.python.PyRuntime.open();
         // All project IO is owned by the server (integrated server = same instance folder).
         ProjectManager.init();
         // Python's storage values of this world, before any module runs
@@ -111,6 +114,12 @@ public class CraftPy {
         ProjectManager.shutdown();
         net.xmilon.craftpy.python.PyRuntime.shutdown();
         net.xmilon.craftpy.project.ModuleLoader.useGlobalState();
+    }
+
+    /** Again once the world is gone: a worker a late event started while stopping is stopped too. */
+    @SubscribeEvent
+    public void onServerStopped(net.neoforged.neoforge.event.server.ServerStoppedEvent event) {
+        net.xmilon.craftpy.python.PyRuntime.shutdown();
     }
 
     @SubscribeEvent

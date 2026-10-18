@@ -590,7 +590,10 @@ public final class CraftPyCommand {
         return Commands.literal("module")
                 .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
                 .executes(ctx -> {
-                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                    ServerPlayer player = ctx.getSource().getPlayer();
+                    if (player == null) { // the server console: no IDE to open
+                        return moduleList(ctx);
+                    }
                     openIdeScreen(player, null);
                     ctx.getSource().sendSuccess(() -> Component.literal("Opened CraftPy - see the Modules page."), false);
                     return 1;
@@ -629,19 +632,27 @@ public final class CraftPyCommand {
             fail(ctx, "Missing permission " + CraftPyPermissions.MODULE.getNodeName() + ".");
             return 0;
         }
-        List<ModuleBuilder.ModuleMetadata> modules = new ArrayList<>(ModuleLoader.loadedModules());
+        List<net.xmilon.craftpy.project.ModuleInfo> modules = ModuleLoader.list();
         if (modules.isEmpty()) {
             ctx.getSource().sendSuccess(() -> Component
-                    .literal("No modules loaded. Drop .cpm files into pyforge/modules/."), false);
+                    .literal("No modules installed. Drop .cpm files into pyforge/modules/."), false);
             return 1;
         }
         StringBuilder sb = new StringBuilder();
-        for (ModuleBuilder.ModuleMetadata module : modules) {
+        for (net.xmilon.craftpy.project.ModuleInfo module : modules) {
             if (sb.length() > 0) {
                 sb.append('\n');
             }
-            sb.append(module.id).append(" v").append(module.version == null ? "?" : module.version).append(" ")
-                    .append(module.name == null ? "" : "(" + module.name + ")");
+            String state = module.error != null ? "error"
+                    : module.duplicate && !module.primary ? "duplicate"
+                    : module.pendingRestart ? "disabled (restart to unload)"
+                    : module.loaded ? "enabled" : module.enabled ? "enabled (not loaded)" : "disabled";
+            sb.append(module.permissions.isEmpty() ? "  " : "⚠ ").append(module.id)
+                    .append(" v").append(module.version == null || module.version.isBlank() ? "?" : module.version)
+                    .append(" - ").append(state);
+            if (!module.permissions.isEmpty()) {
+                sb.append(" - can ").append(net.xmilon.craftpy.security.PermissionLabels.shortList(module.permissions));
+            }
         }
         final String output = sb.toString();
         ctx.getSource().sendSuccess(() -> Component.literal(output), false);
@@ -709,9 +720,16 @@ public final class CraftPyCommand {
             fail(ctx, "Missing permission " + CraftPyPermissions.MODULE.getNodeName() + ".");
             return 0;
         }
+        if (ModuleLoader.findFileById(id) == null) {
+            fail(ctx, "Unknown module '" + id + "'. Use /craftpy module list.");
+            return 0;
+        }
         CraftPyExecutors.runAsync(() -> ModuleLoader.setEnabled(id, enabled), CraftPyExecutors.io())
-                .thenRun(() -> next(ctx, () -> ctx.getSource().sendSuccess(() -> Component.literal(
-                        (enabled ? "Enabled" : "Disabled (fully unloads after a restart)") + " module '" + id + "'."), true)));
+                .thenRun(() -> next(ctx, () -> {
+                    ctx.getSource().sendSuccess(() -> Component.literal(
+                            (enabled ? "Enabled" : "Disabled (fully unloads after a restart)") + " module '" + id + "'."), true);
+                    net.xmilon.craftpy.network.ServerModules.modulesChanged(ctx.getSource().getServer());
+                }));
         return 1;
     }
 

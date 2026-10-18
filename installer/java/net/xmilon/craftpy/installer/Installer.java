@@ -36,6 +36,7 @@ public final class Installer {
                     case Step.Download d -> download(d);
                     case Step.Run r -> execute(r);
                     case Step.CopyMod c -> copyMod(c);
+                    case Step.PythonChoice p -> pythonChoice(p);
                     case Step.Manual m -> manual = true;
                 }
             } catch (IOException | RuntimeException e) {
@@ -90,6 +91,16 @@ public final class Installer {
             }
             Files.copy(in, step.target(), StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    private void pythonChoice(Step.PythonChoice step) throws IOException {
+        if (step.bundled()) {
+            Files.deleteIfExists(step.marker());
+            return;
+        }
+        Files.createDirectories(step.marker().getParent());
+        Files.writeString(step.marker(), "The player chose not to install CPython with CraftPy. Delete this file to let"
+                + " CraftPy unpack its own Python on the next start.\n");
     }
 
     public static String sha256(Path file) throws IOException {

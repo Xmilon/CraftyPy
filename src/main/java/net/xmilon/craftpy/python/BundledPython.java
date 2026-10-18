@@ -21,6 +21,8 @@ import net.xmilon.craftpy.util.TarGz;
  */
 public final class BundledPython {
     private static final String INDEX = "/craftpy_python/runtimes.properties";
+    /** Written by the installer when the player chose not to install CPython ({@code pyforge/system/no_bundled_python}). */
+    public static final String OPT_OUT = "no_bundled_python";
     /** The executable whose files were verified in this game start. */
     private static Path checked;
 
@@ -29,6 +31,9 @@ public final class BundledPython {
 
     /** The bundled Python of this computer, unpacked when needed; null when the jar has none for it. */
     public static synchronized Path executable() {
+        if (Files.exists(PyForgePaths.system().resolve(OPT_OUT))) {
+            return null; // the player said no to CPython in the installer: a Python of this computer is used
+        }
         String platform = platform(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
         Properties index = index();
         if (platform == null || index == null || index.getProperty(platform + ".sha256") == null) {

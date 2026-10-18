@@ -29,6 +29,17 @@ public sealed interface Step {
         }
     }
 
+    /**
+     * The player's answer to "install CPython?": yes removes {@code marker}, no writes it, and the mod then uses a
+     * Python 3.13+ of this computer (PATH, or {@code pythonPath} in its config) instead of unpacking its own.
+     */
+    record PythonChoice(Path marker, boolean bundled) implements Step {
+        public String text() {
+            return bundled ? "CPython: unpacked by CraftPy on its first start (into pyforge/system/python)"
+                    : "CPython: not installed; CraftPy will use a Python 3.13+ of this computer (" + marker + ")";
+        }
+    }
+
     /** Something that cannot be automated: shown, never run. */
     record Manual(String text) implements Step {
     }
