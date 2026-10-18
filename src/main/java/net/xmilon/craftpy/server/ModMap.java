@@ -38,11 +38,34 @@ public final class ModMap {
     public record Dependency(String modId, String type) {
     }
 
+    /**
+     * What the map says about a module or project besides its links (keyed {@code module:<id>} / {@code project:<id>}).
+     * {@code state}: loaded, enabled, disabled, error, restart. {@code approval}: own, approved, needed, changed, none.
+     * {@code adds}, {@code commands} and {@code events} come from its last run; empty while it is not running.
+     */
+    public record Facts(String description, String author, String side, String state,
+                        net.xmilon.craftpy.security.ModulePermissions permissions, String approval, List<String> dependencies,
+                        Map<String, Integer> adds, List<String> commands, List<String> events, String decompiledTo,
+                        boolean changed) {
+    }
+
+    /** {@code from modules.jukebox import songs, VOLUME} and {@code import modules.jukebox as jb}. */
+    private static final Pattern FROM_MODULE = Pattern.compile(
+            "(?m)^[ \\t]*from[ \\t]+modules\\.([a-z][a-z0-9_]*)(?:\\.[A-Za-z_][\\w.]*)?[ \\t]+import[ \\t]+\\(?([^\\n#)]+)");
+    private static final Pattern IMPORT_MODULE = Pattern.compile("(?m)^[ \\t]*import[ \\t]+modules\\.([a-z][a-z0-9_]*)");
+    private static final int MAX_LIST = 20;
+
     private ModMap() {
     }
 
     public static JsonObject build(List<Mod> mods, List<ModuleInfo> modules, Map<String, Map<String, String>> projectCode,
                                    Map<String, Map<String, String>> moduleCode, CatalogView catalog) {
+        return build(mods, modules, projectCode, moduleCode, catalog, Map.of());
+    }
+
+    public static JsonObject build(List<Mod> mods, List<ModuleInfo> modules, Map<String, Map<String, String>> projectCode,
+                                   Map<String, Map<String, String>> moduleCode, CatalogView catalog,
+                                   Map<String, Facts> facts) {
         Map<String, JsonObject> nodes = new LinkedHashMap<>();
         JsonArray edges = new JsonArray();
         Set<String> installed = new LinkedHashSet<>();
@@ -70,18 +93,43 @@ public final class ModMap {
             if (module.permissionWarning != null && !module.permissionWarning.isEmpty()) {
                 node.addProperty("warning", module.permissionWarning);
             }
+            if (module.description != null && !module.description.isBlank()) {
+                node.addProperty("description", module.description);
+            }
             nodes.put(key, node);
             for (String dependency : module.dependencies == null ? List.<String>of() : module.dependencies) {
-                edges.add(edge(key, (installed.contains(dependency) ? "mod:" : "module:") + dependency, "required"));
+                String id = idOf(dependency);
+                edges.add(edge(key, (installed.contains(id) ? "mod:" : "module:") + id, "required"));
             }
-            uses(key, moduleCode.getOrDefault(module.id, Map.of()), module.id, installed, edges, node);
+            Map<String, String> code = moduleCode.getOrDefault(module.id, Map.of());
+            uses(key, code, module.id, installed, edges, node);
+            imports(key, code, edges);
         }
         for (var project : projectCode.entrySet()) {
             String key = "project:" + project.getKey();
             JsonObject node = node(key, project.getKey(), "project", "");
             nodes.put(key, node);
+            Facts known = facts.get(key);
+            for (String dependency : known == null || known.dependencies() == null ? List.<String>of() : known.dependencies()) {
+                String id = idOf(dependency);
+                edges.add(edge(key, (installed.contains(id) ? "mod:" : "module:") + id, "required"));
+            }
             uses(key, project.getValue(), project.getKey(), installed, edges, node);
+            imports(key, project.getValue(), edges);
         }
+        // what each module and project is, does and may do; and who else reacts to the same events
+        Map<String, List<String>> handlers = new TreeMap<>();
+        facts.forEach((key, f) -> {
+            for (String event : f.events() == null ? List.<String>of() : f.events()) {
+                handlers.computeIfAbsent(event, e -> new java.util.ArrayList<>()).add(key);
+            }
+        });
+        facts.forEach((key, f) -> {
+            JsonObject node = nodes.get(key);
+            if (node != null) {
+                describe(node, key, f, handlers);
+            }
+        });
         // an edge to something that is not there (a module depending on a missing mod) still shows, as a missing node
         for (var element : edges) {
             String to = element.getAsJsonObject().get("to").getAsString();
@@ -123,6 +171,89 @@ public final class ModMap {
             usesList.add(entry.getKey());
         }
         node.add("uses", usesList);
+    }
+
+    /** "imports" edges: the installed modules the code imports names from, with those names. */
+    private static void imports(String from, Map<String, String> code, JsonArray edges) {
+        Map<String, Set<String>> byModule = new TreeMap<>();
+        for (String text : code.values()) {
+            Matcher m = FROM_MODULE.matcher(text);
+            while (m.find()) {
+                Set<String> names = byModule.computeIfAbsent(m.group(1), k -> new LinkedHashSet<>());
+                for (String part : m.group(2).split(",")) {
+                    String name = part.trim().split("[ \\t]+as[ \\t]+")[0].trim();
+                    if (name.matches("[A-Za-z_*][\\w]*")) {
+                        names.add(name);
+                    }
+                }
+            }
+            m = IMPORT_MODULE.matcher(text);
+            while (m.find()) {
+                byModule.computeIfAbsent(m.group(1), k -> new LinkedHashSet<>());
+            }
+        }
+        byModule.forEach((module, names) -> {
+            if (!from.equals("module:" + module)) {
+                JsonObject edge = edge(from, "module:" + module, "imports");
+                JsonArray list = new JsonArray();
+                names.stream().limit(MAX_LIST).forEach(list::add);
+                edge.add("names", list);
+                edges.add(edge);
+            }
+        });
+    }
+
+    private static void describe(JsonObject node, String key, Facts f, Map<String, List<String>> handlers) {
+        put(node, "description", f.description());
+        put(node, "author", f.author());
+        put(node, "side", f.side());
+        put(node, "state", f.state());
+        put(node, "approval", f.approval());
+        put(node, "decompiledTo", f.decompiledTo());
+        node.addProperty("changed", f.changed());
+        var p = f.permissions();
+        if (p != null && !p.isEmpty()) {
+            JsonObject perms = new JsonObject();
+            JsonArray net = new JsonArray();
+            (p.net == null ? List.<String>of() : p.net).stream().limit(MAX_LIST).forEach(net::add);
+            perms.add("net", net);
+            perms.addProperty("files", p.files);
+            JsonArray shared = new JsonArray();
+            (p.shared == null ? List.<String>of() : p.shared).forEach(shared::add);
+            perms.add("shared", shared);
+            perms.addProperty("commands", p.commands);
+            perms.addProperty("java", p.java);
+            node.add("permissions", perms);
+        }
+        if (f.adds() != null && !f.adds().isEmpty()) {
+            JsonObject adds = node.has("adds") ? node.getAsJsonObject("adds") : new JsonObject();
+            f.adds().forEach(adds::addProperty);
+            node.add("adds", adds);
+        }
+        JsonArray commands = new JsonArray();
+        (f.commands() == null ? List.<String>of() : f.commands()).stream().limit(MAX_LIST).forEach(commands::add);
+        node.add("commands", commands);
+        JsonArray events = new JsonArray();
+        for (String event : (f.events() == null ? List.<String>of() : f.events()).stream().limit(MAX_LIST).toList()) {
+            JsonObject row = new JsonObject();
+            row.addProperty("event", event);
+            JsonArray also = new JsonArray();
+            handlers.getOrDefault(event, List.of()).stream().filter(other -> !other.equals(key)).limit(8).forEach(also::add);
+            row.add("also", also);
+            events.add(row);
+        }
+        node.add("events", events);
+    }
+
+    private static void put(JsonObject node, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            node.addProperty(key, value);
+        }
+    }
+
+    /** "foo>=1.2" -> "foo". */
+    private static String idOf(String dependency) {
+        return dependency.split("[<>=!~ ;]", 2)[0].trim();
     }
 
     private static Map<String, Map<String, Integer>> counts(CatalogView catalog) {

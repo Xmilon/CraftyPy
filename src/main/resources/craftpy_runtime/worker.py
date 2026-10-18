@@ -2546,6 +2546,173 @@ def action(name):
     return deco
 
 
+# ---------------------------------------------------------------------------
+# Python windows into the UI maker: a @window class whose build() returns plain widgets becomes ui/<id>.json. The code
+# is only read (ast), never run, so this works on any project, even one that does not run.
+# ---------------------------------------------------------------------------
+_WIDGET_CALLS = {  # function -> (json type, its positional parameters; None for a box whose arguments are children)
+    "Label": ("label", ["text"]), "Button": ("button", ["text", "on_click"]), "TextInput": ("text_input", ["value"]),
+    "TextArea": ("text_area", ["value"]), "Checkbox": ("checkbox", ["label", "checked"]),
+    "Slider": ("slider", ["value", "min", "max"]), "Dropdown": ("dropdown", ["options", "selected"]),
+    "ListView": ("list", ["items"]), "ProgressBar": ("progress", ["value"]), "Image": ("image", ["source"]),
+    "ItemIcon": ("item_icon", ["item"]), "VBox": ("vbox", None), "HBox": ("hbox", None), "Grid": ("grid", None),
+    "TabView": ("tabs", None), "ScrollView": ("scroll", None),
+}
+
+
+class _NotAWidget(Exception):
+    pass
+
+
+def _call_name(node):
+    import ast
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
+def _window_classes(sources):
+    """(file, class node, window id, decorator call) for every ``@window("id", ...)`` class of the sources."""
+    import ast
+    found = []
+    for path in sorted(sources):
+        try:
+            tree = ast.parse(sources[path], path)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for deco in node.decorator_list:
+                if (isinstance(deco, ast.Call) and _call_name(deco.func) == "window" and deco.args
+                        and isinstance(deco.args[0], ast.Constant) and isinstance(deco.args[0].value, str)):
+                    found.append((path, node, deco.args[0].value, deco))
+    return found
+
+
+def _code_windows(sources):
+    out = []
+    for path, cls, ident, deco in _window_classes(sources):
+        title = next((k.value.value for k in deco.keywords if k.arg == "title" and hasattr(k.value, "value")
+                      and isinstance(k.value.value, str)), ident)
+        out.append({"id": ident, "title": title, "file": path, "line": cls.lineno, "class": cls.name})
+    return out
+
+
+def _window_to_json(sources, ident):
+    """The window ``ident`` of the sources as UI maker JSON, plus notes on what could not come along."""
+    import ast
+    for path, cls, found, deco in _window_classes(sources):
+        if found != ident:
+            continue
+        window = {"id": ident, "title": ident, "size": [320, 200]}
+        notes = []
+        for kw in deco.keywords:
+            if kw.arg == "title" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                window["title"] = kw.value.value
+            elif kw.arg == "size" and isinstance(kw.value, (ast.Tuple, ast.List)) and len(kw.value.elts) == 2 \
+                    and all(isinstance(e, ast.Constant) and isinstance(e.value, int) for e in kw.value.elts):
+                window["size"] = [e.value for e in kw.value.elts]
+        build = next((f for f in cls.body if isinstance(f, ast.FunctionDef) and f.name == "build"), None)
+        if build is None:
+            return {"error": "%s (%s line %d) has no build(): nothing to convert" % (cls.name, path, cls.lineno)}
+        returns = [s for s in build.body if isinstance(s, ast.Return) and s.value is not None]
+        if not returns:
+            return {"error": "build() of %s does not return the widgets directly at its top level (%s line %d): the UI "
+                             "maker can only take a window whose layout is written out as VBox(...), HBox(...) ..."
+                             % (cls.name, path, build.lineno)}
+        docstring = lambda s: isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant)  # noqa: E731
+        if any(not isinstance(s, ast.Return) and not docstring(s) for s in build.body):
+            notes.append("build() also runs other code (variables, loops, if); only the returned layout came along")
+        try:
+            window["root"] = _widget_json(returns[-1].value, path, notes)
+        except _NotAWidget as exc:
+            return {"error": str(exc)}
+        if window["root"]["type"] not in ("vbox", "hbox", "grid", "tabs", "scroll"):
+            window["root"] = {"type": "vbox", "children": [window["root"]]}
+        actions = sorted({n.split("'")[1] for n in notes if n.startswith("action '")})
+        if actions:
+            notes = [n for n in notes if not n.startswith("action '")]
+            notes.append("buttons now call actions by name: add @action(\"name\") functions for %s (Copy Python in the"
+                         " UI maker writes them)" % ", ".join(actions))
+        return {"window": window, "notes": notes}
+    return {"error": "No @window(\"%s\") class in the project's code" % ident}
+
+
+def _widget_json(node, path, notes):
+    import ast
+    if not isinstance(node, ast.Call) or _call_name(node.func) not in _WIDGET_CALLS:
+        raise _NotAWidget("%s line %d: %s is not a widget written out (VBox(...), Label(...) ...), so the UI maker cannot"
+                          " draw it" % (path, getattr(node, "lineno", 0), _source_hint(node)))
+    kind, params = _WIDGET_CALLS[_call_name(node.func)]
+    out = {"type": kind}
+    if params is None:
+        children = []
+        for arg in node.args:
+            if isinstance(arg, ast.Starred):
+                notes.append("%s line %d: *%s builds widgets in Python; left out" % (path, arg.lineno, _source_hint(arg.value)))
+                continue
+            try:
+                children.append(_widget_json(arg, path, notes))
+            except _NotAWidget as exc:
+                notes.append(str(exc) + "; left out")
+        out["children"] = children
+    else:
+        for name, arg in zip(params, node.args):
+            _put_value(out, name, arg, path, notes)
+    for kw in node.keywords:
+        if kw.arg is None:
+            notes.append("%s line %d: **%s left out" % (path, kw.value.lineno, _source_hint(kw.value)))
+        else:
+            _put_value(out, kw.arg, kw.value, path, notes)
+    return out
+
+
+def _put_value(out, key, node, path, notes):
+    import ast
+    if key in _UI_ACTIONS:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            out[key] = node.value
+        elif isinstance(node, ast.Attribute):
+            out[key] = node.attr  # self.save / ctx.close -> "save" / "close"
+            if node.attr != "close":
+                notes.append("action '%s'" % node.attr)
+        elif isinstance(node, ast.Name):
+            out[key] = node.id
+            notes.append("action '%s'" % node.id)
+        else:
+            notes.append("%s line %d: %s=%s is Python code (a lambda?): set the action name in the designer"
+                         % (path, node.lineno, key, _source_hint(node)))
+        return
+    try:
+        out[key] = _literal(node)
+    except ValueError:
+        if isinstance(node, ast.JoinedStr):
+            out[key] = "".join(v.value if isinstance(v, ast.Constant) else "{%s}" % _source_hint(v.value)
+                               for v in node.values)
+            notes.append("%s line %d: %s is an f-string; kept as plain text %r" % (path, node.lineno, key, out[key]))
+        else:
+            notes.append("%s line %d: %s=%s is computed in Python; left out, set it in the designer"
+                         % (path, node.lineno, key, _source_hint(node)))
+
+
+def _literal(node):
+    import ast
+    value = ast.literal_eval(node)  # numbers, text, lists, tuples, dicts, True/False/None only
+    return list(value) if isinstance(value, tuple) else value
+
+
+def _source_hint(node):
+    import ast
+    try:
+        text = ast.unparse(node)
+    except Exception:  # noqa: BLE001
+        return type(node).__name__
+    return text if len(text) <= 40 else text[:37] + "..."
+
+
 class _FileWindow(Window):
     """A window drawn in the UI editor (ui/<id>.json): the tree is data, the buttons name @actions."""
 
@@ -4268,6 +4435,10 @@ def _handle(method, params):
             return _signature_help(params)
         finally:
             _ASSIST_SOURCES.clear()
+    if method == "window_list":
+        return {"windows": _code_windows(params.get("sources") or {})}
+    if method == "window_to_json":
+        return _window_to_json(params.get("sources") or {}, params.get("window", ""))
     if method == "definition":
         return _definition(params)
     if method == "stub":

@@ -479,6 +479,32 @@ public class EditorFragment extends Fragment {
             public void hide() {
                 setSidePanel(uiMaker.view(), uiMakerSplitter, false);
             }
+
+            @Override
+            public void request(String op, com.google.gson.JsonObject args,
+                                java.util.function.Consumer<com.google.gson.JsonObject> reply) {
+                View anchor = uiMaker.view();
+                store(s -> {
+                    if (s.activeProjectId() == null) { // no project: nothing to read, say so instead of waiting
+                        var none = new com.google.gson.JsonObject();
+                        none.addProperty("error", "Open a project first.");
+                        anchor.post(() -> reply.accept(none));
+                        return;
+                    }
+                    s.tool(op, args, answer -> anchor.post(() -> reply.accept(answer)));
+                });
+            }
+
+            @Override
+            public void openWhenListed(String path) {
+                store(ClientProjectStore::listFiles);
+                uiMaker.view().postDelayed(() -> openAt(path, 0), 700);
+            }
+
+            @Override
+            public void log(String line) {
+                store(s -> s.append(line));
+            }
         });
         uiMakerSplitter = new Splitter(context, true, dx -> dragPanel(uiMaker.view(), dx), this::saveLayout);
         body.addView(uiMakerSplitter, new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
@@ -1274,6 +1300,7 @@ public class EditorFragment extends Fragment {
             }
             if (uiMaker != null && panel == uiMaker.view()) {
                 uiMaker.refresh();
+                uiMaker.findCodeWindows();
             }
         }
         if (rightStripe != null) {

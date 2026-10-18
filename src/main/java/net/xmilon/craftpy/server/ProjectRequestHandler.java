@@ -440,6 +440,8 @@ public final class ProjectRequestHandler {
                         }
                         // code of other people: it gets nothing it declares until someone trusts it
                         net.xmilon.craftpy.security.PermissionStore.distrust(result.projectId());
+                        net.xmilon.craftpy.project.DecompileLog.record(result.source().module, result.source().sha256,
+                                result.projectId());
                         String skipped = result.report().skipped().isEmpty() ? ""
                                 : "; left out " + result.report().skipped().size() + " file(s): "
                                 + String.join(", ", result.report().skipped().stream().limit(8).toList());

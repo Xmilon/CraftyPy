@@ -34,6 +34,15 @@ final class UiMakerPanel {
         void newWindow();
 
         void hide();
+
+        /** Runs a project tool ({@code code_windows}, {@code window_from_code}); the reply arrives on the UI thread. */
+        void request(String op, com.google.gson.JsonObject args, java.util.function.Consumer<com.google.gson.JsonObject> reply);
+
+        /** A file the server just wrote: list the files again, then open it. */
+        void openWhenListed(String path);
+
+        /** A line in the IDE console. */
+        void log(String line);
     }
 
     private final Host host;
@@ -64,6 +73,18 @@ final class UiMakerPanel {
         list.setOrientation(LinearLayout.VERTICAL);
         view.addView(list);
 
+        var codeHeader = CraftPyFragment.row(context);
+        codeHeader.setPadding(view.dp(12), view.dp(4), view.dp(4), 0);
+        var codeTitle = CraftPyFragment.label(context, "Windows in code", R.attr.textAppearanceLabelMedium);
+        codeTitle.setTextColor(IdeColors.TEXT_SECONDARY);
+        codeHeader.addView(codeTitle, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+        codeHeader.addView(EditorFragment.action(context, IdeIcon.Glyph.RELOAD, "Look for @window classes again",
+                v -> findCodeWindows()));
+        view.addView(codeHeader);
+        codeWindows = new LinearLayout(context);
+        codeWindows.setOrientation(LinearLayout.VERTICAL);
+        view.addView(codeWindows);
+
         hint = CraftPyFragment.label(context, "", R.attr.textAppearanceBodySmall);
         hint.setTextColor(IdeColors.TEXT_SECONDARY);
         hint.setPadding(view.dp(10), view.dp(4), view.dp(10), view.dp(4));
@@ -78,6 +99,66 @@ final class UiMakerPanel {
 
     View view() {
         return view;
+    }
+
+    private final LinearLayout codeWindows;
+
+    /** Lists the {@code @window} classes of the project's .py files (read by the game, not run). */
+    void findCodeWindows() {
+        Context context = codeWindows.getContext();
+        codeWindows.removeAllViews();
+        codeWindows.addView(note(context, "Looking ..."));
+        host.request("code_windows", new com.google.gson.JsonObject(), reply -> {
+            codeWindows.removeAllViews();
+            if (reply.has("error")) {
+                codeWindows.addView(note(context, reply.get("error").getAsString()));
+                return;
+            }
+            var windows = reply.has("windows") ? reply.getAsJsonArray("windows") : new com.google.gson.JsonArray();
+            if (windows.isEmpty()) {
+                codeWindows.addView(note(context, "No @window classes in this project's code."));
+                return;
+            }
+            for (var element : windows) {
+                var w = element.getAsJsonObject();
+                String id = w.get("id").getAsString();
+                var row = CraftPyFragment.label(context, "{ }  " + id + "   " + w.get("file").getAsString() + ":"
+                        + w.get("line").getAsInt(), R.attr.textAppearanceBodyMedium);
+                row.setTextColor(IdeColors.TEXT);
+                row.setPadding(view.dp(12), view.dp(4), view.dp(12), view.dp(4));
+                row.setClickable(true);
+                row.setTooltipText("Make ui/" + id + ".json from this class and open it here (your .py stays as it is)");
+                CraftPyFragment.hoverBackground(row);
+                row.setOnClickListener(v -> convert(id));
+                codeWindows.addView(row);
+            }
+        });
+    }
+
+    private void convert(String id) {
+        var args = new com.google.gson.JsonObject();
+        args.addProperty("window", id);
+        host.request("window_from_code", args, reply -> {
+            if (reply.has("error")) {
+                host.log("[UI maker] " + id + " could not be opened: " + reply.get("error").getAsString());
+                hint.setText(reply.get("error").getAsString());
+                return;
+            }
+            String path = reply.get("path").getAsString();
+            host.log("[UI maker] " + id + " -> " + path + " (the Python class is unchanged; ui.open(player, \""
+                    + path.substring(3, path.length() - 5) + "\") opens the new one)");
+            if (reply.has("notes")) {
+                reply.getAsJsonArray("notes").forEach(n -> host.log("[UI maker]   " + n.getAsString()));
+            }
+            host.openWhenListed(path);
+        });
+    }
+
+    private TextView note(Context context, String text) {
+        var label = CraftPyFragment.label(context, text, R.attr.textAppearanceBodySmall);
+        label.setTextColor(IdeColors.TEXT_SECONDARY);
+        label.setPadding(view.dp(12), view.dp(2), view.dp(12), view.dp(2));
+        return label;
     }
 
     /** Called when the panel opens, another file opens or the editor text changed (debounced). */
@@ -111,12 +192,18 @@ final class UiMakerPanel {
         if (active.equals(designedPath) && text.equals(designedText)) {
             return; // the designer's own edit came back, or nothing changed: keep its state (selection, focus)
         }
+        if (!active.equals(designedPath)) {
+            selection = List.of(); // another window: start at its root
+        }
         designedPath = active;
         designedText = text;
         designer.removeAllViews();
         designer.addView(UiDesigner.docked(context, id, text, json -> {
             designedText = json;
             host.write(json);
-        }), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        }, selection, path -> selection = path), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
     }
+
+    /** The selected widget of the open window (child indexes from the root): typing in the JSON keeps it selected. */
+    private List<Integer> selection = List.of();
 }

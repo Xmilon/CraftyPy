@@ -24,6 +24,22 @@ public class ProjectMetadata {
     /** Installed modules this project uses ({@code from modules.<id> import ...}); a built module lists them too. */
     public java.util.List<String> dependencies = new java.util.ArrayList<>();
     public Map<String, Integer> slotUsage = new LinkedHashMap<>();
+    /** Set when the project was decompiled from a module: Build module then replaces that module. Null otherwise. */
+    public DecompiledFrom decompiledFrom;
+
+    /** The module a decompiled project came from, and the SHA-256 of its .cpm at that moment. */
+    public static class DecompiledFrom {
+        public String module = "";
+        public String sha256 = "";
+
+        public DecompiledFrom() {
+        }
+
+        public DecompiledFrom(String module, String sha256) {
+            this.module = module;
+            this.sha256 = sha256;
+        }
+    }
 
     public ProjectMetadata() {
     }

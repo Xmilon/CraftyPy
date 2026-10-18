@@ -234,6 +234,12 @@ public class ModulesFragment extends Fragment {
         status.setTextColor(color(context, module.error != null && !module.error.isBlank()
                 ? R.attr.colorError : R.attr.colorOnSurfaceVariant));
         text.addView(status);
+        var flags = flagTags(context, module);
+        if (!flags.isEmpty()) {
+            var tagRow = tags(context, flags);
+            tagRow.setPadding(0, row.dp(3), 0, 0);
+            text.addView(tagRow);
+        }
         row.addView(text, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
 
         var toggle = new Switch(context);
@@ -286,8 +292,20 @@ public class ModulesFragment extends Fragment {
         property(props, "Source", module.source);
         property(props, "Size", humanSize(module.sizeBytes));
         property(props, "Dependencies", module.dependencies.isEmpty() ? "none" : String.join(", ", module.dependencies));
+        if (module.decompiledTo != null) {
+            property(props, "Decompiled", "to project " + module.decompiledTo + (module.changedSinceDecompile
+                    ? " - CHANGED since: this file is not the one that was decompiled (rebuilt or replaced)"
+                    : " - unchanged since"));
+        }
+        if (module.changedSinceApproval) {
+            property(props, "Approval", "given to another version of this file: its access is off until you approve again");
+        }
         property(props, "File", module.path);
         details.addView(props);
+        var flags = flagTags(context, module);
+        if (!flags.isEmpty()) {
+            details.addView(tags(context, flags));
+        }
 
         final ModuleInfo selected = module;
         if (module.permissionWarning != null && !module.permissionWarning.isEmpty()) {
@@ -308,15 +326,18 @@ public class ModulesFragment extends Fragment {
             details.addView(approveRow);
         }
         var actions = row(context);
-        actions.addView(button(context, "Reload", R.attr.buttonTonalStyle,
+        actions.addView(button(context, "Decompile", R.attr.buttonTonalStyle,
+                v -> prompt(v, "Decompile " + Path.of(selected.path).getFileName() + " into a project? A new project is made"
+                                + (selected.decompiledTo != null ? " (it was decompiled before, into " + selected.decompiledTo
+                                + ": that project stays)" : "") + ", the module is turned off and nothing runs until you press"
+                                + " Run. Build module in that project replaces this module, and it shows as Changed here."
+                                + " What it asks for (web, files...) stays off until /craftpy project trust. Code from others:"
+                                + " read it first.", null, "Decompile",
+                        ignored -> store(s -> s.unpackModule(selected.path)))));
+        actions.addView(button(context, "Reload", R.attr.borderlessButtonStyle,
                 v -> store(s -> s.reloadModule(selected.id))));
         actions.addView(button(context, "Open folder", R.attr.borderlessButtonStyle, v -> openFolder(selected.path)));
         actions.addView(button(context, "Use in project", R.attr.borderlessButtonStyle, v -> useInProject(v, selected.id)));
-        actions.addView(button(context, "Open as project", R.attr.borderlessButtonStyle,
-                v -> prompt(v, "Open " + Path.of(selected.path).getFileName() + " as a project to edit? A new project is made"
-                                + " (nothing existing is replaced), the module is disabled, and nothing runs until you press Run."
-                                + " Code from others: read it first.", null, "Open as project",
-                        ignored -> store(s -> s.unpackModule(selected.path)))));
         actions.addView(button(context, "Delete", R.attr.borderlessButtonStyle,
                 v -> prompt(v, "Delete " + Path.of(selected.path).getFileName() + " from disk?", null, "Delete",
                         ignored -> {
@@ -354,6 +375,23 @@ public class ModulesFragment extends Fragment {
         v.setTextIsSelectable(true);
         row.addView(v, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         parent.addView(row);
+    }
+
+    /** What needs a look: rebuilt since it was decompiled, changed since it was approved, decompiled at all. */
+    private static java.util.List<TextView> flagTags(Context context, ModuleInfo m) {
+        java.util.List<TextView> out = new java.util.ArrayList<>();
+        if (m.changedSinceDecompile) {
+            out.add(tag(context, "Changed", IdeColors.WARNING));
+        } else if (m.decompiledTo != null) {
+            out.add(tag(context, "Decompiled", IdeColors.INFO));
+        }
+        if (m.changedSinceApproval) {
+            out.add(tag(context, "Re-approve", IdeColors.ERROR));
+        }
+        if (m.permissions != null && m.permissions.java) {
+            out.add(tag(context, "Full trust", IdeColors.ERROR));
+        }
+        return out;
     }
 
     private static String displayName(ModuleInfo module) {

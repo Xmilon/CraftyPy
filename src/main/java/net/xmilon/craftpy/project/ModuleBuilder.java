@@ -79,7 +79,10 @@ public final class ModuleBuilder {
         }
         ProjectMetadata meta = Json.COMPACT.fromJson(Files.readString(projectJson), ProjectMetadata.class);
         boolean asNew = Request.NEW.equals(request.mode());
-        String moduleId = asNew ? request.newId() : meta.id;
+        // a decompiled project rebuilds the module it came from, also when the project got another id (foo_2)
+        String updates = meta.decompiledFrom != null && ProjectManager.isValidId(meta.decompiledFrom.module)
+                ? meta.decompiledFrom.module : meta.id;
+        String moduleId = asNew ? request.newId() : updates;
         if (moduleId == null || !ProjectManager.isValidId(moduleId)) {
             throw new IOException("'" + moduleId + "' is not a valid module id: start with a letter, then lowercase letters, digits or _");
         }

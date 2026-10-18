@@ -290,6 +290,33 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         IdeColors.hoverBackground(view, 5);
     }
 
+    /** A small outlined tag ("Changed", "web", "FULL TRUST") in {@code color}. */
+    static TextView tag(Context context, String text, int color) {
+        var tag = new TextView(context);
+        tag.setText(text);
+        tag.setTextSize(11);
+        tag.setTextColor(color);
+        tag.setPadding(tag.dp(6), tag.dp(1), tag.dp(6), tag.dp(1));
+        var bg = new ShapeDrawable();
+        bg.setCornerRadius(tag.dp(4));
+        bg.setColor((color & 0x00FFFFFF) | 0x22000000);
+        bg.setStroke(Math.max(1, tag.dp(1)), color);
+        tag.setBackground(bg);
+        return tag;
+    }
+
+    /** {@link #tag}s in a row, with a little space between them. */
+    static LinearLayout tags(Context context, java.util.List<TextView> tags) {
+        var row = row(context);
+        for (TextView tag : tags) {
+            var params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.setMarginEnd(row.dp(4));
+            row.addView(tag, params);
+        }
+        return row;
+    }
+
     /** Rounded pill background for the selected tab/chip; hover highlight otherwise. */
     static void styleChip(View view, boolean selected) {
         if (selected) {

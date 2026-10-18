@@ -321,6 +321,19 @@ public final class PyRuntime {
         }, CraftPyExecutors.rpc());
     }
 
+    /** A read-only analysis on the tools worker (no project code runs there), e.g. {@code window_list}. */
+    public CompletableFuture<JsonObject> tool(String method, JsonObject params) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            try {
+                return worker(TOOLS).rpc.call(method, params, DEFAULT_TIMEOUT_MS);
+            } catch (Exception e) {
+                JsonObject failure = new JsonObject();
+                failure.addProperty("error", String.valueOf(e.getMessage()));
+                return failure;
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
     /** Handler profiler data (call counts and timings per handler / timer) of every worker; {@code reset} clears it. */
     public CompletableFuture<JsonObject> profile(boolean reset) {
         return CraftPyExecutors.supplyAsync(() -> {

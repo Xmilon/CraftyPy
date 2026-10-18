@@ -1473,6 +1473,48 @@ def test_a_library_load_keeps_the_names_but_runs_nothing_twice():
     assert not result.get("error"), result
 
 
+def test_python_windows_become_ui_maker_json():
+    code = NL.join([
+        "from craftpy import *",
+        "@window('shop', title='Shop', size=(300, 180))",
+        "class Shop(Window):",
+        "    def build(self, ctx):",
+        "        return VBox(",
+        "            Label(f'Hello {ctx.player.name}', style='title'),",
+        "            HBox(Button('Buy', on_click=self.buy), Button('Close', on_click=ctx.close)),",
+        "            Slider(5, min=0, max=10, id='amount'),",
+        "            Label(self.price),",
+        "            *self.rows(),",
+        "            padding=4)",
+        "@window('dynamic')",
+        "class Dynamic(Window):",
+        "    def build(self, ctx):",
+        "        box = VBox()",
+        "        return box",
+        ""])
+    sources = {"code/main.py": code}
+    listed = w._handle("window_list", {"sources": sources})["windows"]
+    assert [(x["id"], x["title"], x["class"]) for x in listed] == [("shop", "Shop", "Shop"), ("dynamic", "dynamic", "Dynamic")], listed
+    result = w._handle("window_to_json", {"sources": sources, "window": "shop"})
+    assert "error" not in result, result
+    window = result["window"]
+    assert window["title"] == "Shop" and window["size"] == [300, 180]
+    root = window["root"]
+    assert root["type"] == "vbox" and root["padding"] == 4
+    title, row, slider, price = root["children"]
+    assert title["text"] == "Hello {ctx.player.name}" and title["style"] == "title"
+    assert [b["on_click"] for b in row["children"]] == ["buy", "close"]
+    assert slider == {"type": "slider", "value": 5, "min": 0, "max": 10, "id": "amount"}
+    assert price == {"type": "label"}  # self.price is computed: left out
+    notes = " | ".join(result["notes"])
+    assert "f-string" in notes and "*self.rows()" in notes and "self.price" in notes, notes
+    assert "@action" in notes and "buy" in notes and "close" not in notes.split("@action")[1], notes
+    assert "box" in w._handle("window_to_json", {"sources": sources, "window": "dynamic"})["error"]
+    assert "No @window" in w._handle("window_to_json", {"sources": sources, "window": "nope"})["error"]
+    # broken code elsewhere does not stop the others, and nothing ran
+    assert w._handle("window_list", {"sources": {"code/a.py": "def (", "code/main.py": code}})["windows"]
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(n for n in dir() if n.startswith("test_")):

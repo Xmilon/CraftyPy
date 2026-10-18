@@ -44,6 +44,46 @@ class ModMapTest {
         assertEquals("project", kinds.get("project:mashup"));
     }
 
+    @Test
+    void factsImportsProjectDependenciesAndSharedEvents() {
+        ModuleInfo jukebox = new ModuleInfo();
+        jukebox.id = "jukebox";
+        jukebox.description = "Plays music";
+        var perms = new net.xmilon.craftpy.security.ModulePermissions();
+        perms.java = true;
+        var facts = Map.of(
+                "module:jukebox", new ModMap.Facts("Plays music", "me", "client", "loaded", perms, "needed", List.of(),
+                        Map.of("item", 2), List.of("/jukebox:play"), List.of("player_join"), null, true),
+                "project:party", new ModMap.Facts("A party", "", "both", "loaded", null, "none",
+                        List.of("jukebox>=1.0"), Map.of(), List.of(), List.of("player_join", "block_break"), null, false));
+        var out = ModMap.build(List.of(), List.of(jukebox),
+                Map.of("party", Map.of("code/main.py", "from modules.jukebox import songs, VOLUME as V\nimport modules.lights\n")),
+                Map.of(), CatalogView.EMPTY, facts);
+        var edges = out.getAsJsonArray("edges");
+        assertTrue(has(edges, "project:party", "module:jukebox", "required"));
+        assertTrue(has(edges, "project:party", "module:jukebox", "imports"));
+        assertTrue(has(edges, "project:party", "module:lights", "imports"));
+        for (var e : edges) {
+            var edge = e.getAsJsonObject();
+            if (edge.get("kind").getAsString().equals("imports") && edge.get("to").getAsString().equals("module:jukebox")) {
+                assertEquals("[\"songs\",\"VOLUME\"]", edge.get("names").toString());
+            }
+        }
+        JsonObject node = null;
+        for (var n : out.getAsJsonArray("nodes")) {
+            if (n.getAsJsonObject().get("key").getAsString().equals("module:jukebox")) {
+                node = n.getAsJsonObject();
+            }
+        }
+        assertEquals("Plays music", node.get("description").getAsString());
+        assertTrue(node.getAsJsonObject("permissions").get("java").getAsBoolean());
+        assertTrue(node.get("changed").getAsBoolean());
+        assertEquals("/jukebox:play", node.getAsJsonArray("commands").get(0).getAsString());
+        var event = node.getAsJsonArray("events").get(0).getAsJsonObject();
+        assertEquals("player_join", event.get("event").getAsString());
+        assertEquals("project:party", event.getAsJsonArray("also").get(0).getAsString());
+    }
+
     private static boolean has(com.google.gson.JsonArray edges, String from, String to, String kind) {
         for (var e : edges) {
             JsonObject edge = e.getAsJsonObject();

@@ -32,10 +32,11 @@ import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 
 /**
- * The mod map tool window. One node is in focus: in the middle what it is and what it adds, on the left what it needs or
- * uses, on the right what needs or uses it, each card saying why ("requires", "optional", "uses create:mixing ...").
- * A click on a card puts that one in focus. Below: search, kind filters and the list of everything.
- * Lines: green = requires, gray = optional, blue = uses its content, red = missing.
+ * The mod map tool window. One node is in focus: in the middle what it is, what it does (description), what it adds and
+ * may do (tags); on the left what it needs, imports or uses, on the right what needs, imports or uses it, each card
+ * saying why ("needs it to load", "imports songs, VOLUME", "uses create:mixing ..."). A click on a card puts that one in
+ * focus. Below: details (commands, the events it reacts to and who else reacts to them), then search, filters and the list.
+ * Lines: green = needs, purple = imports its code, blue = uses its content, gray = optional, red = missing.
  */
 final class ModMapPanel {
     interface Host {
@@ -116,6 +117,16 @@ final class ModMapPanel {
         status.setTextColor(IdeColors.TEXT_SECONDARY);
         status.setPadding(view.dp(10), 0, view.dp(10), view.dp(2));
         view.addView(status);
+        var legend = CraftPyFragment.row(context);
+        legend.setPadding(view.dp(10), 0, view.dp(10), view.dp(4));
+        String[][] kindsOfLinks = {{"required", "needs"}, {"imports", "imports code"}, {"uses", "uses content"},
+                {"optional", "optional"}, {"missing", "missing"}};
+        for (String[] link : kindsOfLinks) {
+            var item = CraftPyFragment.label(context, "— " + link[1] + "   ", R.attr.textAppearanceBodySmall);
+            item.setTextColor(lineColor(link[0]));
+            legend.addView(item);
+        }
+        view.addView(legend);
 
         focus = new Links(context);
         var focusScroll = new ScrollView(context);
@@ -271,18 +282,55 @@ final class ModMapPanel {
         name.setTextColor(IdeColors.TEXT);
         details.addView(name);
         JsonObject data = node.data();
+        // what it does
+        if (data.has("description")) {
+            line(context, data.get("description").getAsString());
+        } else if (node.kind().equals("module") || node.kind().equals("project")) {
+            line(context, "No description (add one to its " + (node.kind().equals("module") ? "module.json" : "project.json") + ").");
+        }
+        if (data.has("author")) {
+            line(context, "By " + data.get("author").getAsString());
+        }
+        // what it adds to the game
+        if (data.has("adds") && data.getAsJsonObject("adds").size() > 0) {
+            section(context, "Adds", addsText(data));
+        }
+        if (data.has("commands") && data.getAsJsonArray("commands").size() > 0) {
+            section(context, "Commands", String.join(", ", strings(data.getAsJsonArray("commands"), 20)));
+        }
+        // what it reacts to, and who else reacts to the same thing (handlers of several owners run one after the other)
+        if (data.has("events") && data.getAsJsonArray("events").size() > 0) {
+            List<String> parts = new ArrayList<>();
+            for (JsonElement e : data.getAsJsonArray("events")) {
+                JsonObject row = e.getAsJsonObject();
+                List<String> also = new ArrayList<>();
+                row.getAsJsonArray("also").forEach(o -> also.add(nameOf(o.getAsString())));
+                parts.add(row.get("event").getAsString() + (also.isEmpty() ? "" : " (also " + String.join(", ", also) + ")"));
+            }
+            section(context, "Reacts to", String.join("; ", parts));
+        } else if (data.has("state") && !data.get("state").getAsString().equals("loaded")) {
+            section(context, "Reacts to", "known once it runs");
+        }
+        // what it may do and where it stands
         if (data.has("warning")) {
             var warning = CraftPyFragment.label(context, data.get("warning").getAsString(), R.attr.textAppearanceBodySmall);
             warning.setTextColor(IdeColors.ERROR);
             details.addView(warning);
         }
-        if (data.has("adds") && data.getAsJsonObject("adds").size() > 0) {
-            List<String> parts = new ArrayList<>();
-            data.getAsJsonObject("adds").entrySet().forEach(e -> parts.add(e.getValue().getAsInt() + " " + e.getKey().replace('_', ' ')));
-            line(context, "Adds: " + String.join(", ", parts));
+        var tags = tagsOf(context, data);
+        if (!tags.isEmpty()) {
+            details.addView(CraftPyFragment.tags(context, tags));
         }
-        group(context, "Needs", e -> e.from().equals(node.key()) && !e.kind().equals("uses"), Edge::to);
-        group(context, "Needed by", e -> e.to().equals(node.key()) && !e.kind().equals("uses"), Edge::from);
+        if (data.has("decompiledTo")) {
+            line(context, node.kind().equals("project") ? "Decompiled " + data.get("decompiledTo").getAsString()
+                    : "Decompiled into project " + data.get("decompiledTo").getAsString()
+                    + (data.has("changed") && data.get("changed").getAsBoolean() ? ", rebuilt since" : ""));
+        }
+        // how it is tied to the rest
+        group(context, "Needs", e -> e.from().equals(node.key()) && isDependency(e), Edge::to);
+        group(context, "Needed by", e -> e.to().equals(node.key()) && isDependency(e), Edge::from);
+        group(context, "Imports from", e -> e.from().equals(node.key()) && e.kind().equals("imports"), Edge::to);
+        group(context, "Imported by", e -> e.to().equals(node.key()) && e.kind().equals("imports"), Edge::from);
         group(context, "Uses content of", e -> e.from().equals(node.key()) && e.kind().equals("uses"), Edge::to);
         group(context, "Its content is used by", e -> e.to().equals(node.key()) && e.kind().equals("uses"), Edge::from);
         var separator = new View(context);
@@ -297,13 +345,23 @@ final class ModMapPanel {
             if (which.test(edge)) {
                 String key = other.apply(edge);
                 String label = nameOf(key) + (edge.kind().equals("optional") ? " (optional)" : "")
-                        + (edge.data().has("ids") ? " " + edge.data().getAsJsonArray("ids").toString().replace("\"", "") : "");
+                        + (edge.data().has("ids") ? " " + edge.data().getAsJsonArray("ids").toString().replace("\"", "") : "")
+                        + (edge.data().has("names") && edge.data().getAsJsonArray("names").size() > 0
+                        ? " " + edge.data().getAsJsonArray("names").toString().replace("\"", "") : "");
                 parts.add(label);
             }
         }
         if (!parts.isEmpty()) {
             line(context, title + ": " + String.join(", ", parts));
         }
+    }
+
+    private static boolean isDependency(Edge edge) {
+        return !edge.kind().equals("uses") && !edge.kind().equals("imports");
+    }
+
+    private void section(Context context, String title, String text) {
+        line(context, title + ": " + text);
     }
 
     private void line(Context context, String text) {
@@ -394,20 +452,44 @@ final class ModMapPanel {
         name.setTextColor(IdeColors.TEXT);
         name.setSingleLine();
         box.addView(name);
-        String reason = switch (edge.kind()) {
-            case "required" -> "requires";
-            case "optional" -> "optional";
-            case "uses" -> "uses " + (edge.data().has("count") ? edge.data().get("count").getAsInt() + " id(s): " : "")
-                    + (edge.data().has("ids") ? String.join(", ", strings(edge.data().getAsJsonArray("ids"), 3)) : "");
-            default -> edge.kind();
-        };
-        var why = CraftPyFragment.label(context, reason + (kind.equals("missing") ? "  - not installed" : ""), R.attr.textAppearanceBodySmall);
+        var why = CraftPyFragment.label(context, reason(edge) + (kind.equals("missing") ? "  - not installed" : ""),
+                R.attr.textAppearanceBodySmall);
         why.setTextColor(kind.equals("missing") ? IdeColors.ERROR : IdeColors.TEXT_SECONDARY);
         why.setMaxLines(2);
         box.addView(why);
+        if (node != null && node.data().has("description")) {
+            box.setTooltipText(node.data().get("description").getAsString());
+        }
         box.setClickable(true);
         box.setOnClickListener(v -> select(key));
         return box;
+    }
+
+    /** Why two nodes are linked, in plain words. */
+    private static String reason(Edge edge) {
+        JsonObject data = edge.data();
+        return switch (edge.kind()) {
+            case "required" -> "needs it to load";
+            case "optional" -> "works with it if installed";
+            case "imports" -> data.has("names") && data.getAsJsonArray("names").size() > 0
+                    ? "imports " + String.join(", ", strings(data.getAsJsonArray("names"), 4))
+                    + (data.getAsJsonArray("names").size() > 4 ? " ..." : "") : "imports its code";
+            case "uses" -> "uses " + (data.has("count") ? data.get("count").getAsInt() + " of its id(s): " : "")
+                    + (data.has("ids") ? String.join(", ", strings(data.getAsJsonArray("ids"), 3)) : "");
+            case "incompatible", "discouraged" -> edge.kind() + " with it";
+            default -> edge.kind();
+        };
+    }
+
+    /** Line and legend colour of a link kind. */
+    static int lineColor(String kind) {
+        return switch (kind) {
+            case "required" -> IdeColors.SUCCESS;
+            case "imports" -> 0xFFB07CD8;
+            case "uses" -> IdeColors.INFO;
+            case "optional" -> IdeColors.TEXT_DISABLED;
+            default -> IdeColors.ERROR;
+        };
     }
 
     private View centerCard(Context context, Node node) {
@@ -420,31 +502,97 @@ final class ModMapPanel {
         kind.setTextColor(colorOf(node.kind()));
         box.addView(kind);
         JsonObject data = node.data();
+        if (data.has("description")) {
+            var description = CraftPyFragment.label(context, data.get("description").getAsString(), R.attr.textAppearanceBodySmall);
+            description.setTextColor(IdeColors.TEXT);
+            description.setMaxLines(2);
+            box.addView(description);
+        }
         if (data.has("adds") && data.getAsJsonObject("adds").size() > 0) {
-            List<String> parts = new ArrayList<>();
-            data.getAsJsonObject("adds").entrySet().forEach(e -> parts.add(e.getValue().getAsInt() + " " + e.getKey().replace('_', ' ')));
-            var adds = CraftPyFragment.label(context, "adds " + String.join(", ", parts), R.attr.textAppearanceBodySmall);
+            var adds = CraftPyFragment.label(context, "adds " + addsText(data), R.attr.textAppearanceBodySmall);
             adds.setTextColor(IdeColors.TEXT_SECONDARY);
             box.addView(adds);
         }
-        if (data.has("warning")) {
-            var warning = CraftPyFragment.label(context, data.get("warning").getAsString(), R.attr.textAppearanceBodySmall);
-            warning.setTextColor(IdeColors.ERROR);
-            box.addView(warning);
+        var tags = tagsOf(context, data);
+        if (!tags.isEmpty()) {
+            var row = CraftPyFragment.tags(context, tags);
+            row.setPadding(0, view.dp(3), 0, 0);
+            box.addView(row);
         }
         return box;
+    }
+
+    private static String addsText(JsonObject data) {
+        List<String> parts = new ArrayList<>();
+        data.getAsJsonObject("adds").entrySet().forEach(e -> parts.add(e.getValue().getAsInt() + " " + e.getKey().replace('_', ' ')));
+        return String.join(", ", parts);
+    }
+
+    /** At a glance: where it runs, whether it runs, what it may do and whether that was allowed. */
+    private static List<TextView> tagsOf(Context context, JsonObject data) {
+        List<TextView> out = new ArrayList<>();
+        String side = data.has("side") ? data.get("side").getAsString() : "";
+        if (side.equals("client")) {
+            out.add(CraftPyFragment.tag(context, "client", IdeColors.INFO));
+        } else if (side.equals("server")) {
+            out.add(CraftPyFragment.tag(context, "server", IdeColors.INFO));
+        }
+        if (data.has("state")) {
+            String state = data.get("state").getAsString();
+            out.add(CraftPyFragment.tag(context, state, switch (state) {
+                case "loaded" -> IdeColors.SUCCESS;
+                case "error" -> IdeColors.ERROR;
+                case "restart" -> IdeColors.WARNING;
+                default -> IdeColors.TEXT_SECONDARY;
+            }));
+        } else if (data.has("enabled")) {
+            out.add(CraftPyFragment.tag(context, data.get("enabled").getAsBoolean() ? "enabled" : "disabled",
+                    IdeColors.TEXT_SECONDARY));
+        }
+        if (data.has("permissions")) {
+            JsonObject p = data.getAsJsonObject("permissions");
+            if (p.get("java").getAsBoolean()) {
+                out.add(CraftPyFragment.tag(context, "FULL TRUST", IdeColors.ERROR));
+            }
+            if (p.get("commands").getAsBoolean()) {
+                out.add(CraftPyFragment.tag(context, "commands", IdeColors.ERROR));
+            }
+            if (p.getAsJsonArray("net").size() > 0) {
+                out.add(CraftPyFragment.tag(context, "web", IdeColors.WARNING));
+            }
+            if (p.get("files").getAsBoolean()) {
+                out.add(CraftPyFragment.tag(context, "files", IdeColors.WARNING));
+            }
+            if (p.getAsJsonArray("shared").size() > 0) {
+                out.add(CraftPyFragment.tag(context, "shared", IdeColors.WARNING));
+            }
+        }
+        String approval = data.has("approval") ? data.get("approval").getAsString() : "none";
+        switch (approval) {
+            case "needed" -> out.add(CraftPyFragment.tag(context, "not approved", IdeColors.ERROR));
+            case "changed" -> out.add(CraftPyFragment.tag(context, "re-approve", IdeColors.ERROR));
+            case "approved" -> out.add(CraftPyFragment.tag(context, "approved", IdeColors.SUCCESS));
+            default -> {
+            }
+        }
+        if (data.has("changed") && data.get("changed").getAsBoolean()) {
+            out.add(CraftPyFragment.tag(context, "changed", IdeColors.WARNING));
+        }
+        return out;
     }
 
     private LinearLayout box(Context context, int accent) {
         var box = new LinearLayout(context);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(view.dp(8), view.dp(5), view.dp(8), view.dp(5));
-        var bg = new icyllis.modernui.graphics.drawable.ShapeDrawable();
-        bg.setCornerRadius(view.dp(6));
-        bg.setColor(IdeColors.RAISED);
-        bg.setStroke(view.dp(1), accent);
-        box.setBackground(bg);
+        box.setBackground(boxBackground(accent));
         return box;
+    }
+
+    /** The card frame; a hovered card is lighter (state list: hovered, then normal). */
+    private icyllis.modernui.graphics.drawable.Drawable boxBackground(int accent) {
+        return IdeColors.fading(view, 6, accent, IdeColors.SELECTED, IdeColors.HOVER, IdeColors.RAISED, IdeColors.RAISED,
+                IdeColors.RAISED);
     }
 
     private static List<String> strings(com.google.gson.JsonArray array, int max) {
@@ -556,12 +704,7 @@ final class ModMapPanel {
         }
 
         private void line(Canvas canvas, float x0, float y0, float x1, float y1, String kind) {
-            paint.setColor(0xFF000000 | (switch (kind) {
-                case "required" -> IdeColors.SUCCESS;
-                case "uses" -> IdeColors.INFO;
-                case "optional" -> IdeColors.TEXT_DISABLED;
-                default -> IdeColors.ERROR;
-            } & 0xFFFFFF));
+            paint.setColor(0xFF000000 | (lineColor(kind) & 0xFFFFFF));
             // a soft S: across, then over, then across (reads better than a straight diagonal)
             float mid = (x0 + x1) / 2f;
             canvas.drawLine(x0, y0, mid, y0, paint);

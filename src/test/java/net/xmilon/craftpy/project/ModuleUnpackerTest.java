@@ -69,6 +69,45 @@ class ModuleUnpackerTest {
     }
 
     @Test
+    void aDecompiledModuleRebuildsIntoItselfAndShowsAsChanged(@TempDir Path dir) throws IOException {
+        System.setProperty("craftpy.home", dir.toString());
+        DecompileLog.reset();
+        Path projects = Files.createDirectories(dir.resolve("pyforge/projects"));
+        Files.createDirectories(projects.resolve("gems")); // taken: the project becomes gems_2
+        Path modules = Files.createDirectories(dir.resolve("pyforge/modules"));
+        Path cpm = zip(modules.resolve("gems.cpm"),
+                "module.json", "{\"id\":\"gems\",\"version\":\"1.0\",\"side\":\"client\",\"dependencies\":[\"jukebox>=1.0\"],"
+                        + "\"permissions\":{\"net\":[\"wikipedia.org\"],\"files\":true}}",
+                "code/main.py", "print('hi')");
+        String original = ModuleLoader.sha256(cpm);
+        var result = ModuleUnpacker.unpack(cpm, projects, dir.resolve("work"));
+        assertEquals("gems_2", result.projectId());
+        assertEquals("gems", result.source().module);
+        assertEquals(original, result.source().sha256);
+        var meta = net.xmilon.craftpy.util.Json.COMPACT.fromJson(
+                Files.readString(projects.resolve("gems_2/project.json")), ProjectMetadata.class);
+        assertEquals("client", meta.side);
+        assertEquals(java.util.List.of("jukebox>=1.0"), meta.dependencies);
+        assertEquals(java.util.List.of("wikipedia.org"), meta.permissions.net);
+        assertTrue(meta.permissions.files);
+        assertEquals("gems", meta.decompiledFrom.module);
+
+        DecompileLog.record("gems", original, "gems_2");
+        assertFalse(DecompileLog.changed("gems", ModuleLoader.sha256(cpm)));
+        Files.writeString(projects.resolve("gems_2/code/main.py"), "print('changed')");
+        var built = ModuleBuilder.build("gems_2", new ModuleBuilder.Request("1.1", ModuleBuilder.Request.UPDATE, "", "",
+                false, ModuleSide.BOTH));
+        assertEquals("gems", built.moduleId());
+        assertEquals(cpm.toAbsolutePath().normalize(), built.installed().toAbsolutePath().normalize()); // replaced in place
+        assertTrue(built.replaced());
+        assertFalse(Files.exists(modules.resolve("gems_2.cpm")));
+        assertTrue(DecompileLog.changed("gems", ModuleLoader.sha256(cpm)));
+        DecompileLog.reset(); // it was saved
+        assertEquals("gems_2", DecompileLog.of("gems").project());
+        DecompileLog.reset();
+    }
+
+    @Test
     void anIdThatIsNotValidFallsBackToTheFileName(@TempDir Path dir) throws IOException {
         Path projects = Files.createDirectories(dir.resolve("projects"));
         Path cpm = zip(dir.resolve("My Cool-Mod.cpm"), "module.json", "{\"id\":\"../../escape\"}", "code/main.py", "x = 1");

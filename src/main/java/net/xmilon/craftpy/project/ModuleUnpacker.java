@@ -13,7 +13,7 @@ import java.util.zip.ZipFile;
 import net.xmilon.craftpy.util.Json;
 
 /**
- * The module debuilder: a {@code .cpm} back into a project that opens in the IDE. The module is untrusted input, so
+ * The module decompiler: a {@code .cpm} back into a project that opens in the IDE. The module is untrusted input, so
  * this never overwrites anything (the project gets a free id), unpacks through {@link ModuleArchive} (paths, sizes),
  * keeps only the file types a project is made of, writes project.json itself from cleaned values, and runs nothing:
  * the code only runs when the user presses Run, in the same sandbox as always.
@@ -23,7 +23,9 @@ public final class ModuleUnpacker {
     static final Set<String> TYPES = Set.of("py", "json", "mcmeta", "png", "ogg", "md", "txt", "fsh", "vsh", "glsl");
     private static final int MAX_META = 64 * 1024;
 
-    public record Result(String projectId, String moduleId, ModuleArchive.Report report) {
+    /** {@code source}: the module and .cpm hash the project came from (also written to its project.json). */
+    public record Result(String projectId, String moduleId, ModuleArchive.Report report,
+                         ProjectMetadata.DecompiledFrom source) {
     }
 
     private ModuleUnpacker() {
@@ -49,9 +51,22 @@ public final class ModuleUnpacker {
                 if (meta.apiVersion != null && meta.apiVersion.matches("\\d{1,3}\\.\\d{1,3}")) {
                     project.apiVersion = meta.apiVersion;
                 }
+                // what the module was built with, so a rebuild makes the same module (its permissions stay off: the
+                // project is not trusted until an op trusts it)
+                project.side = ModuleSide.of(meta.side).id();
+                project.permissions = net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions);
+                project.dependencies = new java.util.ArrayList<>();
+                for (String dep : meta.dependencies == null ? new String[0] : meta.dependencies) {
+                    if (dep != null && !dep.isBlank() && project.dependencies.size() < 64) {
+                        project.dependencies.add(clean(dep, "", 64));
+                    }
+                }
+                String sha = ModuleLoader.sha256(cpm);
+                String source = moduleId != null ? moduleId : fallbackId(cpm);
+                project.decompiledFrom = new ProjectMetadata.DecompiledFrom(source, sha == null ? "" : sha);
                 Json.write(temp.resolve("project.json"), project);
                 Files.move(temp, projectsDir.resolve(id)); // fails (and nothing is lost) if the id was taken meanwhile
-                return new Result(id, moduleId, report);
+                return new Result(id, moduleId, report, project.decompiledFrom);
             } catch (IOException | RuntimeException e) {
                 ProjectManager.deleteRecursively(temp);
                 throw e;

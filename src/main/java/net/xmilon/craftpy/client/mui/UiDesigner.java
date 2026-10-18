@@ -64,6 +64,15 @@ final class UiDesigner {
      * {@code onApply} receives the new JSON text when Apply is pressed.
      */
     static void open(View anchor, String windowId, String text, Consumer<String> onApply) {
+        String problem = problem(text);
+        if (problem != null) { // Apply would replace the broken text with an empty window
+            var popup = Overlays.dialog(anchor, "UI designer - " + windowId, 520, -1);
+            var error = label(anchor.getContext(), problem, R.attr.textAppearanceBodyMedium);
+            error.setTextColor(IdeColors.ERROR);
+            popup.body.addView(error);
+            popup.show();
+            return;
+        }
         var designer = new UiDesigner(anchor.getContext(), parse(windowId, text), onApply, false);
         var popup = Overlays.dialog(anchor, "UI designer - " + windowId, 1000, -1);
         popup.body.addView(designer.build(false), new LinearLayout.LayoutParams(MATCH_PARENT, popup.body.dp(520)));
@@ -82,7 +91,96 @@ final class UiDesigner {
      * holds the text, so Ctrl+Z and Ctrl+S work as usual).
      */
     static View docked(Context context, String windowId, String text, Consumer<String> onChange) {
-        return new UiDesigner(context, parse(windowId, text), onChange, true).build(true);
+        return docked(context, windowId, text, onChange, List.of(), path -> { });
+    }
+
+    /**
+     * As above, keeping the selection across a rebuild: {@code selection} is the path of child indexes from the root to
+     * the widget to select (edits typed in the JSON rebuild the designer), {@code onSelect} hears every new selection.
+     * Text that is not a window (broken JSON) is shown as an error and never overwritten.
+     */
+    static View docked(Context context, String windowId, String text, Consumer<String> onChange, List<Integer> selection,
+                       Consumer<List<Integer>> onSelect) {
+        String problem = problem(text);
+        if (problem != null) {
+            var error = label(context, problem + "\nFix it in the editor; the designer comes back when it reads again."
+                    + " Nothing here writes to the file meanwhile.", R.attr.textAppearanceBodyMedium);
+            error.setTextColor(IdeColors.ERROR);
+            error.setPadding(error.dp(8), error.dp(8), error.dp(8), error.dp(8));
+            return error;
+        }
+        var designer = new UiDesigner(context, parse(windowId, text), onChange, true);
+        designer.onSelect = onSelect;
+        JsonObject node = nodeAt(designer.window.getAsJsonObject("root"), selection);
+        if (node != null) {
+            designer.selected = node;
+        }
+        return designer.build(true);
+    }
+
+    /** Why this text cannot be designed (not JSON, not a window), or null; blank text is a new window. */
+    @Nullable
+    static String problem(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            JsonElement parsed = JsonParser.parseString(text);
+            if (!parsed.isJsonObject()) {
+                return "This file is not a window: it must be a JSON object.";
+            }
+            JsonObject object = parsed.getAsJsonObject();
+            if (object.has("root") && !object.get("root").isJsonObject()) {
+                return "\"root\" must be an object (the outer box of the window).";
+            }
+            return null;
+        } catch (RuntimeException e) {
+            return "This file is not valid JSON: " + e.getMessage();
+        }
+    }
+
+    private Consumer<List<Integer>> onSelect = path -> { };
+
+    /** The node at {@code path} (child indexes from the root), or null when the path no longer exists. */
+    @Nullable
+    static JsonObject nodeAt(JsonObject root, List<Integer> path) {
+        JsonObject node = root;
+        for (int index : path) {
+            if (!node.has("children") || !node.get("children").isJsonArray()) {
+                return null;
+            }
+            JsonArray children = node.getAsJsonArray("children");
+            if (index < 0 || index >= children.size() || !children.get(index).isJsonObject()) {
+                return null;
+            }
+            node = children.get(index).getAsJsonObject();
+        }
+        return node;
+    }
+
+    /** The path of child indexes from the root to {@code node}; empty for the root or a node not in the tree. */
+    static List<Integer> pathOf(JsonObject root, JsonObject node) {
+        List<Integer> path = new ArrayList<>();
+        return find(root, node, path) ? path : List.of();
+    }
+
+    private static boolean find(JsonObject at, JsonObject node, List<Integer> path) {
+        if (at == node) {
+            return true;
+        }
+        if (at.has("children") && at.get("children").isJsonArray()) {
+            JsonArray children = at.getAsJsonArray("children");
+            for (int i = 0; i < children.size(); i++) {
+                if (children.get(i).isJsonObject()) {
+                    path.add(i);
+                    if (find(children.get(i).getAsJsonObject(), node, path)) {
+                        return true;
+                    }
+                    path.remove(path.size() - 1);
+                }
+            }
+        }
+        return false;
     }
 
     String json() {
@@ -145,6 +243,10 @@ final class UiDesigner {
             var add = button(context, type.replace('_', ' '), R.attr.borderlessButtonStyle, v -> add(type));
             line.addView(add, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         }
+        var dragHint = label(context, "Move a widget: drag it in the tree, above or below another, or into a box.",
+                R.attr.textAppearanceBodySmall);
+        dragHint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        palette.addView(dragHint);
         var treeButtons = row(context);
         treeButtons.addView(button(context, "Delete", R.attr.borderlessButtonStyle, v -> delete()));
         treeButtons.addView(button(context, "Up", R.attr.borderlessButtonStyle, v -> move(-1)));
@@ -235,23 +337,232 @@ final class UiDesigner {
         refreshPreview();
     }
 
+    private void select(JsonObject node) {
+        selected = node;
+        onSelect.accept(pathOf(window.getAsJsonObject("root"), node));
+    }
+
     private void refreshTree() {
         treeColumn.removeAllViews();
-        for (Entry entry : entries()) {
+        List<Entry> all = entries();
+        List<View> rows = new ArrayList<>();
+        for (Entry entry : all) {
             String type = WindowFragment.str(entry.node, "type", "?");
             String text = WindowFragment.str(entry.node, "text", WindowFragment.str(entry.node, "label",
                     WindowFragment.str(entry.node, "id", "")));
-            var rowView = label(context, "  ".repeat(entry.depth) + type + (text.isEmpty() ? "" : "  · " + text),
-                    R.attr.textAppearanceBodyMedium);
+            var rowView = label(context, "  ".repeat(entry.depth) + (CONTAINERS.contains(type) ? "▾ " : "") + type
+                    + (text.isEmpty() ? "" : "  · " + text), R.attr.textAppearanceBodyMedium);
             rowView.setPadding(rowView.dp(8), rowView.dp(5), rowView.dp(8), rowView.dp(5));
             styleChip(rowView, entry.node == selected);
             rowView.setOnClickListener(v -> {
-                selected = entry.node;
+                select(entry.node);
                 refreshTree();
                 refreshProps();
             });
+            if (entry.parent != null) { // the root does not move
+                rowView.setTooltipText("Drag onto another widget: above, below, or into a box");
+                rowView.setOnTouchListener(new TreeDrag(entry.node, all, rows));
+            }
+            rows.add(rowView);
             treeColumn.addView(rowView, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Moving a widget by dragging it in the tree
+    // ------------------------------------------------------------------
+
+    /** Where a dragged widget goes, relative to the row it is dropped on. */
+    enum Drop { BEFORE, AFTER, INTO }
+
+    /**
+     * Moves {@code node} next to or into {@code target}. False (and nothing changed) when the move is not possible: the
+     * root, a node onto itself or into its own subtree, before/after the root, into a widget that is not a box.
+     */
+    static boolean moveNode(JsonObject root, JsonObject node, JsonObject target, Drop where) {
+        if (node == root || node == target || (find(node, target, new ArrayList<>()))) {
+            return false; // the target is inside the dragged node
+        }
+        JsonObject from = parentOf(root, node);
+        if (from == null) {
+            return false;
+        }
+        JsonObject into;
+        if (where == Drop.INTO) {
+            if (!CONTAINERS.contains(WindowFragment.str(target, "type", ""))) {
+                return false;
+            }
+            into = target;
+        } else {
+            into = parentOf(root, target);
+            if (into == null) {
+                return false; // before or after the root
+            }
+        }
+        JsonArray source = from.getAsJsonArray("children");
+        source.remove(indexOf(source, node));
+        if (!into.has("children") || !into.get("children").isJsonArray()) {
+            into.add("children", new JsonArray());
+        }
+        JsonArray children = into.getAsJsonArray("children");
+        List<JsonElement> list = new ArrayList<>();
+        children.forEach(list::add);
+        int at = where == Drop.INTO ? list.size() : indexOf(children, target) + (where == Drop.AFTER ? 1 : 0);
+        list.add(at, node);
+        while (children.size() > 0) {
+            children.remove(0);
+        }
+        list.forEach(children::add);
+        return true;
+    }
+
+    @Nullable
+    private static JsonObject parentOf(JsonObject at, JsonObject node) {
+        if (at.has("children") && at.get("children").isJsonArray()) {
+            for (JsonElement child : at.getAsJsonArray("children")) {
+                if (child == node) {
+                    return at;
+                }
+                if (child.isJsonObject()) {
+                    JsonObject found = parentOf(child.getAsJsonObject(), node);
+                    if (found != null) {
+                        return found;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The drop zone of a point at {@code fraction} (0 top, 1 bottom) of a row showing {@code target}. */
+    static Drop zone(JsonObject target, float fraction) {
+        boolean box = CONTAINERS.contains(WindowFragment.str(target, "type", ""));
+        if (box) {
+            return fraction < 0.3f ? Drop.BEFORE : fraction > 0.7f ? Drop.AFTER : Drop.INTO;
+        }
+        return fraction < 0.5f ? Drop.BEFORE : Drop.AFTER;
+    }
+
+    /** Drags a tree row: past a few pixels it shows where the widget would go; releasing moves it (one undo step). */
+    private final class TreeDrag implements View.OnTouchListener {
+        private final JsonObject node;
+        private final List<Entry> all;
+        private final List<View> rows;
+        private float downY;
+        private boolean dragging;
+        private int targetRow = -1;
+        private Drop targetZone;
+
+        TreeDrag(JsonObject node, List<Entry> all, List<View> rows) {
+            this.node = node;
+            this.all = all;
+            this.rows = rows;
+        }
+
+        @Override
+        public boolean onTouch(View v, icyllis.modernui.view.MotionEvent event) {
+            int[] at = new int[2];
+            v.getLocationInWindow(at);
+            float y = at[1] + event.getY();
+            switch (event.getAction()) {
+                case icyllis.modernui.view.MotionEvent.ACTION_DOWN -> {
+                    downY = y;
+                    dragging = false;
+                    if (v.getParent() != null) {
+                        v.getParent().requestDisallowInterceptTouchEvent(true); // a drag is not a scroll of the tree
+                    }
+                    return false;
+                }
+                case icyllis.modernui.view.MotionEvent.ACTION_MOVE -> {
+                    if (!dragging && Math.abs(y - downY) < v.dp(6)) {
+                        return false;
+                    }
+                    if (!dragging) {
+                        dragging = true;
+                        v.setPressed(false); // the row never sees the release as a click
+                    }
+                    aim(y);
+                    return true;
+                }
+                case icyllis.modernui.view.MotionEvent.ACTION_UP, icyllis.modernui.view.MotionEvent.ACTION_CANCEL -> {
+                    if (!dragging) {
+                        return false;
+                    }
+                    dragging = false;
+                    int row = targetRow;
+                    Drop zone = targetZone;
+                    clearMarks();
+                    if (event.getAction() == icyllis.modernui.view.MotionEvent.ACTION_UP && row >= 0
+                            && moveNode(window.getAsJsonObject("root"), node, all.get(row).node, zone)) {
+                        select(node);
+                        refreshAll();
+                        changed();
+                    }
+                    return true;
+                }
+                default -> {
+                    return dragging;
+                }
+            }
+        }
+
+        /** Marks the row under the pointer: a line above or below it, or the whole row for "into this box". */
+        private void aim(float y) {
+            clearMarks();
+            for (int i = 0; i < rows.size(); i++) {
+                View row = rows.get(i);
+                int[] at = new int[2];
+                row.getLocationInWindow(at);
+                if (y >= at[1] && y < at[1] + row.getHeight()) {
+                    Drop zone = zone(all.get(i).node, (y - at[1]) / Math.max(1, row.getHeight()));
+                    JsonObject copy = window.getAsJsonObject("root").deepCopy();
+                    List<Integer> nodePath = pathOf(window.getAsJsonObject("root"), node);
+                    List<Integer> targetPath = pathOf(window.getAsJsonObject("root"), all.get(i).node);
+                    JsonObject copiedNode = nodeAt(copy, nodePath);
+                    JsonObject copiedTarget = nodeAt(copy, targetPath);
+                    // a dry run on a copy: only possible drops are marked
+                    if (copiedNode != null && copiedTarget != null && moveNode(copy, copiedNode, copiedTarget, zone)) {
+                        targetRow = i;
+                        targetZone = zone;
+                        row.setBackground(mark(row, zone));
+                    }
+                    return;
+                }
+            }
+        }
+
+        private void clearMarks() {
+            if (targetRow >= 0 && targetRow < rows.size()) {
+                styleChip(rows.get(targetRow), all.get(targetRow).node == selected);
+            }
+            targetRow = -1;
+            targetZone = null;
+        }
+    }
+
+    /** The drop mark: an accent line at the top or bottom of the row, or the row filled for "into". */
+    private static icyllis.modernui.graphics.drawable.Drawable mark(View row, Drop zone) {
+        return new icyllis.modernui.graphics.drawable.Drawable() {
+            private final icyllis.modernui.graphics.Paint paint = new icyllis.modernui.graphics.Paint();
+
+            @Override
+            public void draw(@icyllis.modernui.annotation.NonNull icyllis.modernui.graphics.Canvas canvas) {
+                var b = getBounds();
+                if (zone == Drop.INTO) {
+                    paint.setColor(IdeColors.SELECTED);
+                    canvas.drawRect(b.left, b.top, b.right, b.bottom, paint);
+                    paint.setColor(IdeColors.ACCENT);
+                    paint.setStyle(icyllis.modernui.graphics.Paint.STROKE);
+                    paint.setStrokeWidth(row.dp(1));
+                    canvas.drawRect(b.left, b.top, b.right, b.bottom, paint);
+                    paint.setStyle(icyllis.modernui.graphics.Paint.FILL);
+                } else {
+                    paint.setColor(IdeColors.ACCENT);
+                    float y = zone == Drop.BEFORE ? b.top : b.bottom - row.dp(2);
+                    canvas.drawRect(b.left, y, b.right, y + row.dp(2), paint);
+                }
+            }
+        };
     }
 
     private void refreshPreview() {
@@ -288,7 +599,7 @@ final class UiDesigner {
         }
         JsonObject node = newNode(type);
         container.getAsJsonArray("children").add(node);
-        selected = node;
+        select(node);
         refreshAll();
         changed();
     }
@@ -303,7 +614,7 @@ final class UiDesigner {
         if (index >= 0) {
             siblings.remove(index);
         }
-        selected = entry.parent;
+        select(entry.parent);
         refreshAll();
         changed();
     }
@@ -326,6 +637,7 @@ final class UiDesigner {
             siblings.remove(0);
         }
         all.forEach(siblings::add);
+        select(selected); // its path changed
         refreshAll();
         changed();
     }

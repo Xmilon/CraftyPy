@@ -332,11 +332,22 @@ public final class ModuleLoader {
                     break;
                 }
             }
+            String declared = id;
+            if (declared == null) {
+                try {
+                    declared = readInfo(file).id;
+                } catch (IOException unreadable) {
+                    declared = null;
+                }
+            }
             Files.delete(file);
             if (id != null) {
                 LOADED_MODULES.remove(id);
                 MODULE_FILES.remove(id);
                 PENDING_UNLOAD.add(id);
+            }
+            if (declared != null && findFileById(declared) == null) {
+                DecompileLog.forget(declared); // the module is gone: nothing left to compare with
             }
             return true;
         }
@@ -573,6 +584,12 @@ public final class ModuleLoader {
         net.xmilon.craftpy.security.PermissionStore.declare("module:" + info.id, info.permissions, hash);
         info.permissionWarning = net.xmilon.craftpy.security.PermissionLabels.warning(info.permissions);
         info.permissionsApproved = net.xmilon.craftpy.security.PermissionStore.fullyApproved("module:" + info.id);
+        info.changedSinceApproval = net.xmilon.craftpy.security.PermissionStore.changedSinceApproval("module:" + info.id);
+        DecompileLog.Entry decompiled = DecompileLog.of(info.id);
+        if (decompiled != null) {
+            info.decompiledTo = decompiled.project();
+            info.changedSinceDecompile = DecompileLog.changed(info.id, sha256(path));
+        }
         if (!ProjectManager.isValidId(info.id)) {
             info.error = "'" + info.id + "' is not a valid module id: this module is not loaded";
         }

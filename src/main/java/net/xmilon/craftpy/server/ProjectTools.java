@@ -93,6 +93,8 @@ public final class ProjectTools {
                     request.has("remove") && request.get("remove").getAsBoolean());
             case "grep" -> manager.snapshot(projectId).thenApply(s -> grep(s, string(request, "q"),
                     request.has("todo") && request.get("todo").getAsBoolean()));
+            case "code_windows" -> codeWindows(manager, projectId);
+            case "window_from_code" -> windowFromCode(manager, projectId, string(request, "window"));
             default -> done(error(op, "Unknown tool: " + op));
         };
     }
@@ -630,6 +632,71 @@ public final class ProjectTools {
         });
     }
 
+    // -- UI maker: windows written in Python -------------------------------------------------------------------
+
+    /** Every .py of the project, main.py included (readSources leaves main.py out). */
+    private static CompletableFuture<JsonObject> allSources(ProjectManager manager, String projectId) {
+        return manager.readSources(projectId).thenCombine(manager.readFile(projectId, "code/main.py"), (sources, main) -> {
+            JsonObject out = new JsonObject();
+            if (main.success()) {
+                out.addProperty("code/main.py", main.content());
+            }
+            sources.forEach(out::addProperty);
+            return out;
+        });
+    }
+
+    /** The {@code @window} classes of the project's code (read, not run). */
+    private static CompletableFuture<ResponsePayload> codeWindows(ProjectManager manager, String projectId) {
+        return allSources(manager, projectId).thenCompose(sources -> {
+            JsonObject params = new JsonObject();
+            params.add("sources", sources);
+            return net.xmilon.craftpy.python.PyRuntime.get().tool("window_list", params);
+        }).thenApply(result -> {
+            result.addProperty("op", "code_windows");
+            return reply("code_windows", result);
+        });
+    }
+
+    /**
+     * Turns the Python window {@code window} into {@code ui/<id>.json} (or {@code ui/<id>_ui.json}, ... when that file
+     * exists: nothing is overwritten). The reply names the file and the notes on what did not come along.
+     */
+    private static CompletableFuture<ResponsePayload> windowFromCode(ProjectManager manager, String projectId, String window) {
+        if (!window.matches("[A-Za-z0-9_.-]{1,64}")) {
+            return done(error("window_from_code", "Not a window id: " + window));
+        }
+        return allSources(manager, projectId).thenCompose(sources -> {
+            JsonObject params = new JsonObject();
+            params.add("sources", sources);
+            params.addProperty("window", window);
+            return net.xmilon.craftpy.python.PyRuntime.get().tool("window_to_json", params);
+        }).thenCompose(result -> {
+            if (result.has("error")) {
+                return done(error("window_from_code", result.get("error").getAsString()));
+            }
+            java.nio.file.Path dir = net.xmilon.craftpy.project.PyForgePaths.projects().resolve(projectId);
+            String file = window.replaceAll("[^A-Za-z0-9_-]", "_").toLowerCase(java.util.Locale.ROOT);
+            String path = "ui/" + file + ".json";
+            for (int n = 1; java.nio.file.Files.exists(dir.resolve(path)) && n < 100; n++) {
+                path = "ui/" + file + "_ui" + (n == 1 ? "" : String.valueOf(n)) + ".json";
+            }
+            String text = new com.google.gson.GsonBuilder().setPrettyPrinting().create()
+                    .toJson(result.getAsJsonObject("window")) + "\n";
+            final String written = path;
+            return manager.writeFile(projectId, path, text).thenApply(saved -> {
+                if (!saved.success()) {
+                    return error("window_from_code", saved.message());
+                }
+                JsonObject body = new JsonObject();
+                body.addProperty("op", "window_from_code");
+                body.addProperty("path", written);
+                body.add("notes", result.has("notes") ? result.get("notes") : new JsonArray());
+                return reply("window_from_code", body);
+            });
+        });
+    }
+
     /** The mod map tool window: mods, modules, projects and what ties them together (see ModMap). */
     private static ResponsePayload modMap() {
         java.util.List<ModMap.Mod> mods = new java.util.ArrayList<>();
@@ -667,9 +734,70 @@ public final class ProjectTools {
         } catch (java.io.IOException | RuntimeException none) {
             // no projects folder yet
         }
-        JsonObject out = ModMap.build(mods, modules, projectCode, moduleCode, ModCatalog.get().view());
+        java.util.Map<String, ModMap.Facts> facts = new java.util.TreeMap<>();
+        for (var module : modules) {
+            if (!module.primary) {
+                continue; // a duplicate that does not load says nothing about the module
+            }
+            String owner = "module:" + module.id;
+            String state = module.error != null && !module.error.isBlank() ? "error" : module.pendingRestart ? "restart"
+                    : module.loaded ? "loaded" : module.enabled ? "enabled" : "disabled";
+            facts.put(owner, new ModMap.Facts(module.description, module.author, module.side, state, module.permissions,
+                    approval(owner, module.permissions, false), module.dependencies, ran(module.id).adds,
+                    ran(module.id).commands, ran(module.id).events, module.decompiledTo, module.changedSinceDecompile));
+        }
+        for (String id : projectCode.keySet()) {
+            net.xmilon.craftpy.project.ProjectMetadata meta = null;
+            try {
+                meta = net.xmilon.craftpy.util.Json.COMPACT.fromJson(java.nio.file.Files.readString(
+                        projects.resolve(id).resolve("project.json")), net.xmilon.craftpy.project.ProjectMetadata.class);
+            } catch (java.io.IOException | RuntimeException unreadable) {
+                // a project without a readable project.json still shows, with what its code says
+            }
+            boolean loaded = net.xmilon.craftpy.registry.SlotRegistry.isProjectActive(id);
+            var permissions = meta == null ? null : meta.permissions;
+            facts.put("project:" + id, new ModMap.Facts(meta == null ? "" : meta.description, meta == null ? "" : meta.author,
+                    meta == null ? "both" : meta.side, loaded ? "loaded" : "stopped", permissions,
+                    approval(id, permissions, true), meta == null ? java.util.List.of() : meta.dependencies,
+                    ran(id).adds, ran(id).commands, ran(id).events,
+                    meta != null && meta.decompiledFrom != null ? "from module " + meta.decompiledFrom.module : null, false));
+        }
+        JsonObject out = ModMap.build(mods, modules, projectCode, moduleCode, ModCatalog.get().view(), facts);
         out.addProperty("op", "modmap");
         return ok(fit(fit(out, "edges"), "nodes"));
+    }
+
+    /** own (a trusted project), approved, changed (approved for another file), needed, or none (asks for nothing). */
+    private static String approval(String owner, net.xmilon.craftpy.security.ModulePermissions asked, boolean project) {
+        if (asked == null || asked.isEmpty()) {
+            return "none";
+        }
+        if (project && net.xmilon.craftpy.security.PermissionStore.isTrusted(owner)) {
+            return "own";
+        }
+        if (net.xmilon.craftpy.security.PermissionStore.changedSinceApproval(owner)) {
+            return "changed";
+        }
+        return net.xmilon.craftpy.security.PermissionStore.fullyApproved(owner) ? "approved" : "needed";
+    }
+
+    /** What an owner registered in its last run (content counts, commands, events); empty while it is not running. */
+    private record Ran(java.util.Map<String, Integer> adds, java.util.List<String> commands, java.util.List<String> events) {
+    }
+
+    private static Ran ran(String id) {
+        net.xmilon.craftpy.python.Declarations declarations = net.xmilon.craftpy.registry.SlotRegistry.declarations(id);
+        if (declarations == null || declarations.failed()) {
+            return new Ran(java.util.Map.of(), java.util.List.of(), java.util.List.of());
+        }
+        java.util.Map<String, Integer> adds = new java.util.TreeMap<>();
+        declarations.contents().forEach(c -> adds.merge(c.kind(), 1, Integer::sum));
+        if (!declarations.datapack().isEmpty()) {
+            adds.put("data", declarations.datapack().size());
+        }
+        java.util.List<String> commands = declarations.commands().stream().map(c -> "/" + id + ":" + c.name()).toList();
+        java.util.List<String> events = declarations.handlers().stream().map(h -> h.event()).distinct().sorted().toList();
+        return new Ran(adds, commands, events);
     }
 
     /** The project's tests run on the worker like its code does, so scripting must be on. */

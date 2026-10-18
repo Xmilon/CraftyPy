@@ -42,6 +42,12 @@ public class ModuleInfo {
     /** True when disabling this module still needs a restart to fully unload. */
     public boolean pendingRestart = false;
     public List<String> dependencies = new ArrayList<>();
+    /** The project it was decompiled into, or null when it never was. */
+    public String decompiledTo;
+    /** Decompiled, and its file is not the one it was decompiled from any more (rebuilt or replaced since). */
+    public boolean changedSinceDecompile = false;
+    /** Approved, but for another version of the file: its permissions are off until approved again. */
+    public boolean changedSinceApproval = false;
     /** Parse/IO error, when the file could not be read. */
     public String error;
 }
