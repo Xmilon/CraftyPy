@@ -18,6 +18,7 @@ import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.TextWatcher;
 import icyllis.modernui.view.Gravity;
 import icyllis.modernui.view.View;
+import icyllis.modernui.view.ViewGroup;
 import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.ScrollView;
@@ -234,48 +235,50 @@ final class UiDesigner {
 
         var palette = new LinearLayout(context);
         palette.setOrientation(LinearLayout.VERTICAL);
-        var hint = label(context, "Click a widget to add it to the selected box. Buttons call @action(\"name\") in Python:"
-                + " type the name in on_click.", R.attr.textAppearanceBodySmall);
+        var tools = row(context);
+        tools.addView(button(context, "+ Add", R.attr.buttonTonalStyle, v -> {
+            var menu = new icyllis.modernui.widget.PopupMenu(context, v);
+            for (int i = 0; i < TYPES.size(); i++) {
+                menu.getMenu().add(0, i, i, TYPES.get(i).replace('_', ' '));
+            }
+            menu.setOnMenuItemClickListener(item -> {
+                add(TYPES.get(item.getItemId()));
+                return true;
+            });
+            menu.show();
+        }));
+        tools.addView(button(context, "Delete", R.attr.borderlessButtonStyle, v -> delete()));
+        tools.addView(button(context, "Up", R.attr.borderlessButtonStyle, v -> move(-1)));
+        tools.addView(button(context, "Down", R.attr.borderlessButtonStyle, v -> move(1)));
+        tools.addView(button(context, "Copy Python", R.attr.borderlessButtonStyle,
+                v -> net.xmilon.craftpy.client.IdeHost.get().setClipboard(pythonStub())));
+        palette.addView(tools);
+        var hint = label(context, "Drag widgets in the window to move them, drag the corner squares to resize.",
+                R.attr.textAppearanceBodySmall);
         hint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         palette.addView(hint);
-        LinearLayout line = null;
-        for (int i = 0; i < TYPES.size(); i++) {
-            if (i % 4 == 0) {
-                line = row(context);
-                palette.addView(line);
-            }
-            String type = TYPES.get(i);
-            var add = button(context, type.replace('_', ' '), R.attr.borderlessButtonStyle, v -> add(type));
-            line.addView(add, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-        }
-        var dragHint = label(context, "In the window: click to select, drag to move (free in a canvas, into place in a"
-                + " box), drag the corner squares to resize. In the tree: drag above, below or into a box.",
-                R.attr.textAppearanceBodySmall);
-        dragHint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
-        palette.addView(dragHint);
-        var treeButtons = row(context);
-        treeButtons.addView(button(context, "Delete", R.attr.borderlessButtonStyle, v -> delete()));
-        treeButtons.addView(button(context, "Up", R.attr.borderlessButtonStyle, v -> move(-1)));
-        treeButtons.addView(button(context, "Down", R.attr.borderlessButtonStyle, v -> move(1)));
-        treeButtons.addView(button(context, "Copy Python", R.attr.borderlessButtonStyle, v -> {
-            net.xmilon.craftpy.client.IdeHost.get().setClipboard(pythonStub());
-        }));
-        palette.addView(treeButtons);
 
         var treeScroll = new ScrollView(context);
         treeScroll.addView(treeColumn);
         var propsScroll = new ScrollView(context);
         propsScroll.addView(props);
+        var sideways = new icyllis.modernui.widget.HorizontalScrollView(context);
+        sideways.addView(previewHolder, new ViewGroup.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
         var previewScroll = new ScrollView(context);
-        previewScroll.addView(previewHolder, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        previewScroll.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(IdeColors.EDITOR));
+        previewScroll.addView(sideways, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
         LinearLayout root = new LinearLayout(context);
         if (narrow) {
             root.setOrientation(LinearLayout.VERTICAL);
             root.addView(palette);
-            root.addView(previewScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 4));
-            root.addView(treeScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 2));
-            root.addView(propsScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 3));
+            root.addView(previewScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 5));
+            // tree and properties side by side under the window
+            var lower = new LinearLayout(context);
+            lower.setOrientation(LinearLayout.HORIZONTAL);
+            lower.addView(treeScroll, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
+            lower.addView(propsScroll, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
+            root.addView(lower, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 4));
         } else {
             root.setOrientation(LinearLayout.HORIZONTAL);
             var left = new LinearLayout(context);
@@ -642,6 +645,8 @@ final class UiDesigner {
             this.shown = shown;
             this.frame = frame;
             this.density = context.getResources().getDisplayMetrics().density;
+            setClickable(true);
+            setOnTouchListener((v, event) -> handle(event));
         }
 
         /** {@code view}'s rectangle in this overlay's coordinates: left, top, right, bottom. */
@@ -691,8 +696,7 @@ final class UiDesigner {
             return parent != null && "canvas".equals(WindowFragment.str(parent, "type", ""));
         }
 
-        @Override
-        public boolean onTouchEvent(icyllis.modernui.view.MotionEvent event) {
+        private boolean handle(icyllis.modernui.view.MotionEvent event) {
             float x = event.getX();
             float y = event.getY();
             switch (event.getAction()) {

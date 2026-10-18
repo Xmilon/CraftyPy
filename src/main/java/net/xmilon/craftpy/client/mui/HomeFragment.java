@@ -193,7 +193,8 @@ public class HomeFragment extends Fragment {
         page.setPadding(dp20, dp20, dp20, dp20);
 
         // IntelliJ's welcome screen: a title, then a search box and the New Project button above the project list
-        var welcome = label(context, "Welcome to CraftPy", R.attr.textAppearanceHeadlineSmall);
+        var welcome = label(context, "Welcome to CraftPy " + net.xmilon.craftpy.CraftPyLog.version(),
+                R.attr.textAppearanceHeadlineSmall);
         welcome.setTextColor(IdeColors.TEXT);
         page.addView(welcome);
         var subtitle = label(context, "Write Python, build Minecraft content. Open a project or start a new one.",
