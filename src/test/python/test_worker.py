@@ -1503,6 +1503,46 @@ def test_content_only_modules_report_idle():
             getattr(w, name).update(saved[name]) if isinstance(saved[name], dict) else getattr(w, name).extend(saved[name])
 
 
+def test_module_checker_never_calls_a_harmful_module_safe():
+    """tools/check_module.py: strict on purpose; every escape style of the sandbox tests is at least REVIEW."""
+    import importlib.util
+    import tempfile
+    import json
+    import zipfile
+    spec = importlib.util.spec_from_file_location("check_module", os.path.join(HERE, "..", "..", "..", "tools",
+                                                                               "check_module.py"))
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+    rules = checker.load_rules()
+
+    def verdict(code, meta=None, extra=None):
+        path = os.path.join(tempfile.mkdtemp(), "m.cpm")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("module.json", json.dumps(meta or {"id": "m"}))
+            z.writestr("code/main.py", code)
+            for name, data in (extra or {}).items():
+                z.writestr(name, data)
+        return checker.NAMES[checker.check(path, rules).level]
+
+    assert verdict("from craftpy import *\ngem = Item('gem')\nshaped(gem, 'DD', D='diamond')\n") == "SAFE"
+    assert verdict("x = ().__class__.__bases__[0].__subclasses__()\n") == "DANGEROUS"
+    assert verdict("f = lambda: 0\ng = f.__globals__\n") == "DANGEROUS"
+    assert verdict("import operator\nget = operator.attrgetter('__globals__')\n") == "DANGEROUS"
+    assert verdict("import os\nos.system('calc')\n") == "DANGEROUS"
+    assert verdict("exec('print(1)')\n") == "DANGEROUS"
+    assert verdict("x = __builtins__\n") == "DANGEROUS"
+    assert verdict("name = '__cl' + 'ass__'\ny = getattr(1, name)\n") == "REVIEW"
+    assert verdict("import base64\n") == "REVIEW"
+    assert verdict("data = '" + "QUJD" * 200 + "'\n") == "REVIEW"
+    assert verdict("x = vars()\n") == "REVIEW"
+    assert verdict("r = http.get('https://example.com')\n") == "REVIEW"
+    assert verdict("pass\n", meta={"id": "m", "permissions": {"java": True}}) == "DANGEROUS"
+    assert verdict("pass\n", meta={"id": "m", "permissions": {"net": ["a.com"]}}) == "REVIEW"
+    assert verdict("pass\n", extra={"code/run.exe": "MZ"}) == "DANGEROUS"
+    assert verdict("pass\n", extra={"data/m/function/x.mcfunction": "op @a"}) == "REVIEW"
+    assert verdict("pass\n", extra={"../evil.png": "x"}) == "DANGEROUS"
+
+
 def test_python_windows_become_ui_maker_json():
     code = NL.join([
         "from craftpy import *",

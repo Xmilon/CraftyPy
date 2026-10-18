@@ -92,6 +92,11 @@ models, sounds and names are sent to them, never code.
 
 The checks inside Python (blocked imports, no `open`/`eval`) are a second layer, not the wall.
 
+**Checking a module before you share it:** `tools/check_module.py <file.cpm or folder>` (or the
+`craftpy-check-windows/macos/linux` executable built from it) reads a module without running it and says SAFE, REVIEW
+or DANGEROUS, with the reasons and lines. It is strict: SAFE only when the module asks for no permissions and has
+nothing hidden or unusual; anything it cannot vouch for goes to REVIEW for a person to read.
+
 **Disclaimer.** CraftPy runs code written by other people. I am not responsible for how anyone uses this mod, or for
 anything harmful done through modules or on servers that run them. Be careful with modules you didn't write and with
 servers that use modules: read what a module asks for, and install modules or join servers only from people you

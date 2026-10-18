@@ -60,3 +60,7 @@ release/
 AUDIT.md
 instructions.txt
 .claudemem/
+
+# module checker builds (tools/build_exe.py)
+tools/dist/
+tools/build/

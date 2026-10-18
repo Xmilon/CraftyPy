@@ -28,3 +28,21 @@ jobs:
 
       - name: Build with Gradle
         run: ./gradlew build
+  # The module checker (tools/check_module.py) as one executable per system, rebuilt on every push so it always
+  # carries the sandbox rules of the current worker.py. Download them from the run's artifacts.
+  module-checker:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install pyinstaller
+      - run: python tools/build_exe.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: craftpy-check-${{ matrix.os }}
+          path: tools/dist/*
