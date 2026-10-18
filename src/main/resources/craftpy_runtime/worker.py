@@ -2297,6 +2297,10 @@ class _Server:
 
     command = run_command
 
+    def mods(self):
+        """The ids of the loaded mods ("create", "jei", ...). Needs no permission."""
+        return list((_host_call("server.mods", {}) or {}).get("mods") or [])
+
     def log(self, message, level="info"):
         _try_host("server.log", {"message": str(message), "level": level}, default=None)
 
@@ -6459,6 +6463,7 @@ def _load_docs():
         "scheduler.run_later": ("Runs fn after N ticks.", {"ticks": "Delay.", "fn": "Function."}, "A Task."),
         "scheduler.run_next_tick": ("Runs fn on the next tick.", {"fn": "Function."}, "A Task."),
         "server.broadcast": ("Chat message to everyone.", {"message": "Text."}, ""),
+        "server.mods": ("The ids of the loaded mods, e.g. 'create' in server.mods(). Needs no permission.", {}, "a list of mod ids"),
         "server.run_command": ("Runs a command at permission level 2, like a command block. Needs \"permissions\": {\"commands\": true} in project.json / module.json (modules: approved on the Modules page).", {"command": "Without the leading slash."}, "what the command answered, as text"),
         "server.log": ("Writes to the server log and the IDE console.", {"message": "Text.", "level": "'info' (default), 'warn' or 'error'."}, ""),
         "ui.open": ("Opens a window for a player.", {"player": "Player or name.", "window_id": "Id of a @window class or ui/<id>.json."}, ""),

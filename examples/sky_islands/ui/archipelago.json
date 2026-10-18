@@ -1,0 +1,98 @@
+{
+  "id": "archipelago",
+  "title": "☁ Sky Islands",
+  "size": [
+    340,
+    320
+  ],
+  "root": {
+    "type": "vbox",
+    "padding": 8,
+    "spacing": 6,
+    "children": [
+      {
+        "type": "label",
+        "text": "Raise an archipelago",
+        "style": "title"
+      },
+      {
+        "type": "label",
+        "text": "Islands grow in the sky above you, joined by rope bridges. Every island hides a glowing Sky Crystal: find them all."
+      },
+      {
+        "type": "grid",
+        "columns": 2,
+        "spacing": 6,
+        "children": [
+          {
+            "type": "label",
+            "text": "Size"
+          },
+          {
+            "type": "dropdown",
+            "id": "size",
+            "options": [
+              "small (5 islands)",
+              "medium (8 islands)",
+              "large (12 islands)"
+            ],
+            "selected": 1
+          },
+          {
+            "type": "label",
+            "text": "Theme"
+          },
+          {
+            "type": "dropdown",
+            "id": "theme",
+            "options": [
+              "verdant",
+              "frost",
+              "blossom",
+              "ember",
+              "void"
+            ],
+            "selected": 0
+          },
+          {
+            "type": "label",
+            "text": "Seed"
+          },
+          {
+            "type": "text_input",
+            "id": "seed",
+            "value": "",
+            "hint": "empty = random"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "text": "☁ Raise the islands",
+        "on_click": "raise"
+      },
+      {
+        "type": "hbox",
+        "spacing": 6,
+        "children": [
+          {
+            "type": "button",
+            "text": "My expedition",
+            "on_click": "status",
+            "weight": 1
+          },
+          {
+            "type": "button",
+            "text": "Take them down",
+            "on_click": "collapse",
+            "weight": 1
+          }
+        ]
+      },
+      {
+        "type": "label",
+        "text": "Fall off and the wind carries you back. Shards craft into an elytra."
+      }
+    ]
+  }
+}

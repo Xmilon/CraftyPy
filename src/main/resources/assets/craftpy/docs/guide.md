@@ -162,6 +162,40 @@ namespace). With *Install* ticked the module is loaded right away; the file is a
 A client-only module is read from the `pyforge/` folder of the computer it is installed on; enable or disable it on the
 Modules page and the resources reload. `/craftpy module info <id>` shows a module's side.
 
+### Decompiling a module
+
+Select a module on the Modules page and press **Decompile**. You get a project with its code, assets and windows, plus
+its side, permissions and dependencies. The module is turned off so the two don't run at the same time. **Build module**
+in that project replaces the original module, even if the project got another name (`foo_2`). The module then shows a
+**Changed** tag, and **Re-approve** if you had approved it before. What the project asks for (web, files...) stays off
+until an op runs `/craftpy project trust <project>`: it is someone else's code until you say otherwise.
+
+### The mod map
+
+The Mod map (right edge) puts one mod, module or project in the middle: what it does, where it runs, whether it is
+running, what it may do and whether that was approved. On the left is what it needs, imports or uses; on the right what
+needs, imports or uses it. Line colours: green needs it, purple imports its code, blue uses its content, gray optional,
+red missing. Below, its commands and the events it reacts to, with the other modules that react to the same event.
+
+## The UI maker
+
+The UI maker (right edge) designs the windows in `ui/*.json`. Click a window in its list to open it.
+
+- **Moving widgets:** drag a widget in the tree. Drop it on the top or bottom of a row to put it above or below, or in
+  the middle of a box to put it inside. Each move is one undo step in the editor tab.
+- **Windows in code:** the list also shows the `@window` classes of your Python files. Click one to make a
+  `ui/<id>.json` from it. This works when `build()` returns the layout written out (`VBox(Label(...), Button(...))`).
+  Values computed in Python, f-strings and loops are listed in the console. Buttons then call actions by name: add
+  `@action("name")` functions (Copy Python writes them). Your Python file is not changed.
+- If a `ui/*.json` is not valid JSON, the designer shows the error and does not touch the file until you fix it.
+
+## Permissions
+
+A project only gets what its `project.json` asks for under `"permissions"`: `"net"` (sites), `"files"` (its data
+folder), `"shared"` (folders of `pyforge/shared`), `"commands"` (`server.run_command`, at level 2) and `"java"` (the
+Java bridge: full trust). Modules from others also need **Approve access** on the Modules page, for that exact file.
+`server.mods()` lists the loaded mods without any permission.
+
 ## Editor font
 
 The code area, line numbers, console and completion list use JetBrains Mono (SIL Open Font License), shipped with the mod. The rest

@@ -29,7 +29,7 @@ CHAPTERS = [
                                     "advancement", "raw_json", "tex", "snd", "mdl"]),
     ("Events, commands and timers", ["on", "every", "after", "run_later", "run_every", "run_next_tick", "command",
                                      "on_load", "on_unload", "requires_restart", "core", "has"]),
-    ("Chat and server", ["say", "run", "player", "server.broadcast", "server.run_command", "server.log",
+    ("Chat and server", ["say", "run", "player", "server.broadcast", "server.run_command", "server.mods", "server.log",
                          "players.all", "players.online", "players.get", "players.give", "players.send_message",
                          "players.teleport"]),
     ("Player", ["Player.say", "Player.send_message", "Player.actionbar", "Player.title", "Player.give", "Player.take",

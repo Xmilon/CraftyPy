@@ -1514,6 +1514,12 @@ Runs a command at permission level 2, like a command block. Needs "permissions":
 
 Returns: what the command answered, as text
 
+#### `server.mods()`
+
+The ids of the loaded mods, e.g. 'create' in server.mods(). Needs no permission.
+
+Returns: a list of mod ids
+
 #### `server.log(message, level='info')`
 
 Writes to the server log and the IDE console.

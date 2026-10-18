@@ -154,6 +154,18 @@ public final class HostBridge {
                     net.xmilon.craftpy.lifecycle.StorageData.changed();
                     yield ok();
                 }
+                case "server.mods" -> {
+                    // which mods are loaded: harmless to know, so no permission (the Java bridge would be full trust)
+                    JsonObject result = ok();
+                    JsonArray ids = new JsonArray();
+                    try {
+                        net.neoforged.fml.ModList.get().getMods().forEach(info -> ids.add(info.getModId()));
+                    } catch (RuntimeException noModList) {
+                        // the standalone IDE: no mods
+                    }
+                    result.add("mods", ids);
+                    yield result;
+                }
                 case "server.log" -> {
                     CraftPyLog.LOGGER.info("[module] {}", params.has("message") ? params.get("message").getAsString() : "");
                     yield ok();
