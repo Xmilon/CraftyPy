@@ -61,7 +61,8 @@ public final class StructureFiles {
             String renamed = rename.apply(name);
             if (renamed != null && !renamed.equals(name)) {
                 state.putString("Name", renamed);
-                if (!renamed.startsWith("craftpy:pcblock_")) {
+                if (!renamed.startsWith("craftpy:pcblock_") && !renamed.startsWith("craftpy:pckinetic_")
+                        && !name.startsWith("craftpy:pckinetic_")) {
                     state.remove("Properties"); // the slot's light property means nothing on another block
                 }
                 changed = true;
@@ -72,7 +73,7 @@ public final class StructureFiles {
 
     /** {@code craftpy_content:<project>/<id>} for a slot holder {@code BLOCK:<project>:<id>}. */
     public static String contentName(String holder) {
-        String rest = holder.startsWith("BLOCK:") ? holder.substring("BLOCK:".length()) : holder;
+        String rest = net.xmilon.craftpy.lifecycle.EventBridge.projectId(holder);
         return CONTENT_NAMESPACE + ":" + rest.replaceFirst(":", "/");
     }
 }

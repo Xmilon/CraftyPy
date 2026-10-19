@@ -4,7 +4,7 @@ The tour of CraftPy: each file in `code/` shows one thing, with comments, in the
 
 - Module id: `welcome`
 - Works on: client and server
-- CraftPy Python API: 2.2
+- CraftPy Python API: 2.9
 
 ## What is inside
 
@@ -13,7 +13,7 @@ The tour of CraftPy: each file in `code/` shows one thing, with comments, in the
 - **Recipes, tags and loot** for all of them
 - **Events**: greeting on join, gem apples every 5 ores, the wand, chat `!gems`, zombie drops
 - **Timers**, **commands** (`/welcome:gift`, `/welcome:stats`, `/welcome:menu`, `/welcome:settings`, `/welcome:selftest`)
-- **Windows**: a counter made in Python and a settings window drawn in the UI designer (`ui/settings.json`)
+- **Windows**: designer-authored counter/settings windows (`ui/*.json`), Python display bindings, named actions and per-player saved state
 - **Tests**: `code/test_rewards.py` (Ctrl+Shift+F10)
 
 Start with `code/main.py`, then press Run (Ctrl+R).

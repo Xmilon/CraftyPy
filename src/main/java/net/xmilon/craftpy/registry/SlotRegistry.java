@@ -36,7 +36,7 @@ import net.xmilon.craftpy.util.Json;
  */
 public final class SlotRegistry {
     public enum Kind {
-        BLOCK, ITEM, EFFECT, ENTITY, SOUND, MONSTER
+        BLOCK, ITEM, EFFECT, ENTITY, SOUND, MONSTER, KINETIC
     }
 
     /** Mobs (passive ones are {@code pcentity_N}, hostile ones {@code pcmonster_N}) and effects: fixed pools. */
@@ -53,6 +53,7 @@ public final class SlotRegistry {
             case MONSTER -> "pcmonster_" + ref.index();
             case EFFECT -> "pceffect_" + ref.index();
             case SOUND -> "pcsound_" + ref.index();
+            case KINETIC -> "pckinetic_" + ref.index();
         };
     }
 
@@ -65,7 +66,12 @@ public final class SlotRegistry {
             return null;
         }
         for (Kind kind : kinds) {
+            if (kind == Kind.BLOCK || kind == Kind.ITEM) {
+                String nativeBlock = net.xmilon.craftpy.content.NativeContent.resolveBlock(ref);
+                if (!java.util.Objects.equals(nativeBlock, ref)) return nativeBlock;
+            }
             SlotRef slot = MAPPING.get(kind.name() + ":" + ref);
+            if (slot == null && (kind == Kind.BLOCK || kind == Kind.ITEM)) slot = MAPPING.get("KINETIC:" + ref);
             if (slot != null) {
                 return CraftPyLog.MODID + ":" + slotName(slot);
             }
@@ -88,6 +94,7 @@ public final class SlotRegistry {
 
     private static final Map<String, SlotRef> MAPPING = new ConcurrentHashMap<>();
     private static final Map<String, Defs.BlockDef> BLOCK_DEFS = new ConcurrentHashMap<>();
+    private static final Map<String, Defs.BlockDef> KINETIC_DEFS = new ConcurrentHashMap<>();
     private static final Map<String, Defs.ItemDef> ITEM_DEFS = new ConcurrentHashMap<>();
     private static final Map<String, Defs.EffectDef> EFFECT_DEFS = new ConcurrentHashMap<>();
     private static final Map<String, Defs.EntityDef> ENTITY_DEFS = new ConcurrentHashMap<>();
@@ -107,7 +114,7 @@ public final class SlotRegistry {
         }
         String path = id.getPath();
         return path.startsWith("pcblock_") || path.startsWith("pcitem_") || path.startsWith("pcentity_")
-                || path.startsWith("pcmonster_") || path.startsWith("pceffect_");
+                || path.startsWith("pcmonster_") || path.startsWith("pceffect_") || path.startsWith("pckinetic_");
     }
 
     private SlotRegistry() {
@@ -146,6 +153,7 @@ public final class SlotRegistry {
         }
         return BLOCK_DEFS.get(key(ref.kind, ref.index));
     }
+    public static Defs.BlockDef kineticDef(int index) { return KINETIC_DEFS.get(key(Kind.KINETIC, index)); }
 
     public static Defs.ItemDef itemDef(int index) {
         SlotRef ref = refByIndex(Kind.ITEM, index);
@@ -277,18 +285,21 @@ public final class SlotRegistry {
      * If the content already has a slot, it is reused (stable across reloads).
      */
     public static synchronized SlotRef applyBlock(String projectId, String contentId, JsonObject definition) {
-        String contentKey = "BLOCK:" + projectId + ":" + contentId;
         Defs.BlockDef def = Defs.BlockDef.from(definition);
+        Kind family = def.machine() ? Kind.KINETIC : Kind.BLOCK;
+        if (MAPPING.containsKey(SlotPlan.key(family == Kind.BLOCK ? Kind.KINETIC : Kind.BLOCK, projectId, contentId)))
+            throw new IllegalStateException("Block cannot change native slot family without an explicit migration");
+        String contentKey = SlotPlan.key(family, projectId, contentId);
         SlotRef ref = MAPPING.get(contentKey);
         if (ref == null) {
             int cap = 256;
             try { cap = Config.get(Config.BLOCK_SLOTS); } catch (Throwable ignored) {}
-            int index = allocateFree(Kind.BLOCK, poolSize(Kind.BLOCK, cap));
-            ref = new SlotRef(Kind.BLOCK, index);
+            int index = allocateFree(family, poolSize(family, cap));
+            ref = new SlotRef(family, index);
             MAPPING.put(contentKey, ref);
             mappingChanged();
         }
-        BLOCK_DEFS.put(key(Kind.BLOCK, ref.index()), def);
+        (family == Kind.KINETIC ? KINETIC_DEFS : BLOCK_DEFS).put(key(family, ref.index()), def);
         ACTIVE_PROJECTS.put(projectId, Boolean.TRUE);
         return ref;
     }
@@ -318,6 +329,7 @@ public final class SlotRegistry {
             case ENTITY -> ENTITY_SLOTS;
             case MONSTER -> MONSTER_SLOTS;
             case EFFECT -> EFFECT_SLOTS;
+            case KINETIC -> SlotCounts.kinetics();
             default -> configured;
         };
     }
@@ -345,6 +357,7 @@ public final class SlotRegistry {
 
     /** Detaches the live definitions of one project; mapping stays so old grids remain stable. */
     public static synchronized void releaseProject(String projectId) {
+        net.xmilon.craftpy.content.NativeContent.release(projectId);
         for (String contentKey : SlotPlan.keysOf(MAPPING, projectId)) {
             detach(MAPPING.get(contentKey));
         }
@@ -360,6 +373,7 @@ public final class SlotRegistry {
         }
         switch (ref.kind()) {
             case BLOCK -> BLOCK_DEFS.remove(key(Kind.BLOCK, ref.index()));
+            case KINETIC -> KINETIC_DEFS.remove(key(Kind.KINETIC, ref.index()));
             case ITEM -> ITEM_DEFS.remove(key(Kind.ITEM, ref.index()));
             case ENTITY, MONSTER -> ENTITY_DEFS.remove(key(ref.kind(), ref.index()));
             case EFFECT -> EFFECT_DEFS.remove(key(Kind.EFFECT, ref.index()));
@@ -377,18 +391,33 @@ public final class SlotRegistry {
      * @throws RuntimeException when nothing could be applied; the registry is unchanged
      */
     public static synchronized void applyAll(String projectId, Declarations declarations) {
+        var nativePlan = net.xmilon.craftpy.content.NativeContent.plan(projectId, declarations, MAPPING);
         Map<String, Defs.BlockDef> blocks = new LinkedHashMap<>();
+        Map<String, Defs.BlockDef> kinetics = new LinkedHashMap<>();
         Map<String, Defs.ItemDef> items = new LinkedHashMap<>();
         Map<String, Defs.EntityDef> mobs = new LinkedHashMap<>();
         Map<String, Defs.EntityDef> monsters = new LinkedHashMap<>();
         Map<String, Defs.EffectDef> effects = new LinkedHashMap<>();
         for (Declarations.Content content : declarations.contents()) {
+            if (content.definition().has("native_base")) continue;
             switch (content.kind()) {
-                case "block" -> blocks.put(content.id(), Defs.BlockDef.from(content.definition()));
+                case "block" -> {
+                    Defs.BlockDef definition = Defs.BlockDef.from(content.definition());
+                    Kind family = definition.machine() ? Kind.KINETIC : Kind.BLOCK;
+                    Kind previous = family == Kind.BLOCK ? Kind.KINETIC : Kind.BLOCK;
+                    if (MAPPING.containsKey(SlotPlan.key(previous, projectId, content.id())))
+                        throw new IllegalStateException("Block '" + projectId + ":" + content.id() + "' cannot change native slot family without an explicit migration");
+                    (family == Kind.BLOCK ? blocks : kinetics).put(content.id(), definition);
+                }
                 case "item" -> items.put(content.id(), Defs.ItemDef.from(content.definition()));
                 case "entity" -> {
                     // hostile mobs need the MONSTER spawn category, which an entity type gets once, at startup
                     Defs.EntityDef def = Defs.EntityDef.from(content.definition());
+                    Kind oldKind = def.hostile() ? Kind.ENTITY : Kind.MONSTER;
+                    if (MAPPING.containsKey(SlotPlan.key(oldKind, projectId, content.id())))
+                        throw new IllegalStateException("Mob '" + projectId + ":" + content.id() + "' cannot change native slot family without an explicit migration");
+                    net.xmilon.craftpy.entity.NativeGoals.validate(def.goals,
+                            net.xmilon.craftpy.project.ModuleLoader.isLoaded(projectId) ? "module:" + projectId : projectId);
                     (def.hostile() ? monsters : mobs).put(content.id(), def);
                 }
                 case "effect" -> effects.put(content.id(), Defs.EffectDef.from(content.definition()));
@@ -405,13 +434,15 @@ public final class SlotRegistry {
         }
         Map<String, SlotRef> next = SlotPlan.allocate(MAPPING, projectId,
                 Map.of(Kind.BLOCK, blocks.keySet(), Kind.ITEM, items.keySet(), Kind.ENTITY, mobs.keySet(),
-                        Kind.MONSTER, monsters.keySet(), Kind.EFFECT, effects.keySet()),
+                        Kind.MONSTER, monsters.keySet(), Kind.EFFECT, effects.keySet(), Kind.KINETIC, kinetics.keySet()),
                 Map.of(Kind.BLOCK, poolSize(Kind.BLOCK, blockCap), Kind.ITEM, poolSize(Kind.ITEM, itemCap),
-                        Kind.ENTITY, ENTITY_SLOTS, Kind.MONSTER, MONSTER_SLOTS, Kind.EFFECT, EFFECT_SLOTS));
+                        Kind.ENTITY, ENTITY_SLOTS, Kind.MONSTER, MONSTER_SLOTS, Kind.EFFECT, EFFECT_SLOTS, Kind.KINETIC, SlotCounts.kinetics()));
 
         // Commit: nothing below can fail for lack of room.
+        net.xmilon.craftpy.content.NativeContent.commit(nativePlan);
         java.util.Set<String> declared = new java.util.HashSet<>();
         blocks.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.BLOCK, projectId, id)));
+        kinetics.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.KINETIC, projectId, id)));
         items.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.ITEM, projectId, id)));
         mobs.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.ENTITY, projectId, id)));
         monsters.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.MONSTER, projectId, id)));
@@ -424,6 +455,7 @@ public final class SlotRegistry {
         MAPPING.putAll(next);
         mappingChanged();
         blocks.forEach((id, def) -> BLOCK_DEFS.put(key(Kind.BLOCK, next.get(SlotPlan.key(Kind.BLOCK, projectId, id)).index()), def));
+        kinetics.forEach((id, def) -> KINETIC_DEFS.put(key(Kind.KINETIC, next.get(SlotPlan.key(Kind.KINETIC, projectId, id)).index()), def));
         items.forEach((id, def) -> ITEM_DEFS.put(key(Kind.ITEM, next.get(SlotPlan.key(Kind.ITEM, projectId, id)).index()), def));
         mobs.forEach((id, def) -> ENTITY_DEFS.put(key(Kind.ENTITY, next.get(SlotPlan.key(Kind.ENTITY, projectId, id)).index()), def));
         monsters.forEach((id, def) -> ENTITY_DEFS.put(key(Kind.MONSTER, next.get(SlotPlan.key(Kind.MONSTER, projectId, id)).index()), def));
@@ -455,6 +487,16 @@ public final class SlotRegistry {
         return false;
     }
 
+    public static boolean handlesEntityTick(String id) {
+        for (var declarations : PROJECT_DECLS.values()) for (var handler : declarations.handlers()) {
+            if (!handler.event().equals("entity_tick")) continue;
+            JsonObject definition = handler.definition();
+            JsonObject filters = definition.has("filters") ? definition.getAsJsonObject("filters") : new JsonObject();
+            if (!filters.has("entity") || id.equals(filters.get("entity").getAsString())) return true;
+        }
+        return false;
+    }
+
     public static boolean isProjectActive(String projectId) {
         return Boolean.TRUE.equals(ACTIVE_PROJECTS.get(projectId));
     }
@@ -471,6 +513,7 @@ public final class SlotRegistry {
         MAPPING.clear();
         mappingChanged();
         BLOCK_DEFS.clear();
+        KINETIC_DEFS.clear();
         ITEM_DEFS.clear();
         ENTITY_DEFS.clear();
         EFFECT_DEFS.clear();

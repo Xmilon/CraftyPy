@@ -1,0 +1,11 @@
+{
+  "id": "waypoints",
+  "name": "Waypoints",
+  "description": "Save up to 20 personal, dimension-aware waypoints; safe destinations and a ten-second teleport cooldown.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.9",
+  "mcVersion": "1.21.1",
+  "side": "both",
+  "permissions": {}
+}

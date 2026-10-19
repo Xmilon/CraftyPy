@@ -1,0 +1,11 @@
+{
+  "id": "activity_stats",
+  "name": "Activity Stats",
+  "description": "World-local per-player mined, crafted, and defeated-mob counters. Counts events without per-frame polling.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.9",
+  "mcVersion": "1.21.1",
+  "side": "both",
+  "permissions": {}
+}

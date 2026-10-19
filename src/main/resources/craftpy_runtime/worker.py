@@ -483,12 +483,13 @@ def _drop_owner(owner, host=True):
     keys on the host (not for a dependency's names dropped after a library load: the host would clear the caller's)."""
     for key in [k for k in _KEYS if k[0] == owner]:
         del _KEYS[key]
+    for key in [k for k in _EVENT_LAST if k[0] == owner]:
+        del _EVENT_LAST[key]
     for key in [k for k in _HUD_LAST if k[0] == owner]:
         del _HUD_LAST[key]
     if host and _MODE[0] == "client" and owner != "__console__":
         try:
             _host_call("hud.clear", {"owner": owner})
-            _host_call("keys.set", {"owner": owner, "combos": []})
         except HostError:
             pass
     for name in [n for n, o in _USER_EXTENSIONS.items() if o[0] == owner]:
@@ -505,6 +506,10 @@ def _drop_owner(owner, host=True):
         del _UI_NAMED[key]
     for key in [k for k in _UI_FILES if k[0] == owner]:
         del _UI_FILES[key]
+    for key in [k for k in _UI_DATA if k[0] == owner]:
+        del _UI_DATA[key]
+    for key in [k for k in _WINDOWS if k[0] == owner]:
+        del _WINDOWS[key]
     for key in [k for k, v in _FN_TABLE.items() if v[0] == owner]:
         del _FN_TABLE[key]
 
@@ -602,6 +607,9 @@ def _ref(value):
     if not value or value.startswith("#") or ":" in value:
         return value
     if _declared(value):
+        for entry in _DECLS["blocks"]:
+            if entry.get("id") == value and entry.get("definition", {}).get("native_base"):
+                return entry["definition"]["native_base"]
         return "%s:%s" % (_namespace(), value)
     return "minecraft:" + value
 
@@ -684,6 +692,39 @@ def _block_drops(block_id, drops):
     loot_table(block_id, entries)
 
 
+def NativeBlock(id, *, base, name=None) -> "Content":
+    _check_id(id)
+    base = _native_base(base)
+    definition = {"name": name or _pretty(id), "native_base": base}
+    _DECLS["blocks"].append({"id": id, "definition": definition})
+    # Block aliases are references to the original content, not independently registered block types.
+    return Content(base, "native_block", id, definition["name"], definition)
+
+
+def NativeMob(id, *, base, name=None, state=None) -> "Content":
+    _check_id(id)
+    base = _native_base(base)
+    if state is not None and not isinstance(state, dict):
+        raise TypeError("NativeMob state must be a dictionary")
+    definition = {"native_base": base, "state": dict(state or {})}
+    if name is not None:
+        definition["name"] = str(name)
+    if len(json.dumps(definition["state"])) > 16384:
+        raise ValueError("NativeMob initial state exceeds 16 KiB")
+    _DECLS["entities"].append({"id": id, "definition": definition})
+    return Content("%s:%s" % (_namespace(), id), "native_entity", id, name or _pretty(id), definition)
+
+
+def _native_base(base):
+    import re
+    base = str(base)
+    if not re.fullmatch(r"[a-z0-9_.-]+:[a-z0-9_./-]+", base):
+        raise ValueError("Native base must be a complete registered ID, such as 'minecraft:iron_golem'")
+    if base.startswith("craftpy:pc"):
+        raise ValueError("A native base must be original registered content, not a CraftPy slot")
+    return base
+
+
 def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(),
          components=None, **extra) -> "Content":
     """Declares an item and returns it.
@@ -736,7 +777,7 @@ max_ = max  # Spawn(max=...) shadows the builtin
 
 def Mob(id, name=None, texture=None, model="humanoid", animation=None, health=10, speed=0.25, damage=2, armor=0,
         hostile=False, width=0.6, height=1.8, scale=1.0, follow_range=16, egg=None, spawns=(), drops=None,
-        **extra) -> "Content":
+        behavior=None, goals=(), animations=None, **extra) -> "Content":
     """Declares a mob and returns it.
 
     ``model`` is a vanilla body ('humanoid', 'player', 'pig', 'cow', 'chicken', 'spider', 'creeper', 'villager',
@@ -760,6 +801,31 @@ def Mob(id, name=None, texture=None, model="humanoid", animation=None, health=10
         definition["texture"] = str(texture)
     if animation is not None:
         definition["animation"] = str(animation)
+    if behavior is not None:
+        profile = {"profile": behavior} if isinstance(behavior, str) else dict(behavior)
+        if profile.get("profile") not in ("melee", "ranged", "follow", "guard"):
+            raise ValueError("Mob behavior profile must be melee, ranged, follow or guard")
+        if profile.get("target", "hostile") not in ("hostile", "players", "none"):
+            raise ValueError("Mob behavior target must be hostile, players or none")
+        for key, value in profile.items():
+            if key in ("profile", "target"):
+                continue
+            if key not in ("speed", "range", "interval", "radius"):
+                raise ValueError("Unknown behavior option: %s" % key)
+            _num("Behavior " + key, value, 10 if key == "interval" else .1 if key == "speed" else 1,
+                 200 if key == "interval" else 4 if key == "speed" else 64, whole=key == "interval")
+        definition["behavior"] = profile
+    if goals:
+        goals = list(goals)
+        if len(goals) > 8 or not all(isinstance(goal, dict) and isinstance(goal.get("class"), str) for goal in goals):
+            raise ValueError("Mob goals need at most eight inspected class/args dictionaries")
+        definition["goals"] = goals
+    if animations is not None:
+        animations = dict(animations)
+        if not all(key in ("idle", "walk", "run", "attack", "cast", "hurt", "death")
+                   and isinstance(value, str) and 0 < len(value) <= 128 for key, value in animations.items()):
+            raise ValueError("Mob animations map idle/walk/run/attack/cast/hurt/death to named clips")
+        definition["animations"] = animations
     if egg is not None:
         color, spots = (list(egg) + ["#c9e86b"])[:2] if isinstance(egg, (tuple, list)) else (egg, "#c9e86b")
         definition["egg_color"], definition["egg_spots"] = str(color), str(spots)
@@ -776,7 +842,7 @@ def Mob(id, name=None, texture=None, model="humanoid", animation=None, health=10
 
 
 _MOB_ATTRS = ("name", "texture", "model", "animation", "health", "speed", "damage", "armor", "hostile", "width",
-              "height", "scale", "follow_range", "egg", "spawns", "drops")
+              "height", "scale", "follow_range", "egg", "spawns", "drops", "behavior", "goals", "animations")
 
 
 def Effect(id, name=None, icon=None, color="#8899ff", category="neutral", attributes=(), **extra) -> "Content":
@@ -1364,12 +1430,82 @@ class Attributes(_Data):
         return {"attribute": self.attribute, "amount": self.amount, "operation": self.operation, "slot": self.slot}
 
 
+class Kinetic(_Data):
+    """A native CraftPy machine with an optional Create rotation adapter.
+
+    Roles: generator supplies speed/capacity, shaft transmits, processor consumes stress and runs
+    craftpy:kinetic_processing recipes. Stress capacity/impact are per RPM. Axis affects new placements;
+    The machinery wrench rotates existing machines. Inventory and processing stay native, including on reload.
+    rotating_model is a baked block model resource ID, aligned along Y before the axis transform.
+    """
+    applies_to = ("block",)
+    type = "kinetic"
+
+    def __init__(self, role="shaft", *, axis="y", speed=64, capacity=32, impact=None,
+                 rotating_model="craftpy:block/machine_rotor"):
+        self.role = _choice("Kinetic role", role, ("generator", "shaft", "processor"))
+        self.axis = _choice("Kinetic axis", axis, ("x", "y", "z"))
+        self.speed = _num("Kinetic speed", speed, -256, 256)
+        self.capacity = _num("Kinetic capacity", capacity, 0, 65536)
+        self.impact = _num("Kinetic impact", (8 if role == "processor" else 0) if impact is None else impact, 0, 65536)
+        import re
+        if not isinstance(rotating_model, str) or not re.fullmatch(r"[a-z0-9_.-]+:[a-z0-9_./-]+", rotating_model):
+            raise ValueError("Kinetic rotating_model needs a model resource ID")
+        self.rotating_model = rotating_model
+
+    def data(self):
+        return dict(role=self.role, axis=self.axis, speed=self.speed, capacity=self.capacity,
+                    impact=self.impact, rotating_model=self.rotating_model)
+
+
+class EnergyStorage(_Data):
+    """Native NeoForge energy storage in FE. No implicit rotation-to-energy conversion."""
+    applies_to = ("block",)
+    type = "energy_storage"
+
+    def __init__(self, capacity, max_receive=None, max_extract=None):
+        self.capacity = _integer("EnergyStorage capacity", capacity, 1, 1_000_000_000)
+        self.max_receive = _integer("EnergyStorage max_receive", capacity if max_receive is None else max_receive, 0, 1_000_000_000)
+        self.max_extract = _integer("EnergyStorage max_extract", capacity if max_extract is None else max_extract, 0, 1_000_000_000)
+
+    def data(self):
+        return dict(capacity=self.capacity, max_receive=self.max_receive, max_extract=self.max_extract)
+
+
+class FluidTank(_Data):
+    """Native NeoForge tank in mB; allowed is an optional list of fluid resource IDs."""
+    applies_to = ("block",)
+    type = "fluid_tank"
+
+    def __init__(self, capacity, allowed=None):
+        self.capacity = _integer("FluidTank capacity", capacity, 1, 1_000_000)
+        if allowed is not None and (not isinstance(allowed, (list, tuple)) or len(allowed) > 64):
+            raise ValueError("FluidTank allowed must be a list of at most 64 fluid IDs")
+        self.allowed = None if allowed is None else [_resource_id("FluidTank allowed", value) for value in allowed]
+
+    def data(self):
+        return dict(capacity=self.capacity, allowed=self.allowed)
+
+
+def _integer(label, value, low, high):
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        raise ValueError(f"{label} must be an integer from {low} to {high}")
+    return value
+
+
+def _resource_id(label, value):
+    import re
+    if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9_.-]+:[a-z0-9_./-]+", value):
+        raise ValueError(label + " needs a namespaced resource ID")
+    return value
+
+
 _EXTENSION_NAMES = {
     "Extension": Extension, "extension": extension, "ItemType": ItemType, "BlockType": BlockType,
     "Tool": Tool, "Sword": Sword, "Pickaxe": Pickaxe, "Axe": Axe, "Shovel": Shovel, "Hoe": Hoe,
     "Durability": Durability, "Weapon": Weapon, "Fuel": Fuel, "Armor": Armor, "Enchantable": Enchantable,
     "Cooldown": Cooldown, "Tooltip": Tooltip, "MineableBy": MineableBy, "Drops": Drops, "Redstone": Redstone,
-    "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes,
+    "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes, "Kinetic": Kinetic, "EnergyStorage": EnergyStorage, "FluidTank": FluidTank,
 }
 
 
@@ -1583,17 +1719,19 @@ def loot_entry(item, count=1, weight=1, **kwargs):
 # -- events ------------------------------------------------------------------
 
 _FILTER_KEYS = ("block", "item", "entity", "effect")
+_EVENT_LAST = {}      # (owner, event, function, entity/player UUID) -> last native tick, bounded
 
 
 _EVENT_NAMES = ("block_break", "block_place", "block_interact", "block_tick", "item_use", "item_hit", "item_mine",
                 "item_hold_tick", "item_craft", "item_pickup", "player_join", "player_leave", "player_respawn",
-                "player_death", "entity_death", "entity_hurt", "chat", "effect_tick")
+                "player_death", "entity_death", "entity_hurt", "entity_tick", "chat", "effect_tick", "machine_speed", "machine_state")
 
 
 class _On:
     """``@on("block_break")``, ``@on("block_break", block=ruby_ore)`` or ``@on.block_break(block=ruby_ore)``."""
 
-    def __call__(self, event, every=None, priority="normal", **filters):
+    def __call__(self, event, every=None, priority="normal", throttle_ticks=0, **filters):
+        throttle_ticks = _num("Event throttle_ticks", throttle_ticks, 0, 12000, whole=True)
         unknown = set(filters) - set(_FILTER_KEYS)
         if unknown:
             raise TypeError("@on(%r): unknown filter %s (use %s)"
@@ -1601,7 +1739,11 @@ class _On:
         wanted = {key: _ref(value) for key, value in filters.items()}
 
         def deco(fn):
-            _DECLS["handlers"].append({"event": event, "every": every, "priority": priority})
+            periods = dict(getattr(fn, "_craftpy_throttle_ticks", {}))
+            periods[(event, tuple(sorted(wanted.items())))] = throttle_ticks
+            fn._craftpy_throttle_ticks = periods
+            _DECLS["handlers"].append({"event": event, "every": every, "priority": priority, "filters": wanted,
+                                        "throttle_ticks": throttle_ticks})
             _HANDLERS.setdefault(event, []).append((fn, wanted))
             return fn
         return deco
@@ -1992,6 +2134,32 @@ class _World:
         x, y, z = _xyz(x, y, z)
         return _host_call("world.get_block", {"x": x, "y": y, "z": z, "dimension": dimension})
 
+    def machine(self, x, y=None, z=None, dimension=_OVERWORLD) -> dict:
+        """Snapshot of a loaded kinetic machine: speed, overstressed, progress, input/output. No chunk loading."""
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.machine", dict(x=x, y=y, z=z, dimension=dimension))).get("machine", {})
+
+    def resources(self, x, y=None, z=None, dimension=_OVERWORLD, *, side=None) -> dict:
+        """Bounded native NeoForge item/FE/fluid snapshot from a loaded block face."""
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.resources", dict(x=x, y=y, z=z, dimension=dimension, side=side)))
+
+    def transfer(self, source, target, kind="item", amount=1, *, source_side=None, target_side=None,
+                 slot=0, simulate=False, dimension=_OVERWORLD) -> int:
+        """Move items (max 64), fluid mB or energy FE through native NeoForge capabilities.
+
+        simulate=True reports the possible transfer without changing either endpoint. No chunks are loaded.
+        """
+        _choice("Transfer kind", kind, ("item", "fluid", "energy"))
+        _integer("Transfer amount", amount, 1, 1_000_000)
+        _integer("Transfer slot", slot, 0, 1000000)
+        for face in (source_side, target_side):
+            if face is not None:
+                _choice("Capability face", face, ("up", "down", "north", "south", "east", "west"))
+        return _ok(_host_call("world.transfer", dict(source=list(_xyz(source)), target=list(_xyz(target)),
+                   kind=kind, amount=amount, source_side=source_side, target_side=target_side,
+                   slot=slot, simulate=bool(simulate), dimension=dimension))).get("moved", 0)
+
     def set_block(self, x, y, z=None, block=None, dimension=_OVERWORLD, replace=True):
         if block is None and z is None and isinstance(x, (tuple, list)):
             # set_block(pos, "stone")
@@ -2015,13 +2183,15 @@ class _World:
         # Legacy alias kept for source compatibility.
         return self.blocks_in_box(x, y, z, radius=radius, dimension=dimension)
 
-    def spawn(self, entity, x, y=None, z=None, dimension=_OVERWORLD) -> "Entity":
+    def spawn(self, entity, x, y=None, z=None, dimension=_OVERWORLD, *, owner=None) -> "Entity":
         """Spawns an entity ("zombie", "minecraft:pig") and returns it."""
         x, y, z = _xyz(x, y, z)
-        result = _ok(_host_call("world.spawn", {"entity": _ref(entity), "x": x, "y": y, "z": z,
-                                                "dimension": dimension}))
+        params = {"entity": _ref(entity), "x": x, "y": y, "z": z, "dimension": dimension}
+        if owner is not None:
+            params["player_owner"] = _player_name(owner)
+        result = _ok(_host_call("world.spawn", params))
         uuid = result.get("uuid")
-        return Entity({"uuid": uuid, "type": _ref(entity), "x": x, "y": y, "z": z}) if uuid else result
+        return Entity(result.get("entity") or {"uuid": uuid, "type": _ref(entity), "x": x, "y": y, "z": z}) if uuid else result
 
     def place_structure(self, structure, x, y=None, z=None, rotation=0, mirror=False, entities=True,
                         dimension=_OVERWORLD):
@@ -2191,9 +2361,9 @@ class Player(_Thing):
     def inventory(self):
         return [_wrap_data(entry) for entry in self._call("player.inventory").get("items", [])]
 
-    def teleport(self, x, y=None, z=None, dimension=None):
+    def teleport(self, x, y=None, z=None, dimension=None, *, safe=False):
         x, y, z = _xyz(x, y, z)
-        return self._call("player.teleport", x=x, y=y, z=z, dimension=dimension or self.dimension or _OVERWORLD)
+        return self._call("player.teleport", x=x, y=y, z=z, dimension=dimension or self.dimension or _OVERWORLD, safe=bool(safe))
 
     def heal(self, amount=None):
         return self._call("player.heal", **({} if amount is None else {"amount": amount}))
@@ -2244,6 +2414,7 @@ class Entity(_Thing):
     """An entity snapshot: type, uuid, name, x, y, z, pos, health."""
 
     type: str
+    native_type: str
 
     def __repr__(self):
         return "Entity(%r)" % (self.type,)
@@ -2261,6 +2432,24 @@ class Entity(_Thing):
     def refresh(self) -> "Entity":
         info = (_try_host("entity.get", {"uuid": self.uuid}, default={}) or {}).get("entity")
         return Entity(info) if info else None
+
+    def state(self, key=None, default=None):
+        value = _ok(_host_call("entity.state", {"uuid": self.uuid, "key": key or ""})).get("value")
+        return default if value is None else value
+
+    def set_state(self, key, value):
+        if not isinstance(key, str) or not key or len(key) > 128:
+            raise ValueError("Entity state needs a key (1-128 characters)")
+        _ok(_host_call("entity.state", {"uuid": self.uuid, "key": key, "value": value, "set": True}))
+        return value
+
+    def set_owner(self, player=None):
+        return _ok(_host_call("entity.owner", {"uuid": self.uuid, "player": _player_name(player) if player is not None else ""}))
+
+    def animate(self, name):
+        if name not in ("attack", "cast", "hurt", "death"):
+            raise ValueError("Triggered animation must be attack, cast, hurt or death")
+        return _ok(_host_call("entity.animate", {"uuid": self.uuid, "animation": name}))
 
 
 class _Players:
@@ -2288,6 +2477,14 @@ class _Players:
 
 
 class _Server:
+    def features(self) -> dict:
+        """Live installed mods and verified adapter capabilities; never cached catalog discovery."""
+        return _ok(_host_call("server.features", {}))
+
+    def info(self) -> dict:
+        """Native player counts, persistent game_time ticks and average server tick milliseconds."""
+        return _ok(_host_call("server.info", {}))
+
     def broadcast(self, message):
         return _host_call("server.broadcast", {"message": str(message)})
 
@@ -2300,6 +2497,7 @@ class _Server:
     def mods(self):
         """The ids of the loaded mods ("create", "jei", ...). Needs no permission."""
         return list((_host_call("server.mods", {}) or {}).get("mods") or [])
+
 
     def log(self, message, level="info"):
         _try_host("server.log", {"message": str(message), "level": level}, default=None)
@@ -2375,6 +2573,7 @@ _UI_BUILD = [None]    # {"tokens": {token: fn}, "named": set()} while a window r
 _UI_OPEN = {}         # (player name, window id) -> {"inst", "tokens", "named", "owner"}
 _UI_NAMED = {}        # (owner, name) -> fn, from @action
 _UI_FILES = {}        # (owner, window id) -> tree from ui/*.json
+_UI_DATA = {}         # (owner, window id) -> viewer-context display data provider
 
 
 def _ui_action(value):
@@ -2542,7 +2741,7 @@ def window(ident, title=None, size=None, resizable=False):
         if size is not None:
             cls.size = size
         cls.resizable = resizable
-        _WINDOWS[ident] = cls
+        _WINDOWS[(_OWNER[0], ident)] = cls
         return cls
     return deco
 
@@ -2746,12 +2945,68 @@ def _ui_collect(node, build):
             _ui_collect(child, build)
 
 
+def _ui_binding_fields(kind):
+    fields = {"visible": "bool", "enabled": "bool"}
+    for prop, expected in {
+        "label": {"text": "text"}, "button": {"text": "text"},
+        "text_input": {"value": "text", "hint": "text"}, "text_area": {"value": "text", "hint": "text"},
+        "checkbox": {"label": "text", "checked": "bool"},
+        "slider": {"value": "number", "min": "number", "max": "number"},
+        "progress": {"value": "number", "max": "number"},
+        "dropdown": {"options": "list", "selected": "index"},
+        "list": {"items": "list", "selected": "index"},
+        "image": {"source": "text"}, "item_icon": {"item": "text"},
+    }.get(kind, {}).items():
+        fields[prop] = expected
+    return fields
+
+
+def _ui_binding_value(value, expected):
+    if expected == "text":
+        return isinstance(value, str) and len(value) <= 8192
+    if expected == "bool":
+        return type(value) is bool
+    if expected == "number":
+        return type(value) in (int, float) and abs(value) <= 1e9 and math.isfinite(value)
+    if expected == "index":
+        return type(value) is int and -1 <= value <= 1000000
+    return isinstance(value, list) and len(value) <= 1024 and all(isinstance(v, str) and len(v) <= 8192 for v in value)
+
+
+def _ui_bind(node, data, path):
+    if not isinstance(node, dict):
+        return
+    bindings = node.get("bind", {})
+    if not isinstance(bindings, dict):
+        raise TypeError("%s.bind must be an object" % path)
+    fields = _ui_binding_fields(node.get("type"))
+    for prop, key in bindings.items():
+        where = "%s.bind.%s" % (path, prop)
+        if prop not in fields:
+            raise ValueError("%s is not a bindable property" % where)
+        if not isinstance(key, str) or not key or len(key) > 128:
+            raise ValueError("%s needs a data dictionary key (1-128 characters)" % where)
+        if key not in data:
+            raise KeyError("%s: missing data key %r" % (where, key))
+        value = data[key]
+        if not _ui_binding_value(value, fields[prop]):
+            raise TypeError("%s: data key %r requires %s" % (where, key, fields[prop]))
+        node[prop] = list(value) if isinstance(value, list) else value
+    for index, child in enumerate(node.get("children") or []):
+        _ui_bind(child, data, "%s.children[%d]" % (path, index))
+
+
 def _ui_render(entry):
     """Builds the tree of an open window and records which callbacks it may call."""
     _UI_BUILD[0] = {"tokens": {}, "named": set()}
     entry["inst"]._viewer = entry.get("player")
     try:
         tree = entry["inst"].to_dict()
+        provider = _UI_DATA.get((entry["owner"], entry["inst"].id))
+        data = _call_flexible(provider, _UiContext(entry.get("player"), entry["inst"].id, None, {})) if provider else {}
+        if not isinstance(data, dict):
+            raise TypeError("ui.data(%r) must return a dictionary" % entry["inst"].id)
+        _ui_bind(tree.get("root"), data, entry["inst"].id)
         entry["tokens"] = _UI_BUILD[0]["tokens"]
         entry["named"] = _UI_BUILD[0]["named"]
     finally:
@@ -2760,10 +3015,20 @@ def _ui_render(entry):
 
 
 class _Ui:
+    def data(self, window_id):
+        if not isinstance(window_id, str) or not window_id or len(window_id) > 128:
+            raise ValueError("ui.data needs a window ID (1-128 characters)")
+        def register(fn):
+            if not callable(fn):
+                raise TypeError("ui.data needs a function")
+            _UI_DATA[(_OWNER[0], window_id)] = fn
+            return fn
+        return register
+
     def open(self, player, window_id):
         owner = _OWNER[0]
         name = _player_name(player)
-        cls = _WINDOWS.get(window_id)
+        cls = _WINDOWS.get((owner, window_id))
         if cls is not None:
             inst = cls()
         elif (owner, window_id) in _UI_FILES:
@@ -2772,8 +3037,9 @@ class _Ui:
             raise KeyError("unknown window: %s (windows: %s)" % (window_id, ", ".join(self.windows()) or "none"))
         viewer = player if isinstance(player, Player) else (Player.named(name) or Player({"name": name}))
         entry = {"inst": inst, "tokens": {}, "named": set(), "owner": owner, "player": viewer}
+        rendered = _ui_render(entry)
         _UI_OPEN[(name, window_id)] = entry
-        return _host_call("ui.open", {"player": name, "window": _ui_render(entry)})
+        return _host_call("ui.open", {"player": name, "window": rendered})
 
     def close(self, player, window_id=None):
         name = _player_name(player)
@@ -2783,12 +3049,12 @@ class _Ui:
 
     def windows(self):
         owner = _OWNER[0]
-        return sorted(set(_WINDOWS) | {wid for (own, wid) in _UI_FILES if own == owner})
+        return sorted({wid for (own, wid) in _WINDOWS if own == owner} | {wid for (own, wid) in _UI_FILES if own == owner})
 
     def refresh(self, player, window_id):
         name = _player_name(player)
         entry = _UI_OPEN.get((name, window_id))
-        if entry is None:
+        if entry is None or entry["owner"] != _OWNER[0]:
             return False  # the player closed it meanwhile
         _host_call("ui.open", {"player": name, "window": _ui_render(entry)})
         return True
@@ -2963,6 +3229,7 @@ class _EventContext(_Context):
     hand: str
     dimension: str
     state: dict
+    machine: dict
 
     def __getattr__(self, name):
         if name.startswith("__"):
@@ -3049,9 +3316,21 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.8"
+API_VERSION = "2.9"
 
 API_CHANGES = [
+    {"version": "2.9", "date": "2026-10-19",
+     "added": ["`keys.bind(combo, id=..., name=..., category=...)`: stable, remappable module actions on client and server. "
+               "Assignments survive reloads and restarts. Server callbacks receive the authenticated `ctx.player`.",
+               "`@ui.data(window_id)`: viewer-specific display dictionaries for designer JSON `bind` properties. "
+               "Supports text, numbers, lists, selection, visibility and enabled state; keys never execute expressions.",
+               "`NativeMob` and `NativeBlock` reuse original registered mod content. Native variants keep their AI/renderers. "
+               "Custom mobs support native behavior profiles, inspected permission-gated goals, named GeckoLib clips, "
+               "owner-scoped entity state and throttled `entity_tick` callbacks.",
+               "`Kinetic` adds generator, shaft and two-slot processing blocks using independent native rotation with an optional Create adapter. "
+               "Separate startup slots retain existing IDs. `world.machine` and throttled `machine_speed`/`machine_state` events expose snapshots. "
+               "Recipes use `craftpy:kinetic_processing` with ingredient, result, duration and minimum_speed.",
+               "`EnergyStorage`, `FluidTank`, `world.resources` and `world.transfer` expose native NeoForge capability storage and automation."]},
     {"version": "2.8", "date": "2026-10-18",
      "added": ["`Canvas(...)`: a window area where each widget sits at `x`, `y` with its own `width` and `height` (the "
                "UI maker drags and resizes them). `width=` and `height=` also work on any widget in `VBox`, `HBox` and "
@@ -3343,7 +3622,7 @@ _ALL_EVENT_NAMES = _EVENT_NAMES + _CLIENT_EVENT_NAMES
 _HUD_ANCHORS = ("top_left", "top_center", "top_right", "center_left", "center", "center_right",
                 "bottom_left", "bottom_center", "bottom_right")
 _HUD_LAST = {}   # (owner, id) -> the last element sent, so an unchanged element costs nothing
-_KEYS = {}       # (owner, combo) -> function
+_KEYS = {}       # (owner, stable action ID) -> (function, description)
 _KEY_NAMES = frozenset("abcdefghijklmnopqrstuvwxyz0123456789") | frozenset("f%d" % n for n in range(1, 13)) | frozenset({
     "space", "enter", "tab", "up", "down", "left", "right", "home", "end", "pageup", "pagedown", "insert", "delete",
     "backspace", "minus", "equals", "comma", "period", "slash", "semicolon", "grave", "bracket_left", "bracket_right"})
@@ -3442,18 +3721,28 @@ hud = _Hud()
 class _Keys:
     """Your own key bindings: ``@keys.bind("ctrl+k")`` or ``keys.bind("f6", fn)``. They work while no screen is open."""
 
-    def bind(self, combo, fn=None):
-        _require_client("keys")
-        name = _normalize_combo(combo)
+    def bind(self, combo, fn=None, *, id=None, name=None, category="CraftPy"):
+        import re
+        combo = _normalize_combo(combo)
+        # Legacy bindings retain their combo as an implicit ID; explicit IDs survive default-key changes too.
+        action = combo if id is None else id
+        if not isinstance(action, str) or not re.fullmatch(r"[a-zA-Z0-9_.:+-]{1,128}", action):
+            raise ValueError("keys.bind id must be 1-128 letters, digits, _, ., :, + or -")
+        display = name if name is not None else action
+        if not isinstance(display, str) or not display.strip() or len(display) > 128 or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in display):
+            raise ValueError("keys.bind name must be 1-128 characters")
+        if not isinstance(category, str) or not category.strip() or len(category) > 80 or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in category):
+            raise ValueError("keys.bind category must be 1-80 characters")
 
         def register(function):
-            _KEYS[(_OWNER[0], name)] = function
-            self._publish()
+            if not callable(function):
+                raise TypeError("keys.bind needs a function")
+            if (_OWNER[0], action) not in _KEYS and sum(o == _OWNER[0] for o, _ in _KEYS) >= 32:
+                raise ValueError("At most 32 key actions per owner")
+            _KEYS[(_OWNER[0], action)] = (function, {"id": action, "name": display, "category": category, "combo": combo})
             return function
         return register(fn) if callable(fn) else register
 
-    def _publish(self):
-        _ok(_host_call("keys.set", {"owner": _OWNER[0], "combos": sorted(c for (o, c) in _KEYS if o == _OWNER[0])}))
 
 
 keys = _Keys()
@@ -3461,20 +3750,24 @@ keys = _Keys()
 
 def _key_event(data):
     """A key the player pressed: runs the function bound to it (by the owner that bound it)."""
-    combo = data.get("combo", "")
+    action = data.get("action", data.get("combo", ""))
     log = []
     ran = 0
     _LOG_TARGET[0] = log
     try:
-        for (owner, bound), fn in list(_KEYS.items()):
-            if bound != combo:
+        for (owner, bound), (fn, description) in list(_KEYS.items()):
+            if bound != action or (data.get("owner") is not None and data["owner"] != owner):
                 continue
             _use_owner(owner)
             ran += 1
             try:
-                _call_flexible(fn, _TickContext(_TICK[0]))
+                ctx = _TickContext(_TICK[0])
+                ctx.action = action
+                if isinstance(data.get("player"), dict):
+                    ctx.player = Player(data["player"])
+                _call_flexible(fn, ctx)
             except Exception as exc:  # noqa: BLE001
-                log.append("[%s] key %s: %s: %s" % (owner, combo, type(exc).__name__, exc))
+                log.append("[%s] key %s: %s: %s" % (owner, action, type(exc).__name__, exc))
     finally:
         _LOG_TARGET[0] = None
     return {"log": log, "handlers": ran, "scheduled": len(_SCHEDULE)}
@@ -3584,7 +3877,7 @@ def _server_api_names():
         "VBox": VBox, "HBox": HBox, "Grid": Grid, "TabView": TabView, "ScrollView": ScrollView, "Canvas": Canvas,
         "has": has, "core": core, "requires_restart": requires_restart,
         # simple API
-        "Block": Block, "Item": Item, "Food": Food, "Content": Content, "Mob": Mob, "Spawn": Spawn, "Effect": Effect,
+        "Block": Block, "NativeBlock": NativeBlock, "NativeMob": NativeMob, "Item": Item, "Food": Food, "Content": Content, "Mob": Mob, "Spawn": Spawn, "Effect": Effect,
         "Pool": Pool, "Structure": Structure,
         "shaped": shaped, "shapeless": shapeless, "smelt": smelt, "stonecut": stonecut,
         "after": after, "Pos": Pos, "Player": Player, "Entity": Entity,
@@ -3892,10 +4185,15 @@ def _load_module(params):
     # They behave like permanent additions to the API/registry
     owner = "module:%s" % module_id
     library = bool(params.get("library"))
-    _drop_owner(owner, host=not library)
-    _read_ui_dir(base_dir, owner)
-    result = _run_code(code, main_file, "module_%s" % module_id, persistent=True, owner=owner,
-                       sources=_read_sources(base_dir))
+    snapshot = _snapshot_owner(owner)
+    try:
+        _drop_owner(owner, host=not library)
+        _read_ui_dir(base_dir, owner)
+        result = _run_code(code, main_file, "module_%s" % module_id, persistent=True, owner=owner,
+                           sources=_read_sources(base_dir))
+    except BaseException:
+        _restore_owner(owner, snapshot)
+        raise
     result["log"].extend(_api_notes(base_dir, "module.json"))
     if library:
         # a dependency loaded into the worker of the project (or module) that imports it: only its names are kept.
@@ -3906,6 +4204,7 @@ def _load_module(params):
             _MODULE_EXPORTS[module_id] = export
         _use_owner("__main__")
         return {"log": result["log"], "scheduled": len(_SCHEDULE)}
+    _PREVIOUS[owner] = snapshot
     return result
 
 
@@ -4258,6 +4557,10 @@ def _snapshot_owner(owner):
             "ui_open": {k: v for k, v in _UI_OPEN.items() if v["owner"] == owner},
             "ui_named": {k: v for k, v in _UI_NAMED.items() if k[0] == owner},
             "ui_files": {k: v for k, v in _UI_FILES.items() if k[0] == owner},
+            "ui_data": {k: v for k, v in _UI_DATA.items() if k[0] == owner},
+            "windows": {k: v for k, v in _WINDOWS.items() if k[0] == owner},
+            "keys": {k: v for k, v in _KEYS.items() if k[0] == owner},
+            "event_last": {k: v for k, v in _EVENT_LAST.items() if k[0] == owner},
             "profile": {k: v for k, v in _PROFILE.items() if k[0] == owner},
             "fns": {k: v for k, v in _FN_TABLE.items() if v[0] == owner}}
 
@@ -4270,6 +4573,10 @@ def _restore_owner(owner, snap):
     _UI_OPEN.update(snap["ui_open"])
     _UI_NAMED.update(snap["ui_named"])
     _UI_FILES.update(snap["ui_files"])
+    _UI_DATA.update(snap["ui_data"])
+    _WINDOWS.update(snap["windows"])
+    _KEYS.update(snap["keys"])
+    _EVENT_LAST.update(snap["event_last"])
     _PROFILE.update(snap["profile"])
     _FN_TABLE.update(snap["fns"])
     if snap["state"] is not None:
@@ -4540,6 +4847,13 @@ def _handle(method, params):
 def reset():
     """Forgets every project and module (used by tests / a full worker reset)."""
     _OWNERS.clear()
+    _KEYS.clear()
+    _EVENT_LAST.clear()
+    _WINDOWS.clear()
+    _UI_DATA.clear()
+    _UI_FILES.clear()
+    _UI_NAMED.clear()
+    _UI_OPEN.clear()
     _PROFILE.clear()
     _SCHEDULE[:] = []
     _TICK[0] = 0
@@ -4613,6 +4927,17 @@ def _dispatch_event(event_name, ctx, log, results):
         for fn, wanted in list(state["handlers"].get(event_name, [])):
             if wanted and not _matches(ctx, wanted):
                 continue
+            period = getattr(fn, "_craftpy_throttle_ticks", {}).get((event_name, tuple(sorted(wanted.items()))), 0)
+            if period:
+                subject = getattr(ctx, "entity", getattr(ctx, "player", None))
+                key = (owner, event_name, fn, getattr(subject, "uuid", "global"))
+                now = getattr(ctx, "tick", _TICK[0])
+                last = _EVENT_LAST.get(key)
+                if last is not None and 0 <= now - last < period:
+                    continue
+                if len(_EVENT_LAST) >= 4096:
+                    _EVENT_LAST.pop(next(iter(_EVENT_LAST)))
+                _EVENT_LAST[key] = now
             _use_owner(owner)
             ran += 1
             started = time.perf_counter()
@@ -6162,12 +6487,12 @@ def _validate(params):
 
 
 # names that only exist on the player's computer (a client project), and what a client project cannot use
-_CLIENT_ONLY_NAMES = frozenset({"hud", "keys", "client"})
+_CLIENT_ONLY_NAMES = frozenset({"hud", "client"})
 
 
 def _side_problems(source, filename, side):
     """Warns about API names of the other side: a client project cannot add blocks or run world code, a server
-    project has no HUD or keys. The side is the project's (chosen when it was made, Tools > Project side)."""
+    project has no HUD. The side is the project's (chosen when it was made, Tools > Project side)."""
     import ast
     try:
         tree = ast.parse(source)
@@ -6244,6 +6569,15 @@ def _load_docs():
             "tags": "Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag).",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The block."),
+        "NativeBlock": ("References an original installed block/item, retaining its native machine behavior and renderer. "
+                        "This is an alias, not a new registered block type; it cannot have independent extensions.",
+                        {"id": ID, "base": "Complete registered block ID, such as 'create:shaft'.",
+                         "name": "Name of the Python alias; the original block keeps its original display name."}, "A native block reference."),
+        "NativeMob": ("Defines a variant that spawns the original registered entity type with its own AI and renderer. "
+                      "Existing entities retain their original type when base changes.",
+                      {"id": ID, "base": "Complete installed living entity ID, such as 'irons_spellbooks:necromancer'.",
+                       "name": "Optional custom entity name; omit to keep the native name.",
+                       "state": "Initial dictionary in this content owner's persistent entity state (at most 16 KiB)."}, "The native variant reference."),
         "Mob": ("Declares a mob and returns it: world.spawn(mob, x, y, z), /craftpy summon, a spawn egg (/craftpy give <player> <project>:<id> egg) or natural spawns.", {
             "id": ID, "name": "Display name; default is the id in title case.",
             "texture": "PNG in assets/textures/ ('goblin.png') or a vanilla one ('minecraft:entity/pig/pig'); default: the model's vanilla skin.",
@@ -6258,6 +6592,9 @@ def _load_docs():
             "egg": "Spawn egg colors: '#3d8f5a' or ('#3d8f5a', '#c9e86b') for base and spots.",
             "spawns": "Natural spawns: [Spawn('#minecraft:is_forest', weight=8)]. They start the next time the world is opened.",
             "drops": "What it drops: an item, a list, (item, count) / (item, count, weight).",
+            "behavior": "Profile name or dictionary: profile='melee'|'ranged'|'follow'|'guard', optional target='hostile'|'players'|'none', speed=0.1-4, range/radius=1-64, interval=10-200 ticks. Follow uses world.spawn(owner=player) or entity.set_owner(player).",
+            "goals": "At most eight inspected public native Goal constructors: dictionaries with class, args, priority (0-20), optional target=True and parameters (exact Java type names). Requires approved java permission and allowed bridge packages. Incompatible entity classes or complex arguments need an adapter.",
+            "animations": "Map idle/walk/run/attack/cast/hurt/death to GeckoLib clip names. Triggered events synchronize from the server; entity.animate('cast') triggers one explicitly. Death follows Minecraft's normal removal timing.",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The mob (a string 'project:id')."),
         "Pool": ("A jigsaw template pool: pieces (.nbt files of data/structure/) a jigsaw block can grow into.", {
@@ -6367,7 +6704,8 @@ def _load_docs():
         "on": ("Runs a function when something happens: @on('block_break'), @on.block_break(block=ruby_ore).", {
             "event": "Event name: block_break, block_place, block_interact, block_tick, item_use, item_hit, item_mine, "
                      "item_hold_tick, item_craft, item_pickup, player_join, player_leave, player_respawn, player_death, "
-                     "entity_death, entity_hurt, chat, or a command_<name> event.",
+                     "entity_death, entity_hurt, entity_tick, chat, or a command_<name> event. entity_tick is for CraftPy-owned entities, at most once a second, capped at 64 snapshots per server tick.",
+            "throttle_ticks": "Minimum native ticks between calls for each entity/player (0-12000). Filtering happens first.",
             "every": "Run at most every this many ticks (optional).", "priority": "'normal' (default); reserved for ordering.",
             "filters": "block=, item= or entity= : only for that block/item/entity (ids or Block/Item objects)."}, ""),
         "every": ("Runs a function again and again: @every(seconds=5) or @every(100).", {
@@ -6416,7 +6754,7 @@ def _load_docs():
             "level": "1 = normal, 2 = II ... (default 1).", "particles": "False hides the swirl."}, ""),
         "Player.clear_effects": ("Removes every effect.", {}, ""),
         "Player.add_xp": ("Gives experience.", {"levels": "Whole levels.", "points": "Experience points."}, ""),
-        "Player.teleport": ("Moves the player.", {"x": "X (or a Pos).", "y": "Y.", "z": "Z.", "dimension": DIM}, ""),
+        "Player.teleport": ("Moves the player.", {"x": "X (or a Pos).", "y": "Y.", "z": "Z.", "dimension": DIM, "safe": "Require loaded, unobstructed destination and solid ground."}, ""),
         "Player.play_sound": ("Plays a sound only this player hears.", {
             "sound": "Sound event id ('minecraft:entity.blaze.shoot').", "volume": "1.0 = normal.", "pitch": "1.0 = normal."}, ""),
         "Player.set_gamemode": ("Sets the game mode.", {"mode": "'survival', 'creative', 'adventure' or 'spectator'."}, ""),
@@ -6429,6 +6767,10 @@ def _load_docs():
         "Entity.teleport": ("Moves the entity.", {"x": "X (or a Pos).", "y": "Y.", "z": "Z."}, ""),
         "Entity.set_name": ("Sets its custom name.", {"name": "The name."}, ""),
         "Entity.refresh": ("A fresh snapshot (None if it is gone).", {}, "An Entity or None."),
+        "Entity.state": ("Reads persistent state scoped to the calling owner; other owners' values are not exposed.", {"key": "Dictionary key, or None for the whole dictionary.", "default": "Value returned for a missing key."}, "The stored value."),
+        "Entity.set_state": ("Writes this owner's persistent state (at most 16 KiB per entity).", {"key": "Key, 1-128 characters.", "value": "JSON-compatible value."}, "The value."),
+        "Entity.set_owner": ("Assigns the player followed by a custom mob. Only its content owner may assign it.", {"player": "Player/name, or None to clear."}, ""),
+        "Entity.animate": ("Triggers a configured GeckoLib animation from the server. Only the content owner may trigger it.", {"name": "attack, cast, hurt or death."}, ""),
         # ---------------------------------------------------------------- players
         "players.all": ("Names of every online player.", {}, "list of str"),
         "players.online": ("Every online player.", {}, "list of Player"),
@@ -6438,6 +6780,7 @@ def _load_docs():
         "players.teleport": ("Teleports a player by name.", {"name": "Player name.", "x": "X.", "y": "Y.", "z": "Z.", "dimension": DIM}, ""),
         # ---------------------------------------------------------------- world
         "world.get_block": ("The block id at a position.", dict(POS3, dimension=DIM), "str, for example 'minecraft:stone'"),
+        "world.machine": ("Read a loaded kinetic machine without loading chunks. Snapshot includes speed, theoretical_speed, overstressed, processing, progress, recipe and input/output stacks.", dict(POS3, dimension=DIM), "dict"),
         "world.set_block": ("Places a block: world.set_block(x, y, z, 'stone') or world.set_block(pos, 'stone').", dict(
             POS3, block="Block id or Block object.", dimension=DIM, replace="False only places into air.") , ""),
         "world.fill": ("Fills the box between two corners (at most 32768 blocks).", {
@@ -6447,7 +6790,8 @@ def _load_docs():
         "world.entities": ("Entities near a position.", dict(POS3, radius="Distance in blocks (default 8).",
                                                              type="Only this entity type ('minecraft:zombie').", dimension=DIM), "list of Entity"),
         "world.entities_in_box": ("Entities in a cube around a position.", dict(POS3, radius="Half the cube size.", dimension=DIM), "list"),
-        "world.spawn": ("Spawns an entity ('zombie', 'minecraft:pig').", dict(POS3, entity="Entity type id.", dimension=DIM), "The Entity."),
+        "world.spawn": ("Spawns an entity ('zombie', 'minecraft:pig') or NativeMob variant.", dict(POS3, entity="Entity type id.", dimension=DIM,
+                        owner="Optional player who controls this owner's custom mob (follow profile)."), "The Entity."),
         "world.drop": ("Drops an item stack on the ground.", dict(POS3, item="Item or id.", count="Stack size.", dimension=DIM), ""),
         "world.explode": ("Creates an explosion.", dict(POS3, power="Strength (TNT is 4, default 3).",
                                                         fire="True sets fires.", break_blocks="False only damages.", dimension=DIM), ""),
@@ -6476,6 +6820,10 @@ def _load_docs():
         "server.run_command": ("Runs a command at permission level 2, like a command block. Needs \"permissions\": {\"commands\": true} in project.json / module.json (modules: approved on the Modules page).", {"command": "Without the leading slash."}, "what the command answered, as text"),
         "server.log": ("Writes to the server log and the IDE console.", {"message": "Text.", "level": "'info' (default), 'warn' or 'error'."}, ""),
         "ui.open": ("Opens a window for a player.", {"player": "Player or name.", "window_id": "Id of a @window class or ui/<id>.json."}, ""),
+        "ui.data": ("Decorates a display data provider. It receives ctx.player and ctx.window and returns a dictionary. "
+                    "Widgets bind properties to dictionary keys, for example bind={'text': 'title'}. "
+                    "Called on open and refresh; named actions still validate every operation.",
+                    {"window_id": "Id of the JSON or Python window."}, "A decorator; its function returns a display dictionary."),
         "ui.close": ("Closes the window.", {"player": "Player or name.", "window_id": "Which one; omit to close any."}, ""),
         "ui.windows": ("Ids of the registered windows.", {}, "list of str"),
         "ui.refresh": ("Redraws a window that is open, from a timer or an event (callbacks redraw by themselves); it keeps"
@@ -6557,7 +6905,10 @@ def _load_docs():
         "hud.clear": ("Takes every element of this module off the screen.", {}, ""),
         "keys.bind": ("Runs a function when you press a key (while no screen is open). Use it as @keys.bind('ctrl+k').", {
             "combo": "One key with optional ctrl / shift / alt: 'r', 'f6', 'ctrl+shift+k'. Letters, digits, f1-f12, space, enter, tab, arrows, home, end, pageup, pagedown, insert, delete, backspace, minus, equals, comma, period, slash, semicolon, grave, bracket_left, bracket_right.",
-            "fn": "The function; leave out to use as a decorator."}, "the function"),
+            "fn": "The function; leave out to use as a decorator. Server callbacks get ctx.player from the server.",
+            "id": "Stable action ID within this owner. Omit for the legacy combo ID. Keep this unchanged when changing the default key.",
+            "name": "Display name in Controls and Module Keybinds (defaults to the ID).",
+            "category": "Controls category (default CraftPy)."}, "the function"),
         "client.player": ("The local player as the client knows it (read only).", {}, "an object with name, uuid, health, max_health, food, level, x, y, z, pos, dimension, gamemode, held_item, held_count, on_ground"),
         "client.looking_at": ("The block you are looking at.", {}, "{'block': 'minecraft:stone', 'pos': [x, y, z]}, or None"),
         "client.fps": ("Frames per second right now.", {}, "number"),
@@ -6600,6 +6951,9 @@ def _load_docs():
             "tool": "'pickaxe', 'axe', 'shovel' or 'hoe'.", "tier": "Lowest tool tier that works ('wood' to 'netherite'; None = any).",
             "required": "True (default): nothing drops without the right tool."}, ""),
         "Drops": ("What a block drops when mined.", {"drops": "Items, (item, count) or (item, count, weight) tuples, or 'self'; none = nothing drops."}, ""),
+        "Kinetic": (Kinetic.__doc__, {"role": "generator, shaft or processor.", "axis": "x, y or z.",
+                    "speed": "Signed generated RPM, -256 to 256.", "capacity": "Generator stress capacity per RPM, 0 to 65536.",
+                    "impact": "Stress consumed per RPM, 0 to 65536 (processor default 8).", "rotating_model": "Y-aligned baked block model ID."}, ""),
         "Redstone": ("The block emits a redstone signal.", {"power": "Signal strength 0 to 15."}, ""),
         "Flammable": ("Fire can burn the block.", {"chance": "How easily it catches fire, 0 to 300 (wood 5, leaves 30).", "spread": "How fast fire spreads over it, 0 to 300 (wood 20, leaves 60)."}, ""),
         "Friction": ("How slippery the block is.", {"value": "0.1 to 1.0 (normal 0.6, ice 0.98)."}, ""),
@@ -6636,6 +6990,15 @@ def _doc_text(summary, params, returns):
 
 
 _DOCS = _load_docs()
+_DOCS.update({
+    'EnergyStorage': (EnergyStorage.__doc__, dict(capacity='Maximum stored FE (1..1000000000).', max_receive='Maximum FE per receive call; default capacity.', max_extract='Maximum FE per extraction call; default capacity.'), ''),
+    'FluidTank': (FluidTank.__doc__, dict(capacity='Maximum mB (1..1000000).', allowed='Optional list of up to 64 namespaced fluid IDs; None permits all.'), ''),
+    'world.resources': (_World.resources.__doc__, dict(x='Block X, tuple or Pos.', y='Block Y.', z='Block Z.', dimension='Dimension resource ID.', side='Capability face or None for unsided access.'), 'dict'),
+    'world.transfer': (_World.transfer.__doc__, dict(source='Three source block coordinates.', target='Three destination coordinates in the same dimension.', kind='item, fluid or energy.', amount='Requested count, mB or FE (1..1000000; items capped to 64).', source_side='Source capability face or None.', target_side='Destination capability face or None.', slot='Source item slot; default 0.', simulate='True checks without changing contents.', dimension='Dimension resource ID.'), 'int'),
+    'server.features': (_Server.features.__doc__, {}, 'dict'),
+    'server.info': (_Server.info.__doc__, {}, 'dict'),
+})
+
 
 
 def _apply_docs():
@@ -6694,10 +7057,11 @@ def _idle():
     timer, Java callback, window, action, key or pending web reply. The host then stops a module's worker; what it
     declared (blocks, items, recipes) stays registered in the game."""
     return not (any(fns for state in _OWNERS.values() for fns in state["handlers"].values())
-                or _SCHEDULE or _FN_TABLE or _WINDOWS or _UI_NAMED or _UI_OPEN or _KEYS or _HTTP_WAITING)
+                or _SCHEDULE or _FN_TABLE or _WINDOWS or _UI_NAMED or _UI_DATA or _UI_OPEN or _KEYS or _HTTP_WAITING)
 
 
 def _process(request):
+    import os
     req_id = request.get("id")
     method = request.get("method", "")
     params = request.get("params", {}) or {}
@@ -6708,6 +7072,10 @@ def _process(request):
             result["events"] = sorted({name for state in _OWNERS.values() for name, fns in state["handlers"].items()
                                        if fns})
             result["idle"] = _idle()
+        if isinstance(result, dict):
+            # Publish only after execution/rollback; a failed run cannot advertise half-built callbacks.
+            result["keys"] = [description for (owner, _), (_, description) in _KEYS.items()
+                              if owner == os.environ.get("CRAFTPY_OWNER", "__main__")]
         if isinstance(result, dict) and _MODE[0] == "client":
             # the client only sends ticks while something needs them (a timer, a client_tick handler)
             result["ticking"] = bool(_SCHEDULE) or any(s["handlers"].get("client_tick") for s in _OWNERS.values())

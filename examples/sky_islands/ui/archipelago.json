@@ -2,8 +2,8 @@
   "id": "archipelago",
   "title": "☁ Sky Islands",
   "size": [
-    340,
-    320
+    360,
+    360
   ],
   "root": {
     "type": "vbox",
@@ -18,6 +18,14 @@
       {
         "type": "label",
         "text": "Islands grow in the sky above you, joined by rope bridges. Every island hides a glowing Sky Crystal: find them all."
+      },
+      {
+        "type": "label",
+        "text": "Ready to raise a new archipelago",
+        "bind": {
+          "text": "setup_status"
+        },
+        "style": "hint"
       },
       {
         "type": "grid",
@@ -36,7 +44,10 @@
               "medium (8 islands)",
               "large (12 islands)"
             ],
-            "selected": 1
+            "selected": 1,
+            "bind": {
+              "options": "sizes"
+            }
           },
           {
             "type": "label",
@@ -52,7 +63,10 @@
               "ember",
               "void"
             ],
-            "selected": 0
+            "selected": 0,
+            "bind": {
+              "options": "themes"
+            }
           },
           {
             "type": "label",
@@ -69,7 +83,10 @@
       {
         "type": "button",
         "text": "☁ Raise the islands",
-        "on_click": "raise"
+        "on_click": "raise",
+        "bind": {
+          "enabled": "can_raise"
+        }
       },
       {
         "type": "hbox",
@@ -85,7 +102,10 @@
             "type": "button",
             "text": "Take them down",
             "on_click": "collapse",
-            "weight": 1
+            "weight": 1,
+            "bind": {
+              "enabled": "can_collapse"
+            }
           }
         ]
       },
@@ -94,5 +114,22 @@
         "text": "Fall off and the wind carries you back. Shards craft into an elytra."
       }
     ]
+  },
+  "preview_data": {
+    "sizes": [
+      "small (5 islands)",
+      "medium (8 islands)",
+      "large (12 islands)"
+    ],
+    "themes": [
+      "verdant",
+      "frost",
+      "blossom",
+      "ember",
+      "void"
+    ],
+    "can_raise": true,
+    "can_collapse": false,
+    "setup_status": "Ready to raise a new archipelago"
   }
 }

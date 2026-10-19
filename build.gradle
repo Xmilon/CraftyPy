@@ -36,6 +36,8 @@ repositories {
     maven { url 'https://maven.blamejared.com/' }
     // GeckoLib (optional: Python mobs with .geo.json models are drawn by GeckoLib when it is installed)
     maven { url 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
+    maven { url 'https://api.modrinth.com/maven' }
+    maven { url 'https://maven.createmod.net' }
 }
 
 base {
@@ -44,6 +46,19 @@ base {
 
 // Mojang ships Java 21 to end users in 1.21.1, so mods should target Java 21.
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+def nativeIntegrations = providers.gradleProperty('withIntegrations').isPresent()
+def nativeCreate = nativeIntegrations || providers.gradleProperty('withCreate').isPresent()
+def nativeCurios = providers.gradleProperty('withCurios').isPresent()
+def nativeFolder = nativeIntegrations ? 'native-tests-integrations' : nativeCreate ? 'native-tests-create' : nativeCurios ? 'native-tests-curios' : 'native-tests'
+def nativeFixturesRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('gametestserver') }
+
+// Native fixtures run in a disposable world, outside the user's run directory.
+sourceSets {
+    nativeTest {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
 
 neoForge {
     // Specify the version of NeoForge to use.
@@ -82,7 +97,11 @@ neoForge {
         // The gametest system is also enabled by default for other run configs under the /test command.
         gameTestServer {
             type = "gameTestServer"
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            sourceSet = sourceSets.nativeTest
+            gameDirectory = layout.buildDirectory.dir(nativeFolder)
+            systemProperty 'craftpy.home', gameDirectory.get().asFile.absolutePath
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'craftpy,neoforge'
+            logLevel = org.slf4j.event.Level.INFO
         }
 
         data {
@@ -116,7 +135,28 @@ neoForge {
         // multi mod projects should define one per mod
         "${mod_id}" {
             sourceSet(sourceSets.main)
+            // Destructive fixtures are never attached to normal client/server development runs.
+            if (nativeFixturesRequested) sourceSet(sourceSets.nativeTest)
         }
+    }
+}
+
+if (nativeCreate || nativeCurios) {
+    tasks.register('prepareNativeTestMods', Copy) {
+        if (nativeIntegrations) from(fileTree('run/mods') { include '*.jar' })
+        else if (nativeCreate) from('run/mods/create-1.21.1-6.0.10.jar')
+        else from('run/mods/curios-neoforge-9.5.1+1.21.1.jar')
+        into(layout.buildDirectory.dir(nativeFolder + '/mods'))
+    }
+    tasks.named('runGameTestServer') { dependsOn 'prepareNativeTestMods' }
+}
+
+
+tasks.named('runGameTestServer') {
+    def nativeLog = layout.buildDirectory.file(nativeFolder + '/logs/latest.log')
+    doLast {
+        if (!(nativeLog.get().asFile.text =~ /All [1-9][0-9]* required tests passed/).find())
+            throw new GradleException('Native tests did not report a completed, passing run; inspect ' + nativeLog.get().asFile)
     }
 }
 
@@ -152,6 +192,10 @@ dependencies {
     additionalRuntimeClasspath("org.jflac:jflac-codec:1.5.2") { transitive = false }
     // GeckoLib: compile only; CraftPy uses it only when the GeckoLib mod is installed
     compileOnly("software.bernie.geckolib:geckolib-neoforge-1.21.1:4.9.3") { transitive = false }
+    // Exact installed Create 6.0.10 release; optional at runtime, all API references stay in compat/create.
+    compileOnly("maven.modrinth:create:UjX6dr61") { transitive = false }
+    compileOnly("net.createmod.ponder:ponder-neoforge:1.0.82+mc1.21.1") { transitive = false }
+    compileOnly("dev.engine-room.flywheel:flywheel-neoforge-api-1.21.1:1.0.6") { transitive = false }
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
@@ -462,6 +506,15 @@ tasks.register('ideSmokeTest', JavaExec) {
     systemProperty 'craftpy.ide.smoke', 'true'
 }
 
+tasks.register('uiDesignerSmokeTest', JavaExec) {
+    group = 'verification'
+    description = 'Checks real designer layout and pointer interactions in a hidden standalone window (requires a GPU).'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath + configurations.ideRuntime
+    mainClass = 'net.xmilon.craftpy.client.mui.UiDesignerInteractionCheck'
+    jvmArgs '-Xmx512M'
+}
+
 // One-click IDE: build/ide/ holds "CraftPy IDE.jar" (a launcher whose manifest lists lib/), the libraries, a .bat / .sh
 // that start it with the right Java and craftpy-ide.properties (home = the game folder). ideShortcut adds a desktop
 // shortcut on Windows.
@@ -549,3 +602,28 @@ tasks.register('ideShortcut') {
         println 'Desktop shortcut "CraftPy IDE" created'
     }
 }
+
+// Build the same deterministic .cpm files shipped in examples and seeded into pyforge/modules.
+def bundledModulesDir = layout.buildDirectory.dir('generated/bundled-modules')
+sourceSets.main.resources.srcDir(bundledModulesDir)
+tasks.register('bundleExamples', JavaExec) {
+    dependsOn tasks.named('compileJava')
+    classpath = files(sourceSets.main.output.classesDirs) + sourceSets.main.compileClasspath
+    mainClass = 'net.xmilon.craftpy.project.ExampleModules'
+    args projectDir.absolutePath, bundledModulesDir.get().asFile.absolutePath
+    inputs.files(fileTree('examples') { exclude 'modules/**', '**/__pycache__/**' })
+    inputs.dir('src/main/resources/craftpy_default/welcome')
+    outputs.dir(bundledModulesDir)
+}
+tasks.named('processResources') { dependsOn tasks.named('bundleExamples') }
+
+// Every native fixture gets a fresh disposable world and current bundled module bytes.
+tasks.register('resetNativeTestSandbox', Delete) {
+    def sandbox = layout.buildDirectory.dir(nativeFolder).get().asFile.canonicalFile
+    def buildRoot = layout.buildDirectory.get().asFile.canonicalFile
+    if (sandbox.parentFile != buildRoot || !(sandbox.name in ['native-tests', 'native-tests-create', 'native-tests-integrations', 'native-tests-curios'])) {
+        throw new GradleException('Refusing to reset a path outside the dedicated native test sandbox')
+    }
+    delete new File(sandbox, 'world'), new File(sandbox, 'pyforge')
+}
+tasks.named('runGameTestServer') { dependsOn tasks.named('resetNativeTestSandbox') }

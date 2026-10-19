@@ -55,6 +55,8 @@ public final class ModuleUnpacker {
                 // project is not trusted until an op trusts it)
                 project.side = ModuleSide.of(meta.side).id();
                 project.permissions = net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions);
+                project.requiredMods = new java.util.ArrayList<>(java.util.Arrays.asList(meta.requiredMods == null ? new String[0] : meta.requiredMods));
+                project.requiredCapabilities = new java.util.ArrayList<>(java.util.Arrays.asList(meta.requiredCapabilities == null ? new String[0] : meta.requiredCapabilities));
                 project.dependencies = new java.util.ArrayList<>();
                 for (String dep : meta.dependencies == null ? new String[0] : meta.dependencies) {
                     if (dep != null && !dep.isBlank() && project.dependencies.size() < 64) {

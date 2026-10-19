@@ -33,9 +33,16 @@ public class CraftPyClient {
             KEY_CATEGORY
     );
 
-    public CraftPyClient(ModContainer container) {
+    public CraftPyClient(ModContainer container, net.neoforged.bus.api.IEventBus modBus) {
         // Allows NeoForge to create a config screen for this mod's configs.
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
+        modBus.addListener((net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) -> event.register(OPEN_IDE_KEY));
+        modBus.addListener((net.neoforged.neoforge.client.event.EntityRenderersEvent.RegisterRenderers event) -> {
+            net.xmilon.craftpy.client.MachineRenderer.register(event);
+        });
+        modBus.addListener((net.neoforged.neoforge.client.event.ModelEvent.RegisterAdditional event) -> {
+                for (int i = 0; i < net.xmilon.craftpy.registry.SlotCounts.kinetics(); i++) event.register(net.xmilon.craftpy.client.MachineRenderer.rotor(i));
+        });
     }
 
     @SubscribeEvent
@@ -69,13 +76,6 @@ public class CraftPyClient {
                 }
                 AssetUploader.uploadAll(projectId, paths, net.xmilon.craftpy.assets.AssetKind.TEXTURE);
             });
-        });
-        // Register key mapping
-        event.enqueueWork(() -> {
-            var opts = Minecraft.getInstance().options;
-            var mappings = new java.util.ArrayList<KeyMapping>(java.util.Arrays.asList(opts.keyMappings));
-            mappings.add(OPEN_IDE_KEY);
-            opts.keyMappings = mappings.toArray(new KeyMapping[0]);
         });
     }
 
@@ -169,6 +169,8 @@ public class CraftPyClient {
 
     @SubscribeEvent
     static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
+        net.xmilon.craftpy.client.ModuleKeys.tick();
+        openIdeKey();
         net.xmilon.craftpy.client.ClientPython.get().onTick();
         net.xmilon.craftpy.client.media.MediaPlayer.get().tick();
     }
@@ -211,7 +213,7 @@ public class CraftPyClient {
     @SubscribeEvent
     static void onScreen(net.neoforged.neoforge.client.event.ScreenEvent.Opening event) {
         com.google.gson.JsonObject context = new com.google.gson.JsonObject();
-        context.addProperty("screen", event.getNewScreen().getClass().getSimpleName());
+        context.addProperty("screen", event.getNewScreen() == null ? "" : event.getNewScreen().getClass().getSimpleName());
         net.xmilon.craftpy.client.ClientPython.get().event("screen_open", context);
     }
 
@@ -219,10 +221,20 @@ public class CraftPyClient {
     static void onInput(InputEvent.Key event) {
         if (event.getAction() == org.lwjgl.glfw.GLFW.GLFW_PRESS && Minecraft.getInstance().screen == null) {
             String combo = net.xmilon.craftpy.client.KeyCombo.name(event.getKey(), event.getModifiers());
-            if (combo != null && net.xmilon.craftpy.client.ClientHost.isBound(combo)) {
-                net.xmilon.craftpy.client.ClientPython.get().key(combo);
-            }
+            net.xmilon.craftpy.client.ModuleKeys.tick();
+            net.xmilon.craftpy.client.ModuleKeys.press(combo);
         }
+    }
+
+    @SubscribeEvent
+    static void onMouse(InputEvent.MouseButton.Pre event) {
+        if (event.getAction() == GLFW.GLFW_PRESS) {
+            net.xmilon.craftpy.client.ModuleKeys.tick();
+            net.xmilon.craftpy.client.ModuleKeys.press(net.xmilon.craftpy.client.KeyCombo.mouse(event.getButton(), event.getModifiers()));
+        }
+    }
+
+    private static void openIdeKey() {
         if (OPEN_IDE_KEY.consumeClick()) {
             Minecraft mc = Minecraft.getInstance();
             // admins, or the owner of a singleplayer world (the server checks again on every request)

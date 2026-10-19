@@ -45,6 +45,26 @@ public final class PyRuntime {
 
     private final Path workerScript;
     private final Map<String, Worker> workers = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.LongAdder callbackCount = new java.util.concurrent.atomic.LongAdder();
+    private final java.util.concurrent.atomic.LongAdder callbackNanos = new java.util.concurrent.atomic.LongAdder();
+
+    private JsonObject callback(Worker worker, String method, JsonObject params, long timeout) throws IOException {
+        long started = System.nanoTime();
+        try { return note(worker, worker.rpc.call(method, params, timeout)); }
+        finally { callbackNanos.add(System.nanoTime() - started); callbackCount.increment(); }
+    }
+
+    public static synchronized JsonObject metricsSnapshot() {
+        JsonObject result = new JsonObject(); var current = instance;
+        long count = current == null ? 0 : current.callbackCount.sum();
+        result.addProperty("callback_ms", count == 0 ? 0 : current.callbackNanos.sum() / 1_000_000.0 / count);
+        result.addProperty("callback_count", count);
+        result.addProperty("workers", current == null ? 0 : current.workers.size());
+        result.addProperty("pending_calls", current == null ? 0 : current.workers.values().stream().mapToInt(w -> w.rpc.pendingCount()).sum());
+        result.addProperty("queue_depth", CraftPyExecutors.queuedTasks());
+        result.addProperty("scheduled", current == null ? 0 : current.workers.values().stream().mapToInt(w -> w.scheduled).sum());
+        return result;
+    }
     /** Player name + window id -> the owner that opened it, so a click only reaches that owner's worker. */
     private final Map<String, String> windowOwners = new ConcurrentHashMap<>();
 
@@ -55,6 +75,7 @@ public final class PyRuntime {
         final List<Path> roots;
         volatile Set<String> events = Set.of();
         volatile int scheduled;
+        boolean active = true;
 
         Worker(String owner, RpcClient rpc, List<Path> roots) {
             this.owner = owner;
@@ -183,9 +204,11 @@ public final class PyRuntime {
             removed = workers.remove(owner);
         }
         if (removed != null) {
+            synchronized (removed) { removed.active = false; }
             removed.rpc.stop();
         }
         windowOwners.values().removeIf(owner::equals);
+        net.xmilon.craftpy.keys.ServerKeyActions.forget(owner);
     }
 
     /** Loads the owner's libraries into its worker: each module's names, without its handlers (they run in its own worker). */
@@ -207,6 +230,9 @@ public final class PyRuntime {
     private static JsonObject note(Worker worker, JsonObject result) {
         if (result == null) {
             return null;
+        }
+        synchronized (worker) {
+            if (worker.active && result.has("keys")) net.xmilon.craftpy.keys.ServerKeyActions.replace(worker.owner, result.getAsJsonArray("keys"));
         }
         if (result.has("scheduled") && result.get("scheduled").isJsonPrimitive()) {
             worker.scheduled = result.get("scheduled").getAsInt();
@@ -295,14 +321,18 @@ public final class PyRuntime {
 
     /** Puts back what the project registered before its last run (the host could not apply the new version). */
     public CompletableFuture<Void> revert(String projectId) {
+        return revertOwner(projectId, false);
+    }
+
+    public CompletableFuture<Void> revertOwner(String projectId, boolean module) {
         return CraftPyExecutors.supplyAsync(() -> {
-            Worker worker = existing(owner(projectId, false));
+            Worker worker = existing(owner(projectId, module));
             if (worker == null) {
                 return null;
             }
             try {
                 JsonObject params = new JsonObject();
-                params.addProperty("owner", projectId);
+                params.addProperty("owner", owner(projectId, module));
                 note(worker, worker.rpc.call("revert_owner", params, DEFAULT_TIMEOUT_MS));
             } catch (Exception e) {
                 CraftPyLog.LOGGER.warn("Failed to revert Python owner {}: {}", projectId, e.toString());
@@ -436,7 +466,7 @@ public final class PyRuntime {
     public CompletableFuture<JsonObject> triggerEvent(String eventName, JsonObject context) {
         return CraftPyExecutors.supplyAsync(() -> {
             List<Worker> targets = new ArrayList<>();
-            if ("http_response".equals(eventName)) {
+            if ("http_response".equals(eventName) || "key".equals(eventName)) {
                 String owner = context.has("owner") ? context.get("owner").getAsString() : "";
                 Worker worker = existing(owner);
                 if (worker != null) {
@@ -467,10 +497,12 @@ public final class PyRuntime {
             JsonObject current = context;
             for (Worker worker : targets) {
                 try {
+                    if ("key".equals(eventName) && !net.xmilon.craftpy.keys.ServerKeyActions.active(worker.owner,
+                            context.get("action").getAsString(), context.get("revision").getAsLong())) continue;
                     JsonObject params = new JsonObject();
                     params.addProperty("event", eventName);
                     params.add("context", current);
-                    JsonObject result = note(worker, worker.rpc.call("trigger_event", params, DEFAULT_TIMEOUT_MS));
+                    JsonObject result = callback(worker, "trigger_event", params, DEFAULT_TIMEOUT_MS);
                     if (result == null) {
                         continue;
                     }
@@ -528,7 +560,7 @@ public final class PyRuntime {
                 try {
                     JsonObject params = new JsonObject();
                     params.addProperty("tick", tick);
-                    JsonObject result = note(worker, worker.rpc.call("tick", params, 5000));
+                    JsonObject result = callback(worker, "tick", params, 5000);
                     if (result != null && result.has("log") && result.get("log").isJsonArray()) {
                         var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
                         for (var line : result.getAsJsonArray("log")) {
@@ -782,9 +814,11 @@ public final class PyRuntime {
         instance = null;
         if (current != null) {
             for (Worker worker : current.running()) {
+                synchronized (worker) { worker.active = false; }
                 worker.rpc.stop();
             }
             current.workers.clear();
         }
+        net.xmilon.craftpy.keys.ServerKeyActions.clear();
     }
 }

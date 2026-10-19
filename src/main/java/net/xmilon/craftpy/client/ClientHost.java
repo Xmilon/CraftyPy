@@ -1,8 +1,6 @@
 package net.xmilon.craftpy.client;
 
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
@@ -30,40 +28,19 @@ import net.xmilon.craftpy.CraftPyLog;
  * client thread first.
  */
 public final class ClientHost {
-    private static final Set<String> BOUND = ConcurrentHashMap.newKeySet();
-    private static final ConcurrentHashMap<String, Set<String>> KEYS = new ConcurrentHashMap<>();
 
     private ClientHost() {
     }
 
-    /** Called with a normalized combo ({@code ctrl+k}); true when some module bound it. */
-    public static boolean isBound(String combo) {
-        return BOUND.contains(combo);
-    }
-
     public static void reset() {
         ClientHud.clearAll();
-        KEYS.clear();
-        BOUND.clear();
-    }
-
-    /** The owners that bound {@code combo}: a key press goes to their workers only. */
-    static List<String> ownersOf(String combo) {
-        List<String> owners = new java.util.ArrayList<>();
-        KEYS.forEach((owner, combos) -> {
-            if (combos.contains(combo)) {
-                owners.add(owner);
-            }
-        });
-        return owners;
+        IdeHost.get().execute(ModuleKeys::disconnect);
     }
 
     /** An owner's worker stopped: take its HUD and keys away. */
     static void forget(String owner) {
         ClientHud.clear(owner);
-        KEYS.remove(owner);
-        BOUND.clear();
-        KEYS.values().forEach(BOUND::addAll);
+        IdeHost.get().execute(() -> ModuleKeys.forgetLocal(owner));
     }
 
     /**
@@ -88,7 +65,6 @@ public final class ClientHost {
                     ClientHud.clear(string(p, "owner"));
                     yield ok();
                 }
-                case "keys.set" -> setKeys(p);
                 case "client.player" -> onClient(ClientHost::playerData);
                 case "client.looking_at" -> onClient(ClientHost::lookingAt);
                 case "client.fps" -> onClient(() -> {
@@ -217,22 +193,6 @@ public final class ClientHost {
     /** Kept per owner (handle sets {@code owner} from the host): one module cannot read or wipe another's values. */
     private static String storageKey(JsonObject p) {
         return string(p, "owner") + "/" + string(p, "scope", "world") + "/" + string(p, "key");
-    }
-
-    private static JsonObject setKeys(JsonObject p) {
-        Set<String> combos = ConcurrentHashMap.newKeySet();
-        JsonElement list = p.get("combos");
-        if (list != null && list.isJsonArray()) {
-            for (JsonElement combo : list.getAsJsonArray()) {
-                if (combos.size() < 32 && combo.isJsonPrimitive()) {
-                    combos.add(combo.getAsString());
-                }
-            }
-        }
-        KEYS.put(string(p, "owner"), combos);
-        BOUND.clear();
-        KEYS.values().forEach(BOUND::addAll);
-        return ok();
     }
 
     // -- things that need the client thread ---------------------------------------------------------------------------

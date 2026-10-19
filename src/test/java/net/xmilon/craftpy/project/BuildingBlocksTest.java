@@ -42,6 +42,10 @@ class BuildingBlocksTest {
                 + "from craftpy import *\n\n{{name}} = Item(\"{{name}}\")  # {{id}}\n");
         assertEquals("Demo", block.title());
         assertEquals("ruby = Item(\"ruby\")  # rr\n", block.snippet("ruby", "rr"));
+        assertTrue(block.snippet("ruby", "rr", "").startsWith("from craftpy import *\n"));
+        assertTrue(block.snippet("ruby", "rr", "from craftpy import Item\n").startsWith("from craftpy import *\n"));
+        assertEquals(block.snippet("ruby", "rr"), block.snippet("ruby", "rr", "from craftpy import * # existing\n"));
+        assertTrue(block.snippet("ruby", "rr", "\"\"\"\nfrom craftpy import *\n\"\"\"\n").startsWith("from craftpy import *\n"));
         assertTrue(block.fill("ruby", "rr").startsWith("from craftpy import *"));
         assertEquals("demo", BuildingBlocks.freeModule("demo", Set.of("code/main.py")));
         assertEquals("demo_3", BuildingBlocks.freeModule("demo", Set.of("code/demo.py", "code/demo_2.py")));

@@ -14,6 +14,7 @@ public class ModuleInfo {
     public String id = "";
     public String name = "";
     public String version = "";
+    public String sha256 = "";
     public String author = "";
     /** One-line summary from module.json. */
     public String description = "";

@@ -413,6 +413,15 @@ public final class ProjectRequestHandler {
                 }
                 String owner = "module:" + moduleId;
                 boolean approve = obj.has("approve") && obj.get("approve").getAsBoolean();
+                var installedModule = net.xmilon.craftpy.project.ModuleLoader.findFileById(moduleId);
+                String expectedHash = obj.has("sha256") ? obj.get("sha256").getAsString() : "";
+                if (approve && (installedModule == null || expectedHash.isBlank() || !expectedHash.equals(net.xmilon.craftpy.project.ModuleLoader.sha256(installedModule))))
+                    return CompletableFuture.completedFuture(fail(action, "Module changed since it was displayed; refresh and review its permissions again"));
+                if (approve) {
+                    try { net.xmilon.craftpy.security.PermissionStore.declare(owner,
+                            net.xmilon.craftpy.project.ModuleLoader.readInfo(installedModule).permissions, expectedHash); }
+                    catch (java.io.IOException changed) { return CompletableFuture.completedFuture(fail(action, "Module could not be read; refresh before approving")); }
+                }
                 var asked = net.xmilon.craftpy.security.PermissionStore.declared(owner);
                 if (approve) {
                     net.xmilon.craftpy.security.PermissionStore.approve(owner, asked); // exactly what it declares, no more

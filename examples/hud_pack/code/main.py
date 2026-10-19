@@ -23,15 +23,17 @@ def watch_chat(event):
         client.toast("Chat", event.message)
 
 
-@keys.bind("f7")
+# Keep the legacy action IDs permanent so earlier remaps survive this example's update.
+@keys.bind("f7", id="f7", name="Toggle HUD", category="HUD Pack")
 def toggle(ctx):
     settings.state["visible"] = not settings.state["visible"]
+    storage.set("hud_visible", settings.state["visible"])
     if not settings.state["visible"]:
         hud.clear()
     client.chat("HUD " + ("on" if settings.state["visible"] else "off"))
 
 
-@keys.bind("ctrl+h")
+@keys.bind("ctrl+h", id="ctrl+h", name="Open HUD settings", category="HUD Pack")
 def open_settings(ctx):
     client.open_window("hud_settings")
 

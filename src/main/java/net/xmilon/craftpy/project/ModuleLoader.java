@@ -154,20 +154,9 @@ public final class ModuleLoader {
         }
     }
 
-    private record HashKey(Path path, long size, long modified) {
-    }
-
-    private static final Map<HashKey, String> HASHES = new java.util.concurrent.ConcurrentHashMap<>();
-
-    /** SHA-256 of a module file (cached while its size and time stay the same), or null when it cannot be read. */
+    /** SHA-256 of current bytes; file timestamps alone cannot establish unchanged executable content. */
     public static String sha256(Path path) {
         try {
-            HashKey key = new HashKey(path.toAbsolutePath().normalize(), Files.size(path),
-                    Files.getLastModifiedTime(path).toMillis());
-            String known = HASHES.get(key);
-            if (known != null) {
-                return known;
-            }
             java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
             try (InputStream in = Files.newInputStream(path)) {
                 byte[] buffer = new byte[65536];
@@ -176,7 +165,6 @@ public final class ModuleLoader {
                 }
             }
             String hash = java.util.HexFormat.of().formatHex(digest.digest());
-            HASHES.put(key, hash);
             return hash;
         } catch (IOException | java.security.NoSuchAlgorithmException e) {
             return null;
@@ -420,6 +408,8 @@ public final class ModuleLoader {
                     CraftPyLog.LOGGER.info("Module {} already loaded, skipping.", meta.id);
                     return;
                 }
+                String unavailable = RuntimeFeatures.unavailable(meta.requiredMods, meta.requiredCapabilities);
+                if (!unavailable.isEmpty()) { CraftPyLog.LOGGER.info("Module {} inactive: {}", meta.id, unavailable); return; }
                 if (!ModuleSide.of(meta.side).runsOnServer()) {
                     // resources only: each player's CraftPy applies it (dynamics.ClientModulePack)
                     CraftPyLog.LOGGER.info("Module {} is client-side: nothing runs on the server", meta.id);
@@ -448,6 +438,7 @@ public final class ModuleLoader {
 
                 // Wire into the Python runtime as a persistent module and apply declarations to slots
                 final String moduleId = meta.id;
+                final ModuleBuilder.ModuleMetadata loading = meta;
                 CompletableFuture<JsonObject> future = net.xmilon.craftpy.python.PyRuntime.get().loadModule(moduleId, cacheDir);
                 future.thenAcceptAsync(result -> {
                     if (result == null || !result.has("declarations")) {
@@ -473,6 +464,7 @@ public final class ModuleLoader {
                     // Slots, commands and pack reloads belong to the server thread (same as projects).
                     var server = ServerLifecycleHooks.getCurrentServer();
                     Runnable apply = () -> {
+                        synchronized (LOCK) { if (LOADED_MODULES.get(moduleId) != loading) return; }
                         applyModuleDeclarations(moduleId, declarations);
                         CraftPyLog.LOGGER.info("Applied module {} declarations: {} block(s), {} item(s)",
                                 moduleId,
@@ -506,6 +498,7 @@ public final class ModuleLoader {
             triggerModuleSync(moduleId);
         } catch (RuntimeException e) {
             CraftPyLog.LOGGER.error("Slot allocation failed for module {}", moduleId, e);
+            net.xmilon.craftpy.python.PyRuntime.get().revertOwner(moduleId, true);
         }
     }
 
@@ -561,6 +554,8 @@ public final class ModuleLoader {
                 info.author = meta.author == null ? "" : meta.author;
                 info.description = meta.description == null ? "" : meta.description;
                 info.side = ModuleSide.of(meta.side).id();
+                String unavailable = RuntimeFeatures.unavailable(meta.requiredMods, meta.requiredCapabilities);
+                if (!unavailable.isEmpty()) info.error = unavailable;
                 info.permissions = net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions);
                 if (meta.dependencies != null) {
                     info.dependencies = new ArrayList<>(Arrays.asList(meta.dependencies));
@@ -580,8 +575,9 @@ public final class ModuleLoader {
             loaded = MODULE_FILES.get(info.id);
         }
         // a duplicate .cpm with the same id must not stand in for the file that runs
-        String hash = loaded == null || loaded.equals(path) ? sha256(path) : null;
-        net.xmilon.craftpy.security.PermissionStore.declare("module:" + info.id, info.permissions, hash);
+        String hash = loaded == null || loaded.toAbsolutePath().normalize().equals(path.toAbsolutePath().normalize()) ? sha256(path) : null;
+        info.sha256 = hash == null ? "" : hash;
+        if (hash != null) net.xmilon.craftpy.security.PermissionStore.declare("module:" + info.id, info.permissions, hash);
         info.permissionWarning = net.xmilon.craftpy.security.PermissionLabels.warning(info.permissions);
         info.permissionsApproved = net.xmilon.craftpy.security.PermissionStore.fullyApproved("module:" + info.id);
         info.changedSinceApproval = net.xmilon.craftpy.security.PermissionStore.changedSinceApproval("module:" + info.id);
@@ -632,6 +628,10 @@ public final class ModuleLoader {
     /** Finds the enabled .cpm file that declares {@code id} (first match wins). */
     public static Path findFileById(String id) {        if (id == null) {
             return null;
+        }
+        synchronized (LOCK) {
+            Path running = MODULE_FILES.get(id);
+            if (running != null && Files.isRegularFile(running)) return running;
         }
         for (Path file : scanAll()) {
             try {
@@ -777,7 +777,8 @@ public final class ModuleLoader {
             info.primary = count.getOrDefault(info.id, 0) <= 1;
         }
         Set<String> selected = new HashSet<>();
-        // First pass: prefer the first enabled file for each duplicated id.
+        for (ModuleInfo info : infos) if (info.loaded && count.getOrDefault(info.id, 0) > 1 && selected.add(info.id)) info.primary = true;
+        // Prefer the actual running file, then the first enabled file.
         for (ModuleInfo info : infos) {
             if (count.getOrDefault(info.id, 0) > 1 && info.enabled && selected.add(info.id)) {
                 info.primary = true;

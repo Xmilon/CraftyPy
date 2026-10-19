@@ -101,6 +101,19 @@ public final class ModuleBuilder {
         // a module lives in modules/ (where the game loads it from, and the file to share): no separate export copy
         ModuleSide side = ModuleSide.of(meta.side); // the project's side, chosen when it was made, never at build time
         Path outputFile = existing != null && !asNew ? existing : PyForgePaths.modules().resolve(moduleId + ".cpm");
+        return pack(projectDir, outputFile, meta, moduleId, displayName, version, side, asNew && !moduleId.equals(meta.id));
+    }
+
+    /** Deterministic packaging from an explicit source, without inspecting installed modules or editable projects. */
+    public static Result build(Path projectDir, Path outputFile) throws IOException {
+        ProjectMetadata meta = Json.COMPACT.fromJson(Files.readString(projectDir.resolve("project.json")), ProjectMetadata.class);
+        if (meta == null || !ProjectManager.isValidId(meta.id)) throw new IOException("Invalid example project metadata");
+        if (meta.version == null || !meta.version.matches("[0-9A-Za-z][0-9A-Za-z._+-]{0,31}")) throw new IOException("Invalid example version");
+        return pack(projectDir, outputFile, meta, meta.id, meta.name, meta.version, ModuleSide.of(meta.side), false);
+    }
+
+    private static Result pack(Path projectDir, Path outputFile, ProjectMetadata meta, String moduleId,
+                               String displayName, String version, ModuleSide side, boolean rename) throws IOException {
         Files.createDirectories(outputFile.getParent());
         Path temp = outputFile.resolveSibling(outputFile.getFileName() + ".tmp");
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(temp.toFile()))) {
@@ -115,12 +128,14 @@ public final class ModuleBuilder {
             modMeta.dependencies = meta.dependencies == null ? new String[0]
                     : meta.dependencies.stream().filter(d -> d != null && !d.isBlank()).toArray(String[]::new);
             modMeta.permissions = net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions);
-            zos.putNextEntry(new ZipEntry("module.json"));
+            modMeta.requiredMods = meta.requiredMods == null ? new String[0] : meta.requiredMods.toArray(String[]::new);
+            modMeta.requiredCapabilities = meta.requiredCapabilities == null ? new String[0] : meta.requiredCapabilities.toArray(String[]::new);
+            zos.putNextEntry(entry("module.json"));
             zos.write(Json.GSON.toJson(modMeta).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             zos.closeEntry();
 
             // a new module is another namespace: assets/<old id>/ and "<old id>:name" ids move with it
-            String from = asNew && !moduleId.equals(meta.id) ? meta.id : null;
+            String from = rename ? meta.id : null;
             for (String subDir : new String[]{"code", "assets", "data", "ui"}) {
                 Path dir = projectDir.resolve(subDir);
                 if (Files.isDirectory(dir) && side.packs(subDir)) { // a client module is only its assets
@@ -136,7 +151,7 @@ public final class ModuleBuilder {
             // the warning is forced at the top, whoever wrote the README
             text = net.xmilon.craftpy.security.PermissionLabels.readmeBlock(
                     net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions)) + text;
-            zos.putNextEntry(new ZipEntry("README.md"));
+            zos.putNextEntry(entry("README.md"));
             zos.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             zos.closeEntry();
         } catch (IOException | RuntimeException e) {
@@ -148,6 +163,8 @@ public final class ModuleBuilder {
         CraftPyLog.LOGGER.info("Built module {} {} into {}{}", moduleId, version, outputFile, replaced ? " (replaced)" : "");
         return new Result(outputFile, outputFile, moduleId, version, replaced);
     }
+
+    private static ZipEntry entry(String name) { var entry = new ZipEntry(name); entry.setTimeLocal(java.time.LocalDateTime.of(1980, 1, 1, 0, 0)); return entry; }
 
     private static Map<String, String> pythonFiles(Path projectDir) throws IOException {
         Map<String, String> out = new java.util.TreeMap<>();
@@ -167,10 +184,10 @@ public final class ModuleBuilder {
     private static void zipDirectory(Path folder, String parentFolder, ZipOutputStream zos, String from, String to)
             throws IOException {
         try (var stream = Files.walk(folder)) {
-            stream.filter(path -> !Files.isDirectory(path)).forEach(path -> {
+            stream.filter(path -> Files.isRegularFile(path) && !path.toString().contains("__pycache__") && !path.toString().endsWith(".pyc")).sorted().forEach(path -> {
                 String name = entryName(parentFolder, folder.relativize(path).toString().replace("\\", "/"), from, to);
                 try {
-                    zos.putNextEntry(new ZipEntry(name));
+                    zos.putNextEntry(entry(name));
                     zos.write(content(name, Files.readAllBytes(path), from, to));
                     zos.closeEntry();
                 } catch (IOException e) {
@@ -213,5 +230,7 @@ public final class ModuleBuilder {
         /** What the module asks for (sites, data folder); approved by the player before it counts. */
         public net.xmilon.craftpy.security.ModulePermissions permissions;
         public String[] dependencies = new String[0];
+        public String[] requiredMods = new String[0];
+        public String[] requiredCapabilities = new String[0];
     }
 }

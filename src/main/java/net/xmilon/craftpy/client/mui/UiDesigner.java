@@ -17,11 +17,12 @@ import icyllis.modernui.core.Context;
 import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.TextWatcher;
 import icyllis.modernui.view.Gravity;
+import icyllis.modernui.view.KeyEvent;
 import icyllis.modernui.view.View;
 import icyllis.modernui.view.ViewGroup;
-import icyllis.modernui.widget.EditText;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.ScrollView;
+import icyllis.modernui.widget.TextView;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -44,84 +45,65 @@ final class UiDesigner {
     static final int GRID = 4;
     /** The smallest width or height a handle makes. */
     static final int MIN_SIZE = 16;
+    static final int LEFT = 1, RIGHT = 2, TOP = 4, BOTTOM = 8;
+    private static final int[] HANDLE_EDGES = {LEFT | TOP, RIGHT | TOP, LEFT | BOTTOM, RIGHT | BOTTOM,
+            TOP, RIGHT, BOTTOM, LEFT};
     private static final Set<String> LISTS = Set.of("options", "items");
 
     private final Context context;
     private final JsonObject window;
-    /** Receives the window's JSON text: after every change when {@link #live}, else on Apply. */
+    /** Every design edit goes through the editor's existing document and undo history. */
     private final Consumer<String> onApply;
-    private final boolean live;
+    record EditorActions(Runnable undo, Runnable redo, Runnable save) { }
+    private final EditorActions actions;
     private JsonObject selected;
 
     private LinearLayout treeColumn;
     private LinearLayout previewHolder;
     private LinearLayout props;
+    private PreviewOverlay preview;
+    private View previewViewport;
+    private View workspace;
+    private LinearLayout toolbox;
+    private TextView selectionInfo;
+    private TextView bindingStatus;
+    private final List<String> bindingProblems = new ArrayList<>();
+    private final java.util.Map<String, View> toolButtons = new java.util.HashMap<>();
+    private String placementType;
+    private boolean showGrid = true;
+    private float zoom = 1;
+    private View stage;
+    private View zoomHolder;
 
-    private UiDesigner(Context context, JsonObject window, Consumer<String> onApply, boolean live) {
+    private UiDesigner(Context context, JsonObject window, Consumer<String> onApply, EditorActions actions) {
         this.context = context;
         this.window = window;
         this.onApply = onApply;
-        this.live = live;
+        this.actions = actions;
         this.selected = window.getAsJsonObject("root");
     }
 
-    /**
-     * Opens the designer as a dialog on {@code text} (the JSON of a window; blank or broken text starts a new window).
-     * {@code onApply} receives the new JSON text when Apply is pressed.
-     */
-    static void open(View anchor, String windowId, String text, Consumer<String> onApply) {
-        String problem = problem(text);
-        if (problem != null) { // Apply would replace the broken text with an empty window
-            var popup = Overlays.dialog(anchor, "UI designer - " + windowId, 520, -1);
-            var error = label(anchor.getContext(), problem, R.attr.textAppearanceBodyMedium);
-            error.setTextColor(IdeColors.ERROR);
-            popup.body.addView(error);
-            popup.show();
-            return;
+    static UiDesigner create(Context context, String windowId, String text, Consumer<String> onChange,
+                             List<Integer> selection, Consumer<List<Integer>> onSelect, EditorActions actions) {
+        if (problem(text) != null) {
+            throw new IllegalArgumentException(problem(text));
         }
-        var designer = new UiDesigner(anchor.getContext(), parse(windowId, text), onApply, false);
-        var popup = Overlays.dialog(anchor, "UI designer - " + windowId, 1000, -1);
-        popup.body.addView(designer.build(false), new LinearLayout.LayoutParams(MATCH_PARENT, popup.body.dp(520)));
-        var buttons = row(anchor.getContext());
-        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        buttons.addView(button(anchor.getContext(), "Apply to editor", R.attr.buttonTonalStyle, v -> {
-            onApply.accept(designer.json());
-            popup.dismiss();
-        }));
-        popup.body.addView(buttons);
-        popup.show();
-    }
-
-    /**
-     * The designer as a view for a narrow tool window: every change goes to {@code onChange} at once (the editor tab
-     * holds the text, so Ctrl+Z and Ctrl+S work as usual).
-     */
-    static View docked(Context context, String windowId, String text, Consumer<String> onChange) {
-        return docked(context, windowId, text, onChange, List.of(), path -> { });
-    }
-
-    /**
-     * As above, keeping the selection across a rebuild: {@code selection} is the path of child indexes from the root to
-     * the widget to select (edits typed in the JSON rebuild the designer), {@code onSelect} hears every new selection.
-     * Text that is not a window (broken JSON) is shown as an error and never overwritten.
-     */
-    static View docked(Context context, String windowId, String text, Consumer<String> onChange, List<Integer> selection,
-                       Consumer<List<Integer>> onSelect) {
-        String problem = problem(text);
-        if (problem != null) {
-            var error = label(context, problem + "\nFix it in the editor; the designer comes back when it reads again."
-                    + " Nothing here writes to the file meanwhile.", R.attr.textAppearanceBodyMedium);
-            error.setTextColor(IdeColors.ERROR);
-            error.setPadding(error.dp(8), error.dp(8), error.dp(8), error.dp(8));
-            return error;
-        }
-        var designer = new UiDesigner(context, parse(windowId, text), onChange, true);
+        var designer = new UiDesigner(context, parse(windowId, text), onChange, actions);
         designer.onSelect = onSelect;
         JsonObject node = nodeAt(designer.window.getAsJsonObject("root"), selection);
         if (node != null) {
             designer.selected = node;
         }
-        return designer.build(true);
+        designer.workspace = designer.build();
+        return designer;
+    }
+
+    View view() {
+        return workspace;
+    }
+
+    static boolean isWindowFile(@Nullable String path) {
+        return path != null && path.startsWith("ui/") && path.endsWith(".json");
     }
 
     /** Why this text cannot be designed (not JSON, not a window), or null; blank text is a new window. */
@@ -136,6 +118,9 @@ final class UiDesigner {
                 return "This file is not a window: it must be a JSON object.";
             }
             JsonObject object = parsed.getAsJsonObject();
+            if (!object.has("root")) {
+                return "This file has no root widget. Use Source to edit it.";
+            }
             if (object.has("root") && !object.get("root").isJsonObject()) {
                 return "\"root\" must be an object (the outer box of the window).";
             }
@@ -195,9 +180,8 @@ final class UiDesigner {
 
     /** After every edit: the live designer writes the JSON back right away. */
     private void changed() {
-        if (live) {
-            onApply.accept(json());
-        }
+        onApply.accept(json());
+        updateSelectionInfo();
     }
 
     static JsonObject parse(String windowId, String text) {
@@ -223,76 +207,248 @@ final class UiDesigner {
         return fresh;
     }
 
-    /** Palette, tree, properties and the live window; {@code narrow} stacks them for a side panel. */
-    private View build(boolean narrow) {
+    /** The designer owns the main editor area; the game still renders the very same widget tree. */
+    private View build() {
         treeColumn = new LinearLayout(context);
         treeColumn.setOrientation(LinearLayout.VERTICAL);
         previewHolder = new LinearLayout(context);
         previewHolder.setOrientation(LinearLayout.VERTICAL);
         previewHolder.setGravity(Gravity.CENTER_HORIZONTAL);
+        previewHolder.setPadding(previewHolder.dp(24), previewHolder.dp(24), previewHolder.dp(24), previewHolder.dp(24));
         props = new LinearLayout(context);
         props.setOrientation(LinearLayout.VERTICAL);
-
-        var palette = new LinearLayout(context);
-        palette.setOrientation(LinearLayout.VERTICAL);
-        var tools = row(context);
-        tools.addView(button(context, "+ Add", R.attr.buttonTonalStyle, v -> {
-            var menu = new icyllis.modernui.widget.PopupMenu(context, v);
-            for (int i = 0; i < TYPES.size(); i++) {
-                menu.getMenu().add(0, i, i, TYPES.get(i).replace('_', ' '));
+        props.setPadding(props.dp(10), 0, props.dp(10), props.dp(10));
+        var root = new LinearLayout(context) {
+            @Override
+            public boolean dispatchKeyEvent(@icyllis.modernui.annotation.NonNull KeyEvent event) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.isCtrlPressed()) {
+                    switch (event.getKeyCode()) {
+                        case KeyEvent.KEY_S -> actions.save.run();
+                        case KeyEvent.KEY_Z -> {
+                            if (event.isShiftPressed()) actions.redo.run(); else actions.undo.run();
+                        }
+                        case KeyEvent.KEY_Y -> actions.redo.run();
+                        default -> { return super.dispatchKeyEvent(event); }
+                    }
+                    return true;
+                }
+                return super.dispatchKeyEvent(event);
             }
-            menu.setOnMenuItemClickListener(item -> {
-                add(TYPES.get(item.getItemId()));
-                return true;
-            });
-            menu.show();
+        };
+        root.setOrientation(LinearLayout.VERTICAL);
+        var tools = row(context);
+        tools.setPadding(tools.dp(6), tools.dp(4), tools.dp(6), tools.dp(4));
+        tools.addView(button(context, "Select", R.attr.buttonTonalStyle, v -> chooseTool(null)));
+        tools.addView(button(context, "Window", R.attr.borderlessButtonStyle, v -> {
+            select(window.getAsJsonObject("root"));
+            refreshAll();
         }));
+        tools.addView(button(context, "Duplicate", R.attr.borderlessButtonStyle, v -> duplicate()));
         tools.addView(button(context, "Delete", R.attr.borderlessButtonStyle, v -> delete()));
         tools.addView(button(context, "Up", R.attr.borderlessButtonStyle, v -> move(-1)));
         tools.addView(button(context, "Down", R.attr.borderlessButtonStyle, v -> move(1)));
+        tools.addView(button(context, "Grid", R.attr.borderlessButtonStyle, v -> {
+            showGrid = !showGrid;
+            styleChip(v, showGrid);
+            preview.invalidate();
+        }));
+        var zoomLabel = label(context, "100%", R.attr.textAppearanceLabelMedium);
+        tools.addView(button(context, "−", R.attr.borderlessButtonStyle, v -> setZoom(zoom - 0.25f, zoomLabel)));
+        tools.addView(zoomLabel);
+        tools.addView(button(context, "+", R.attr.borderlessButtonStyle, v -> setZoom(zoom + 0.25f, zoomLabel)));
         tools.addView(button(context, "Copy Python", R.attr.borderlessButtonStyle,
                 v -> net.xmilon.craftpy.client.IdeHost.get().setClipboard(pythonStub())));
-        palette.addView(tools);
-        var hint = label(context, "Drag widgets in the window to move them, drag the corner squares to resize.",
-                R.attr.textAppearanceBodySmall);
-        hint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
-        palette.addView(hint);
-
+        var toolScroll = new icyllis.modernui.widget.HorizontalScrollView(context);
+        toolScroll.addView(tools);
+        root.addView(toolScroll);
+        var left = new LinearLayout(context);
+        left.setOrientation(LinearLayout.VERTICAL);
+        left.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(IdeColors.PANEL));
+        left.addView(section("Toolbox"));
+        var search = CraftPyFragment.field(context);
+        search.setSingleLine();
+        search.setHint("Search components");
+        left.addView(search, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        toolbox = new LinearLayout(context);
+        toolbox.setOrientation(LinearLayout.VERTICAL);
+        var toolboxScroll = new ScrollView(context);
+        toolboxScroll.addView(toolbox);
+        left.addView(toolboxScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 3));
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override public void afterTextChanged(Editable s) { refreshToolbox(s.toString()); }
+        });
+        refreshToolbox("");
+        left.addView(section("Component hierarchy"));
         var treeScroll = new ScrollView(context);
         treeScroll.addView(treeColumn);
+        left.addView(treeScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 2));
+        var right = new LinearLayout(context);
+        right.setOrientation(LinearLayout.VERTICAL);
+        right.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(IdeColors.PANEL));
+        right.addView(section("Properties & events"));
         var propsScroll = new ScrollView(context);
         propsScroll.addView(props);
+        right.addView(propsScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
         var sideways = new icyllis.modernui.widget.HorizontalScrollView(context);
         sideways.addView(previewHolder, new ViewGroup.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
         var previewScroll = new ScrollView(context);
+        previewViewport = previewScroll;
         previewScroll.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(IdeColors.EDITOR));
         previewScroll.addView(sideways, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-
-        LinearLayout root = new LinearLayout(context);
-        if (narrow) {
-            root.setOrientation(LinearLayout.VERTICAL);
-            root.addView(palette);
-            root.addView(previewScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 5));
-            // tree and properties side by side under the window
-            var lower = new LinearLayout(context);
-            lower.setOrientation(LinearLayout.HORIZONTAL);
-            lower.addView(treeScroll, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
-            lower.addView(propsScroll, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
-            root.addView(lower, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 4));
-        } else {
-            root.setOrientation(LinearLayout.HORIZONTAL);
-            var left = new LinearLayout(context);
-            left.setOrientation(LinearLayout.VERTICAL);
-            left.addView(palette);
-            left.addView(treeScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
-            root.addView(left, new LinearLayout.LayoutParams(root.dp(300), MATCH_PARENT));
-            var lpMid = new LinearLayout.LayoutParams(0, MATCH_PARENT, 1);
-            lpMid.leftMargin = lpMid.rightMargin = root.dp(8);
-            root.addView(previewScroll, lpMid);
-            root.addView(propsScroll, new LinearLayout.LayoutParams(root.dp(280), MATCH_PARENT));
-        }
+        var body = row(context);
+        body.setBaselineAligned(false);
+        body.addView(left, new LinearLayout.LayoutParams(body.dp(180), MATCH_PARENT));
+        body.addView(new Splitter(context, true, dx -> resizePane(left, dx), () -> { }),
+                new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
+        body.addView(previewScroll, new LinearLayout.LayoutParams(0, MATCH_PARENT, 1));
+        body.addView(new Splitter(context, true, dx -> resizePane(right, -dx), () -> { }),
+                new LinearLayout.LayoutParams(body.dp(5), MATCH_PARENT));
+        body.addView(right, new LinearLayout.LayoutParams(body.dp(220), MATCH_PARENT));
+        root.addView(body, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+        selectionInfo = label(context, "", R.attr.textAppearanceBodySmall);
+        selectionInfo.setTextColor(IdeColors.TEXT_SECONDARY);
+        selectionInfo.setPadding(root.dp(10), root.dp(4), root.dp(10), root.dp(4));
+        root.addView(selectionInfo);
         refreshAll();
         return root;
+    }
+
+    private TextView section(String text) {
+        var title = label(context, text, R.attr.textAppearanceLabelLarge);
+        title.setTextColor(IdeColors.TEXT_SECONDARY);
+        title.setPadding(title.dp(10), title.dp(8), title.dp(8), title.dp(6));
+        return title;
+    }
+
+    private void resizePane(View pane, int dx) {
+        var lp = pane.getLayoutParams();
+        lp.width = Math.clamp(lp.width + dx, pane.dp(120), Math.max(pane.dp(120), workspace.getWidth() / 3));
+        pane.setLayoutParams(lp);
+    }
+
+    static String displayName(String type) {
+        if (type.isEmpty()) return "Widget";
+        return switch (type) {
+            case "vbox" -> "Vertical layout";
+            case "hbox" -> "Horizontal layout";
+            case "canvas" -> "Free layout";
+            case "grid" -> "Grid layout";
+            case "tabs" -> "Tab layout";
+            case "scroll" -> "Scroll area";
+            case "text_input" -> "Text field";
+            case "text_area" -> "Text area";
+            case "item_icon" -> "Item icon";
+            case "progress" -> "Progress bar";
+            default -> Character.toUpperCase(type.charAt(0)) + type.substring(1);
+        };
+    }
+
+    static List<String> toolboxTypes(String query) {
+        String needle = query.trim().toLowerCase(java.util.Locale.ROOT);
+        return TYPES.stream().filter(type -> type.contains(needle)
+                || displayName(type).toLowerCase(java.util.Locale.ROOT).contains(needle)).toList();
+    }
+
+    private void refreshToolbox(String query) {
+        toolbox.removeAllViews();
+        toolButtons.clear();
+        List<String> matching = toolboxTypes(query);
+        for (boolean layouts : new boolean[] {false, true}) {
+            List<String> group = matching.stream().filter(type -> isContainer(type) == layouts).toList();
+            if (group.isEmpty()) continue;
+            toolbox.addView(section(layouts ? "Containers" : "Controls"));
+            for (String type : group) {
+                var item = label(context, (layouts ? "▣  " : "+  ") + displayName(type), R.attr.textAppearanceBodyMedium);
+                item.setPadding(item.dp(12), item.dp(7), item.dp(8), item.dp(7));
+                item.setClickable(true);
+                item.setTooltipText("Drag to the design surface, or click then click the window to place");
+                item.setOnClickListener(v -> chooseTool(type.equals(placementType) ? null : type));
+                item.setOnTouchListener(new PaletteDrag(type));
+                styleChip(item, type.equals(placementType));
+                toolbox.addView(item, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+                toolButtons.put(type, item);
+            }
+        }
+        if (matching.isEmpty()) toolbox.addView(section("No matching components"));
+    }
+
+    private void chooseTool(@Nullable String type) {
+        placementType = type;
+        toolButtons.forEach((name, view) -> styleChip(view, name.equals(type)));
+        updateSelectionInfo();
+    }
+
+    private void updateSelectionInfo() {
+        if (selectionInfo == null) return;
+        selectionInfo.setText(placementType == null
+                ? displayName(WindowFragment.str(selected, "type", "canvas")) + "  ·  "
+                + nodeValue(selected, "width") + " × " + nodeValue(selected, "height")
+                + "  ·  4 px snap  ·  Arrows move · Shift+arrows move faster · Delete removes"
+                : "Place " + displayName(placementType) + ": click in the window, or drag from the toolbox. Esc returns to Select.");
+    }
+
+    private void setZoom(float scale, TextView label) {
+        zoom = Math.clamp(scale, 0.5f, 2f);
+        label.setText(Math.round(zoom * 100) + "%");
+        refreshPreview();
+    }
+
+    /** Esc is routed here before the editor leaves the page. */
+    boolean back() {
+        if (preview != null && preview.mode != PreviewOverlay.Mode.NONE && preview.beforeGesture != null) {
+            restore(window, preview.beforeGesture);
+            select(nodeAt(window.getAsJsonObject("root"), preview.beforeSelection));
+            preview.mode = PreviewOverlay.Mode.NONE;
+            preview.getParent().requestDisallowInterceptTouchEvent(false);
+            refreshAll();
+            return true;
+        }
+        if (placementType != null) {
+            chooseTool(null);
+            if (preview != null) {
+                preview.paletteNode = null;
+                preview.dropTarget = null;
+                preview.invalidate();
+            }
+            return true;
+        }
+        if (selected != window.getAsJsonObject("root")) {
+            select(window.getAsJsonObject("root"));
+            refreshAll();
+            return true;
+        }
+        return false;
+    }
+
+    private boolean designKey(int key, KeyEvent event) {
+        if (event.isCtrlPressed() && key == KeyEvent.KEY_D) {
+            duplicate();
+            return true;
+        }
+        if (!event.isCtrlPressed() && key == KeyEvent.KEY_DELETE) {
+            delete();
+            return true;
+        }
+        int dx = key == KeyEvent.KEY_LEFT ? -1 : key == KeyEvent.KEY_RIGHT ? 1 : 0;
+        int dy = key == KeyEvent.KEY_UP ? -1 : key == KeyEvent.KEY_DOWN ? 1 : 0;
+        JsonObject parent = parentOf(window.getAsJsonObject("root"), selected);
+        if ((dx == 0 && dy == 0) || event.isCtrlPressed() || parent == null
+                || !"canvas".equals(WindowFragment.str(parent, "type", ""))) return false;
+        View box = preview.viewOf(parent);
+        View widget = preview.viewOf(selected);
+        if (box == null || widget == null) return false;
+        float density = context.getResources().getDisplayMetrics().density;
+        int step = event.isShiftPressed() ? GRID * 5 : GRID;
+        selected.addProperty("x", moved(intOf(selected, "x", 0), dx * step,
+                Math.round((box.getWidth() - box.getPaddingLeft() - box.getPaddingRight() - widget.getWidth()) / density)));
+        selected.addProperty("y", moved(intOf(selected, "y", 0), dy * step,
+                Math.round((box.getHeight() - box.getPaddingTop() - box.getPaddingBottom() - widget.getHeight()) / density)));
+        changed();
+        refreshAll();
+        preview.requestFocus();
+        return true;
     }
 
     /** {@code @action} functions for every action name the window uses (close is built in). */
@@ -341,14 +497,18 @@ final class UiDesigner {
     }
 
     private void refreshAll() {
+        boolean focused = preview != null && preview.hasFocus();
         refreshTree();
         refreshProps();
         refreshPreview();
+        updateSelectionInfo();
+        if (focused) preview.requestFocus();
     }
 
     private void select(JsonObject node) {
         selected = node;
         onSelect.accept(pathOf(window.getAsJsonObject("root"), node));
+        updateSelectionInfo();
     }
 
     private void refreshTree() {
@@ -364,9 +524,13 @@ final class UiDesigner {
             rowView.setPadding(rowView.dp(8), rowView.dp(5), rowView.dp(8), rowView.dp(5));
             styleChip(rowView, entry.node == selected);
             rowView.setOnClickListener(v -> {
+                chooseTool(null);
                 select(entry.node);
                 refreshTree();
                 refreshProps();
+                if (preview != null) {
+                    preview.invalidate();
+                }
             });
             if (entry.parent != null) { // the root does not move
                 rowView.setTooltipText("Drag onto another widget: above, below, or into a box");
@@ -393,7 +557,22 @@ final class UiDesigner {
             return false; // the target is inside the dragged node
         }
         JsonObject from = parentOf(root, node);
-        if (from == null) {
+        if (from == null || !find(root, target, new ArrayList<>())) {
+            return false;
+        }
+        JsonObject into = where == Drop.INTO ? target : parentOf(root, target);
+        if (into == null || !CONTAINERS.contains(WindowFragment.str(into, "type", ""))) {
+            return false;
+        }
+        JsonArray source = from.getAsJsonArray("children");
+        source.remove(indexOf(source, node));
+        return insertNode(root, node, target, where);
+    }
+
+    /** Inserts a new or detached widget; invalid targets leave the tree untouched. */
+    static boolean insertNode(JsonObject root, JsonObject node, JsonObject target, Drop where) {
+        if (find(root, node, new ArrayList<>()) || !find(root, target, new ArrayList<>())
+                || find(node, target, new ArrayList<>())) {
             return false;
         }
         JsonObject into;
@@ -408,8 +587,6 @@ final class UiDesigner {
                 return false; // before or after the root
             }
         }
-        JsonArray source = from.getAsJsonArray("children");
-        source.remove(indexOf(source, node));
         if (!into.has("children") || !into.get("children").isJsonArray()) {
             into.add("children", new JsonArray());
         }
@@ -450,6 +627,67 @@ final class UiDesigner {
             return fraction < 0.3f ? Drop.BEFORE : fraction > 0.7f ? Drop.AFTER : Drop.INTO;
         }
         return fraction < 0.5f ? Drop.BEFORE : Drop.AFTER;
+    }
+
+    private final class PaletteDrag implements View.OnTouchListener {
+        private final String type;
+        private float downX;
+        private float downY;
+        private boolean dragging;
+
+        PaletteDrag(String type) {
+            this.type = type;
+        }
+
+        @Override
+        public boolean onTouch(View view, icyllis.modernui.view.MotionEvent event) {
+            int[] at = new int[2];
+            view.getLocationInWindow(at);
+            float x = at[0] + event.getX();
+            float y = at[1] + event.getY();
+            switch (event.getAction()) {
+                case icyllis.modernui.view.MotionEvent.ACTION_DOWN -> {
+                    downX = x;
+                    downY = y;
+                    dragging = false;
+                    return false;
+                }
+                case icyllis.modernui.view.MotionEvent.ACTION_MOVE -> {
+                    if (!dragging && Math.abs(x - downX) + Math.abs(y - downY) < view.dp(6)) {
+                        return false;
+                    }
+                    if (!dragging && Math.abs(y - downY) > Math.abs(x - downX)) {
+                        return false; // vertical gestures scroll the toolbox
+                    }
+                    dragging = true;
+                    view.getParent().requestDisallowInterceptTouchEvent(true);
+                    view.setPressed(false);
+                    if (preview != null) {
+                        preview.paletteDrop(type, x, y, false);
+                    }
+                    return true;
+                }
+                case icyllis.modernui.view.MotionEvent.ACTION_UP, icyllis.modernui.view.MotionEvent.ACTION_CANCEL -> {
+                    view.getParent().requestDisallowInterceptTouchEvent(false);
+                    if (!dragging) {
+                        return false;
+                    }
+                    dragging = false;
+                    if (preview != null) {
+                        if (event.getAction() == icyllis.modernui.view.MotionEvent.ACTION_UP) {
+                            preview.paletteDrop(type, x, y, true);
+                        }
+                        preview.dropTarget = null;
+                        preview.paletteNode = null;
+                        preview.invalidate();
+                    }
+                    return true;
+                }
+                default -> {
+                    return dragging;
+                }
+            }
+        }
     }
 
     /** Drags a tree row: past a few pixels it shows where the widget would go; releasing moves it (one undo step). */
@@ -586,19 +824,44 @@ final class UiDesigner {
             JsonObject root = window.getAsJsonObject("root");
             var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
             WindowFragment.sized(frame, root, lp);
-            frame.addView(WindowFragment.previewView(context, root, shown), lp);
+            bindingProblems.clear();
+            JsonObject sample = window.has("preview_data") && window.get("preview_data").isJsonObject()
+                    ? window.getAsJsonObject("preview_data") : new JsonObject();
+            frame.addView(WindowFragment.previewView(context, root, shown, sample, bindingProblems), lp);
         } catch (RuntimeException e) {
             frame.addView(label(context, "Preview failed: " + e.getMessage(), R.attr.textAppearanceBodySmall));
         }
+        if (bindingStatus != null) bindingStatus.setText(String.join("\n", bindingProblems));
         // the window as big as in game, with room around it for the handles; the overlay takes every click and drag
-        var stage = new icyllis.modernui.widget.FrameLayout(context);
+        var designStage = new icyllis.modernui.widget.FrameLayout(context);
+        stage = designStage;
+        var holder = new icyllis.modernui.widget.FrameLayout(context);
+        zoomHolder = holder;
+        stage.setPivotX(0);
+        stage.setPivotY(0);
+        stage.setScaleX(zoom);
+        stage.setScaleY(zoom);
         int margin = stage.dp(8);
         var frameLp = new icyllis.modernui.widget.FrameLayout.LayoutParams(frame.dp(size[0]), frame.dp(size[1]));
         frameLp.leftMargin = frameLp.topMargin = frameLp.rightMargin = frameLp.bottomMargin = margin;
-        stage.addView(frame, frameLp);
-        stage.addView(new PreviewOverlay(context, shown, frame),
+        designStage.addView(frame, frameLp);
+        preview = new PreviewOverlay(context, shown, frame);
+        designStage.addView(preview,
                 new icyllis.modernui.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-        previewHolder.addView(stage, new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
+        holder.addView(stage, new icyllis.modernui.widget.FrameLayout.LayoutParams(stage.dp(size[0] + 16), stage.dp(size[1] + 16)));
+        previewHolder.addView(holder, new LinearLayout.LayoutParams(Math.round(stage.dp(size[0] + 16) * zoom),
+                Math.round(stage.dp(size[1] + 16) * zoom)));
+    }
+
+    private void resizeStage(int width, int height) {
+        var lp = stage.getLayoutParams();
+        lp.width = stage.dp(width + 16);
+        lp.height = stage.dp(height + 16);
+        stage.setLayoutParams(lp);
+        var holderLp = zoomHolder.getLayoutParams();
+        holderLp.width = Math.round(lp.width * zoom);
+        holderLp.height = Math.round(lp.height * zoom);
+        zoomHolder.setLayoutParams(holderLp);
     }
 
     private int[] windowSize() {
@@ -617,7 +880,7 @@ final class UiDesigner {
      * gesture is one change (one undo step in the editor tab).
      */
     private final class PreviewOverlay extends View {
-        private enum Mode { NONE, PRESS, MOVE, RESIZE, WINDOW }
+        private enum Mode { NONE, PRESS, MOVE, RESIZE, WINDOW, PLACE }
 
         private final java.util.Map<View, JsonObject> shown;
         private final View frame;
@@ -626,7 +889,7 @@ final class UiDesigner {
         private Mode mode = Mode.NONE;
         private float downX;
         private float downY;
-        private int corner; // 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
+        private int edges;
         private JsonObject node;
         @Nullable
         private JsonObject parent;
@@ -639,6 +902,11 @@ final class UiDesigner {
         private JsonObject dropTarget;
         private Drop dropZone;
         private boolean changedSomething;
+        private JsonObject beforeGesture;
+        private List<Integer> beforeSelection;
+        private JsonObject paletteNode;
+        private int dropX;
+        private int dropY;
 
         PreviewOverlay(Context context, java.util.Map<View, JsonObject> shown, View frame) {
             super(context);
@@ -646,7 +914,9 @@ final class UiDesigner {
             this.frame = frame;
             this.density = context.getResources().getDisplayMetrics().density;
             setClickable(true);
+            setFocusableInTouchMode(true);
             setOnTouchListener((v, event) -> handle(event));
+            setOnKeyListener((v, key, event) -> event.getAction() == KeyEvent.ACTION_DOWN && designKey(key, event));
         }
 
         /** {@code view}'s rectangle in this overlay's coordinates: left, top, right, bottom. */
@@ -655,9 +925,10 @@ final class UiDesigner {
             int[] its = new int[2];
             getLocationInWindow(mine);
             view.getLocationInWindow(its);
-            float left = its[0] - mine[0];
-            float top = its[1] - mine[1];
-            return new float[] {left, top, left + view.getWidth(), top + view.getHeight()};
+            float left = (its[0] - mine[0]) / zoom;
+            float top = (its[1] - mine[1]) / zoom;
+            float scale = view == previewViewport ? zoom : 1;
+            return new float[] {left, top, left + view.getWidth() / scale, top + view.getHeight() / scale};
         }
 
         @Nullable
@@ -696,17 +967,116 @@ final class UiDesigner {
             return parent != null && "canvas".equals(WindowFragment.str(parent, "type", ""));
         }
 
+        private boolean inside(float x, float y, float[] r) {
+            return x >= r[0] && x < r[2] && y >= r[1] && y < r[3];
+        }
+
+        /** A palette drag stays on its source button; translate its window coordinates to the design surface. */
+        private void paletteDrop(String type, float windowX, float windowY, boolean commit) {
+            int[] at = new int[2];
+            getLocationInWindow(at);
+            placeAt(type, (windowX - at[0]) / zoom, (windowY - at[1]) / zoom, commit);
+        }
+
+        private void placeAt(String type, float x, float y, boolean commit) {
+            if (paletteNode == null) {
+                paletteNode = newControl(window.getAsJsonObject("root"), type);
+                place(newNode("canvas"), paletteNode);
+            }
+            aimDrop(x, y, null);
+            if (commit && dropTarget != null) {
+                JsonObject added = paletteNode;
+                if (insertNode(window.getAsJsonObject("root"), added, dropTarget, dropZone)) {
+                    positionDrop(added);
+                    select(added);
+                    chooseTool(null);
+                    changed();
+                    post(UiDesigner.this::refreshAll);
+                }
+            }
+            invalidate();
+        }
+
+        private void positionDrop(JsonObject widget) {
+            JsonObject container = dropZone == Drop.INTO ? dropTarget : parentOf(window.getAsJsonObject("root"), widget);
+            if (container != null && "canvas".equals(WindowFragment.str(container, "type", ""))) {
+                widget.addProperty("x", dropX);
+                widget.addProperty("y", dropY);
+                if (paletteNode == null) {
+                    widget.addProperty("width", startW);
+                    widget.addProperty("height", startH);
+                    widget.remove("weight");
+                }
+            }
+        }
+
+        private void aimDrop(float x, float y, @Nullable JsonObject skip) {
+            dropTarget = null;
+            if (!inside(x, y, rect(previewViewport))) {
+                return;
+            }
+            JsonObject target = hit(x, y, skip);
+            View targetView = target == null ? null : viewOf(target);
+            if (targetView == null) {
+                return;
+            }
+            JsonObject root = window.getAsJsonObject("root");
+            JsonObject targetParent = parentOf(root, target);
+            // In a free layout, dropping over a sibling still means placing at the pointer in its canvas.
+            if (!isContainer(WindowFragment.str(target, "type", "")) && targetParent != null
+                    && "canvas".equals(WindowFragment.str(targetParent, "type", ""))) {
+                target = targetParent;
+                targetView = viewOf(target);
+            }
+            if (targetView == null) {
+                return;
+            }
+            float[] r = rect(targetView);
+            targetParent = parentOf(root, target);
+            boolean across = targetParent != null && "hbox".equals(WindowFragment.str(targetParent, "type", ""));
+            float fraction = across ? (x - r[0]) / Math.max(1, r[2] - r[0]) : (y - r[1]) / Math.max(1, r[3] - r[1]);
+            Drop zone = target == root || "canvas".equals(WindowFragment.str(target, "type", ""))
+                    ? Drop.INTO : zone(target, fraction);
+            JsonObject copy = root.deepCopy();
+            JsonObject copiedTarget = nodeAt(copy, pathOf(root, target));
+            boolean valid = skip == null ? insertNode(copy, newNode("label"), copiedTarget, zone)
+                    : moveNode(copy, nodeAt(copy, pathOf(root, skip)), copiedTarget, zone);
+            if (valid) {
+                dropTarget = target;
+                dropZone = zone;
+                JsonObject container = zone == Drop.INTO ? target : targetParent;
+                View box = container == null ? null : viewOf(container);
+                if (box != null && "canvas".equals(WindowFragment.str(container, "type", ""))) {
+                    float[] bounds = rect(box);
+                    int width = paletteNode == null ? startW : intOf(paletteNode, "width", 80);
+                    int height = paletteNode == null ? startH : intOf(paletteNode, "height", 24);
+                    dropX = moved(0, (x - bounds[0] - box.getPaddingLeft()) / density,
+                            Math.round((box.getWidth() - box.getPaddingLeft() - box.getPaddingRight()) / density) - width);
+                    dropY = moved(0, (y - bounds[1] - box.getPaddingTop()) / density,
+                            Math.round((box.getHeight() - box.getPaddingTop() - box.getPaddingBottom()) / density) - height);
+                }
+            }
+        }
+
         private boolean handle(icyllis.modernui.view.MotionEvent event) {
             float x = event.getX();
             float y = event.getY();
             switch (event.getAction()) {
                 case icyllis.modernui.view.MotionEvent.ACTION_DOWN -> {
+                    requestFocus();
                     if (getParent() != null) {
                         getParent().requestDisallowInterceptTouchEvent(true); // a drag here is not a scroll
                     }
                     downX = x;
                     downY = y;
                     changedSomething = false;
+                    beforeGesture = window.deepCopy();
+                    beforeSelection = pathOf(window.getAsJsonObject("root"), selected);
+                    if (placementType != null) {
+                        mode = Mode.PLACE;
+                        placeAt(placementType, x, y, false);
+                        return true;
+                    }
                     float[] w = rect(frame);
                     if (near(x, y, w[2], w[3])) {
                         mode = Mode.WINDOW;
@@ -718,11 +1088,11 @@ final class UiDesigner {
                     View current = viewOf(selected);
                     if (current != null) {
                         float[] r = rect(current);
-                        float[][] corners = {{r[0], r[1]}, {r[2], r[1]}, {r[0], r[3]}, {r[2], r[3]}};
-                        for (int i = 0; i < 4; i++) {
-                            if (near(x, y, corners[i][0], corners[i][1]) && selected != window.getAsJsonObject("root")) {
+                        float[][] handles = handles(r);
+                        for (int i = 0; i < handles.length; i++) {
+                            if (near(x, y, handles[i][0], handles[i][1]) && selected != window.getAsJsonObject("root")) {
                                 begin(selected, current);
-                                corner = i;
+                                edges = HANDLE_EDGES[i];
                                 mode = Mode.RESIZE;
                                 return true;
                             }
@@ -751,6 +1121,7 @@ final class UiDesigner {
                         case PRESS -> {
                             if (Math.abs(x - downX) + Math.abs(y - downY) > dp(4) && parent != null) {
                                 mode = Mode.MOVE;
+                                drag(x, y, dx, dy);
                             }
                         }
                         case MOVE -> drag(x, y, dx, dy);
@@ -764,8 +1135,10 @@ final class UiDesigner {
                             lp.width = Math.round(size.get(0).getAsInt() * density);
                             lp.height = Math.round(size.get(1).getAsInt() * density);
                             frame.setLayoutParams(lp);
+                            resizeStage(size.get(0).getAsInt(), size.get(1).getAsInt());
                             changedSomething = true;
                         }
+                        case PLACE -> placeAt(placementType, x, y, false);
                         default -> {
                         }
                     }
@@ -774,17 +1147,32 @@ final class UiDesigner {
                 }
                 case icyllis.modernui.view.MotionEvent.ACTION_UP, icyllis.modernui.view.MotionEvent.ACTION_CANCEL -> {
                     boolean up = event.getAction() == icyllis.modernui.view.MotionEvent.ACTION_UP;
-                    if (up && mode == Mode.MOVE && !inCanvas() && dropTarget != null
+                    if (up && mode == Mode.PLACE) {
+                        placeAt(placementType, x, y, true);
+                    }
+                    if (up && mode == Mode.MOVE && dropTarget != null
                             && moveNode(window.getAsJsonObject("root"), node, dropTarget, dropZone)) {
+                        positionDrop(node);
                         select(node);
                         changedSomething = true;
                     }
+                    if (getParent() != null) {
+                        getParent().requestDisallowInterceptTouchEvent(false);
+                    }
                     mode = Mode.NONE;
                     dropTarget = null;
-                    if (changedSomething) {
-                        changed();
+                    paletteNode = null;
+                    if (!up && beforeGesture != null) {
+                        restore(window, beforeGesture);
+                        select(nodeAt(window.getAsJsonObject("root"), beforeSelection));
+                    }
+                    if (changedSomething || !up) {
+                        if (up && !window.equals(beforeGesture)) {
+                            changed();
+                        }
                         post(UiDesigner.this::refreshAll); // rebuilds this overlay too, after the gesture
                     }
+                    beforeGesture = null;
                     invalidate();
                     return true;
                 }
@@ -805,16 +1193,23 @@ final class UiDesigner {
             parent = entry == null ? null : entry.parent;
             startX = intOf(which, "x", 0);
             startY = intOf(which, "y", 0);
-            startW = intOf(which, "width", view == null ? 40 : Math.round(view.getWidth() / density));
-            startH = intOf(which, "height", view == null ? 20 : Math.round(view.getHeight() / density));
+            startW = view == null ? intOf(which, "width", 40) : Math.round(view.getWidth() / density);
+            startH = view == null ? intOf(which, "height", 20) : Math.round(view.getHeight() / density);
         }
 
         /** Moves the widget: freely in a canvas, else marks where in the boxes it would go. */
         private void drag(float x, float y, float dx, float dy) {
+            aimDrop(x, y, node);
+            if (dropTarget != null && (dropTarget != parent || !inCanvas())) {
+                return;
+            }
             if (inCanvas()) {
+                dropTarget = null;
                 View box = viewOf(parent);
-                int maxX = box == null ? Integer.MAX_VALUE : Math.round(box.getWidth() / density) - startW;
-                int maxY = box == null ? Integer.MAX_VALUE : Math.round(box.getHeight() / density) - startH;
+                int maxX = box == null ? Integer.MAX_VALUE
+                        : Math.round((box.getWidth() - box.getPaddingLeft() - box.getPaddingRight()) / density) - startW;
+                int maxY = box == null ? Integer.MAX_VALUE
+                        : Math.round((box.getHeight() - box.getPaddingTop() - box.getPaddingBottom()) / density) - startH;
                 int nx = moved(startX, dx, maxX);
                 int ny = moved(startY, dy, Math.max(maxY, startY)); // a canvas without a height grows downwards
                 node.addProperty("x", nx);
@@ -827,42 +1222,22 @@ final class UiDesigner {
                 changedSomething = true;
                 return;
             }
-            dropTarget = null;
-            JsonObject target = hit(x, y, node);
-            View targetView = target == null ? null : viewOf(target);
-            if (target == null || targetView == null) {
-                return;
-            }
-            Entry targetEntry = entryOf(target);
-            boolean across = targetEntry != null && targetEntry.parent != null
-                    && "hbox".equals(WindowFragment.str(targetEntry.parent, "type", ""));
-            float[] r = rect(targetView);
-            float fraction = across ? (x - r[0]) / Math.max(1, r[2] - r[0]) : (y - r[1]) / Math.max(1, r[3] - r[1]);
-            Drop zone = zone(target, fraction);
-            JsonObject root = window.getAsJsonObject("root");
-            JsonObject copy = root.deepCopy();
-            JsonObject copiedNode = nodeAt(copy, pathOf(root, node));
-            JsonObject copiedTarget = nodeAt(copy, pathOf(root, target));
-            if (copiedNode != null && copiedTarget != null && moveNode(copy, copiedNode, copiedTarget, zone)) {
-                dropTarget = target;
-                dropZone = zone;
-            }
         }
 
         private void resize(float dx, float dy) {
-            boolean left = corner == 0 || corner == 2;
-            boolean top = corner == 0 || corner == 1;
-            int width = resized(startW, left ? -dx : dx);
-            int height = resized(startH, top ? -dy : dy);
+            View box = inCanvas() ? viewOf(parent) : null;
+            int maxW = box == null ? Integer.MAX_VALUE
+                    : Math.round((box.getWidth() - box.getPaddingLeft() - box.getPaddingRight()) / density);
+            int maxH = box == null ? Integer.MAX_VALUE
+                    : Math.round((box.getHeight() - box.getPaddingTop() - box.getPaddingBottom()) / density);
+            int[] bounds = resizeBounds(startX, startY, startW, startH, dx, dy, edges, maxW, maxH, inCanvas());
+            int width = bounds[2];
+            int height = bounds[3];
             node.addProperty("width", width);
             node.addProperty("height", height);
             if (inCanvas()) {
-                if (left) {
-                    node.addProperty("x", Math.max(0, startX + startW - width));
-                }
-                if (top) {
-                    node.addProperty("y", Math.max(0, startY + startH - height));
-                }
+                node.addProperty("x", bounds[0]);
+                node.addProperty("y", bounds[1]);
             }
             if (nodeView != null) {
                 var lp = nodeView.getLayoutParams();
@@ -884,6 +1259,19 @@ final class UiDesigner {
         @Override
         protected void onDraw(@icyllis.modernui.annotation.NonNull icyllis.modernui.graphics.Canvas canvas) {
             float handle = dp(3);
+            if (showGrid) {
+                paint.setStyle(icyllis.modernui.graphics.Paint.FILL);
+                paint.setColor(0x444E5157);
+                for (var entry : shown.entrySet()) {
+                    if (!entry.getKey().isShown() || !"canvas".equals(WindowFragment.str(entry.getValue(), "type", ""))) continue;
+                    float[] box = rect(entry.getKey());
+                    for (float x = box[0] + entry.getKey().getPaddingLeft(); x < box[2]; x += dp(16)) {
+                        for (float y = box[1] + entry.getKey().getPaddingTop(); y < box[3]; y += dp(16)) {
+                            canvas.drawRect(x, y, x + dp(1), y + dp(1), paint);
+                        }
+                    }
+                }
+            }
             // the window's resize corner
             float[] w = rect(frame);
             paint.setStyle(icyllis.modernui.graphics.Paint.FILL);
@@ -898,12 +1286,12 @@ final class UiDesigner {
                 canvas.drawRect(r[0], r[1], r[2], r[3], paint);
                 if (selected != window.getAsJsonObject("root")) {
                     paint.setStyle(icyllis.modernui.graphics.Paint.FILL);
-                    for (float[] c : new float[][] {{r[0], r[1]}, {r[2], r[1]}, {r[0], r[3]}, {r[2], r[3]}}) {
+                    for (float[] c : handles(r)) {
                         canvas.drawRect(c[0] - handle, c[1] - handle, c[0] + handle, c[1] + handle, paint);
                     }
                 }
             }
-            if (mode == Mode.MOVE && dropTarget != null) {
+            if ((mode == Mode.MOVE || paletteNode != null) && dropTarget != null) {
                 View target = viewOf(dropTarget);
                 if (target != null) {
                     float[] r = rect(target);
@@ -918,6 +1306,13 @@ final class UiDesigner {
                             paint.setStyle(icyllis.modernui.graphics.Paint.STROKE);
                             paint.setStrokeWidth(t);
                             canvas.drawRect(r[0], r[1], r[2], r[3], paint);
+                            if ("canvas".equals(WindowFragment.str(dropTarget, "type", ""))) {
+                                int width = paletteNode == null ? startW : intOf(paletteNode, "width", 80);
+                                int height = paletteNode == null ? startH : intOf(paletteNode, "height", 24);
+                                float left = r[0] + target.getPaddingLeft() + dropX * density;
+                                float top = r[1] + target.getPaddingTop() + dropY * density;
+                                canvas.drawRect(left, top, left + width * density, top + height * density, paint);
+                            }
                         }
                         case BEFORE -> canvas.drawRect(r[0], r[1], across ? r[0] + t : r[2], across ? r[3] : r[1] + t, paint);
                         case AFTER -> canvas.drawRect(across ? r[2] - t : r[0], across ? r[1] : r[3] - t, r[2], r[3], paint);
@@ -931,23 +1326,52 @@ final class UiDesigner {
     // Structure edits
     // ------------------------------------------------------------------
 
-    private void add(String type) {
-        Entry target = entryOf(selected);
-        JsonObject container = selected;
-        if (!CONTAINERS.contains(WindowFragment.str(selected, "type", ""))) {
-            container = target != null && target.parent != null ? target.parent : window.getAsJsonObject("root");
-        }
-        if (!container.has("children") || !container.get("children").isJsonArray()) {
-            container.add("children", new JsonArray());
-        }
-        JsonObject node = newNode(type);
-        if ("canvas".equals(WindowFragment.str(container, "type", ""))) {
-            place(container, node);
-        }
-        container.getAsJsonArray("children").add(node);
-        select(node);
+    private void duplicate() {
+        JsonObject copy = duplicateNode(window.getAsJsonObject("root"), selected);
+        if (copy == null) return;
+        select(copy);
         refreshAll();
         changed();
+    }
+
+    @Nullable
+    static JsonObject duplicateNode(JsonObject root, JsonObject node) {
+        JsonObject parent = parentOf(root, node);
+        if (parent == null) return null;
+        JsonObject copy = node.deepCopy();
+        Set<String> ids = new java.util.HashSet<>();
+        collectIds(root, ids);
+        renameCopiedIds(copy, ids);
+        if ("canvas".equals(WindowFragment.str(parent, "type", ""))) {
+            copy.addProperty("x", intOf(node, "x", 0) + GRID * 2);
+            copy.addProperty("y", intOf(node, "y", 0) + GRID * 2);
+        }
+        return insertNode(root, copy, node, Drop.AFTER) ? copy : null;
+    }
+
+    private static void collectIds(JsonObject node, Set<String> ids) {
+        String id = WindowFragment.str(node, "id", "");
+        if (!id.isBlank()) ids.add(id);
+        if (node.has("children") && node.get("children").isJsonArray()) {
+            for (JsonElement child : node.getAsJsonArray("children")) {
+                if (child.isJsonObject()) collectIds(child.getAsJsonObject(), ids);
+            }
+        }
+    }
+
+    private static void renameCopiedIds(JsonObject node, Set<String> ids) {
+        String id = WindowFragment.str(node, "id", "");
+        if (!id.isBlank()) {
+            String candidate = id + "_copy";
+            for (int i = 2; ids.contains(candidate); i++) candidate = id + "_copy" + i;
+            node.addProperty("id", candidate);
+            ids.add(candidate);
+        }
+        if (node.has("children") && node.get("children").isJsonArray()) {
+            for (JsonElement child : node.getAsJsonArray("children")) {
+                if (child.isJsonObject()) renameCopiedIds(child.getAsJsonObject(), ids);
+            }
+        }
     }
 
     /** A new widget in a canvas: at the left, below the lowest one, with a size it is usable at. */
@@ -976,7 +1400,13 @@ final class UiDesigner {
                 node.addProperty("width", 160);
                 node.addProperty("height", 80);
             }
+            case "image", "item_icon" -> {
+                node.addProperty("width", 32);
+                node.addProperty("height", 32);
+            }
             default -> {
+                node.addProperty("width", 80);
+                node.addProperty("height", 24);
             }
         }
     }
@@ -1002,6 +1432,52 @@ final class UiDesigner {
     /** A size dragged by {@code delta} dp: snapped and at least {@link #MIN_SIZE}. */
     static int resized(int start, float delta) {
         return Math.max(MIN_SIZE, snap(start + delta));
+    }
+
+    private static float[][] handles(float[] r) {
+        float midX = (r[0] + r[2]) / 2;
+        float midY = (r[1] + r[3]) / 2;
+        return new float[][] {{r[0], r[1]}, {r[2], r[1]}, {r[0], r[3]}, {r[2], r[3]},
+                {midX, r[1]}, {r[2], midY}, {midX, r[3]}, {r[0], midY}};
+    }
+
+    /** Resizing from the left/top keeps the opposite edge fixed on a canvas. */
+    static int[] resizeBounds(int x, int y, int width, int height, float dx, float dy, int edges,
+                              int maxWidth, int maxHeight, boolean canvas) {
+        if ((edges & LEFT) != 0) {
+            int next = resized(width, -dx);
+            if (canvas) {
+                next = Math.min(x + width, next);
+                x += width - next;
+            }
+            width = next;
+        } else if ((edges & RIGHT) != 0) {
+            width = resized(width, dx);
+            if (canvas) {
+                width = Math.min(Math.max(MIN_SIZE, maxWidth - x), width);
+            }
+        }
+        if ((edges & TOP) != 0) {
+            int next = resized(height, -dy);
+            if (canvas) {
+                next = Math.min(y + height, next);
+                y += height - next;
+            }
+            height = next;
+        } else if ((edges & BOTTOM) != 0) {
+            height = resized(height, dy);
+            if (canvas) {
+                height = Math.min(Math.max(MIN_SIZE, maxHeight - y), height);
+            }
+        }
+        return new int[] {x, y, width, height};
+    }
+
+    static void restore(JsonObject target, JsonObject snapshot) {
+        for (String key : new ArrayList<>(target.keySet())) {
+            target.remove(key);
+        }
+        snapshot.entrySet().forEach(entry -> target.add(entry.getKey(), entry.getValue().deepCopy()));
     }
 
     private void delete() {
@@ -1071,21 +1547,21 @@ final class UiDesigner {
                 node.addProperty("on_click", "");
             }
             case "text_input", "text_area" -> {
-                node.addProperty("id", "field" + (int) (Math.random() * 900 + 100));
+                node.addProperty("id", "field");
                 node.addProperty("hint", "Type here");
             }
             case "checkbox" -> {
-                node.addProperty("id", "option" + (int) (Math.random() * 900 + 100));
+                node.addProperty("id", "option");
                 node.addProperty("label", "Option");
             }
             case "slider" -> {
-                node.addProperty("id", "amount" + (int) (Math.random() * 900 + 100));
+                node.addProperty("id", "amount");
                 node.addProperty("min", 0);
                 node.addProperty("max", 100);
                 node.addProperty("value", 50);
             }
             case "dropdown" -> {
-                node.addProperty("id", "choice" + (int) (Math.random() * 900 + 100));
+                node.addProperty("id", "choice");
                 JsonArray options = new JsonArray();
                 options.add("One");
                 options.add("Two");
@@ -1110,6 +1586,19 @@ final class UiDesigner {
         return node;
     }
 
+    static JsonObject newControl(JsonObject root, String type) {
+        JsonObject node = newNode(type);
+        String base = WindowFragment.str(node, "id", "");
+        if (!base.isEmpty()) {
+            Set<String> ids = new java.util.HashSet<>();
+            collectIds(root, ids);
+            String id = base;
+            for (int i = 2; ids.contains(id); i++) id = base + i;
+            node.addProperty("id", id);
+        }
+        return node;
+    }
+
     // ------------------------------------------------------------------
     // Properties
     // ------------------------------------------------------------------
@@ -1124,7 +1613,7 @@ final class UiDesigner {
             case "checkbox" -> list.addAll(List.of("id", "label", "checked", "on_change"));
             case "slider" -> list.addAll(List.of("id", "min", "max", "value", "on_change"));
             case "dropdown" -> list.addAll(List.of("id", "options", "selected", "on_change"));
-            case "list" -> list.addAll(List.of("items", "on_select"));
+            case "list" -> list.addAll(List.of("id", "items", "selected", "on_select"));
             case "progress" -> list.addAll(List.of("value", "max"));
             case "image" -> list.add("source");
             case "item_icon" -> list.add("item");
@@ -1140,6 +1629,8 @@ final class UiDesigner {
         list.add("height");
         list.add("weight");
         list.add("title");
+        list.add("visible");
+        list.add("enabled");
         return list;
     }
 
@@ -1154,15 +1645,55 @@ final class UiDesigner {
             props.addView(spacer(context));
         }
         String type = WindowFragment.str(selected, "type", "?");
-        props.addView(label(context, "Widget: " + type, R.attr.textAppearanceTitleSmall));
+        props.addView(section(displayName(type)));
         List<String> keys = new ArrayList<>(propsOf(type));
         Entry entry = entryOf(selected);
         if (entry != null && entry.parent != null && "canvas".equals(WindowFragment.str(entry.parent, "type", ""))) {
             keys.addAll(0, List.of("x", "y")); // placed freely in its canvas
         }
-        for (String key : keys) {
-            props.addView(field(context, key, nodeValue(selected, key), value -> setProp(key, value)));
+        for (String group : List.of("Identity", "Layout", "Appearance & values", "Events")) {
+            List<String> fields = keys.stream().filter(key -> propertyGroup(key).equals(group)).toList();
+            if (fields.isEmpty()) continue;
+            props.addView(section(group));
+            for (String key : fields) {
+                props.addView(field(context, key, nodeValue(selected, key), value -> setProp(key, value)));
+            }
         }
+        props.addView(section("Data bindings"));
+        props.addView(label(context, "Dictionary keys from @ui.data; empty uses the static value.", R.attr.textAppearanceBodySmall));
+        for (String property : UiBindings.fields(type).keySet()) {
+            String value = selected.has("bind") && selected.get("bind").isJsonObject()
+                    ? WindowFragment.str(selected.getAsJsonObject("bind"), property, "") : "";
+            props.addView(field(context, "bind." + property, value, key -> {
+                JsonObject bindings = selected.has("bind") && selected.get("bind").isJsonObject()
+                        ? selected.getAsJsonObject("bind") : new JsonObject();
+                if (key.isEmpty()) bindings.remove(property); else bindings.addProperty(property, key);
+                if (bindings.isEmpty()) selected.remove("bind"); else selected.add("bind", bindings);
+                refreshPreview(); changed();
+            }));
+        }
+        props.addView(section("Sample data"));
+        var sample = CraftPyFragment.field(context);
+        sample.setMinLines(2); sample.setMaxLines(5);
+        sample.setContentDescription("Preview sample data JSON object");
+        sample.setText(window.has("preview_data") ? window.get("preview_data").toString() : "{}");
+        props.addView(sample);
+        props.addView(button(context, "Apply sample data", R.attr.borderlessButtonStyle, view -> {
+            try {
+                JsonObject values = JsonParser.parseString(sample.getText().toString()).getAsJsonObject();
+                window.add("preview_data", values); refreshPreview(); changed();
+            } catch (RuntimeException error) { bindingStatus.setText("Sample data must be a JSON object: " + error.getMessage()); }
+        }));
+        bindingStatus = label(context, String.join("\n", bindingProblems), R.attr.textAppearanceBodySmall);
+        bindingStatus.setTextColor(color(context, R.attr.colorError));
+        props.addView(bindingStatus);
+    }
+
+    static String propertyGroup(String key) {
+        if (key.startsWith("on_")) return "Events";
+        if (Set.of("id", "text", "label", "title").contains(key)) return "Identity";
+        if (Set.of("x", "y", "width", "height", "weight", "spacing", "padding", "columns").contains(key)) return "Layout";
+        return "Appearance & values";
     }
 
     private View spacer(Context context) {
@@ -1172,13 +1703,23 @@ final class UiDesigner {
     }
 
     private View field(Context context, String key, String value, Consumer<String> onChange) {
-        var column = new LinearLayout(context);
-        column.setOrientation(LinearLayout.VERTICAL);
-        var name = label(context, key, R.attr.textAppearanceLabelMedium);
+        var column = row(context);
+        column.setGravity(Gravity.CENTER_VERTICAL);
+        var name = label(context, key.replace("on_", "").replace('_', ' '), R.attr.textAppearanceLabelMedium);
         name.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
-        column.addView(name);
+        name.setTooltipText(key.startsWith("on_") ? "Python @action name for " + key : key);
+        column.addView(name, new LinearLayout.LayoutParams(name.dp(76), WRAP_CONTENT));
+        if (Set.of("checked", "visible", "enabled").contains(key)) {
+            var checked = new icyllis.modernui.widget.CheckBox(context);
+            checked.setChecked(Boolean.parseBoolean(value));
+            checked.setContentDescription(key);
+            checked.setOnCheckedChangeListener((view, enabled) -> onChange.accept(Boolean.toString(enabled)));
+            column.addView(checked);
+            return column;
+        }
         var input = CraftPyFragment.field(context);
         input.setSingleLine();
+        input.setContentDescription(key);
         input.setText(value);
         input.addTextChangedListener(new TextWatcher() {
             @Override
@@ -1194,7 +1735,7 @@ final class UiDesigner {
                 onChange.accept(s.toString());
             }
         });
-        column.addView(input, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        column.addView(input, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         lp.topMargin = column.dp(6);
         column.setLayoutParams(lp);
@@ -1237,7 +1778,7 @@ final class UiDesigner {
 
     private static String nodeValue(JsonObject node, String key) {
         if (!node.has(key)) {
-            return "";
+            return key.equals("visible") || key.equals("enabled") ? "true" : "";
         }
         JsonElement value = node.get(key);
         if (value.isJsonArray()) {
@@ -1261,7 +1802,7 @@ final class UiDesigner {
                 }
             }
             selected.add(key, array);
-        } else if (key.equals("checked")) {
+        } else if (Set.of("checked", "visible", "enabled").contains(key)) {
             selected.add(key, new JsonPrimitive(text.equalsIgnoreCase("true")));
         } else if (NUMBERS.contains(key) || (key.equals("value") && isNumberWidget())) {
             try {

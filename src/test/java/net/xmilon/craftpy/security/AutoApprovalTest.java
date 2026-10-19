@@ -16,6 +16,21 @@ class AutoApprovalTest {
     }
 
     @Test
+    void rememberedApprovalAndRevocationSurviveReloadButNotFileChanges(@org.junit.jupiter.api.io.TempDir java.nio.file.Path root) {
+        String previous=System.getProperty("craftpy.home");
+        try {
+            System.setProperty("craftpy.home",root.toString()); PermissionStore.forget(); PermissionStore.adminApproves=false;
+            var asked=new ModulePermissions(); asked.files=true;
+            PermissionStore.declare("module:remembered",asked,"a".repeat(64)); PermissionStore.approve("module:remembered",asked);
+            PermissionStore.forget(); PermissionStore.declare("module:remembered",asked,"a".repeat(64)); assertTrue(PermissionStore.filesAllowed("module:remembered"));
+            PermissionStore.declare("module:remembered",asked,"b".repeat(64)); assertFalse(PermissionStore.filesAllowed("module:remembered"));
+            PermissionStore.approve("module:remembered",asked); PermissionStore.revoke("module:remembered");
+            PermissionStore.forget(); PermissionStore.adminApproves=true; PermissionStore.declare("module:remembered",asked,"b".repeat(64));
+            assertFalse(PermissionStore.filesAllowed("module:remembered"),"Dedicated defaults must not undo an explicit saved revocation");
+        } finally { if(previous==null) System.clearProperty("craftpy.home"); else System.setProperty("craftpy.home",previous); }
+    }
+
+    @Test
     void dedicatedServerApprovesInstalledModules() {
         ModulePermissions asked = new ModulePermissions(List.of("api.example.com"), true);
         asked.commands = true;

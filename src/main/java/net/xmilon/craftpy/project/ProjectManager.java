@@ -41,52 +41,9 @@ public final class ProjectManager {
 
     public static ProjectManager init() {
         ProjectManager manager = new ProjectManager(PyForgePaths.projects());
-        seedDefaultProject(manager.projectsDir);
+        BundledModules.install();
         instance = manager;
         return manager;
-    }
-
-    /**
-     * Installs the bundled {@code welcome} project once per instance (files listed in
-     * {@code /craftpy_default/files.txt}). A marker in system/ keeps it from coming back after the user deletes it.
-     */
-    static void seedDefaultProject(Path projectsDir) {
-        Path marker = PyForgePaths.system().resolve("default_project_installed");
-        if (Files.exists(marker)) {
-            return;
-        }
-        try {
-            Path target = projectsDir.resolve("welcome");
-            if (!Files.exists(target)) {
-                String manifest;
-                try (var in = ProjectManager.class.getResourceAsStream("/craftpy_default/files.txt")) {
-                    if (in == null) {
-                        return;
-                    }
-                    manifest = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-                }
-                createDirectories(target);
-                for (String line : manifest.split("\\R")) {
-                    String rel = line.trim();
-                    if (rel.isEmpty() || rel.contains("..")) {
-                        continue;
-                    }
-                    try (var in = ProjectManager.class.getResourceAsStream("/craftpy_default/" + rel)) {
-                        if (in == null) {
-                            continue;
-                        }
-                        Path file = projectsDir.resolve(rel);
-                        Files.createDirectories(file.getParent());
-                        Files.copy(in, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
-                CraftPyLog.LOGGER.info("Installed the default project 'welcome'");
-            }
-            Files.createDirectories(marker.getParent());
-            Files.writeString(marker, "The default project was installed once; delete this file to install it again.\n");
-        } catch (IOException e) {
-            CraftPyLog.LOGGER.warn("Could not install the default project: {}", e.toString());
-        }
     }
 
     public static ProjectManager get() {
@@ -526,6 +483,29 @@ public final class ProjectManager {
     }
 
     /** Writes a file inside the project. Creates parent directories. */
+    public CompletableFuture<OpResult> addFiles(String id, Map<String, String> additions) {
+        return CraftPyExecutors.supplyAsync(() -> {
+            Path dir = projectsDir.resolve(id);
+            List<Path> created = new ArrayList<>();
+            try {
+                if (!Files.isDirectory(dir) || additions.isEmpty() || additions.size() > 16) throw new IOException("Invalid template bundle");
+                for (var entry : additions.entrySet()) {
+                    Path target = resolveSafe(dir, entry.getKey());
+                    if (target == null || Files.exists(target) || entry.getValue().length() > 256000) throw new IOException("Template file is unsafe or already exists: " + entry.getKey());
+                }
+                for (var entry : additions.entrySet()) {
+                    Path target = resolveSafe(dir, entry.getKey()); Files.createDirectories(target.getParent());
+                    Files.writeString(target, entry.getValue(), StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.CREATE_NEW); created.add(target);
+                }
+                ChangeLog.record(id, "Added template files: " + String.join(", ", additions.keySet()));
+                return OpResult.ok(id, "Added template files");
+            } catch (IOException error) {
+                for (Path target : created) try { Files.deleteIfExists(target); } catch (IOException rollback) { CraftPyLog.LOGGER.error("Template rollback failed for {}", target, rollback); }
+                return OpResult.fail(error.getMessage());
+            }
+        }, CraftPyExecutors.forProject(id));
+    }
+
     public CompletableFuture<OpResult> writeFile(String id, String path, String content) {
         return CraftPyExecutors.supplyAsync(() -> {
             Path dir = projectsDir.resolve(id);

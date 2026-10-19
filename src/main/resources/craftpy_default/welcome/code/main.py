@@ -10,12 +10,12 @@
 #   events.py      5. Events                @on.<event>
 #   timers.py      6. Timers                @every, after, run_every
 #   commands.py    7. Commands + self test  @command
-#   windows.py     8. Windows               a Python window; the second one is drawn in ui/settings.json
+#   windows.py     8. Windows               viewer data and named actions for designer layouts in ui/
 #   rewards.py    11. Logic you can test   plain functions, no game needed
 #   test_rewards.py   Tests                 Ctrl+Shift+F10 runs every test_* function of code/test_*.py
 #
 # storage (events.py, commands.py) is saved with the world. F6 moves the def/class at the cursor to another file.
-# This project is written for Python API 2.2 ("apiVersion" in project.json); see API versions in the docs.
+# This project is written for Python API 2.9 ("apiVersion" in project.json); see API versions in the docs.
 #
 # Get the content:  /craftpy give @s welcome:gem_ore 16     (block or item is detected for you)
 # Textures are PNG files in assets/textures/ and are referenced by file name.

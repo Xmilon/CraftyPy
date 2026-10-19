@@ -1,0 +1,11 @@
+{
+  "id": "server_toolkit",
+  "name": "Server Toolkit",
+  "description": "Read server status, greet joining players, and provide explicitly operator-gated day/weather and announcement commands.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.9",
+  "mcVersion": "1.21.1",
+  "side": "both",
+  "permissions": {}
+}

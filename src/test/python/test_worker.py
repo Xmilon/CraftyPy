@@ -1264,7 +1264,7 @@ def test_client_mode_hud_keys_events_and_windows():
             ""])
         result = w._handle("run_main", {"project": "cm", "code": code, "file": "code/main.py"})
         assert not result.get("error"), result
-        assert ("keys.set", {"owner": "cm", "combos": ["ctrl+k"]}) in calls, calls
+        assert w._KEYS[("cm", "ctrl+k")][1] == {"id": "ctrl+k", "name": "ctrl+k", "category": "CraftPy", "combo": "ctrl+k"}
         w._handle("tick", {"tick": 5})
         w._handle("tick", {"tick": 6})
         sets = [params for method, params in calls if method == "hud.set"]
@@ -1291,17 +1291,155 @@ def test_client_mode_hud_keys_events_and_windows():
         # unloading removes what the module drew and bound
         calls.clear()
         w._handle("unload_owner", {"owner": "cm"})
-        assert ("hud.clear", {"owner": "cm"}) in calls and ("keys.set", {"owner": "cm", "combos": []}) in calls, calls
+        assert ("hud.clear", {"owner": "cm"}) in calls, calls
         assert not [k for k in w._KEYS if k[0] == "cm"]
     finally:
         w._host_call, w._try_host, w._MODE[0] = old_call, old_try, old_mode
+
+
+def test_ui_binding_shared_fixtures_and_viewers():
+    import copy
+    import json
+    with open(os.path.join(os.path.dirname(__file__), "../resources/ui-bindings.json"), encoding="utf-8") as handle:
+        fixtures = json.load(handle)
+    for fixture in fixtures:
+        node = {"type": fixture["type"], "bind": {fixture["property"]: "data_key"}}
+        try:
+            w._ui_bind(node, {"data_key": fixture["value"]}, "test")
+            assert fixture["valid"], fixture
+            assert node[fixture["property"]] == fixture["value"]
+        except (ValueError, TypeError, KeyError):
+            assert not fixture["valid"], fixture
+    calls = []
+    previous = w._host_call
+    w._host_call = lambda method, params=None, **kwargs: calls.append((method, params)) or {"ok": True}
+    owner = "binding_viewers"
+    try:
+        result = w._handle("run_main", {"project": owner, "file": "code/main.py", "code": NL.join([
+            "from craftpy import *", "@ui.data('panel')", "def data(ctx):",
+            "    return {'caption': ctx.player.name, 'enabled': False, 'tracks': ['One', 'Two']}",
+            "@action('buy')", "def buy(ctx): print('validated', ctx.player.name)"] )})
+        assert not result.get("error"), result
+        tree = {"id": "panel", "root": {"type": "vbox", "children": [
+            {"type": "label", "text": "Preview", "bind": {"text": "caption"}},
+            {"type": "button", "text": "Buy", "on_click": "buy", "bind": {"enabled": "enabled"}},
+            {"type": "list", "bind": {"items": "tracks"}}]}}
+        original = copy.deepcopy(tree)
+        w._UI_FILES[(owner, "panel")] = tree
+        w.ui.open(w.Player({"name": "Alice"}), "panel")
+        w.ui.open(w.Player({"name": "Bob"}), "panel")
+        assert calls[-2][1]["window"]["root"]["children"][0]["text"] == "Alice"
+        assert calls[-1][1]["window"]["root"]["children"][0]["text"] == "Bob"
+        assert tree == original, "bindings mutated the designer source"
+        assert w.ui.refresh("Alice", "panel")
+        assert calls[-1][1]["window"]["root"]["children"][0]["text"] == "Alice"
+        assert w._ui_event({"player": {"name": "Alice"}, "window": "panel", "token": "unlisted"})["handlers"] == 0
+        assert w._ui_event({"player": {"name": "Alice"}, "window": "panel", "token": "buy"})["log"] == ["validated Alice"]
+        failed = w._handle("run_main", {"project": owner, "file": "code/main.py", "code": NL.join([
+            "from craftpy import *", "@ui.data('panel')", "def data(ctx): return {}", "raise ValueError('no')"])})
+        assert failed.get("error") and w.ui.refresh("Bob", "panel")
+        assert calls[-1][1]["window"]["root"]["children"][0]["text"] == "Bob"
+        w._UI_DATA[(owner, "panel")] = lambda ctx: []
+        try:
+            w.ui.open(w.Player({"name": "New viewer"}), "panel")
+            assert False, "non-dictionary provider was accepted"
+        except TypeError as exc:
+            assert "dictionary" in str(exc)
+        assert ("New viewer", "panel") not in w._UI_OPEN
+        try:
+            w._ui_bind({"type": "label", "bind": {"text": "missing"}}, {}, "panel")
+            assert False, "missing key was accepted"
+        except KeyError as exc:
+            assert "panel.bind.text" in str(exc) and "missing" in str(exc)
+    finally:
+        w._drop_owner(owner, host=False)
+        w._host_call = previous
+    assert not any(o == owner for o, _ in w._UI_DATA)
+
+
+def test_native_reuse_profiles_and_filtered_throttled_callbacks():
+    calls = []
+    previous = w._host_call
+    def host(method, params=None, **kwargs):
+        calls.append((method, params))
+        if method == "world.spawn": return {"ok": True, "uuid": "native-uuid"}
+        if method == "entity.state": return {"ok": True, "value": params.get("value", 7)}
+        return {"ok": True}
+    w._host_call = host
+    try:
+        code = NL.join([
+            "from craftpy import *", "shaft = NativeBlock('drive', base='create:shaft')",
+            "mage = NativeMob('mage', base='irons_spellbooks:necromancer', state={'stage': 1})",
+            "guardian = Mob('guardian', model='guardian.geo.json', behavior={'profile': 'guard', 'radius': 12},",
+            "               animations={'idle': 'guardian.idle', 'attack': 'guardian.strike'})",
+            "@on.entity_tick(entity=guardian, throttle_ticks=40)",
+            "def watch(ctx): print(ctx.entity.uuid)"])
+        result = w._handle("run_main", {"project": "native_test", "code": code, "file": "code/main.py"})
+        assert not result.get("error"), result
+        declarations = result["declarations"]
+        assert declarations["blocks"][0]["definition"]["native_base"] == "create:shaft"
+        assert w._ref("drive") == "create:shaft"
+        assert declarations["entities"][0]["definition"]["state"] == {"stage": 1}
+        guardian = declarations["entities"][1]["definition"]
+        assert guardian["behavior"]["profile"] == "guard" and guardian["animations"]["attack"] == "guardian.strike"
+        who = {"uuid": "one", "type": "native_test:guardian"}
+        def event(tick, entity=who): return w._trigger_event({"event": "entity_tick", "context": {"entity": entity, "tick": tick}})
+        assert event(20)["handlers"] == 1 and event(21)["handlers"] == 0
+        assert event(21, {"uuid": "two", "type": "native_test:guardian"})["handlers"] == 1
+        assert event(60)["handlers"] == 1
+        assert event(61, {"uuid": "other", "type": "minecraft:pig"})["handlers"] == 0
+        mob = w.world.spawn("native_test:mage", 1, 64, 2, owner="Dev")
+        assert calls[-1] == ("world.spawn", {"entity": "native_test:mage", "x": 1, "y": 64, "z": 2,
+                                           "dimension": "minecraft:overworld", "player_owner": "Dev"})
+        assert mob.state("stage") == 7 and mob.set_state("stage", 2) == 2
+        mob.animate("cast")
+        assert calls[-1] == ("entity.animate", {"uuid": "native-uuid", "animation": "cast"})
+        for bad in [lambda: w.NativeMob("bad", base="pig"), lambda: w.Mob("bad", behavior="teleport"),
+                    lambda: w.Mob("bad", behavior={"profile": "ranged", "interval": 1}),
+                    lambda: w.Mob("bad", animations={"execute": "source"}), lambda: mob.animate("arbitrary")]:
+            try:
+                bad()
+                assert False, "invalid native declaration accepted"
+            except (ValueError, TypeError): pass
+    finally:
+        w._drop_owner("native_test", host=False)
+        w._host_call = previous
+
+
+def test_stable_key_actions_and_failed_run_rollback():
+    old_mode = w._MODE[0]
+    w._MODE[0] = "server"
+    try:
+        code = NL.join(["from craftpy import *", "@keys.bind('ctrl+h', id='open', name='Open shop', category='Shop')",
+                        "def open_shop(ctx): print(ctx.action, ctx.player.name)"])
+        result = w._handle("run_main", {"project": "shop", "code": code, "file": "code/main.py"})
+        assert not result.get("error"), result
+        assert w._KEYS[("shop", "open")][1]["combo"] == "ctrl+h"
+        event = {"owner": "shop", "action": "open", "player": {"name": "Alice", "uuid": "alice"}}
+        reply = w._key_event(event)
+        assert reply["handlers"] == 1 and reply["log"] == ["open Alice"], reply
+        assert w._key_event(dict(event, owner="other"))["handlers"] == 0
+        assert w._key_event(dict(event, action="ctrl+h"))["handlers"] == 0
+        bad = code.replace("'ctrl+h'", "'j'") + NL + "raise ValueError('failed update')"
+        assert w._handle("run_main", {"project": "shop", "code": bad, "file": "code/main.py"}).get("error")
+        assert w._KEYS[("shop", "open")][1]["combo"] == "ctrl+h"
+        assert w._key_event(event)["log"] == ["open Alice"]
+        for kwargs in [{"id": "bad/id"}, {"name": ""}, {"category": "x" * 81}, {"name": "bad\nname"}]:
+            try:
+                w.keys.bind("h", **kwargs)
+                assert False, kwargs
+            except ValueError:
+                pass
+    finally:
+        w._drop_owner("shop", host=False)
+        w._MODE[0] = old_mode
 
 
 def test_client_names_say_so_on_the_server():
     old = w._MODE[0]
     w._MODE[0] = "server"
     try:
-        for use in [lambda: w.hud.text("a", "b"), lambda: w.keys.bind("r", lambda c: None), lambda: w.client.player()]:
+        for use in [lambda: w.hud.text("a", "b"), lambda: w.client.player()]:
             try:
                 use()
                 assert False, "worked on the server"
@@ -1596,6 +1734,184 @@ def test_python_windows_become_ui_maker_json():
     assert root["children"][0] == {"type": "button", "text": "Go", "on_click": "go", "x": 8, "y": 12, "width": 96,
                                    "height": 24}, root
     assert w.Canvas(w.Label("a", x=4)).to_dict()["children"][0]["x"] == 4
+
+
+def test_remade_designer_project_windows_and_actions():
+    saved_host = w._host_call
+    def host(method, params=None, timeout=10.0):
+        if method == "media.state":
+            return {"ok": True, "state": {"state": "stopped", "name": "", "position": 0, "duration": -1}}
+        if method in ("media.files", "media.sounds"):
+            return {"ok": True, "files": [], "sounds": []}
+        return fake_host(method, params, timeout)
+    w._host_call = host
+    try:
+        for project, windows in (("hud_pack", ("hud_settings",)), ("jukebox", ("jukebox",)),
+                                 ("sky_islands", ("archipelago", "sky_status"))):
+            w.reset()
+            w._MODE[0] = "client" if project != "sky_islands" else "server"
+            directory = os.path.abspath(os.path.join(EXAMPLES, project))
+            result = w._handle("run_main", {"project": project, "dir": directory, "file": "code/main.py",
+                    "code": open(os.path.join(directory, "code", "main.py"), encoding="utf-8").read(), "sources": w._read_sources(directory)})
+            assert not result.get("error"), (project, result)
+            if project == "hud_pack":
+                assert (project, "f7") in w._KEYS and (project, "ctrl+h") in w._KEYS, "Legacy HUD action identities must retain saved remaps"
+            elif project == "jukebox":
+                assert (project, "j") in w._KEYS, "Legacy Jukebox action identity must retain saved remaps"
+            w._use_owner(project)
+            for window in windows:
+                CALLS.clear()
+                w.ui.open(w.Player(DEV), window)
+                assert opened_windows()[-1]["id"] == window
+                assert (project, window) in w._UI_DATA and (project, window) not in w._WINDOWS
+            def click(window, token, value=None, values=None):
+                result = w._handle("trigger_event", {"event": "ui_event", "context": dict(player=DEV,
+                         window=window, token=token, value=value, values=values or {})})
+                assert not result["log"], (project, token, result)
+            if project == "hud_pack":
+                click("hud_settings", "hud_changed", values={"visible": False, "coords": False, "held": True, "toasts": True})
+                assert find(opened_windows()[-1]["root"], id="coords")["checked"] is False
+                assert find(opened_windows()[-1]["root"], id="visible")["checked"] is False
+            elif project == "jukebox":
+                for token, value in (("jukebox_source", 2), ("jukebox_instrument", 1), ("jukebox_volume", 35),
+                                     ("jukebox_loop", False), ("jukebox_shuffle", True), ("jukebox_nearby", True),
+                                     ("jukebox_source", -99), ("jukebox_pick", 99999)):
+                    click("jukebox", token, value)
+                assert find(opened_windows()[-1]["root"], id="source")["selected"] == 2
+                assert find(opened_windows()[-1]["root"], id="volume")["value"] == 35
+                assert len(find(opened_windows()[-1]["root"], id="tracks")["items"]) > 0
+            else:
+                assert find(opened_windows()[-1]["root"], on_click="sky_hub")["enabled"] is False
+                for token in ("sky_hub", "sky_home", "sky_collapse"):
+                    click("sky_status", token)
+                click("archipelago", "raise", values={"seed": "bad seed"})
+                assert ("Dev", "archipelago") in w._UI_OPEN
+    finally:
+        w._host_call = saved_host
+        w._MODE[0] = "server"
+
+
+def test_kinetic_declarations_validation_and_snapshots():
+    result = run_main("foundry", "from craftpy import *\nmotor = Block('motor').extends(Kinetic('generator', axis='x', speed=-64))\n")
+    ext = result["blocks"][0]["definition"]["ext"][0]
+    assert ext["type"] == "kinetic" and ext["speed"] == -64 and ext["axis"] == "x", ext
+    for args in [dict(role="fake"), dict(axis="north"), dict(speed=257), dict(capacity=-1), dict(impact=float('nan')), dict(rotating_model="../model")]:
+        try:
+            w.Kinetic(**args)
+            assert False, args
+        except (TypeError, ValueError):
+            pass
+    CALLS.clear()
+    assert w.world.machine((1, 2, 3)) == {}
+    assert CALLS[-1] == ("world.machine", dict(x=1, y=2, z=3, dimension="minecraft:overworld"))
+    assert "machine_speed" in dir(w.on) and "machine_state" in dir(w.on)
+
+
+def test_native_energy_fluid_and_resource_transfers():
+    w._use_owner("resources")
+    battery = w.Block("battery").extends(w.EnergyStorage(10000, 500, 200), w.FluidTank(4000, ["minecraft:water"]))
+    ext = w._DECLS["blocks"][-1]["definition"]["ext"]
+    assert ext[0]["capacity"] == 10000 and ext[1]["allowed"] == ["minecraft:water"]
+    for value in (0, -1, 1.5, True, 1000000001):
+        try:
+            w.EnergyStorage(value)
+            assert False, value
+        except ValueError:
+            pass
+    saved = w._host_call
+    calls = []
+    def host(method, params=None, timeout=10):
+        calls.append((method, params))
+        return {"ok": True, "moved": 123}
+    w._host_call = host
+    try:
+        assert w.world.transfer((1, 2, 3), (2, 2, 3), "energy", 500, source_side="east", target_side="west", simulate=True) == 123
+        assert calls[-1][1]["simulate"] is True and calls[-1][1]["source"] == [1, 2, 3]
+        w.world.resources((1, 2, 3), side="north")
+        assert calls[-1][0] == "world.resources"
+    finally:
+        w._host_call = saved
+
+
+def test_new_utility_actions_isolate_players_and_validate_waypoints():
+    saved_host = w._host_call
+    def host(method, params=None, timeout=10):
+        if method == 'server.info':
+            return {'ok': True, 'game_time': 1000, 'players': 1, 'max_players': 20, 'tick_ms': 10}
+        return fake_host(method, params, timeout)
+    w._host_call = host
+    try:
+        def load(project):
+            w.reset()
+            directory = os.path.join(EXAMPLES, project)
+            result = w._handle('run_main', {'project': project, 'dir': directory, 'file': 'code/main.py',
+                'code': open(os.path.join(directory, 'code', 'main.py'), encoding='utf-8').read(), 'sources': w._read_sources(directory)})
+            assert not result.get('error'), (project, result)
+            w._use_owner(project)
+        def click(window, token, values):
+            result = w._handle('trigger_event', {'event':'ui_event','context':dict(player=DEV,window=window,token=token,values=values)})
+            assert not result['log'], result
+        load('task_journal')
+        w.ui.open(w.Player(DEV),'journal')
+        click('journal','add_task',{'task':'Build a home'})
+        assert find(opened_windows()[-1]['root'], id='selected')['items'] == ['To do: Build a home']
+        click('journal','finish_task',{'selected':0})
+        assert find(opened_windows()[-1]['root'], id='selected')['items'] == ['Done: Build a home']
+        click('journal','journal_reminders',{'reminders':True})
+        assert find(opened_windows()[-1]['root'], id='reminders')['checked'] is True
+        w.ui.open(w.Player(dict(DEV, name='Other', uuid='other-id')),'journal')
+        assert find(opened_windows()[-1]['root'], id='selected')['items'] == []
+        load('waypoints')
+        w.ui.open(w.Player(DEV),'waypoints')
+        click('waypoints','waypoint_save',{'label':'Home'})
+        assert find(opened_windows()[-1]['root'],id='point')['items'] == ['Home']
+        CALLS.clear()
+        click('waypoints','waypoint_go',{'point':999})
+        assert not any(method == 'player.teleport' for method, _ in CALLS)
+        click('waypoints','waypoint_go',{'point':0})
+        teleports = [params for method, params in CALLS if method == 'player.teleport']
+        assert len(teleports) == 1 and teleports[0]['safe'] is True
+        click('waypoints','waypoint_go',{'point':0})
+        assert len([1 for method, _ in CALLS if method == 'player.teleport']) == 1, 'Teleport cooldown bypass'
+        click('waypoints','waypoint_remove',{'point':0})
+        assert find(opened_windows()[-1]['root'],id='point')['items'] == []
+        for project in ('death_compass','activity_stats','server_toolkit','workshop','create_bridge','curios_charms'):
+            load(project)
+    finally:
+        w._host_call = saved_host
+
+
+def test_all_prebuilt_modules_load_from_the_actual_cpm_archives():
+    import tempfile, zipfile, json
+    saved_host = w._host_call
+    def host(method, params=None, timeout=10):
+        if method == 'server.features':
+            return {'ok': True, 'mods':['create','curios'], 'capabilities':['rotation.create']}
+        if method == 'server.mods':
+            return {'ok': True, 'mods':['create','curios']}
+        if method == 'media.state':
+            return {'ok': True,'state':{'state':'stopped','name':'','position':0,'duration':-1}}
+        return fake_host(method, params, timeout)
+    w._host_call = host
+    try:
+        directory=os.path.join(EXAMPLES,'modules')
+        files=sorted(f for f in os.listdir(directory) if f.endswith('.cpm'))
+        assert len(files)==13, files
+        for file in files:
+            w.reset()
+            with tempfile.TemporaryDirectory() as target:
+                with zipfile.ZipFile(os.path.join(directory,file)) as archive:
+                    archive.extractall(target)
+                    meta=json.loads(archive.read('module.json'))
+                w._MODE[0]='client' if meta['side']=='client' else 'server'
+                result=w._handle('load_module',{'id':meta['id'],'dir':target})
+                assert not result.get('error'), (file,result)
+                if meta['id']=='create_bridge':
+                    assert any(b['id']=='motor' for b in result['declarations']['blocks'])
+                w._handle('unload_owner', {'owner':'module:' + meta['id']})
+    finally:
+        w._host_call=saved_host
+        w._MODE[0]='server'
 
 
 if __name__ == "__main__":

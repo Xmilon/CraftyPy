@@ -37,7 +37,7 @@ The first start unpacks Python to `pyforge/system/python/` and checks it against
 4. `/craftpy give <you> <project>:<id> block` gives you what you made.
 
 The **Docs** page in game has the guide and the full API reference ([api.md](src/main/resources/assets/craftpy/docs/api.md)).
-The `welcome` project is a guided tour, and `examples/` has more.
+The Welcome module is a guided tour. Ready-built examples ship into `pyforge/modules` disabled; source and `.cpm` files are also under `examples/`. Nothing recreates editable tutorial projects automatically.
 
 ## Commands
 
@@ -67,6 +67,37 @@ read their README, approve what they ask for, and **Decompile** one back into a 
 and the module is replaced and marked *Changed*. Another project imports a module with `from modules.<id> import name`
 after listing it under `"dependencies"`. The **Mod map** on the right shows what each mod, module and project does and
 how they connect.
+
+## Independent machinery and Building Blocks
+
+CraftPy includes its own rotation network, generator/shaft/processor roles, two-slot processing, FE batteries and fluid tanks.
+These work without Create or another content mod. Create 6.0.10 is an optional rotation backend; unsupported versions use
+CraftPy rotation. Other mods connect through standard NeoForge item, fluid and energy capabilities or a specific rotation adapter.
+Rotation and electrical energy are separate: a spinning motor does not silently generate FE.
+
+```python
+motor = Block("motor", texture="minecraft:block/copper_block").extends(
+    Kinetic("generator", axis="x", speed=32, capacity=32))
+battery = Block("battery", texture="minecraft:block/redstone_block").extends(EnergyStorage(100000, 1000, 1000))
+tank = Block("tank", texture="minecraft:block/glass").extends(FluidTank(16000, ["minecraft:water"]))
+```
+
+`world.machine` and `world.resources` inspect loaded machines. `world.transfer` moves resources natively through selected
+block faces, with an optional simulation check. Inventories, FE, fluid components and processing persist. The separate
+32-slot machine pool keeps existing block IDs intact. Configure rotation rebuild budgets in `craftpy-common.toml`.
+
+Building Blocks contains **120 templates: 96 core and 24 optional integration templates**. Search keywords, filter categories,
+preview code, then Insert or New file. Templates with layouts or assets add their companion files without overwriting yours.
+Mod-specific entries appear only when the actual execution environment supports them.
+
+The ten-module collection is HUD Pack, Jukebox, Waypoints, Death Compass, Task Journal, Server Toolkit, Activity Stats,
+Workshop, Create Bridge and Curios Charms. Welcome, Ruby Rush and Sky Islands also ship built. See
+[examples/modules/README.md](examples/modules/README.md) for controls and commands. Bundled files install once, disabled;
+existing modules and deliberately deleted examples are left alone.
+
+The Modules permission toggle remembers approval for the exact file. A changed file asks again; switching access off revokes
+it. Server-module acknowledgments can be remembered per server/module/version without granting any local permission.
+Network protocol is **6**; updated clients and servers must agree.
 
 ## How it works
 
@@ -114,6 +145,7 @@ trust.
 ./gradlew build       # tests + all jars in build/libs/
 ./gradlew runClient   # dev client; put the Modern UI jar in run/mods/ first
 ./gradlew runIde      # the editor without the game
+./gradlew uiDesignerSmokeTest  # designer pointer + editor integration checks in a hidden window (needs a GPU)
 ```
 
 `./gradlew build` downloads the Python runtimes once into `build/python-runtimes/`. Add

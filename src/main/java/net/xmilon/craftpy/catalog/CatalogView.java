@@ -21,7 +21,7 @@ public final class CatalogView {
     public record Entry(String id, String mod) {
     }
 
-    public static final CatalogView EMPTY = new CatalogView(Map.of(), Map.of(), Map.of(), Set.of(), Map.of(), List.of(), List.of(), Map.of());
+    public static final CatalogView EMPTY = new CatalogView(Map.of(), Map.of(), Map.of(), Set.of(), Map.of(), List.of(), List.of(), Map.of(), Map.of());
 
     private final Map<String, List<Entry>> ids;
     private final Map<String, Set<String>> idSets;
@@ -31,10 +31,11 @@ public final class CatalogView {
     private final List<String> events;
     private final List<String> classes;
     private final Map<String, List<String>> folders;
+    private final Map<String, com.google.gson.JsonObject> capabilities;
 
     private CatalogView(Map<String, List<Entry>> ids, Map<String, Set<String>> idSets, Map<String, Catalog.RecipeType> recipeTypes,
                         Set<String> installed, Map<String, String> modOfNamespace, List<String> events, List<String> classes,
-                        Map<String, List<String>> folders) {
+                        Map<String, List<String>> folders, Map<String, com.google.gson.JsonObject> capabilities) {
         this.ids = ids;
         this.idSets = idSets;
         this.recipeTypes = recipeTypes;
@@ -43,6 +44,7 @@ public final class CatalogView {
         this.events = events;
         this.classes = classes;
         this.folders = folders;
+        this.capabilities = capabilities;
     }
 
     /**
@@ -58,6 +60,7 @@ public final class CatalogView {
         Set<String> events = new LinkedHashSet<>();
         Set<String> classes = new LinkedHashSet<>();
         Map<String, List<String>> folders = new TreeMap<>();
+        Map<String, com.google.gson.JsonObject> capabilities = new TreeMap<>();
         for (String mod : installed) {
             modOfNamespace.putIfAbsent(mod, mod);
         }
@@ -76,6 +79,7 @@ public final class CatalogView {
                 }
             });
             catalog.recipeTypes.forEach(recipeTypes::put);
+            capabilities.putAll(catalog.capabilities);
             events.addAll(catalog.events);
             classes.addAll(catalog.classes);
             if (!catalog.folders.isEmpty()) {
@@ -121,7 +125,7 @@ public final class CatalogView {
             });
         }
         return new CatalogView(ids, idSets, recipeTypes, Set.copyOf(installed), modOfNamespace, new ArrayList<>(events),
-                new ArrayList<>(classes), folders);
+                new ArrayList<>(classes), folders, capabilities);
     }
 
     private static int rank(String mod) {
@@ -207,6 +211,8 @@ public final class CatalogView {
     public List<String> classes() {
         return classes;
     }
+
+    public Map<String, com.google.gson.JsonObject> capabilities() { return Collections.unmodifiableMap(capabilities); }
 
     public List<String> folders(String mod) {
         return folders.getOrDefault(mod, List.of());

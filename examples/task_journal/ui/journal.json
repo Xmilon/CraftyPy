@@ -1,0 +1,66 @@
+{
+  "id": "journal",
+  "title": "Task Journal",
+  "size": [
+    380,
+    390
+  ],
+  "preview_data": {
+    "tasks": [
+      "To do: Build a home"
+    ],
+    "summary": "0/1 finished",
+    "reminders": false
+  },
+  "root": {
+    "type": "vbox",
+    "spacing": 8,
+    "padding": 10,
+    "children": [
+      {
+        "type": "label",
+        "text": "Your tasks",
+        "bind": {
+          "text": "summary"
+        }
+      },
+      {
+        "type": "list",
+        "id": "selected",
+        "items": [],
+        "bind": {
+          "items": "tasks"
+        }
+      },
+      {
+        "type": "text_input",
+        "id": "task",
+        "hint": "New task"
+      },
+      {
+        "type": "button",
+        "text": "Add task",
+        "on_click": "add_task"
+      },
+      {
+        "type": "button",
+        "text": "Toggle selected task",
+        "on_click": "finish_task"
+      },
+      {
+        "type": "checkbox",
+        "id": "reminders",
+        "label": "Remind me every five minutes",
+        "checked": false,
+        "bind": {
+          "checked": "reminders"
+        }
+      },
+      {
+        "type": "button",
+        "text": "Save reminder preference",
+        "on_click": "journal_reminders"
+      }
+    ]
+  }
+}

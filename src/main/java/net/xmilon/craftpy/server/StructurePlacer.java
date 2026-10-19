@@ -112,18 +112,19 @@ public final class StructurePlacer {
         CompoundTag template = StructureFiles.read(file);
         Map<SlotRegistry.SlotRef, String> holders = new java.util.HashMap<>();
         SlotRegistry.snapshotByHolder().forEach((holder, slot) -> {
-            if (slot.kind() == SlotRegistry.Kind.BLOCK) {
+            if (slot.kind() == SlotRegistry.Kind.BLOCK || slot.kind() == SlotRegistry.Kind.KINETIC) {
                 holders.putIfAbsent(slot, holder);
             }
         });
         int[] mapped = {0};
         StructureFiles.renameBlocks(template, block -> {
-            if (!block.startsWith("craftpy:pcblock_")) {
+            boolean kinetic = block.startsWith("craftpy:pckinetic_");
+            if (!kinetic && !block.startsWith("craftpy:pcblock_")) {
                 return block;
             }
             try {
-                String holder = holders.get(new SlotRegistry.SlotRef(SlotRegistry.Kind.BLOCK,
-                        Integer.parseInt(block.substring("craftpy:pcblock_".length()))));
+                String holder = holders.get(new SlotRegistry.SlotRef(kinetic ? SlotRegistry.Kind.KINETIC : SlotRegistry.Kind.BLOCK,
+                        Integer.parseInt(block.substring((kinetic ? "craftpy:pckinetic_" : "craftpy:pcblock_").length()))));
                 if (holder != null) {
                     mapped[0]++;
                     return StructureFiles.contentName(holder);

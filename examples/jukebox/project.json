@@ -5,7 +5,7 @@
   "author": "CraftPy",
   "description": "A media player on your own computer: your OGG, WAV, AIFF, MP3 and FLAC files from pyforge/shared/music, the music of the game, resource packs and mods, and note block melodies. Keeps playing when the window is closed; nearby players can hear it too.",
   "mcVersion": "1.21.1",
-  "apiVersion": "2.6",
+  "apiVersion": "2.9",
   "side": "client",
   "permissions": {
     "shared": [

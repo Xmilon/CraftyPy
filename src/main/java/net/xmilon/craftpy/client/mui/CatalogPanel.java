@@ -328,6 +328,17 @@ final class CatalogPanel {
                 row.addView(detail);
             }
             Row entry = rows.get(position);
+            Overlays.contextMenu(row, menu -> menu.add("Inspect native capabilities").setOnMenuItemClickListener(item -> {
+                var dialog = ListDialog.open(view, "Native capabilities: " + entry.id(), false, 820, 440);
+                dialog.setMessage("Discovered: found in the installed catalog. Compatible: an adapter or signature matches. Verified: exercised in a recorded test.");
+                JsonObject args = new JsonObject(); args.addProperty("kind", kind); args.addProperty("inspect", entry.id());
+                host.request(args, reply -> {
+                    if (!dialog.isShowing()) return;
+                    if (reply.has("error")) dialog.setMessage(reply.get("error").getAsString());
+                    else dialog.setRows(List.of(ListDialog.Row.info(net.xmilon.craftpy.util.Json.toPretty(reply.get("inspection")))));
+                });
+                return true;
+            }));
             id.setText(entry.id());
             String text = entry.mod().isEmpty() ? entry.detail()
                     : entry.detail().isEmpty() ? entry.mod() : entry.mod() + "  -  " + entry.detail();

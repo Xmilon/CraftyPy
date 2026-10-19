@@ -1,46 +1,57 @@
-# 7. Windows. A window is a class with build(). Callbacks are normal methods; after each one the window is
-# redrawn. Everything you keep on `self` is remembered while the window is open (one copy per player).
+# Layouts live in ui/: Design edits their placement; Python supplies each viewer's saved state.
 from craftpy import *
 from items import gem
 
 
-@window("counter", title="Counter", size=(260, 170))
-class Counter(Window):
-    count = 0
-
-    def build(self, ctx):
-        return VBox(
-            Label(f"Clicked {self.count} times", style="title"),
-            ProgressBar(value=min(self.count, 10), max=10),
-            HBox(
-                Button("-1", on_click=self.less),
-                Button("+1", on_click=self.more),
-                Button("Reward", on_click=self.reward),
-            ),
-            Button("Close", on_click=ctx.close, style="text"),
-            spacing=8, padding=4,
-        )
-
-    def more(self, ctx):
-        self.count += 1
-
-    def less(self, ctx):
-        self.count = max(0, self.count - 1)
-
-    def reward(self, ctx):
-        if self.count >= 10:
-            ctx.player.give(gem, 3)
-            ctx.player.say("Reward claimed!")
-            self.count = 0
-        else:
-            ctx.player.actionbar("Click to 10 first.")
+def _key(ctx, name):
+    return name + ":" + (ctx.player.uuid or ctx.player.name)
 
 
-# ui/settings.json was drawn with Tools > UI designer. It names its button actions; these are them.
-# ctx.values holds every input of the window by its id. The action "close" is built in.
+def _count(ctx):
+    return max(0, min(10000, int(storage.get(_key(ctx, "counter"), 0))))
+
+
+@ui.data("counter")
+def counter_data(ctx):
+    count = _count(ctx)
+    return {"caption": f"Clicked {count} times", "count": min(count, 10), "can_claim": count >= 10}
+
+
+@action("counter_more")
+def more(ctx):
+    storage.set(_key(ctx, "counter"), min(10000, _count(ctx) + 1))
+
+
+@action("counter_less")
+def less(ctx):
+    storage.set(_key(ctx, "counter"), max(0, _count(ctx) - 1))
+
+
+@action("counter_reward")
+def reward(ctx):
+    # Bindings are informational: the server reads its saved count before giving anything.
+    if _count(ctx) < 10:
+        ctx.player.actionbar("Click to 10 first.")
+        return
+    storage.set(_key(ctx, "counter"), 0)
+    ctx.player.give(gem, 3)
+    ctx.player.say("Reward claimed!")
+
+
+@ui.data("settings")
+def settings_data(ctx):
+    saved = storage.get(_key(ctx, "settings"), {})
+    return {"nickname": saved.get("nickname", ctx.player.name), "hints": saved.get("hints", True),
+            "volume": saved.get("volume", 60)}
 
 @action("apply_settings")
 def apply_settings(ctx):
-    name = ctx.values.get("nickname") or ctx.player.name
-    ctx.player.say(f"Saved: nickname={name}, hints={ctx.values.get('hints')}, volume={ctx.values.get('volume')}")
+    name = str(ctx.values.get("nickname") or ctx.player.name).strip()[:48]
+    try:
+        volume = max(0, min(100, int(ctx.values.get("volume", 60))))
+    except (ValueError, TypeError):
+        volume = 60
+    saved = dict(nickname=name, hints=ctx.values.get("hints") is True, volume=volume)
+    storage.set(_key(ctx, "settings"), saved)
+    ctx.player.say(f"Saved: nickname={name}, hints={saved['hints']}, volume={volume}")
     ctx.close()

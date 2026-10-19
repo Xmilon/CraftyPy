@@ -29,7 +29,15 @@ import net.xmilon.craftpy.CraftPyLog;
  */
 public final class BuildingBlocks {
     public record Block(String file, String title, String category, String about, String doc, String module, String template,
-                        String side) {
+                        String side, java.util.Set<String> mods, java.util.Set<String> capabilities, String keywords,
+                        Map<String, String> companions) {
+        public boolean available(java.util.Set<String> installed, java.util.Set<String> features) { return installed.containsAll(mods) && features.containsAll(capabilities); }
+        public Map<String, String> files(String module, String project) {
+            Map<String, String> out = new LinkedHashMap<>();
+            companions.forEach((path, content) -> out.put(fillText(path, module, project), fillText(content, module, project)));
+            return out;
+        }
+        private static String fillText(String text, String module, String project) { return text.replace("{{name}}", module).replace("{{id}}", project == null ? "" : project); }
         /** True when the block works in a project of {@code projectSide} ({@code #: side:} client, server or any). */
         public boolean fits(String projectSide) {
             return side.equals("any") || side.equals("client") == "client".equals(projectSide);
@@ -43,6 +51,12 @@ public final class BuildingBlocks {
         /** What Insert puts at the cursor: the filled file without its {@code from craftpy import *} line. */
         public String snippet(String module, String project) {
             return BuildingBlocks.snippet(fill(module, project));
+        }
+
+        public String snippet(String module, String project, String source) {
+            boolean imported = net.xmilon.craftpy.analysis.PyLex.maskNonCode(source).lines()
+                    .anyMatch(line -> line.stripTrailing().matches("from\\s+craftpy\\s+import\\s+\\*"));
+            return (imported ? "" : "from craftpy import *\n\n") + snippet(module, project);
         }
 
         /** The docs file and the heading of the section, from {@code api.md#Windows}. */
@@ -86,7 +100,7 @@ public final class BuildingBlocks {
         String[] words = query.toLowerCase(Locale.ROOT).trim().split("\\s+");
         List<Block> out = new ArrayList<>();
         for (Block block : blocks) {
-            String haystack = (block.title() + " " + block.category() + " " + block.about()).toLowerCase(Locale.ROOT);
+            String haystack = (block.title() + " " + block.category() + " " + block.about() + " " + block.keywords() + " " + String.join(" ", block.mods())).toLowerCase(Locale.ROOT);
             boolean all = true;
             for (String word : words) {
                 if (!word.isEmpty() && !haystack.contains(word)) {
@@ -150,10 +164,21 @@ public final class BuildingBlocks {
         }
         String body = template.toString().strip() + "\n";
         String fallback = file.substring(file.lastIndexOf('/') + 1).replace(".py", "");
+        Map<String, String> companions = new LinkedHashMap<>();
+        for (String entry : meta.getOrDefault("files", "").split(";")) {
+            if (entry.isBlank()) continue;
+            String[] parts = entry.strip().split("=", 2);
+            if (parts.length != 2 || parts[1].contains("..")) throw new IllegalArgumentException("Invalid companion resource for " + file);
+            String content = read(parts[1]);
+            if (content == null) throw new IllegalArgumentException("Missing companion resource " + parts[1]);
+            companions.put(parts[0], content);
+        }
         return new Block(file, meta.getOrDefault("title", fallback), meta.getOrDefault("category", "Other"),
                 meta.getOrDefault("about", ""), meta.getOrDefault("doc", "api.md"), meta.getOrDefault("module", fallback), body,
-                meta.getOrDefault("side", "server"));
+                meta.getOrDefault("side", "server"), words(meta.getOrDefault("mods", "")), words(meta.getOrDefault("requires", "")),
+                meta.getOrDefault("keywords", ""), Map.copyOf(companions));
     }
+    private static java.util.Set<String> words(String text) { return text.isBlank() ? java.util.Set.of() : java.util.Set.copyOf(java.util.List.of(text.strip().split("[,\\s]+"))); }
 
     /** A filled template without its {@code from craftpy import *} line and the blank lines around it. */
     static String snippet(String filled) {

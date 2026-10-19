@@ -1,0 +1,49 @@
+{
+  "id": "waypoints",
+  "title": "Waypoints",
+  "size": [
+    380,
+    300
+  ],
+  "preview_data": {
+    "points": [
+      "Home",
+      "Mine"
+    ]
+  },
+  "root": {
+    "type": "vbox",
+    "padding": 10,
+    "spacing": 8,
+    "children": [
+      {
+        "type": "list",
+        "id": "point",
+        "items": [],
+        "bind": {
+          "items": "points"
+        }
+      },
+      {
+        "type": "text_input",
+        "id": "label",
+        "hint": "Name for current position"
+      },
+      {
+        "type": "button",
+        "text": "Save current position",
+        "on_click": "waypoint_save"
+      },
+      {
+        "type": "button",
+        "text": "Travel to selected waypoint",
+        "on_click": "waypoint_go"
+      },
+      {
+        "type": "button",
+        "text": "Remove selected waypoint",
+        "on_click": "waypoint_remove"
+      }
+    ]
+  }
+}

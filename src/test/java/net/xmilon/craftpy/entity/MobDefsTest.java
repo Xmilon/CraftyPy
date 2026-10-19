@@ -12,6 +12,14 @@ import com.google.gson.JsonParser;
 import net.xmilon.craftpy.content.Defs;
 
 class MobDefsTest {
+    @Test void profilesAndNamedAnimationsValidateAndRoundTrip() {
+        var json = JsonParser.parseString("{\"model\":\"guardian.geo.json\",\"behavior\":{\"profile\":\"guard\",\"radius\":12},"
+                + "\"animations\":{\"idle\":\"guardian.idle\",\"attack\":\"guardian.strike\",\"death\":\"guardian.fall\"}}").getAsJsonObject();
+        var def = Defs.EntityDef.from(json); var look = SlottedEntity.Look.of(def, "foundry");
+        assertEquals("guardian.strike", SlottedEntity.Look.parse(look.json()).clips().get("attack").getAsString());
+        json.getAsJsonObject("behavior").addProperty("radius", 1000);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> Defs.EntityDef.from(json));
+    }
     @Test
     void lookTurnsProjectFilesIntoIdsOfTheProjectNamespace() {
         Defs.EntityDef def = Defs.EntityDef.from(JsonParser.parseString(

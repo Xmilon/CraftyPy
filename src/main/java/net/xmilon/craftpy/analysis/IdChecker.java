@@ -16,7 +16,7 @@ import net.xmilon.craftpy.python.ValidationProblem;
  */
 public final class IdChecker {
     private static final Pattern ID = Pattern.compile("[a-z0-9_.-]+(:[a-z0-9_./-]+)?");
-    private static final Pattern OWN = Pattern.compile("\\b(?:Item|Block|Food)\\(\\s*[\"']([a-z0-9_]+)[\"']");
+    private static final Pattern OWN = Pattern.compile("\\b(?:Item|Block|Food|Mob|NativeMob|NativeBlock)\\(\\s*[\"']([a-z0-9_]+)[\"']");
 
     private IdChecker() {
     }

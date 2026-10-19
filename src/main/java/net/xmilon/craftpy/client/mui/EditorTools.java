@@ -60,6 +60,10 @@ final class EditorTools {
 
         String text();
 
+        void designWindow();
+
+        void openWindow(String path);
+
         int caret();
 
         int selectionStart();
@@ -396,9 +400,7 @@ final class EditorTools {
             host.toast("Open a file inside ui/ first (Tools > New UI window creates one)");
             return;
         }
-        String id = path.substring("ui/".length(), path.length() - ".json".length());
-        UiDesigner.open(host.anchor(), id, host.text(),
-                json -> host.replace(0, host.text().length(), json, 0, 0));
+        host.designWindow();
     }
 
     /**
@@ -454,8 +456,8 @@ final class EditorTools {
             String path = "ui/" + clean + ".json";
             store(s -> s.createEntry(path, "file"));
             // open it once the server made it: the UI maker then designs it (an empty file starts a new window)
-            host.anchor().postDelayed(() -> host.openAt(path, 0), 700);
-            host.toast("Created " + path + " - add widgets in the UI maker");
+            host.anchor().postDelayed(() -> host.openWindow(path), 700);
+            host.toast("Created " + path + " - open Design to add components");
         });
     }
 

@@ -15,9 +15,9 @@ import java.util.function.Supplier;
  * (c) UI: for background IDE tasks (indexing, thumbnails).
  */
 public final class CraftPyExecutors {
-    private static ExecutorService ioPool;
-    private static ExecutorService rpcPool;
-    private static ExecutorService uiPool;
+    private static volatile ExecutorService ioPool;
+    private static volatile ExecutorService rpcPool;
+    private static volatile ExecutorService uiPool;
 
     private static final Map<String, Executor> projectExecutors = new ConcurrentHashMap<>();
 
@@ -60,6 +60,11 @@ public final class CraftPyExecutors {
     public static Executor rpc() {
         ensurePools();
         return rpcPool;
+    }
+
+    public static int queuedTasks() {
+        return (ioPool instanceof ThreadPoolExecutor io ? io.getQueue().size() : 0)
+                + (rpcPool instanceof ThreadPoolExecutor rpc ? rpc.getQueue().size() : 0);
     }
 
     public static Executor ui() {

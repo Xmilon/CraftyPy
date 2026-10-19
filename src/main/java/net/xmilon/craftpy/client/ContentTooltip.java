@@ -48,6 +48,10 @@ public final class ContentTooltip {
         if (stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock() instanceof SlottedBlock block) {
             return SlotRegistry.holderForBlock(block.slotIndex());
         }
+        if (stack.getItem() instanceof BlockItem blockItem) {
+            int index = net.xmilon.craftpy.registry.KineticSlots.index(blockItem.getBlock());
+            if (index >= 0) return SlotRegistry.holderFor(SlotRegistry.Kind.KINETIC, index);
+        }
         return null;
     }
 

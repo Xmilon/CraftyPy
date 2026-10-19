@@ -36,6 +36,8 @@ public class CraftPy {
         net.xmilon.craftpy.registry.ModEntities.register(modEventBus);
         net.xmilon.craftpy.registry.ModEffects.EFFECTS.register(modEventBus);
         ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
+        net.xmilon.craftpy.registry.KineticSlots.register(modEventBus);
+        net.xmilon.craftpy.content.KineticRecipe.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);
         net.xmilon.craftpy.registry.ModAttachments.TYPES.register(modEventBus);
@@ -51,6 +53,8 @@ public class CraftPy {
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.command.CommandGuard.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.command.CraftPyPermissions.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.EventBridge.class);
+        NeoForge.EVENT_BUS.register(net.xmilon.craftpy.entity.NativeEntityEvents.class);
+        NeoForge.EVENT_BUS.register(net.xmilon.craftpy.content.RotationNetworks.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.ItemAttributes.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.lifecycle.RestartManager.class);
         NeoForge.EVENT_BUS.register(net.xmilon.craftpy.server.MediaRelay.class);
@@ -119,6 +123,7 @@ public class CraftPy {
     /** Again once the world is gone: a worker a late event started while stopping is stopped too. */
     @SubscribeEvent
     public void onServerStopped(net.neoforged.neoforge.event.server.ServerStoppedEvent event) {
+        net.xmilon.craftpy.content.MachineState.resetNotifications();
         net.xmilon.craftpy.python.PyRuntime.shutdown();
     }
 

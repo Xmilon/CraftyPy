@@ -1,0 +1,15 @@
+{
+  "id": "curios_charms",
+  "name": "Curios Charms",
+  "description": "Requires Curios. Adds craftable luck and health rings using Curios tags and native equipment attribute modifiers.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.9",
+  "mcVersion": "1.21.1",
+  "side": "both",
+  "permissions": {},
+  "requiredMods": [
+    "curios"
+  ],
+  "requiredCapabilities": []
+}
