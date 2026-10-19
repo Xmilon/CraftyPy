@@ -41,7 +41,6 @@ public final class ProjectManager {
 
     public static ProjectManager init() {
         ProjectManager manager = new ProjectManager(PyForgePaths.projects());
-        BundledModules.install();
         instance = manager;
         return manager;
     }

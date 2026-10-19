@@ -11,6 +11,7 @@ import net.xmilon.craftpy.registry.SlotRegistry;
 public final class BundledProjectGameTests {
     @GameTest(template="empty", batch="collection", timeoutTicks=10000) public static void packagedCollectionLoads(GameTestHelper helper) {
         helper.onEachTick(() -> java.util.concurrent.locks.LockSupport.parkNanos(2_000_000L));
+        ModuleLoader.setAllEnabled(false);
         var eligible = ModuleLoader.list().stream().filter(m -> m.primary && m.error == null && ModuleSide.of(m.side).runsOnServer()).map(m -> m.id).toList();
         helper.assertTrue(eligible.containsAll(java.util.List.of("welcome", "ruby_rush", "sky_islands", "workshop")), "Core distribution missing");
         eligible.forEach(id -> ModuleLoader.setEnabled(id, true));
@@ -22,6 +23,7 @@ public final class BundledProjectGameTests {
 
     @GameTest(template="empty", batch="modules", timeoutTicks=5000) public static void packagedWorkshopLoads(GameTestHelper helper) {
         helper.onEachTick(() -> java.util.concurrent.locks.LockSupport.parkNanos(2_000_000L));
+        ModuleLoader.setAllEnabled(false);
         var modules=ModuleLoader.list();
         helper.assertTrue(modules.stream().noneMatch(m -> m.id.equals("mod_mashup")), "Rejected showcase is still distributed");
         helper.assertTrue(modules.stream().filter(m -> m.primary).count() >= 13, "Packaged examples missing");

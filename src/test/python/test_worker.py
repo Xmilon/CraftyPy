@@ -1894,7 +1894,7 @@ def test_all_prebuilt_modules_load_from_the_actual_cpm_archives():
         return fake_host(method, params, timeout)
     w._host_call = host
     try:
-        directory=os.path.join(EXAMPLES,'modules')
+        directory=os.path.join(HERE,'..','..','..','build','generated','example-modules')
         files=sorted(f for f in os.listdir(directory) if f.endswith('.cpm'))
         assert len(files)==13, files
         for file in files:

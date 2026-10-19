@@ -383,7 +383,7 @@ required mods and expected behavior. Core native API examples need no extra requ
 the web/file examples include their required `project.json` declarations in the inserted code comments.
 Declaring a permission does not approve it: installed modules still use **Allow requested permissions**.
 
-Ready-built modules install disabled in `pyforge/modules`. Existing files, approvals and deleted bundles are preserved.
+Only the Welcome project is seeded automatically. The other examples are plain projects in the source checkout's `examples/` folder.
 `requiredMods` and `requiredCapabilities` in project/module metadata can make optional examples explicitly unavailable.
 The permission toggle remembers access only for unchanged module bytes; revocation persists. Remote server
 acknowledgments are separately remembered by server, module ID and file hash, and can be changed in the server modules page.

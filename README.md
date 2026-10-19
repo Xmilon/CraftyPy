@@ -37,7 +37,7 @@ The first start unpacks Python to `pyforge/system/python/` and checks it against
 4. `/craftpy give <you> <project>:<id> block` gives you what you made.
 
 The **Docs** page in game has the guide and the full API reference ([api.md](src/main/resources/assets/craftpy/docs/api.md)).
-The Welcome module is a guided tour. Ready-built examples ship into `pyforge/modules` disabled; source and `.cpm` files are also under `examples/`. Nothing recreates editable tutorial projects automatically.
+The Welcome module is a guided tour. The other examples are plain projects under `examples/` (not packed in the jar); copy one into `pyforge/projects` to edit it, or build a `.cpm` from it in the IDE. Nothing recreates editable tutorial projects automatically.
 
 ## Commands
 

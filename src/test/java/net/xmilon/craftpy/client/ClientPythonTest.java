@@ -30,7 +30,7 @@ class ClientPythonTest {
         System.setProperty("craftpy.home", home.toString());
         assumeTrue(ClientPython.get().available(), "no Python on this computer");
         var modules = Files.createDirectories(home.resolve("pyforge/modules"));
-        for (String id : java.util.List.of("hud_pack", "jukebox")) Files.copy(Path.of("examples/modules", id + ".cpm"), modules.resolve(id + ".cpm"));
+        for (String id : java.util.List.of("hud_pack", "jukebox")) Files.copy(Path.of("build/generated/example-modules", id + ".cpm"), modules.resolve(id + ".cpm"));
         net.xmilon.craftpy.project.ModuleLoader.useGlobalState();
         ClientPython.get().loadModules();
         assertTrue(waitFor(() -> ModuleKeys.entries().stream().anyMatch(e -> e.active() && e.id().owner().equals("module:hud_pack"))

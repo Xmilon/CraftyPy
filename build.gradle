@@ -603,19 +603,24 @@ tasks.register('ideShortcut') {
     }
 }
 
-// Build the same deterministic .cpm files shipped in examples and seeded into pyforge/modules.
-def bundledModulesDir = layout.buildDirectory.dir('generated/bundled-modules')
-sourceSets.main.resources.srcDir(bundledModulesDir)
-tasks.register('bundleExamples', JavaExec) {
+// The examples stay plain projects: they are not shipped in the jar or committed as .cpm. Tests pack them into
+// build/generated/example-modules on demand.
+def exampleModulesDir = layout.buildDirectory.dir('generated/example-modules')
+tasks.register('packExamples', JavaExec) {
     dependsOn tasks.named('compileJava')
     classpath = files(sourceSets.main.output.classesDirs) + sourceSets.main.compileClasspath
     mainClass = 'net.xmilon.craftpy.project.ExampleModules'
-    args projectDir.absolutePath, bundledModulesDir.get().asFile.absolutePath
-    inputs.files(fileTree('examples') { exclude 'modules/**', '**/__pycache__/**' })
+    args projectDir.absolutePath, exampleModulesDir.get().asFile.absolutePath
+    inputs.files(fileTree('examples') { exclude '**/__pycache__/**' })
     inputs.dir('src/main/resources/craftpy_default/welcome')
-    outputs.dir(bundledModulesDir)
+    outputs.dir(exampleModulesDir)
 }
-tasks.named('processResources') { dependsOn tasks.named('bundleExamples') }
+tasks.named('test', Test) { dependsOn tasks.named('packExamples') }
+tasks.register('stageNativeModules', Copy) {
+    dependsOn 'packExamples', 'resetNativeTestSandbox'
+    from(exampleModulesDir)
+    into(layout.buildDirectory.dir(nativeFolder + '/pyforge/modules'))
+}
 
 // Every native fixture gets a fresh disposable world and current bundled module bytes.
 tasks.register('resetNativeTestSandbox', Delete) {
@@ -626,4 +631,4 @@ tasks.register('resetNativeTestSandbox', Delete) {
     }
     delete new File(sandbox, 'world'), new File(sandbox, 'pyforge')
 }
-tasks.named('runGameTestServer') { dependsOn tasks.named('resetNativeTestSandbox') }
+tasks.named('runGameTestServer') { dependsOn 'resetNativeTestSandbox', 'stageNativeModules' }
