@@ -233,7 +233,7 @@ dependencies {
 tasks.named('test', Test).configure {
     useJUnitPlatform()
     // WorkerPythonTest runs these scripts; changing them must re-run the tests.
-    inputs.dir('src/test/python')
+    if (file('src/test/python').exists()) inputs.dir('src/test/python')
     // The moddev plugin keeps the main classpath for tests; keep tests independent of MC.
     testLogging {
         events 'passed', 'failed', 'skipped'
