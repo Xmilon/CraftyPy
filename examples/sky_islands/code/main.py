@@ -41,17 +41,13 @@ def crystal_found(event):
 @every(seconds=1)
 def tick():
     expedition.every_second()
-    for viewer in players.all():
-        ui.refresh(viewer, "sky_status")
-        ui.refresh(viewer, "archipelago")
 
 
 # -- the window from the UI maker: ui/archipelago.json names these actions ---------------------------------------------
 
 def _choice(values, key, options, default):
     try:
-        index = int(values.get(key, default))
-        return options[index] if 0 <= index < len(options) else options[default]
+        return options[int(values.get(key, default))]
     except (TypeError, ValueError, IndexError):
         return options[default]
 
@@ -61,10 +57,7 @@ def raise_islands(ctx):
     size = _choice(ctx.values, "size", SIZE_NAMES, 1)
     theme = _choice(ctx.values, "theme", NAMES, 0)
     text = str(ctx.values.get("seed") or "").strip()
-    if len(text) > 20 or (text and not text.lstrip("-").isdigit()):
-        ctx.player.say("Seed must be empty or an integer of at most 20 characters.")
-        return
-    seed = int(text) if text else None
+    seed = int(text) if text.lstrip("-").isdigit() else None
     ctx.close()
     expedition.start(ctx.player, size, theme, seed, crystal)
 
@@ -79,51 +72,41 @@ def take_down(ctx):
     expedition.collapse(ctx.player)
 
 
-# Both windows are designer JSON; providers read only this viewer's expedition.
+# -- the live window: written in Python because it changes while you play ---------------------------------------------
 
-@ui.data("archipelago")
-def setup_data(ctx):
-    exp = expedition.EXPEDITIONS.get(ctx.player.name)
-    busy = exp is not None and exp.state in ("building", "exploring", "done")
-    return dict(sizes=[f"{name} ({islands.SIZES[name]} islands)" for name in SIZE_NAMES], themes=list(NAMES),
-                can_raise=not busy, can_collapse=exp is not None and exp.state in ("exploring", "done"),
-                setup_status="Your expedition: " + exp.state if exp else "Ready to raise a new archipelago")
+@window("sky_status", title="☁ Expedition", size=(300, 230))
+class Status(Window):
+    def build(self, ctx):
+        exp = expedition.EXPEDITIONS.get(ctx.player.name) if ctx.player else None
+        if exp is None:
+            return VBox(Label("No islands yet", style="title"),
+                        Label("Right click the Skyward Compass and raise some."), padding=8)
+        best = storage.get("best:" + exp.size)
+        return VBox(
+            Label("%s %s archipelago" % (exp.size, exp.theme), style="title"),
+            Label({"building": "Rising...", "exploring": "Find the glowing Sky Crystals",
+                   "done": "All found!" if len(exp.found) == exp.total else "Back on the ground",
+                   "gone": "Taken down"}[exp.state]),
+            ProgressBar(value=len(exp.found), max=max(1, exp.total)),
+            Label("Crystals %d / %d   ·   time %s   ·   best %s" % (len(exp.found), exp.total,
+                                                                     expedition.fmt(exp.ticks), expedition.fmt(best))),
+            Label("seed %d" % exp.build.plan.seed),
+            HBox(Button("Back to the hub", on_click=self.hub), Button("Go home", on_click=self.home)),
+            Button("Take them down", on_click=self.collapse, style="text"),
+            spacing=6, padding=8)
 
+    def hub(self, ctx):
+        exp = expedition.EXPEDITIONS.get(ctx.player.name)
+        if exp is not None and exp.state in ("exploring", "done"):
+            exp.bring_back(ctx.player, "§bBack on the hub")
 
-@ui.data("sky_status")
-def status_data(ctx):
-    exp = expedition.EXPEDITIONS.get(ctx.player.name)
-    if exp is None:
-        return dict(title="No islands yet", status="Right click the Skyward Compass and raise some.",
-                    found=0, total=1, statistics="", seed="", can_return=False, can_home=False, can_collapse=False)
-    best = storage.get("best:" + exp.size)
-    return dict(title=f"{exp.size} {exp.theme} archipelago",
-                status={"building": "Rising...", "exploring": "Find the glowing Sky Crystals",
-                        "done": "All found!" if len(exp.found) == exp.total else "Back on the ground",
-                        "gone": "Taken down"}[exp.state],
-                found=len(exp.found), total=max(1, exp.total),
-                statistics="Crystals %d / %d · time %s · best %s" % (len(exp.found), exp.total, expedition.fmt(exp.ticks), expedition.fmt(best)),
-                seed="seed %d" % exp.build.plan.seed, can_return=exp.state in ("exploring", "done"),
-                can_home=exp.state != "gone", can_collapse=exp.state in ("exploring", "done"))
+    def home(self, ctx):
+        exp = expedition.EXPEDITIONS.get(ctx.player.name)
+        if exp is not None:
+            exp.leave(ctx.player)
 
-
-@action("sky_hub")
-def hub(ctx):
-    exp = expedition.EXPEDITIONS.get(ctx.player.name)
-    if exp is not None and exp.state in ("exploring", "done"):
-        exp.bring_back(ctx.player, "§bBack on the hub")
-
-
-@action("sky_home")
-def home(ctx):
-    exp = expedition.EXPEDITIONS.get(ctx.player.name)
-    if exp is not None and exp.state != "gone":
-        exp.leave(ctx.player)
-
-
-@action("sky_collapse")
-def collapse_status(ctx):
-    expedition.collapse(ctx.player)
+    def collapse(self, ctx):
+        expedition.collapse(ctx.player)
 
 
 # -- commands --------------------------------------------------------------------------------------------------------
@@ -131,11 +114,6 @@ def collapse_status(ctx):
 @command("open")
 def open_window(ctx):
     """/sky_islands:open - the settings window."""
-    ui.open(ctx.player, "archipelago")
-
-
-@keys.bind("ctrl+g", id="open_setup", name="Open Sky Islands", category="Sky Islands")
-def open_shortcut(ctx):
     ui.open(ctx.player, "archipelago")
 
 

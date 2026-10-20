@@ -92,16 +92,6 @@ public class EditorFragment extends Fragment {
     private LinearLayout tabs;
     private LinearLayout center;
     private View codeArea;
-    private View sourceEditors;
-    private LinearLayout windowModeBar;
-    private LinearLayout windowDesignHost;
-    private TextView windowDesignTab;
-    private TextView windowSourceTab;
-    private UiDesigner windowDesigner;
-    private String designedWindowKey;
-    private String designedWindowText;
-    private List<Integer> windowSelection = List.of();
-    private final java.util.Set<String> windowSourceFiles = new java.util.HashSet<>();
     private ScrollView codeScroll;
     private CodeView code;
     private TextView gutter;
@@ -185,17 +175,6 @@ public class EditorFragment extends Fragment {
         @Override
         public String text() {
             return code.getText().toString();
-        }
-
-        @Override
-        public void designWindow() {
-            showWindowDesign(true);
-        }
-
-        @Override
-        public void openWindow(String path) {
-            windowSourceFiles.remove(fileKey(path));
-            openEntry(path, false);
         }
 
         @Override
@@ -383,17 +362,6 @@ public class EditorFragment extends Fragment {
         hoverBackground(breadcrumb);
         breadcrumb.setOnClickListener(hidingTooltip(breadcrumb.getTooltipText(), tools::showOutline));
         center.addView(breadcrumb, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        windowModeBar = row(context);
-        windowModeBar.setPadding(center.dp(8), center.dp(3), center.dp(8), center.dp(3));
-        windowDesignTab = button(context, "Design", R.attr.borderlessButtonStyle, v -> showWindowDesign(true));
-        windowSourceTab = button(context, "Source", R.attr.borderlessButtonStyle, v -> showWindowDesign(false));
-        windowModeBar.addView(windowDesignTab);
-        windowModeBar.addView(windowSourceTab);
-        windowModeBar.addView(button(context, "Undo", R.attr.borderlessButtonStyle, v -> undoText(false)));
-        windowModeBar.addView(button(context, "Redo", R.attr.borderlessButtonStyle, v -> undoText(true)));
-        windowModeBar.addView(button(context, "Save", R.attr.buttonTonalStyle, v -> save()));
-        windowModeBar.setVisibility(View.GONE);
-        center.addView(windowModeBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         findBar = createFindBar(context);
         center.addView(findBar, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         // the editor row: main editor, and while split a resizable second editor to its right
@@ -407,14 +375,7 @@ public class EditorFragment extends Fragment {
         split = new SplitEditor(context, splitHost());
         split.view().setVisibility(View.GONE);
         editors.addView(split.view(), new LinearLayout.LayoutParams(0, MATCH_PARENT, 1 - settings.splitWeight));
-        sourceEditors = editors;
-        var editorStack = new icyllis.modernui.widget.FrameLayout(context);
-        editorStack.addView(editors, new icyllis.modernui.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-        windowDesignHost = new LinearLayout(context);
-        windowDesignHost.setOrientation(LinearLayout.VERTICAL);
-        windowDesignHost.setVisibility(View.GONE);
-        editorStack.addView(windowDesignHost, new icyllis.modernui.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-        codeArea = editorStack;
+        codeArea = editors;
         center.addView(codeArea, new LinearLayout.LayoutParams(MATCH_PARENT, 0, settings.codeWeight));
         bottomSplitter = new Splitter(context, false, this::dragBottom, this::saveLayout);
         center.addView(bottomSplitter, new LinearLayout.LayoutParams(MATCH_PARENT, center.dp(5)));
@@ -493,13 +454,20 @@ public class EditorFragment extends Fragment {
             }
 
             @Override
+            public String activeText() {
+                return code == null ? "" : code.getText().toString();
+            }
+
+            @Override
             public void open(String path) {
                 openEntry(path, false);
             }
 
             @Override
-            public void design() {
-                showWindowDesign(true);
+            public void write(String text) {
+                if (code != null) {
+                    applyEdit(new TextOps.Edit(0, code.getText().length(), text, 0, 0));
+                }
             }
 
             @Override
@@ -530,7 +498,7 @@ public class EditorFragment extends Fragment {
             @Override
             public void openWhenListed(String path) {
                 store(ClientProjectStore::listFiles);
-                uiMaker.view().postDelayed(() -> openEntry(path, false), 700);
+                uiMaker.view().postDelayed(() -> openAt(path, 0), 700);
             }
 
             @Override
@@ -580,9 +548,6 @@ public class EditorFragment extends Fragment {
     private boolean onBack() {
         if (code == null) {
             return false;
-        }
-        if (windowDesignHost.getVisibility() == View.VISIBLE && windowDesigner != null && windowDesigner.back()) {
-            return true;
         }
         if (assist != null && assist.dismissTransient()) {
             return true;
@@ -832,7 +797,7 @@ public class EditorFragment extends Fragment {
                 () -> sidePanelShown(modMap.view()), v -> toggleSidePanel(modMap.view(), modMapSplitter));
         stripe.add(IdeIcon.Glyph.HAMMER, "Recipes & drops: every recipe and every mob drop of the game and its mods (Ctrl+Shift+R)",
                 () -> sidePanelShown(recipeBook.view()), v -> toggleSidePanel(recipeBook.view(), recipeBookSplitter));
-        stripe.add(IdeIcon.Glyph.LAYOUT, "UI windows: open a window in the Design and Source editor",
+        stripe.add(IdeIcon.Glyph.LAYOUT, "UI maker: the windows of this project, with a live preview",
                 () -> sidePanelShown(uiMaker.view()), v -> toggleSidePanel(uiMaker.view(), uiMakerSplitter));
         stripe.add(IdeIcon.Glyph.IMAGE, "Assets: every texture, model and sound (Alt+9)", () -> dockShows(AssetDock.ASSETS),
                 v -> toggleDock(AssetDock.ASSETS));
@@ -1183,7 +1148,7 @@ public class EditorFragment extends Fragment {
         a.add(new ActionEntry("Mod map: mods, modules, projects and their links", "",
                 () -> setSidePanel(modMap.view(), modMapSplitter, true)));
         a.add(new ActionEntry("Recipes & drops: every recipe and mob drop", "Ctrl+Shift+R", this::recipesAtCaret));
-        a.add(new ActionEntry("UI windows: project windows and Python window classes", "",
+        a.add(new ActionEntry("UI maker: windows of this project with a preview", "",
                 () -> setSidePanel(uiMaker.view(), uiMakerSplitter, true)));
         a.add(new ActionEntry("Hide all tool windows", "Ctrl+Shift+F12", this::hideAllToolWindows));
         a.add(new ActionEntry("Zen mode", "F11", this::toggleZen));
@@ -1508,33 +1473,7 @@ public class EditorFragment extends Fragment {
         for (int n = 2; java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(name) + "\\b").matcher(all).find(); n++) {
             name = block.module() + "_" + n;
         }
-        String chosen = name;
-        if (!block.companions().isEmpty()) {
-            String targetProject = projectId(), targetPath = shownPath;
-            View targetView = code;
-            var args = new com.google.gson.JsonObject(); args.addProperty("template", block.file()); args.addProperty("module", chosen); args.addProperty("companionOnly", true);
-            store(st -> st.tool("add_part", args, reply -> targetView.post(() -> {
-                if (reply.has("error")) { toast(reply.get("error").getAsString()); return; }
-                if (!java.util.Objects.equals(targetProject, projectId()) || !java.util.Objects.equals(targetPath, shownPath)
-                        || code != targetView || !all.equals(code.getText().toString())) {
-                    for (String file : block.files(chosen, targetProject).keySet()) {
-                        var deletion = new com.google.gson.JsonObject(); deletion.addProperty("path", file);
-                        store(targetStore -> targetStore.request(ProjectAction.DELETE_ENTRY, targetProject, net.xmilon.craftpy.util.Json.COMPACT.toJson(deletion)));
-                    }
-                    toast("Insertion cancelled because the target changed"); return;
-                }
-                insertBlockText(block, chosen);
-                recordAction("Template companion files", () -> { for (String file : block.files(chosen, projectId()).keySet()) store(s -> s.deleteEntry(file)); },
-                        () -> { for (String file : block.files(chosen, projectId()).keySet()) restoreEntry(file); });
-            })));
-            return;
-        }
-        insertBlockText(block, chosen);
-    }
-
-    private void insertBlockText(net.xmilon.craftpy.project.BuildingBlocks.Block block, String name) {
-        String all = code.getText().toString();
-        String snippet = block.snippet(name, projectId(), all);
+        String snippet = block.snippet(name, projectId());
         int cursor = Math.max(0, code.getSelectionEnd());
         int lineStart = TextOps.lineStart(all, cursor);
         int lineEnd = TextOps.lineEnd(all, cursor);
@@ -1568,10 +1507,8 @@ public class EditorFragment extends Fragment {
             }
             var args = new com.google.gson.JsonObject();
             args.addProperty("module", module);
-            args.addProperty("template", block.file());
             args.addProperty("content", block.fill(module, project));
             args.addProperty("patchMain", false);
-            if (!project.equals(projectId())) { toast("Return to the original project before adding its template"); return; }
             flush();
             View view = code;
             store(s -> s.tool("add_part", args, reply -> {
@@ -1583,25 +1520,15 @@ public class EditorFragment extends Fragment {
                         toast(reply.get("error").getAsString());
                         return;
                     }
-                    if (!project.equals(projectId()) || code != view) {
-                        var paths = new java.util.ArrayList<String>(block.files(module, project).keySet()); paths.add(path);
-                        for (String file : paths) {
-                            var deletion = new com.google.gson.JsonObject(); deletion.addProperty("path", file);
-                            store(st -> st.request(ProjectAction.DELETE_ENTRY, project, net.xmilon.craftpy.util.Json.COMPACT.toJson(deletion)));
-                        }
-                        return;
-                    }
                     patchMainImport(module, false);
                     store(st -> st.select(project, path));
                     toast("Added " + path + " and imported it in main.py");
                     recordAction("New file " + path, () -> {
                         store(st -> st.closeFile(path));
                         store(st -> st.deleteEntry(path));
-                        for (String companion : block.files(module, project).keySet()) store(st -> st.deleteEntry(companion));
                         patchMainImport(module, true);
                     }, () -> {
                         restoreEntry(path);
-                        for (String companion : block.files(module, project).keySet()) restoreEntry(companion);
                         patchMainImport(module, false);
                     });
                 });
@@ -2610,7 +2537,6 @@ public class EditorFragment extends Fragment {
             if (shownPath != null) {
                 setEditorText(null, "");
             }
-            refreshWindowDesign();
             return;
         }
         if (!active.equals(shownPath)) {
@@ -2628,76 +2554,6 @@ public class EditorFragment extends Fragment {
             goToLine(pendingGotoLine);
         }
         updateBreadcrumb();
-        refreshWindowDesign();
-    }
-
-    private void showWindowDesign(boolean design) {
-        if (!UiDesigner.isWindowFile(shownPath)) {
-            toast("Open a window in ui/ first (Tools > New UI window)");
-            return;
-        }
-        if (design) {
-            windowSourceFiles.remove(fileKey(shownPath));
-            closeFind();
-            if (uiMaker != null) setSidePanel(uiMaker.view(), uiMakerSplitter, false);
-        } else {
-            windowSourceFiles.add(fileKey(shownPath));
-        }
-        refreshWindowDesign();
-        if (!design) code.requestFocus();
-    }
-
-    /** Both tabs use code's document. Own edits keep the live designer; external edits and undo rebuild it. */
-    private void refreshWindowDesign() {
-        if (windowDesignHost == null) return;
-        boolean window = UiDesigner.isWindowFile(shownPath) && (state == null || !state.activeVirtual());
-        windowModeBar.setVisibility(window ? View.VISIBLE : View.GONE);
-        boolean design = window && !windowSourceFiles.contains(fileKey(shownPath));
-        windowDesignHost.setVisibility(design ? View.VISIBLE : View.GONE);
-        sourceEditors.setVisibility(design ? View.GONE : View.VISIBLE);
-        styleChip(windowDesignTab, design);
-        styleChip(windowSourceTab, !design);
-        if (!window) {
-            windowDesignHost.removeAllViews();
-            windowDesigner = null;
-            designedWindowKey = null;
-            designedWindowText = null;
-            return;
-        }
-        if (!design) return;
-        if (findBar.getVisibility() == View.VISIBLE) closeFind();
-        String key = fileKey(shownPath);
-        if (!key.equals(designedWindowKey) && uiMaker != null && sidePanelShown(uiMaker.view())) {
-            setSidePanel(uiMaker.view(), uiMakerSplitter, false);
-        }
-        String text = code.getText().toString();
-        if (key.equals(designedWindowKey) && text.equals(designedWindowText)) return;
-        if (!key.equals(designedWindowKey)) windowSelection = List.of();
-        designedWindowKey = key;
-        designedWindowText = text;
-        windowDesignHost.removeAllViews();
-        windowDesigner = null;
-        String problem = UiDesigner.problem(text);
-        if (problem != null) {
-            var message = label(requireContext(), problem + "\nOpen Source to fix this window; its contents have been preserved.",
-                    R.attr.textAppearanceBodyMedium);
-            message.setTextColor(IdeColors.ERROR);
-            message.setPadding(message.dp(24), message.dp(24), message.dp(24), message.dp(24));
-            windowDesignHost.addView(message);
-            windowDesignHost.addView(button(requireContext(), "Open Source", R.attr.buttonTonalStyle,
-                    v -> showWindowDesign(false)));
-            return;
-        }
-        String id = shownPath.substring(3, shownPath.length() - 5);
-        windowDesigner = UiDesigner.create(requireContext(), id, text, json -> {
-            if (shownPath == null || !key.equals(fileKey(shownPath))) return;
-            designedWindowText = json;
-            history(shownPath).breakGroup();
-            applyEdit(new TextOps.Edit(0, code.getText().length(), json, 0, 0));
-            history(shownPath).breakGroup();
-        }, windowSelection, selection -> windowSelection = selection,
-                new UiDesigner.EditorActions(() -> undoText(false), () -> undoText(true), this::save));
-        windowDesignHost.addView(windowDesigner.view(), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
     }
 
     private void updateBreadcrumb() {
@@ -3039,7 +2895,6 @@ public class EditorFragment extends Fragment {
 
     /** Keeps the dock's preview in step with the model file being edited (only while that tab is showing). */
     private void refreshPreview() {
-        refreshWindowDesign();
         if (uiMaker != null && sidePanelShown(uiMaker.view())) {
             uiMaker.refresh();
         }
@@ -3980,7 +3835,6 @@ public class EditorFragment extends Fragment {
     }
 
     private void goToLine(int line) {
-        if (UiDesigner.isWindowFile(shownPath)) showWindowDesign(false);
         String all = code.getText().toString();
         int offset = TextOps.offsetOfLine(all, line);
         code.requestFocus();
@@ -4059,7 +3913,6 @@ public class EditorFragment extends Fragment {
     // ------------------------------------------------------------------
 
     private void openFind(boolean replace) {
-        if (UiDesigner.isWindowFile(shownPath)) showWindowDesign(false);
         findBar.setVisibility(View.VISIBLE);
         replaceRow.setVisibility(replace ? View.VISIBLE : View.GONE);
         int start = code.getSelectionStart();

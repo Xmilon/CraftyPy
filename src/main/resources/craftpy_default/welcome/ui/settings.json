@@ -1,74 +1,21 @@
 {
   "id": "settings",
   "title": "Settings",
-  "size": [
-    300,
-    260
-  ],
+  "size": [300, 260],
   "root": {
     "type": "vbox",
     "padding": 4,
     "spacing": 8,
     "children": [
-      {
-        "type": "label",
-        "text": "Drawn in the UI designer",
-        "style": "title"
-      },
-      {
-        "type": "text_input",
-        "id": "nickname",
-        "hint": "Nickname",
-        "bind": {
-          "value": "nickname"
-        }
-      },
-      {
-        "type": "checkbox",
-        "id": "hints",
-        "label": "Show hints",
-        "checked": true,
-        "bind": {
-          "checked": "hints"
-        }
-      },
-      {
-        "type": "label",
-        "text": "Volume"
-      },
-      {
-        "type": "slider",
-        "id": "volume",
-        "min": 0,
-        "max": 100,
-        "value": 60,
-        "bind": {
-          "value": "volume"
-        }
-      },
-      {
-        "type": "hbox",
-        "children": [
-          {
-            "type": "button",
-            "text": "Save",
-            "on_click": "apply_settings",
-            "weight": 1
-          },
-          {
-            "type": "button",
-            "text": "Cancel",
-            "on_click": "close",
-            "style": "text",
-            "weight": 1
-          }
-        ]
-      }
+      { "type": "label", "text": "Drawn in the UI designer", "style": "title" },
+      { "type": "text_input", "id": "nickname", "hint": "Nickname" },
+      { "type": "checkbox", "id": "hints", "label": "Show hints", "checked": true },
+      { "type": "label", "text": "Volume" },
+      { "type": "slider", "id": "volume", "min": 0, "max": 100, "value": 60 },
+      { "type": "hbox", "children": [
+        { "type": "button", "text": "Save", "on_click": "apply_settings", "weight": 1 },
+        { "type": "button", "text": "Cancel", "on_click": "close", "style": "text", "weight": 1 }
+      ] }
     ]
-  },
-  "preview_data": {
-    "nickname": "Builder",
-    "hints": true,
-    "volume": 60
   }
 }

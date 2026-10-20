@@ -64,7 +64,3 @@ instructions.txt
 # module checker builds (tools/build_exe.py)
 tools/dist/
 tools/build/
-
-### Tests stay on this computer ###
-src/test/
-src/nativeTest/

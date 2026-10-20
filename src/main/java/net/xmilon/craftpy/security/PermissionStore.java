@@ -53,7 +53,7 @@ public final class PermissionStore {
         if (sha256 != null) {
             CURRENT_HASH.put(owner, sha256);
         }
-        if (adminApproves && !approvals().containsKey(owner)) {
+        if (adminApproves) {
             // a dedicated server: whoever put the module in pyforge/modules/ and enabled it approved it; players are
             // told what it can do when they join (ServerModules)
             OWN.put(owner, ModulePermissions.clean(asked));
@@ -210,7 +210,6 @@ public final class PermissionStore {
      * module file installed now.
      */
     public static synchronized void approve(String owner, ModulePermissions grant) {
-        OWN.remove(owner);
         approvals().put(owner, ModulePermissions.clean(grant));
         String current = CURRENT_HASH.get(owner);
         if (current != null) {
@@ -222,10 +221,8 @@ public final class PermissionStore {
     }
 
     public static synchronized void revoke(String owner) {
-        OWN.remove(owner);
-        approvals().put(owner, new ModulePermissions());
-        String current = CURRENT_HASH.get(owner);
-        if (current != null) hashes().put(owner, current); else hashes().remove(owner);
+        approvals().remove(owner);
+        hashes().remove(owner);
         save();
     }
 

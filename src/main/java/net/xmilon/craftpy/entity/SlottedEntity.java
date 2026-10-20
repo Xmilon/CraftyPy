@@ -34,7 +34,7 @@ import net.xmilon.craftpy.registry.SlotRegistry;
  * Stats and AI follow the live definition of its slot; how it looks (name, texture, model, size) is synced to clients
  * in one string and saved with the mob, so a mob of an unloaded project still looks the same.
  */
-public class SlottedEntity extends PathfinderMob implements net.minecraft.world.entity.monster.RangedAttackMob {
+public class SlottedEntity extends PathfinderMob {
     private static final EntityDataAccessor<String> LOOK = SynchedEntityData.defineId(SlottedEntity.class, EntityDataSerializers.STRING);
 
     private final SlotRegistry.Kind kind;
@@ -43,16 +43,14 @@ public class SlottedEntity extends PathfinderMob implements net.minecraft.world.
     private Look look = Look.EMPTY;
 
     /** How the mob is drawn. Ids are full resource locations; an empty texture means the model's vanilla skin. */
-    public record Look(String name, String texture, String model, String animation, float scale, float width, float height,
-                       JsonObject clips) {
-        static final Look EMPTY = new Look("", "", "humanoid", "", 1f, 0.6f, 1.8f, new JsonObject());
+    public record Look(String name, String texture, String model, String animation, float scale, float width, float height) {
+        static final Look EMPTY = new Look("", "", "humanoid", "", 1f, 0.6f, 1.8f);
 
         static Look parse(String json) {
             try {
                 JsonObject o = JsonParser.parseString(json).getAsJsonObject();
                 return new Look(Defs.s(o, "name", ""), Defs.s(o, "texture", ""), Defs.s(o, "model", "humanoid"),
-                        Defs.s(o, "animation", ""), Defs.f(o, "scale", 1f), Defs.f(o, "width", 0.6f), Defs.f(o, "height", 1.8f),
-                        o.has("clips") ? o.getAsJsonObject("clips") : new JsonObject());
+                        Defs.s(o, "animation", ""), Defs.f(o, "scale", 1f), Defs.f(o, "width", 0.6f), Defs.f(o, "height", 1.8f));
             } catch (RuntimeException e) {
                 return EMPTY;
             }
@@ -67,7 +65,6 @@ public class SlottedEntity extends PathfinderMob implements net.minecraft.world.
             o.addProperty("scale", scale);
             o.addProperty("width", width);
             o.addProperty("height", height);
-            o.add("clips", clips);
             return o.toString();
         }
 
@@ -87,7 +84,7 @@ public class SlottedEntity extends PathfinderMob implements net.minecraft.world.
             }
             String texture = def.texture.isBlank() ? "" : asset(def.texture.trim(), projectId, "textures/", ".png");
             return new Look(def.name, texture, model.toLowerCase(java.util.Locale.ROOT), animation, def.scale, def.width,
-                    def.height, def.animations.deepCopy());
+                    def.height);
         }
 
         /** {@code goblin.png} = {@code project:textures/goblin.png}; {@code minecraft:entity/pig/pig} gets folder and ending. */
@@ -147,14 +144,7 @@ public class SlottedEntity extends PathfinderMob implements net.minecraft.world.
                 apply(def);
             }
         }
-        if (!level().isClientSide && applied != null && Defs.s(applied.behavior, "profile", "").equals("guard")
-                && getTarget() != null && !isWithinRestriction(getTarget().blockPosition())) setTarget(null);
         super.tick();
-    }
-
-    @Override public boolean canAttack(net.minecraft.world.entity.LivingEntity target) {
-        var controller = getPersistentData().getCompound("craftpy:controller");
-        return !(controller.hasUUID("player") && controller.getUUID("player").equals(target.getUUID())) && super.canAttack(target);
     }
 
     /** Takes over a (new or reloaded) definition: stats, AI and look. */
@@ -172,9 +162,7 @@ public class SlottedEntity extends PathfinderMob implements net.minecraft.world.
         goalSelector.removeAllGoals(goal -> true);
         targetSelector.removeAllGoals(goal -> true);
         goalSelector.addGoal(0, new FloatGoal(this));
-        if (NativeAi.configure(this, def)) {
-            // The explicit profile replaces only generic defaults; navigation and attack timing remain native.
-        } else if (hostile()) {
+        if (hostile()) {
             goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.0, false));
             targetSelector.addGoal(1, new HurtByTargetGoal(this));
             targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Player.class, true));
@@ -184,39 +172,7 @@ public class SlottedEntity extends PathfinderMob implements net.minecraft.world.
         goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, hostile() ? 0.8 : 1.0));
         goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 6f));
         goalSelector.addGoal(7, new RandomLookAroundGoal(this));
-        String namespace = EventBridge.projectId(holder()).split(":", 2)[0];
-        String owner = net.xmilon.craftpy.project.ModuleLoader.isLoaded(namespace) ? "module:" + namespace : namespace;
-        for (var raw : def.goals) {
-            try { NativeGoals.attach(this, raw.getAsJsonObject(), owner); }
-            catch (RuntimeException error) { net.xmilon.craftpy.CraftPyLog.LOGGER.error("Cannot attach AI goal to {}: {}", holder(), error.getMessage()); }
-        }
         entityData.set(LOOK, Look.of(def, EventBridge.projectId(holder()).split(":", 2)[0]).json());
-    }
-
-    public void addNativeGoal(int priority, boolean target, net.minecraft.world.entity.ai.goal.Goal goal) {
-        (target ? targetSelector : goalSelector).addGoal(priority, goal);
-    }
-
-    /** Optional renderer adapter overrides this; callers can distinguish unsupported animation families. */
-    public boolean playAnimation(String event) { return false; }
-
-    @Override public void performRangedAttack(net.minecraft.world.entity.LivingEntity target, float velocity) {
-        var arrow = new net.minecraft.world.entity.projectile.Arrow(level(), this,
-                new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.ARROW), null);
-        double dx = target.getX() - getX(), dz = target.getZ() - getZ();
-        double dy = target.getY(.333) - arrow.getY() + Math.sqrt(dx * dx + dz * dz) * .2;
-        arrow.shoot(dx, dy, dz, 1.6f, 6); arrow.setBaseDamage(applied == null ? 2 : applied.damage);
-        if (level().addFreshEntity(arrow)) playAnimation("attack");
-    }
-
-    @Override public boolean doHurtTarget(net.minecraft.world.entity.Entity target) {
-        boolean hit = super.doHurtTarget(target); if (hit) playAnimation("attack"); return hit;
-    }
-    @Override public boolean hurt(net.minecraft.world.damagesource.DamageSource source, float amount) {
-        boolean hit = super.hurt(source, amount); if (hit && isAlive()) playAnimation("hurt"); return hit;
-    }
-    @Override public void die(net.minecraft.world.damagesource.DamageSource source) {
-        super.die(source); if (!level().isClientSide) playAnimation("death");
     }
 
     private void base(net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute> attribute, double value) {

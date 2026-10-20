@@ -13,8 +13,9 @@ import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 
 /**
- * Lists the project's {@code ui/*.json} windows and Python window classes. The actual designer occupies the
- * main editor area alongside the Source tab.
+ * The UI maker tool window: the windows of the project ({@code ui/*.json}) and, for the one open in the editor, the
+ * designer itself: a palette of widgets, the widget tree, their properties and the window drawn live. Every change
+ * goes straight into the editor tab (undo with Ctrl+Z, save with Ctrl+S); typing in the JSON updates the designer.
  * Python opens a window with {@code ui.open(player, "id")}.
  */
 final class UiMakerPanel {
@@ -23,9 +24,12 @@ final class UiMakerPanel {
 
         String activePath();
 
+        String activeText();
+
         void open(String path);
 
-        void design();
+        /** Replaces the text of the open editor tab (one undoable edit). */
+        void write(String text);
 
         void newWindow();
 
@@ -44,7 +48,11 @@ final class UiMakerPanel {
     private final Host host;
     private final LinearLayout view;
     private final LinearLayout list;
+    private final LinearLayout designer;
     private final TextView hint;
+    /** The designer was built for this file and this text; the text it wrote itself does not rebuild it. */
+    private String designedPath;
+    private String designedText;
 
     UiMakerPanel(Context context, Host host) {
         this.host = host;
@@ -82,7 +90,11 @@ final class UiMakerPanel {
         hint.setPadding(view.dp(10), view.dp(4), view.dp(10), view.dp(4));
         view.addView(hint);
 
-        view.addView(CraftPyFragment.button(context, "Open in designer", R.attr.buttonTonalStyle, v -> host.design()));
+        designer = new LinearLayout(context);
+        designer.setOrientation(LinearLayout.VERTICAL);
+        designer.setPadding(view.dp(6), 0, view.dp(6), view.dp(6));
+        designer.setBackground(new ColorDrawable(IdeColors.EDITOR));
+        view.addView(designer, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
     }
 
     View view() {
@@ -153,7 +165,7 @@ final class UiMakerPanel {
     void refresh() {
         Context context = list.getContext();
         list.removeAllViews();
-        List<String> windows = host.files().stream().filter(UiDesigner::isWindowFile).sorted().toList();
+        List<String> windows = host.files().stream().filter(p -> p.startsWith("ui/") && p.endsWith(".json")).sorted().toList();
         String active = host.activePath();
         for (String path : windows) {
             String id = path.substring(3, path.length() - 5);
@@ -165,10 +177,33 @@ final class UiMakerPanel {
             row.setOnClickListener(v -> host.open(path));
             list.addView(row);
         }
-        boolean open = UiDesigner.isWindowFile(active);
+        boolean open = active != null && active.startsWith("ui/") && active.endsWith(".json");
         String id = open ? active.substring(3, active.length() - 5) : "";
         hint.setText(windows.isEmpty() ? "No windows yet: + New window makes ui/<id>.json and opens it here."
-                : open ? active + " opens in the main editor. Python: ui.open(player, \"" + id + "\")"
-                : "Click a window to open its Design and Source views.");
+                : open ? "Designing " + active + " - Python opens it with ui.open(player, \"" + id + "\")"
+                : "Click a window to design it.");
+        if (!open) {
+            designer.removeAllViews();
+            designedPath = null;
+            designedText = null;
+            return;
+        }
+        String text = host.activeText();
+        if (active.equals(designedPath) && text.equals(designedText)) {
+            return; // the designer's own edit came back, or nothing changed: keep its state (selection, focus)
+        }
+        if (!active.equals(designedPath)) {
+            selection = List.of(); // another window: start at its root
+        }
+        designedPath = active;
+        designedText = text;
+        designer.removeAllViews();
+        designer.addView(UiDesigner.docked(context, id, text, json -> {
+            designedText = json;
+            host.write(json);
+        }, selection, path -> selection = path), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
     }
+
+    /** The selected widget of the open window (child indexes from the root): typing in the JSON keeps it selected. */
+    private List<Integer> selection = List.of();
 }

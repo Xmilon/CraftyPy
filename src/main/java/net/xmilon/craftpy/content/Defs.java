@@ -99,11 +99,6 @@ public final class Defs {
         public float friction = -1f;
         /** "normal", "destroy", "block", "ignore", "push_only" or "" for the default. */
         public String push = "";
-        public KineticDef kinetic;
-        public JsonObject energy;
-        public JsonObject fluid;
-
-        public boolean machine() { return kinetic != null || energy != null || fluid != null; }
 
         public static BlockDef from(JsonObject json) {
             BlockDef def = new BlockDef();
@@ -117,9 +112,6 @@ public final class Defs {
             def.light = Math.max(0, Math.min(15, i(json, "light", 0)));
             for (JsonObject ext : extensions(json)) {
                 switch (s(ext, "type", "")) {
-                    case "kinetic" -> def.kinetic = KineticDef.from(ext);
-                    case "energy_storage" -> def.energy = MachineState.validateEnergy(ext);
-                    case "fluid_tank" -> def.fluid = MachineState.validateFluid(ext);
                     case "mineable" -> def.minLevel = Math.max(0, Math.min(4, i(ext, "level", 0)));
                     case "redstone" -> def.redstone = Math.max(0, Math.min(15, i(ext, "power", 0)));
                     case "flammable" -> {
@@ -305,9 +297,6 @@ public final class Defs {
         public int eggColor;
         public int eggSpots;
         public final List<Spawn> spawns = new ArrayList<>();
-        public JsonObject behavior = new JsonObject();
-        public JsonArray goals = new JsonArray();
-        public JsonObject animations = new JsonObject();
 
         /** Natural spawning in biomes ({@code "#minecraft:is_overworld"} or {@code "minecraft:plains"}). */
         public record Spawn(List<String> biomes, int weight, int min, int max) {
@@ -319,30 +308,6 @@ public final class Defs {
             def.texture = s(json, "texture", "");
             def.model = s(json, "model", "humanoid");
             def.animation = s(json, "animation", "");
-            if (json.has("behavior")) {
-                def.behavior = json.getAsJsonObject("behavior").deepCopy();
-                String profile = s(def.behavior, "profile", "");
-                if (!java.util.Set.of("melee", "ranged", "follow", "guard").contains(profile)) throw new IllegalArgumentException("Unknown mob behavior profile: " + profile);
-                String target = s(def.behavior, "target", "hostile");
-                if (!java.util.Set.of("hostile", "players", "none").contains(target)) throw new IllegalArgumentException("Unknown mob target: " + target);
-                for (String key : def.behavior.keySet()) {
-                    if (java.util.Set.of("profile", "target").contains(key)) continue;
-                    if (!java.util.Set.of("speed", "range", "interval", "radius").contains(key)) throw new IllegalArgumentException("Unknown behavior option: " + key);
-                    double value = def.behavior.get(key).getAsDouble();
-                    double min = key.equals("interval") ? 10 : key.equals("speed") ? 0.1 : 1;
-                    double max = key.equals("interval") ? 200 : key.equals("speed") ? 4 : 64;
-                    if (!Double.isFinite(value) || value < min || value > max) throw new IllegalArgumentException("Behavior " + key + " must be " + min + "-" + max);
-                }
-            }
-            if (json.has("goals")) def.goals = json.getAsJsonArray("goals").deepCopy();
-            if (json.has("animations")) {
-                def.animations = json.getAsJsonObject("animations").deepCopy();
-                for (var entry : def.animations.entrySet()) {
-                    if (!java.util.Set.of("idle", "walk", "run", "attack", "cast", "hurt", "death").contains(entry.getKey())
-                            || !entry.getValue().isJsonPrimitive() || !entry.getValue().getAsJsonPrimitive().isString()
-                            || entry.getValue().getAsString().length() > 128) throw new IllegalArgumentException("Invalid named animation: " + entry.getKey());
-                }
-            }
             def.scale = Math.max(0.05f, Math.min(16f, f(json, "scale", 1.0f)));
             def.base = s(json, "base", "passive").toLowerCase(java.util.Locale.ROOT);
             def.health = Math.max(1.0f, f(json, "health", 10.0f));

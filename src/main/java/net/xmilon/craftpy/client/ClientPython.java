@@ -61,15 +61,12 @@ public final class ClientPython {
 
     private static final class ClientWorker {
         final RpcClient rpc;
-        final String owner;
-        volatile JsonArray keys;
         /** False while no timer or client_tick handler exists: then no tick is sent (the worker says so in each reply). */
         volatile boolean ticking = true;
         volatile Set<String> events = Set.of();
 
-        ClientWorker(RpcClient rpc, String owner) {
+        ClientWorker(RpcClient rpc) {
             this.rpc = rpc;
-            this.owner = owner;
         }
     }
     private String lastProblem = "";
@@ -263,7 +260,8 @@ public final class ClientPython {
             List<ClientWorker> targets = new ArrayList<>();
             switch (name) {
                 case "http_response" -> addOwner(targets, context.has("owner") ? context.get("owner").getAsString() : "");
-                case "key" -> addOwner(targets, context.has("owner") ? context.get("owner").getAsString() : "");
+                case "key" -> ClientHost.ownersOf(context.has("combo") ? context.get("combo").getAsString() : "")
+                        .forEach(owner -> addOwner(targets, owner));
                 case "ui_event" -> addOwner(targets, windowOwners.getOrDefault(
                         context.has("window") ? context.get("window").getAsString() : "", ""));
                 default -> workers.values().stream().filter(w -> w.events.contains(name)).forEach(targets::add);
@@ -286,10 +284,9 @@ public final class ClientPython {
         windowOwners.put(windowId, owner);
     }
 
-    public void key(String owner, String action) {
+    public void key(String combo) {
         JsonObject context = new JsonObject();
-        context.addProperty("owner", owner);
-        context.addProperty("action", action);
+        context.addProperty("combo", combo);
         event("key", context);
     }
 
@@ -370,7 +367,7 @@ public final class ClientPython {
                 "CRAFTPY_OWNER", owner));
         client.setHostHandler((method, params) -> ClientHost.handle(owner, method, params));
         client.start();
-        ClientWorker worker = new ClientWorker(client, owner);
+        ClientWorker worker = new ClientWorker(client);
         workers.put(owner, worker);
         active = true;
         for (String library : libraries) {
@@ -394,13 +391,6 @@ public final class ClientPython {
 
     private static JsonObject call(ClientWorker worker, String method, JsonObject params, long timeoutMs) throws IOException {
         JsonObject result = worker.rpc.call(method, params, timeoutMs);
-        if (result != null && result.has("keys") && !result.getAsJsonArray("keys").equals(worker.keys)) {
-            JsonArray descriptions = result.getAsJsonArray("keys").deepCopy();
-            worker.keys = descriptions;
-            IdeHost.get().execute(() -> {
-                if (INSTANCE.active && INSTANCE.workers.get(worker.owner) == worker) ModuleKeys.local(worker.owner, descriptions);
-            });
-        }
         if (result != null && result.has("ticking")) {
             worker.ticking = result.get("ticking").getAsBoolean();
         }

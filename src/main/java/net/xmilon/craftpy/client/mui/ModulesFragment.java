@@ -115,7 +115,6 @@ public class ModulesFragment extends Fragment {
             header.addView(button(context, "Reload all", R.attr.borderlessButtonStyle,
                     v -> store(s -> s.reloadModule("*"))));
             header.addView(button(context, "Dependencies", R.attr.borderlessButtonStyle, this::showDependencies));
-            header.addView(button(context, "Module Keybinds", R.attr.borderlessButtonStyle, ModuleKeybinds::open));
             header.addView(button(context, "Refresh", R.attr.buttonTonalStyle,
                     v -> store(ClientProjectStore::refreshModules)));
             page.addView(header);
@@ -245,7 +244,6 @@ public class ModulesFragment extends Fragment {
 
         var toggle = new Switch(context);
         toggle.setChecked(module.enabled);
-        toggle.setEnabled(module.enabled || module.error == null || !module.error.startsWith("Unavailable:"));
         toggle.setOnCheckedChangeListener((v, checked) -> store(s -> s.setModuleEnabled(module.id, checked)));
         row.addView(toggle);
 
@@ -317,15 +315,14 @@ public class ModulesFragment extends Fragment {
             warning.setTextColor(IdeColors.ERROR);
             details.addView(warning);
             var approveRow = row(context);
-            var permissionToggle = new Switch(context);
-            permissionToggle.setText("Allow requested permissions");
-            permissionToggle.setChecked(module.permissionsApproved);
-            permissionToggle.setEnabled(module.primary && !module.duplicate && !module.sha256.isBlank());
-            permissionToggle.setOnCheckedChangeListener((v, checked) -> {
-                store(s -> s.approveModule(selected.id, checked));
-            });
-            approveRow.addView(permissionToggle);
-            approveRow.addView(label(context, "Saved for this exact module file; changes require approval again.", R.attr.textAppearanceBodySmall));
+            approveRow.addView(button(context, module.permissionsApproved ? "Revoke access" : "Approve access",
+                    R.attr.buttonTonalStyle, v -> {
+                        if (selected.permissionsApproved) {
+                            store(s -> s.approveModule(selected.id, false));
+                        } else {
+                            prompt(v, selected.permissionWarning, null, "Approve", ignored -> store(s -> s.approveModule(selected.id, true)));
+                        }
+                    }));
             details.addView(approveRow);
         }
         var actions = row(context);

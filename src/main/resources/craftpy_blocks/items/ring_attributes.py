@@ -1,4 +1,3 @@
-#: mods: curios
 #: title: Ring with attributes (Curios)
 #: category: Items
 #: doc: api.md#Attributes
@@ -10,7 +9,3 @@ from craftpy import *
     Attributes("minecraft:generic.luck", 2, slot="curios:ring"),
     Attributes("minecraft:generic.max_health", 4, slot="curios:ring"),
     Tooltip("Worn in a ring slot", color="gold"))
-
-# Curios SET merges the maximum size; existing larger slot counts are preserved.
-raw_json('curios/slots/ring.json', {'size':1,'operation':'SET'})
-raw_json('curios/entities/{{name}}.json', {'entities':['player'],'slots':['ring']})

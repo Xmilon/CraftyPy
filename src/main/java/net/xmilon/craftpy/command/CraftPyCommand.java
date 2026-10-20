@@ -199,13 +199,6 @@ public final class CraftPyCommand {
             fail(ctx, "Missing permission " + CraftPyPermissions.GIVE.getNodeName() + ".");
             return 0;
         }
-        String requested = ResourceLocationArgument.getId(ctx, "id").toString();
-        if (net.xmilon.craftpy.content.NativeContent.definition("entity", requested) != null) {
-            if (net.xmilon.craftpy.content.NativeContent.spawn(requested, ctx.getSource().getLevel(), pos) == null) {
-                fail(ctx, "Could not summon " + requested); return 0;
-            }
-            ctx.getSource().sendSuccess(() -> Component.literal("Summoned native variant " + requested), true); return 1;
-        }
         SlotRegistry.SlotRef slot = mobSlot(ctx);
         if (slot == null) {
             return 0;
@@ -243,7 +236,6 @@ public final class CraftPyCommand {
 
     private static Iterable<String> mobIds() {
         TreeSet<String> ids = new TreeSet<>();
-        net.xmilon.craftpy.content.NativeContent.definitions("entity").forEach(def -> ids.add(def.id()));
         for (var entry : SlotRegistry.snapshotByHolder().entrySet()) {
             if (entry.getValue().kind() == SlotRegistry.Kind.ENTITY || entry.getValue().kind() == SlotRegistry.Kind.MONSTER) {
                 ids.add(stripKind(entry.getKey()));
@@ -258,7 +250,6 @@ public final class CraftPyCommand {
      */
     private static Iterable<String> contentIds() {
         TreeSet<String> ids = new TreeSet<>();
-        net.xmilon.craftpy.content.NativeContent.definitions("block").forEach(def -> ids.add(def.id()));
         for (String key : SlotRegistry.snapshotByHolder().keySet()) {
             ids.add(stripKind(key));
         }
@@ -284,13 +275,6 @@ public final class CraftPyCommand {
         ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
         ResourceLocation id = ResourceLocationArgument.getId(ctx, "id");
 
-        var nativeBlock = net.xmilon.craftpy.content.NativeContent.definition("block", id.toString());
-        if (nativeBlock != null && (kind == null || kind == SlotRegistry.Kind.BLOCK)) {
-            var item = net.minecraft.core.registries.BuiltInRegistries.BLOCK.get(ResourceLocation.parse(nativeBlock.base())).asItem();
-            ItemStack stack = new ItemStack(item, Math.min(count, item.getDefaultMaxStackSize()));
-            if (!target.getInventory().add(stack)) target.drop(stack, false);
-            ctx.getSource().sendSuccess(() -> Component.literal("Gave native block " + id + " to " + target.getName().getString()), true); return 1;
-        }
         String resolution;
         if (kind == null) {
             kind = SlotRegistry.Kind.BLOCK;
@@ -309,10 +293,10 @@ public final class CraftPyCommand {
             ctx.getSource().sendFailure(Component.literal(resolution.substring("ERROR:".length())));
             return 0;
         }
-        final SlotRegistry.Kind given = SlotRegistry.Kind.valueOf(resolution.substring(0, resolution.indexOf('#')));
+        final SlotRegistry.Kind given = kind;
 
         int index = Integer.parseInt(resolution.substring(resolution.indexOf('#') + 1));
-        Item item = given == SlotRegistry.Kind.KINETIC ? net.xmilon.craftpy.registry.KineticSlots.BLOCKS.get(index).get().asItem() : kind == SlotRegistry.Kind.BLOCK
+        Item item = kind == SlotRegistry.Kind.BLOCK
                 ? ModItems.SLOT_BLOCK_ITEMS.get(index).get()
                 : ModItems.SLOT_ITEMS.get(index).get();
         ItemStack stack = new ItemStack(item, Math.min(count, item.getDefaultMaxStackSize()));
@@ -352,14 +336,12 @@ public final class CraftPyCommand {
         // Live keys are kind-prefixed (BLOCK:project:id); older/plain keys are project:id.
         String kindPrefix = kind.name() + ":";
         SlotRegistry.SlotRef ref = mapping.get(kindPrefix + raw);
-        if (ref == null && kind == SlotRegistry.Kind.BLOCK) ref = mapping.get("KINETIC:" + raw);
         if (ref == null) {
             ref = mapping.get(raw);
         }
         if (ref == null && ns.startsWith("project_")) {
             String alias = ns.substring("project_".length()) + ":" + path;
             ref = mapping.get(kindPrefix + alias);
-            if (ref == null && kind == SlotRegistry.Kind.BLOCK) ref = mapping.get("KINETIC:" + alias);
             if (ref == null) {
                 ref = mapping.get(alias);
             }
@@ -369,8 +351,8 @@ public final class CraftPyCommand {
         if (ref == null) {
             String suffix = ":" + path;
             for (Map.Entry<String, SlotRegistry.SlotRef> entry : mapping.entrySet()) {
-                if (entry.getKey().endsWith(suffix) && (entry.getValue().kind() == kind || kind == SlotRegistry.Kind.BLOCK && entry.getValue().kind() == SlotRegistry.Kind.KINETIC)) {
-                    if (byPath != null && !byPath.equals(entry.getValue())) {
+                if (entry.getKey().endsWith(suffix) && entry.getValue().kind() == kind) {
+                    if (byPath != null && byPath.index() != entry.getValue().index()) {
                         ambiguous = true;
                     }
                     byPath = entry.getValue();
@@ -384,7 +366,7 @@ public final class CraftPyCommand {
         if (ref == null) {
             return "ERROR:Unknown project content '" + raw + "'. Use <project>:<id> as declared with @block/@item.";
         }
-        if (ref.kind() != kind && !(kind == SlotRegistry.Kind.BLOCK && ref.kind() == SlotRegistry.Kind.KINETIC)) {
+        if (ref.kind() != kind) {
             return "ERROR:'" + raw + "' is declared as "
                     + (ref.kind() == SlotRegistry.Kind.BLOCK ? "a block" : "an item") + ", not "
                     + (kind == SlotRegistry.Kind.BLOCK ? "a block" : "an item") + ".";

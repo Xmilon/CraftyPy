@@ -13,7 +13,7 @@ import com.google.gson.JsonObject;
  * and read by the IDE for completion and checks. Plain data so Gson can read and write it.
  */
 public final class Catalog {
-    public int format = 2;
+    public int format = 1;
     public String namespace = "";
     /** The mod that owns the namespace ({@code minecraft} for vanilla). The catalog is hidden when this mod is gone. */
     public String mod = "";
@@ -31,8 +31,6 @@ public final class Catalog {
     public List<String> classes = new ArrayList<>();
     /** Datapack folders the mod reads ({@code data/<ns>/<folder>}). */
     public List<String> folders = new ArrayList<>();
-    /** Registry/class metadata. Discovery never invokes an entity factory or a goal constructor. */
-    public Map<String, JsonObject> capabilities = new TreeMap<>();
 
     public static final class RecipeType {
         public int count;

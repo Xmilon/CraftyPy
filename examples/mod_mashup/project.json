@@ -1,0 +1,9 @@
+{
+  "id": "mod_mashup",
+  "name": "Mod Mashup",
+  "version": "1.0.0",
+  "author": "CraftPy",
+  "description": "Create, Mekanism, Iron's Spells 'n Spellbooks and Curios working together: one material that needs all of them, gear that uses their attributes and slots, events that cross mods.",
+  "mcVersion": "1.21.1",
+  "apiVersion": "2.2"
+}

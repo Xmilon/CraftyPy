@@ -63,21 +63,11 @@ public final class HostBridge {
         try {
             return switch (method) {
                 case "world.get_block" -> onServer(server -> getBlock(server, params));
-                case "world.machine" -> onServer(server -> {
-                    ServerLevel level = level(server, params);
-                    if (level == null) return error("unknown dimension");
-                    BlockPos pos = pos(params);
-                    if (!level.hasChunkAt(pos)) return error("Machine chunk is not loaded");
-                    if (!(level.getBlockEntity(pos) instanceof net.xmilon.craftpy.content.MachineAccess machine)) return error("No CraftPy machine here");
-                    JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
-                });
-                case "world.resources" -> onServer(server -> net.xmilon.craftpy.content.ResourceAccess.snapshot(level(server, params), params));
-                case "world.transfer" -> onServer(server -> net.xmilon.craftpy.content.ResourceAccess.transfer(level(server, params), params));
                 case "world.set_block" -> onServer(server -> setBlock(server, params));
                 case "world.get_time" -> onServer(HostBridge::getTime);
                 case "world.set_time" -> onServer(server -> setTime(server, params));
                 case "world.play_sound" -> onServer(server -> playSound(server, params));
-                case "world.spawn" -> onServer(server -> spawn(server, owner, params));
+                case "world.spawn" -> onServer(server -> spawn(server, params));
                 case "world.place_structure" -> onServer(server -> placeStructure(server, params));
                 case "world.place_jigsaw" -> onServer(server -> placeJigsaw(server, params));
                 case "world.particle" -> onServer(server -> particle(server, params));
@@ -105,13 +95,6 @@ public final class HostBridge {
                 case "entity.kill" -> onServer(server -> entityKill(server, params));
                 case "entity.teleport" -> onServer(server -> entityTeleport(server, params));
                 case "entity.set_name" -> onServer(server -> entityName(server, params));
-                case "entity.state" -> onServer(server -> entityState(server, owner, params));
-                case "entity.owner" -> onServer(server -> entityOwner(server, owner, params));
-                case "entity.animate" -> onServer(server -> {
-                    Entity entity = findEntity(server, string(params, "uuid", ""));
-                    return entity instanceof net.xmilon.craftpy.entity.SlottedEntity mob && controlledBy(entity, owner)
-                            && mob.playAnimation(string(params, "animation", "")) ? ok() : error("Entity family or named animation is unavailable for this owner");
-                });
                 case "player.heal" -> onServer(server -> withPlayer(server, params, HostBridge::heal));
                 case "player.set_health" -> onServer(server -> withPlayer(server, params, HostBridge::setHealth));
                 case "player.feed" -> onServer(server -> withPlayer(server, params, HostBridge::feed));
@@ -171,12 +154,6 @@ public final class HostBridge {
                     net.xmilon.craftpy.lifecycle.StorageData.changed();
                     yield ok();
                 }
-                case "server.features" -> net.xmilon.craftpy.project.RuntimeFeatures.snapshot();
-                case "server.info" -> onServer(server -> {
-                    JsonObject result = ok(); result.addProperty("players", server.getPlayerCount()); result.addProperty("game_time", server.overworld().getGameTime());
-                    result.addProperty("max_players", server.getMaxPlayers()); result.addProperty("tick_ms", server.getAverageTickTimeNanos() / 1_000_000.0);
-                    return result;
-                });
                 case "server.mods" -> {
                     // which mods are loaded: harmless to know, so no permission (the Java bridge would be full trust)
                     JsonObject result = ok();
@@ -235,7 +212,7 @@ public final class HostBridge {
         if (block == null) {
             return error("unknown block: " + string(p, "block", ""));
         }
-        BlockState state = net.xmilon.craftpy.registry.KineticSlots.configuredState(block);
+        BlockState state = block.defaultBlockState();
         boolean replace = !p.has("replace") || p.get("replace").getAsBoolean();
         level.setBlock(pos(p), state, replace ? 3 : 2);
         return ok(true);
@@ -273,29 +250,12 @@ public final class HostBridge {
         return ok(true);
     }
 
-    private static JsonObject spawn(MinecraftServer server, String owner, JsonObject p) {
+    private static JsonObject spawn(MinecraftServer server, JsonObject p) {
         ServerLevel level = level(server, p);
         if (level == null) {
             return error("unknown dimension");
         }
-        String requested = string(p, "entity", "");
-        if (p.has("player_owner")) {
-            String namespace = owner.startsWith("module:") ? owner.substring(7) : owner;
-            if (!requested.startsWith(namespace + ":")) return error("Only the entity's content owner can assign its controller");
-            String playerName = string(p, "player_owner", "");
-            if (!playerName.isEmpty() && findPlayer(server, playerName) == null) return error("Controller player is not online: " + playerName);
-        }
-        if (net.xmilon.craftpy.content.NativeContent.definition("entity", requested) != null) {
-            Entity nativeEntity = net.xmilon.craftpy.content.NativeContent.spawn(requested, level, pos(p));
-            if (nativeEntity == null) return error("cannot create native entity: " + requested);
-            if (p.has("player_owner")) {
-                try { setController(server, nativeEntity, owner, string(p, "player_owner", "")); }
-                catch (RuntimeException error) { nativeEntity.discard(); throw error; }
-            }
-            JsonObject result = ok(); result.addProperty("uuid", nativeEntity.getUUID().toString());
-            result.add("entity", net.xmilon.craftpy.lifecycle.EventBridge.wrapEntity(nativeEntity)); return result;
-        }
-        ResourceLocation id = parseId(SlotRegistry.resolve(requested,
+        ResourceLocation id = parseId(SlotRegistry.resolve(string(p, "entity", ""),
                 SlotRegistry.Kind.ENTITY, SlotRegistry.Kind.MONSTER));
         if (id == null) {
             return error("bad entity id");
@@ -309,13 +269,8 @@ public final class HostBridge {
         if (entity == null) {
             return error("cannot create entity: " + id);
         }
-        if (p.has("player_owner")) {
-            try { setController(server, entity, owner, string(p, "player_owner", "")); }
-            catch (RuntimeException error) { entity.discard(); throw error; }
-        }
         JsonObject result = ok();
         result.addProperty("uuid", entity.getUUID().toString());
-        result.add("entity", net.xmilon.craftpy.lifecycle.EventBridge.wrapEntity(entity));
         return result;
     }
 
@@ -413,8 +368,8 @@ public final class HostBridge {
         JsonArray out = new JsonArray();
         for (Entity entity : level.getEntities((Entity) null, box)) {
             JsonObject entry = new JsonObject();
-            entry.addProperty("type", net.xmilon.craftpy.content.NativeContent.logicalId(entity));
-            entry.addProperty("native_type", id(entity.getType()));
+            entry.addProperty("type", entity instanceof net.xmilon.craftpy.entity.SlottedEntity mob
+                    ? net.xmilon.craftpy.lifecycle.EventBridge.projectId(mob.holder()) : id(entity.getType()));
             entry.addProperty("uuid", entity.getUUID().toString());
             entry.addProperty("x", entity.getX());
             entry.addProperty("y", entity.getY());
@@ -482,14 +437,6 @@ public final class HostBridge {
         double x = p.has("x") ? p.get("x").getAsDouble() : player.getX();
         double y = p.has("y") ? p.get("y").getAsDouble() : player.getY();
         double z = p.has("z") ? p.get("z").getAsDouble() : player.getZ();
-        if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z) || Math.abs(x) > 30_000_000 || Math.abs(z) > 30_000_000) return error("Invalid teleport position");
-        if (p.has("safe") && p.get("safe").getAsBoolean()) {
-            BlockPos target = BlockPos.containing(x, y, z);
-            var box = player.getBoundingBox().move(x - player.getX(), y - player.getY(), z - player.getZ());
-            if (!level.isInWorldBounds(target) || !level.getWorldBorder().isWithinBounds(target) || !level.hasChunkAt(target)
-                    || !level.noCollision(player, box) || !level.getBlockState(target.below()).isFaceSturdy(level, target.below(), net.minecraft.core.Direction.UP)
-                    || !level.getFluidState(target).isEmpty()) return error("Waypoint destination is unloaded or unsafe");
-        }
         player.teleportTo(level, x, y, z, player.getYRot(), player.getXRot());
         return ok(true);
     }
@@ -553,7 +500,7 @@ public final class HostBridge {
         if (volume > FILL_LIMIT) {
             return error("fill area too large (" + volume + " blocks, max " + FILL_LIMIT + ")");
         }
-        BlockState state = net.xmilon.craftpy.registry.KineticSlots.configuredState(block);
+        BlockState state = block.defaultBlockState();
         for (BlockPos at : BlockPos.betweenClosed(Math.min(x1, x2), Math.min(y1, y2), Math.min(z1, z2),
                 Math.max(x1, x2), Math.max(y1, y2), Math.max(z1, z2))) {
             level.setBlock(at, state, 3);
@@ -675,42 +622,6 @@ public final class HostBridge {
         entity.setCustomName(Component.literal(string(p, "name", "")));
         entity.setCustomNameVisible(true);
         return ok();
-    }
-
-    private static JsonObject entityState(MinecraftServer server, String owner, JsonObject p) {
-        Entity entity = findEntity(server, string(p, "uuid", ""));
-        if (entity == null) return error("entity not found");
-        JsonObject state = net.xmilon.craftpy.content.NativeEntityState.get(entity, owner);
-        String key = string(p, "key", "");
-        if (key.length() > 128) return error("Entity state key exceeds 128 characters");
-        if (bool(p, "set", false)) {
-            if (key.isEmpty() || !p.has("value")) return error("Entity state needs a key and value");
-            state.add(key, p.get("value")); net.xmilon.craftpy.content.NativeEntityState.put(entity, owner, state);
-        }
-        JsonObject result = ok(); result.add("value", key.isEmpty() ? state : state.get(key)); return result;
-    }
-
-    private static boolean controlledBy(Entity entity, String owner) {
-        var variant = entity.getPersistentData().getCompound("craftpy:variant");
-        if (variant.contains("owner")) return variant.getString("owner").equals(owner);
-        String namespace = owner.startsWith("module:") ? owner.substring(7) : owner;
-        return entity instanceof net.xmilon.craftpy.entity.SlottedEntity mob
-                && net.xmilon.craftpy.lifecycle.EventBridge.projectId(mob.holder()).startsWith(namespace + ":");
-    }
-
-    private static void setController(MinecraftServer server, Entity entity, String owner, String playerName) {
-        if (!controlledBy(entity, owner)) throw new IllegalArgumentException("Only the entity's content owner can assign its controller");
-        if (playerName.isEmpty()) { entity.getPersistentData().remove("craftpy:controller"); return; }
-        ServerPlayer player = findPlayer(server, playerName);
-        if (player == null) throw new IllegalArgumentException("Controller player is not online: " + playerName);
-        var controller = new net.minecraft.nbt.CompoundTag(); controller.putUUID("player", player.getUUID()); controller.putString("owner", owner);
-        entity.getPersistentData().put("craftpy:controller", controller);
-    }
-
-    private static JsonObject entityOwner(MinecraftServer server, String owner, JsonObject p) {
-        Entity entity = findEntity(server, string(p, "uuid", ""));
-        if (entity == null) return error("entity not found");
-        setController(server, entity, owner, string(p, "player", "")); return ok();
     }
 
     private static JsonObject withPlayer(MinecraftServer server, JsonObject p,
@@ -853,7 +764,6 @@ public final class HostBridge {
 
     /** Vanilla/mod block id or a CraftPy {@code project:id} block; null when unknown. */
     private static Block resolveBlock(String raw) {
-        raw = SlotRegistry.resolve(raw, SlotRegistry.Kind.BLOCK);
         var ref = net.xmilon.craftpy.registry.SlotRegistry.snapshotByHolder().get("BLOCK:" + raw);
         if (ref != null) {
             return net.xmilon.craftpy.registry.ModBlocks.SLOT_BLOCKS.get(ref.index()).get();
@@ -864,9 +774,6 @@ public final class HostBridge {
 
     /** Vanilla/mod item id or a CraftPy {@code project:id} item (or block item); null when unknown. */
     private static net.minecraft.world.item.Item resolveItem(String raw) {
-        raw = SlotRegistry.resolve(raw, SlotRegistry.Kind.ITEM, SlotRegistry.Kind.BLOCK);
-        var alias = net.xmilon.craftpy.content.NativeContent.definition("block", raw);
-        if (alias != null) return BuiltInRegistries.BLOCK.get(ResourceLocation.parse(alias.base())).asItem();
         var mapping = net.xmilon.craftpy.registry.SlotRegistry.snapshotByHolder();
         var ref = mapping.get("ITEM:" + raw);
         if (ref != null) {

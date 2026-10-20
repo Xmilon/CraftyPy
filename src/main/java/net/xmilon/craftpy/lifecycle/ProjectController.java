@@ -297,11 +297,7 @@ public final class ProjectController {
             return CompletableFuture.completedFuture(null);
         }
         return CraftPyExecutors.runAsync(PackBuilder::rebuild)
-                .thenCompose(ignored -> server.submit(() -> {
-                    // The generated folder may have appeared after the repository's initial discovery.
-                    server.getPackRepository().reload();
-                    return server.reloadResources(server.getPackRepository().getSelectedIds());
-                }))
+                .thenCompose(ignored -> server.submit(() -> server.reloadResources(server.getPackRepository().getSelectedIds())))
                 .thenCompose(reload -> reload)
                 .whenComplete((ignored, error) -> {
                     if (error != null) {

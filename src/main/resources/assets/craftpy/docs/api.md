@@ -591,19 +591,11 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.9** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.8** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
-
-### 2.9 (2026-10-19)
-
-- **Added:** `keys.bind(combo, id=..., name=..., category=...)`: stable, remappable module actions on client and server. Assignments survive reloads and restarts. Server callbacks receive the authenticated `ctx.player`.
-- **Added:** `@ui.data(window_id)`: viewer-specific display dictionaries for designer JSON `bind` properties. Supports text, numbers, lists, selection, visibility and enabled state; keys never execute expressions.
-- **Added:** `NativeMob` and `NativeBlock` reuse original registered mod content. Native variants keep their AI/renderers. Custom mobs support native behavior profiles, inspected permission-gated goals, named GeckoLib clips, owner-scoped entity state and throttled `entity_tick` callbacks.
-- **Added:** `Kinetic` adds generator, shaft and two-slot processing blocks using independent native rotation with an optional Create adapter. Separate startup slots retain existing IDs. `world.machine` and throttled `machine_speed`/`machine_state` events expose snapshots. Recipes use `craftpy:kinetic_processing` with ingredient, result, duration and minimum_speed.
-- **Added:** `EnergyStorage`, `FluidTank`, `world.resources` and `world.transfer` expose native NeoForge capability storage and automation.
 
 ### 2.8 (2026-10-18)
 
@@ -708,16 +700,6 @@ Declares a block and returns it; usable anywhere a block or item id is expected.
 
 Returns: The block.
 
-#### `NativeBlock(id, *, base, name=None) -> 'Content'`
-
-References an original installed block/item, retaining its native machine behavior and renderer. This is an alias, not a new registered block type; it cannot have independent extensions.
-
-- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
-- `base`: Complete registered block ID, such as 'create:shaft'.
-- `name` (default `None`): Name of the Python alias; the original block keeps its original display name.
-
-Returns: A native block reference.
-
 #### `Food(hunger=4, saturation=0.6, always_eat=False, fast=False)`
 
 Food values for Item(food=...).
@@ -739,7 +721,7 @@ Class form of Block(...): attributes id, name, texture, hardness, resistance, li
 
 ### Mobs and effects
 
-#### `Mob(id, name=None, texture=None, model='humanoid', animation=None, health=10, speed=0.25, damage=2, armor=0, hostile=False, width=0.6, height=1.8, scale=1.0, follow_range=16, egg=None, spawns=(), drops=None, behavior=None, goals=(), animations=None, **extra) -> 'Content'`
+#### `Mob(id, name=None, texture=None, model='humanoid', animation=None, health=10, speed=0.25, damage=2, armor=0, hostile=False, width=0.6, height=1.8, scale=1.0, follow_range=16, egg=None, spawns=(), drops=None, **extra) -> 'Content'`
 
 Declares a mob and returns it: world.spawn(mob, x, y, z), /craftpy summon, a spawn egg (/craftpy give <player> <project>:<id> egg) or natural spawns.
 
@@ -760,23 +742,9 @@ Declares a mob and returns it: world.spawn(mob, x, y, z), /craftpy summon, a spa
 - `egg` (default `None`): Spawn egg colors: '#3d8f5a' or ('#3d8f5a', '#c9e86b') for base and spots.
 - `spawns` (default `()`): Natural spawns: [Spawn('#minecraft:is_forest', weight=8)]. They start the next time the world is opened.
 - `drops` (default `None`): What it drops: an item, a list, (item, count) / (item, count, weight).
-- `behavior` (default `None`): Profile name or dictionary: profile='melee'|'ranged'|'follow'|'guard', optional target='hostile'|'players'|'none', speed=0.1-4, range/radius=1-64, interval=10-200 ticks. Follow uses world.spawn(owner=player) or entity.set_owner(player).
-- `goals` (default `()`): At most eight inspected public native Goal constructors: dictionaries with class, args, priority (0-20), optional target=True and parameters (exact Java type names). Requires approved java permission and allowed bridge packages. Incompatible entity classes or complex arguments need an adapter.
-- `animations` (default `None`): Map idle/walk/run/attack/cast/hurt/death to GeckoLib clip names. Triggered events synchronize from the server; entity.animate('cast') triggers one explicitly. Death follows Minecraft's normal removal timing.
 - `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The mob (a string 'project:id').
-
-#### `NativeMob(id, *, base, name=None, state=None) -> 'Content'`
-
-Defines a variant that spawns the original registered entity type with its own AI and renderer. Existing entities retain their original type when base changes.
-
-- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
-- `base`: Complete installed living entity ID, such as 'irons_spellbooks:necromancer'.
-- `name` (default `None`): Optional custom entity name; omit to keep the native name.
-- `state` (default `None`): Initial dictionary in this content owner's persistent entity state (at most 16 KiB).
-
-Returns: The native variant reference.
 
 #### `Spawn(biomes='#minecraft:is_overworld', weight=10, min=1, max=3)`
 
@@ -1035,38 +1003,6 @@ Attribute modifiers on an item (any attribute of the game or of a mod): Attribut
 - `operation` (default `'add'`): 'add' (default), 'multiply_base' or 'multiply_total'.
 - `slot` (default `'mainhand'`): 'mainhand' (default), 'offhand', 'head', 'chest', 'legs', 'feet', 'hand', 'armor', 'body' or 'any'.
 
-#### `Kinetic(role='shaft', *, axis='y', speed=64, capacity=32, impact=None, rotating_model='craftpy:block/machine_rotor')`
-
-A native CraftPy machine with an optional Create rotation adapter.
-
-Roles: generator supplies speed/capacity, shaft transmits, processor consumes stress and runs
-craftpy:kinetic_processing recipes. Stress capacity/impact are per RPM. Axis affects new placements;
-The machinery wrench rotates existing machines. Inventory and processing stay native, including on reload.
-rotating_model is a baked block model resource ID, aligned along Y before the axis transform.
-
-
-- `role` (default `'shaft'`): generator, shaft or processor.
-- `axis` (default `'y'`): x, y or z.
-- `speed` (default `64`): Signed generated RPM, -256 to 256.
-- `capacity` (default `32`): Generator stress capacity per RPM, 0 to 65536.
-- `impact` (default `None`): Stress consumed per RPM, 0 to 65536 (processor default 8).
-- `rotating_model` (default `'craftpy:block/machine_rotor'`): Y-aligned baked block model ID.
-
-#### `EnergyStorage(capacity, max_receive=None, max_extract=None)`
-
-Native NeoForge energy storage in FE. No implicit rotation-to-energy conversion.
-
-- `capacity`: Maximum stored FE (1..1000000000).
-- `max_receive` (default `None`): Maximum FE per receive call; default capacity.
-- `max_extract` (default `None`): Maximum FE per extraction call; default capacity.
-
-#### `FluidTank(capacity, allowed=None)`
-
-Native NeoForge tank in mB; allowed is an optional list of fluid resource IDs.
-
-- `capacity`: Maximum mB (1..1000000).
-- `allowed` (default `None`): Optional list of up to 64 namespaced fluid IDs; None permits all.
-
 ### Recipes
 
 #### `shaped(result, *rows, count=1, **keys)`
@@ -1306,14 +1242,13 @@ Returns: A model reference.
 
 ### Events, commands and timers
 
-#### `on(event, every=None, priority='normal', throttle_ticks=0, **filters)`
+#### `on(event, every=None, priority='normal', **filters)`
 
 Runs a function when something happens: @on('block_break'), @on.block_break(block=ruby_ore).
 
-- `event`: Event name: block_break, block_place, block_interact, block_tick, item_use, item_hit, item_mine, item_hold_tick, item_craft, item_pickup, player_join, player_leave, player_respawn, player_death, entity_death, entity_hurt, entity_tick, chat, or a command_<name> event. entity_tick is for CraftPy-owned entities, at most once a second, capped at 64 snapshots per server tick.
+- `event`: Event name: block_break, block_place, block_interact, block_tick, item_use, item_hit, item_mine, item_hold_tick, item_craft, item_pickup, player_join, player_leave, player_respawn, player_death, entity_death, entity_hurt, chat, or a command_<name> event.
 - `every` (default `None`): Run at most every this many ticks (optional).
 - `priority` (default `'normal'`): 'normal' (default); reserved for ordering.
-- `throttle_ticks` (default `0`): Minimum native ticks between calls for each entity/player (0-12000). Filtering happens first.
 - `**filters`: block=, item= or entity= : only for that block/item/entity (ids or Block/Item objects).
 
 #### `every(ticks=None, seconds=None)`
@@ -1436,18 +1371,6 @@ Returns: what the command answered, as text
 The ids of the loaded mods, e.g. 'create' in server.mods(). Needs no permission.
 
 Returns: a list of mod ids
-
-#### `server.features() -> dict`
-
-Live installed mods and verified adapter capabilities; never cached catalog discovery.
-
-Returns: dict
-
-#### `server.info() -> dict`
-
-Native player counts, persistent game_time ticks and average server tick milliseconds.
-
-Returns: dict
 
 #### `server.log(message, level='info')`
 
@@ -1599,7 +1522,7 @@ Gives experience.
 - `levels` (default `0`): Whole levels.
 - `points` (default `0`): Experience points.
 
-#### `Player.teleport(x, y=None, z=None, dimension=None, *, safe=False)`
+#### `Player.teleport(x, y=None, z=None, dimension=None)`
 
 Moves the player.
 
@@ -1607,7 +1530,6 @@ Moves the player.
 - `y` (default `None`): Y.
 - `z` (default `None`): Z.
 - `dimension` (default `None`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
-- `safe` (default `False`): Require loaded, unobstructed destination and solid ground.
 
 #### `Player.play_sound(sound, volume=1.0, pitch=1.0)`
 
@@ -1673,36 +1595,6 @@ A fresh snapshot (None if it is gone).
 
 Returns: An Entity or None.
 
-#### `Entity.state(key=None, default=None)`
-
-Reads persistent state scoped to the calling owner; other owners' values are not exposed.
-
-- `key` (default `None`): Dictionary key, or None for the whole dictionary.
-- `default` (default `None`): Value returned for a missing key.
-
-Returns: The stored value.
-
-#### `Entity.set_state(key, value)`
-
-Writes this owner's persistent state (at most 16 KiB per entity).
-
-- `key`: Key, 1-128 characters.
-- `value`: JSON-compatible value.
-
-Returns: The value.
-
-#### `Entity.set_owner(player=None)`
-
-Assigns the player followed by a custom mob. Only its content owner may assign it.
-
-- `player` (default `None`): Player/name, or None to clear.
-
-#### `Entity.animate(name)`
-
-Triggers a configured GeckoLib animation from the server. Only the content owner may trigger it.
-
-- `name`: attack, cast, hurt or death.
-
 ### Position
 
 #### `Pos(x, y, z)`
@@ -1758,48 +1650,6 @@ Places a block: world.set_block(x, y, z, 'stone') or world.set_block(pos, 'stone
 - `block` (default `None`): Block id or Block object.
 - `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 - `replace` (default `True`): False only places into air.
-
-#### `world.machine(x, y=None, z=None, dimension='minecraft:overworld') -> dict`
-
-Read a loaded kinetic machine without loading chunks. Snapshot includes speed, theoretical_speed, overstressed, processing, progress, recipe and input/output stacks.
-
-- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
-- `y` (default `None`): Y coordinate (height).
-- `z` (default `None`): Z coordinate.
-- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
-
-Returns: dict
-
-#### `world.resources(x, y=None, z=None, dimension='minecraft:overworld', *, side=None) -> dict`
-
-Bounded native NeoForge item/FE/fluid snapshot from a loaded block face.
-
-- `x`: Block X, tuple or Pos.
-- `y` (default `None`): Block Y.
-- `z` (default `None`): Block Z.
-- `dimension` (default `'minecraft:overworld'`): Dimension resource ID.
-- `side` (default `None`): Capability face or None for unsided access.
-
-Returns: dict
-
-#### `world.transfer(source, target, kind='item', amount=1, *, source_side=None, target_side=None, slot=0, simulate=False, dimension='minecraft:overworld') -> int`
-
-Move items (max 64), fluid mB or energy FE through native NeoForge capabilities.
-
-simulate=True reports the possible transfer without changing either endpoint. No chunks are loaded.
-
-
-- `source`: Three source block coordinates.
-- `target`: Three destination coordinates in the same dimension.
-- `kind` (default `'item'`): item, fluid or energy.
-- `amount` (default `1`): Requested count, mB or FE (1..1000000; items capped to 64).
-- `source_side` (default `None`): Source capability face or None.
-- `target_side` (default `None`): Destination capability face or None.
-- `slot` (default `0`): Source item slot; default 0.
-- `simulate` (default `False`): True checks without changing contents.
-- `dimension` (default `'minecraft:overworld'`): Dimension resource ID.
-
-Returns: int
 
 #### `world.fill(start, end, block, dimension='minecraft:overworld')`
 
@@ -1861,16 +1711,15 @@ Entities in a cube around a position.
 
 Returns: list
 
-#### `world.spawn(entity, x, y=None, z=None, dimension='minecraft:overworld', *, owner=None) -> 'Entity'`
+#### `world.spawn(entity, x, y=None, z=None, dimension='minecraft:overworld') -> 'Entity'`
 
-Spawns an entity ('zombie', 'minecraft:pig') or NativeMob variant.
+Spawns an entity ('zombie', 'minecraft:pig').
 
 - `entity`: Entity type id.
 - `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
 - `y` (default `None`): Y coordinate (height).
 - `z` (default `None`): Z coordinate.
 - `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
-- `owner` (default `None`): Optional player who controls this owner's custom mob (follow profile).
 
 Returns: The Entity.
 
@@ -2105,14 +1954,6 @@ Opens a window for a player.
 - `player`: Player or name.
 - `window_id`: Id of a @window class or ui/<id>.json.
 
-#### `ui.data(window_id)`
-
-Decorates a display data provider. It receives ctx.player and ctx.window and returns a dictionary. Widgets bind properties to dictionary keys, for example bind={'text': 'title'}. Called on open and refresh; named actions still validate every operation.
-
-- `window_id`: Id of the JSON or Python window.
-
-Returns: A decorator; its function returns a display dictionary.
-
 #### `ui.close(player, window_id=None)`
 
 Closes the window.
@@ -2346,15 +2187,12 @@ Takes one element off the screen.
 
 Takes every element of this module off the screen.
 
-#### `keys.bind(combo, fn=None, *, id=None, name=None, category='CraftPy')`
+#### `keys.bind(combo, fn=None)`
 
 Runs a function when you press a key (while no screen is open). Use it as @keys.bind('ctrl+k').
 
 - `combo`: One key with optional ctrl / shift / alt: 'r', 'f6', 'ctrl+shift+k'. Letters, digits, f1-f12, space, enter, tab, arrows, home, end, pageup, pagedown, insert, delete, backspace, minus, equals, comma, period, slash, semicolon, grave, bracket_left, bracket_right.
-- `fn` (default `None`): The function; leave out to use as a decorator. Server callbacks get ctx.player from the server.
-- `id` (default `None`): Stable action ID within this owner. Omit for the legacy combo ID. Keep this unchanged when changing the default key.
-- `name` (default `None`): Display name in Controls and Module Keybinds (defaults to the ID).
-- `category` (default `'CraftPy'`): Controls category (default CraftPy).
+- `fn` (default `None`): The function; leave out to use as a decorator.
 
 Returns: the function
 

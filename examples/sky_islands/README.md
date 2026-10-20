@@ -26,8 +26,6 @@ Commands: `/sky_islands:open`, `/sky_islands:raise <small|medium|large> <theme>`
 - `code/expedition.py`: One player's run: raising, the crystal hunt, records, the safety net.
 - `ui/archipelago.json`: The settings window, made in the UI maker. Its buttons call `@action` functions in `main.py`.
 
-The status layout is `ui/sky_status.json`; a Python `@ui.data` provider supplies live expedition progress, time and records for each viewer. Ctrl+G is the remappable Open Sky Islands action.
+The status window (`sky_status`) is written in Python instead, because it changes while you play.
 
 It asks for no permissions: it only places blocks.
-
-The window layouts are in `ui/*.json`: edit them in Design. Python `@ui.data` providers supply live values and named `@action` handlers apply changes. Module shortcuts can be remapped in Controls or Module Keybinds.

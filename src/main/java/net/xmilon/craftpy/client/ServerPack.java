@@ -77,12 +77,7 @@ public final class ServerPack {
 
     private static void onInfo(JsonObject info, boolean joining) {
         lastInfo = info;
-        if (remembered(serverKey(), listHash(info))) {
-            for (JsonObject module : modules(info)) rememberModule(module, true);
-            var legacy = known(); legacy.remove(serverKey());
-            try { Json.write(knownFile(), legacy); } catch (IOException error) { CraftPyLog.LOGGER.warn("Could not migrate remembered server", error); }
-        }
-        boolean warn = modules(info).stream().anyMatch(m -> !rememberedModule(m));
+        boolean warn = !modules(info).isEmpty() && !remembered(serverKey(), listHash(info));
         if (joining && warn) {
             Minecraft.getInstance().setScreen(net.xmilon.craftpy.client.mui.ServerModulesFragment.screen(info));
             return; // the screen calls continueJoin or leave
@@ -105,7 +100,7 @@ public final class ServerPack {
     /** Continue was pressed on the screen: remember the choice when asked, then fetch the pack. */
     public static void continueJoin(boolean remember) {
         if (remember && lastInfo != null) {
-            for (JsonObject module : modules(lastInfo)) rememberModule(module, true);
+            remember(serverKey(), listHash(lastInfo));
         }
         fetchPack();
     }
@@ -299,20 +294,6 @@ public final class ServerPack {
     }
 
     // -- "don't show again for this server" -----------------------------------------------------------------------------
-
-    private static Path choicesFile;
-    private static ModuleAcknowledgments savedChoices;
-    private static ModuleAcknowledgments choices() {
-        Path file = PyForgePaths.system().resolve("server_module_choices.json");
-        if (!file.equals(choicesFile)) { choicesFile = file; savedChoices = new ModuleAcknowledgments(file); }
-        return savedChoices;
-    }
-    public static boolean rememberedModule(JsonObject module) {
-        return choices().remembered(serverKey(), str(module, "id", ""), str(module, "sha256", ""));
-    }
-    public static void rememberModule(JsonObject module, boolean remember) {
-        choices().set(serverKey(), str(module, "id", ""), str(module, "sha256", ""), remember);
-    }
 
     private static Path knownFile() {
         return PyForgePaths.system().resolve("known_servers.json");

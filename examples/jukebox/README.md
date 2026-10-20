@@ -4,7 +4,7 @@ A media player that runs on your own computer.
 
 - Module id: `jukebox`
 - Works on: client (your computer; any server)
-- CraftPy Python API: 2.9
+- CraftPy Python API: 2.6
 - Asks for: reading `pyforge/shared/music`
 
 ## What it plays
@@ -32,5 +32,3 @@ you (48 blocks by default; the server can turn it off or change the size limit i
 `code/player.py` keeps the play list and the player at module level, so it lives on while the window is closed; the
 window shows it once a second (`ui.refresh`). Files play with `media.play(...)`, pack music with `media.play_sound(...)`
 and melodies note by note with `client.sound(...)`.
-
-The window layouts are in `ui/*.json`: edit them in Design. Python `@ui.data` providers supply live values and named `@action` handlers apply changes. Module shortcuts can be remapped in Controls or Module Keybinds.

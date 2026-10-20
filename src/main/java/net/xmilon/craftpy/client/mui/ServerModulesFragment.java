@@ -112,7 +112,7 @@ public final class ServerModulesFragment extends Fragment implements ScreenCallb
         actionsLp.topMargin = card.dp(10);
         if (joining) {
             var remember = new CheckBox(context);
-            remember.setText("Remember all unchanged modules on this server");
+            remember.setText("Don't show again for this server (until its modules change)");
             actions.addView(remember, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
             actions.addView(button(context, "Leave", R.attr.borderlessButtonStyle, v -> {
                 answered = true;
@@ -156,11 +156,6 @@ public final class ServerModulesFragment extends Fragment implements ScreenCallb
         var chipLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         chipLp.topMargin = row.dp(2);
         row.addView(chipRow, chipLp);
-        var rememberModule = new icyllis.modernui.widget.Switch(context);
-        rememberModule.setText("Remember this version");
-        rememberModule.setChecked(ServerPack.rememberedModule(module));
-        rememberModule.setOnCheckedChangeListener((v, checked) -> ServerPack.rememberModule(module, checked));
-        row.addView(rememberModule);
         int index = rows.size();
         rows.add(row);
         row.setOnClickListener(v -> select(index, module));

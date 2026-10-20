@@ -463,14 +463,11 @@ public final class ClientProjectStore {
      */
     public void tool(String op, JsonObject args, java.util.function.Consumer<JsonObject> callback) {
         boolean global = op.equals("trace") || op.equals("profile") || op.equals("modmap")
-                || op.equals("recipe_book") || op.equals("loot_book") || op.equals("building_blocks");
+                || op.equals("recipe_book") || op.equals("loot_book");
         if (activeProjectId == null && !global) {
             append("Open a project first");
             notifyListener();
             return;
-        }
-        if (op.equals("add_part") && toolCallbacks.containsKey(op)) {
-            JsonObject busy = new JsonObject(); busy.addProperty("error", "A template insertion is already in progress"); callback.accept(busy); return;
         }
         args.addProperty("op", op);
         toolCallbacks.put(op, callback);
@@ -518,7 +515,6 @@ public final class ClientProjectStore {
         JsonObject params = new JsonObject();
         params.addProperty("id", id);
         params.addProperty("approve", approve);
-        modules.stream().filter(m -> id.equals(m.id) && m.primary).findFirst().ifPresent(m -> params.addProperty("sha256", m.sha256));
         request(ProjectAction.MODULE_APPROVE, null, Json.COMPACT.toJson(params));
     }
 

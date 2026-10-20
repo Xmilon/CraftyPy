@@ -15,7 +15,7 @@ public final class IdKinds {
     public static final String EVENT = "event";
     public static final java.util.List<String> EVENTS = java.util.List.of("block_break", "block_place", "block_interact",
             "block_tick", "item_use", "item_hit", "item_mine", "item_hold_tick", "item_craft", "item_pickup", "player_join",
-            "player_leave", "player_respawn", "player_death", "entity_death", "entity_hurt", "entity_tick", "machine_speed", "machine_state", "chat");
+            "player_leave", "player_respawn", "player_death", "entity_death", "entity_hurt", "chat");
 
     private static final String[] ITEM = {"item"};
     private static final String[] ITEM_REPEATED = {"item", "item..."};
@@ -71,8 +71,6 @@ public final class IdKinds {
         }
         if (call.keyword() != null) {
             String keyword = call.keyword();
-            if (keyword.equals("base") && call.callee().equals("NativeBlock")) return "block";
-            if (keyword.equals("base") && call.callee().equals("NativeMob")) return "entity_type";
             if (keyword.equals("type")) {
                 return call.callee().equals("recipe") ? "recipe_type"
                         : Set.of("entities", "spawn").contains(call.callee()) ? "entity_type" : null;

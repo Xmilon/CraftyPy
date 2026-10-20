@@ -33,7 +33,7 @@ import net.xmilon.craftpy.CraftPyLog;
  */
 public final class CatalogDump {
     /** Bump when the dumped data changes shape: every catalog is then made again. */
-    static final int FORMAT = 2;
+    static final int FORMAT = 1;
     private static final int SAMPLED_RECIPES = 20;
     /** Dynamic (datapack) registries of vanilla worth completing; mods' own datapack registries are always taken. */
     private static final Set<String> VANILLA_DYNAMIC = Set.of("enchantment", "damage_type", "jukebox_song", "painting_variant",
@@ -121,35 +121,6 @@ public final class CatalogDump {
         for (Registry<?> registry : BuiltInRegistries.REGISTRY) {
             addRegistry(registry, true, catalogFor);
         }
-        BuiltInRegistries.BLOCK.forEach(block -> {
-            var id = BuiltInRegistries.BLOCK.getKey(block); Catalog catalog = catalogFor.apply(id.getNamespace());
-            if (catalog == null) return;
-            JsonObject info = registeredInfo(catalog, block.getClass());
-            info.addProperty("compatible", true);
-            info.addProperty("reuse", "NativeBlock aliases this original registered block/item; machine behavior and renderer remain native.");
-            JsonObject properties = new JsonObject();
-            block.getStateDefinition().getProperties().forEach(property -> {
-                var values = new com.google.gson.JsonArray(); property.getPossibleValues().forEach(value -> values.add(value.toString()));
-                properties.add(property.getName(), values);
-            });
-            info.add("block_state_properties", properties); catalog.capabilities.put("block:" + id, info);
-        });
-        BuiltInRegistries.ENTITY_TYPE.forEach(type -> {
-            var id = BuiltInRegistries.ENTITY_TYPE.getKey(type); Catalog catalog = catalogFor.apply(id.getNamespace());
-            if (catalog == null) return;
-            JsonObject info = registeredInfo(catalog, type.getBaseClass());
-            info.addProperty("concrete_class", "unknown: the registered entity factory is not executed by inspection");
-            info.addProperty("compatible", net.minecraft.world.entity.ai.attributes.DefaultAttributes.hasSupplier(type));
-            info.addProperty("reuse", "NativeMob uses the original registered entity type, retaining its AI and renderer. No arbitrary class inheritance is inferred.");
-            JsonObject attributes = new JsonObject();
-            if (net.minecraft.world.entity.ai.attributes.DefaultAttributes.hasSupplier(type)) {
-                var supplier = net.minecraft.world.entity.ai.attributes.DefaultAttributes.getSupplier((net.minecraft.world.entity.EntityType) type);
-                BuiltInRegistries.ATTRIBUTE.holders().forEach(attribute -> {
-                    if (supplier.hasAttribute(attribute)) attributes.addProperty(attribute.key().location().toString(), supplier.getBaseValue(attribute));
-                });
-            }
-            info.add("attributes", attributes); catalog.capabilities.put("entity_type:" + id, info);
-        });
         server.registryAccess().registries().forEach(entry -> addRegistry(entry.value(), false, catalogFor));
 
         for (ResourceLocation type : BuiltInRegistries.RECIPE_TYPE.keySet()) {
@@ -185,28 +156,9 @@ public final class CatalogDump {
             if (owner.jar() != null && catalog.namespace.equals(catalog.mod)) {
                 catalog.classes = ModJars.classNames(owner.jar());
                 catalog.events = ModJars.eventNames(catalog.classes);
-                for (String name : catalog.classes) {
-                    if (!name.endsWith("Goal") && !name.contains(".goal.")) continue;
-                    try {
-                        Class<?> type = Class.forName(name, false, CatalogDump.class.getClassLoader());
-                        if (net.minecraft.world.entity.ai.goal.Goal.class.isAssignableFrom(type))
-                            catalog.capabilities.put("goal:" + name, NativeInspection.inspect(type, net.xmilon.craftpy.entity.SlottedEntity.class));
-                    } catch (ClassNotFoundException | LinkageError | RuntimeException ignored) {
-                        // A missing optional dependency is not evidence of constructor compatibility.
-                    }
-                }
             }
         }
         return byNamespace;
-    }
-
-    private static JsonObject registeredInfo(Catalog catalog, Class<?> type) {
-        catalog.capabilities.computeIfAbsent("class:" + type.getName(), key ->
-                NativeInspection.inspect(type, net.xmilon.craftpy.entity.SlottedEntity.class));
-        JsonObject info = new JsonObject(); info.addProperty("class", type.getName());
-        info.addProperty("base_class", type.getSuperclass() == null ? "" : type.getSuperclass().getName());
-        info.addProperty("discovered", true); info.addProperty("verified", false);
-        return info;
     }
 
     private static void sample(Catalog.RecipeType schema, Set<String> names, Recipe<?> recipe, RegistryOps<JsonElement> ops) {

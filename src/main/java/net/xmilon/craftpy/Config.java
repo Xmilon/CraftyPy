@@ -98,10 +98,6 @@ public final class Config {
             .comment("Client: play the media other players share nearby.")
             .define("media.hearOthers", true);
 
-    public static final ModConfigSpec.IntValue ROTATION_BUDGET = BUILDER
-            .comment("Maximum standalone rotation nodes visited per level per tick.").defineInRange("machines.rebuildBudget", 512, 16, 16384);
-    public static final ModConfigSpec.IntValue ROTATION_NETWORK_LIMIT = BUILDER
-            .comment("Maximum nodes in one standalone rotation network.").defineInRange("machines.networkLimit", 4096, 16, 65536);
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     private Config() {

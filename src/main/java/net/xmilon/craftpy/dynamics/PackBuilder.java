@@ -155,7 +155,6 @@ public final class PackBuilder {
             lang.addProperty("item.craftpy." + id, name);
         }
 
-        writeKinetics(assets, lang, usedTextures);
         writeMobsAndEffects(assets, lang);
 
         // Merge translations declared from Python via lang("key", "value").
@@ -190,32 +189,6 @@ public final class PackBuilder {
      * missing texture. Atlas files of all packs are merged, so this adds one {@code single} source per such texture: every
      * texture a slot model uses and every PNG a project ships (its own models may use them). Package-visible for tests.
      */
-    private static void writeKinetics(Path assets, JsonObject lang, java.util.Set<String> used) throws Exception {
-        for (int i = 0; i < net.xmilon.craftpy.registry.SlotCounts.kinetics(); i++) {
-            var def = SlotRegistry.kineticDef(i);
-            String holder = SlotRegistry.holderFor(SlotRegistry.Kind.KINETIC, i), owner = ownerOf(holder), id = "pckinetic_" + i;
-            String texture = def != null && def.texture != null ? texturePath(mapRef(def.texture, owner, null), owner, "block") : UNLOADED_TEXTURE;
-            used.add(texture);
-            JsonObject variants = new JsonObject();
-            for (String axis : java.util.List.of("x", "y", "z")) {
-                JsonObject variant = new JsonObject(); variant.addProperty("model", "craftpy:block/" + id); variants.add("axis=" + axis, variant);
-            }
-            JsonObject state = new JsonObject(); state.add("variants", variants); writeJson(state, assets.resolve("blockstates/" + id + ".json"));
-            JsonObject model = Json.GSON.fromJson("{\"textures\":{},\"elements\":[{\"from\":[2,2,2],\"to\":[14,14,14],\"faces\":{}}]}", JsonObject.class);
-            JsonObject textures = model.getAsJsonObject("textures"); textures.addProperty("all", texture); textures.addProperty("particle", texture);
-            JsonObject faces = model.getAsJsonArray("elements").get(0).getAsJsonObject().getAsJsonObject("faces");
-            for (String face : java.util.List.of("down", "up", "north", "south", "east", "west")) { JsonObject f = new JsonObject(); f.addProperty("texture", "#all"); faces.add(face, f); }
-            if (def != null && def.kinetic != null && def.kinetic.role().equals("shaft")) model.add("elements", new JsonArray());
-            writeJson(model, assets.resolve("models/block/" + id + ".json"));
-            JsonObject rotor = new JsonObject(); rotor.addProperty("parent", def == null || def.kinetic == null ? "craftpy:block/machine_rotor" : def.kinetic.model());
-            if (def == null) rotor.add("textures", textures.deepCopy());
-            writeJson(rotor, assets.resolve("models/block/" + id + "_rotor.json"));
-            JsonObject item = new JsonObject(); item.addProperty("parent", def != null && def.kinetic != null && def.kinetic.role().equals("shaft") ? "craftpy:block/" + id + "_rotor" : "craftpy:block/" + id);
-            writeJson(item, assets.resolve("models/item/" + id + ".json"));
-            lang.addProperty("block.craftpy." + id, def == null ? "Unloaded: " + holder : def.name);
-        }
-    }
-
     static JsonObject blockAtlas(Path root, java.util.Set<String> used) throws java.io.IOException {
         java.util.Set<String> sprites = new java.util.TreeSet<>();
         for (String texture : used) {
@@ -682,19 +655,17 @@ public final class PackBuilder {
             java.util.Map<String, JsonObject> declaredLoot) throws Exception {
         for (java.util.Map.Entry<String, SlotRegistry.SlotRef> entry : SlotRegistry.snapshotByHolder().entrySet()) {
             // Keys are "BLOCK:<project>:<id>" (older saves: "<project>:<id>").
-            String key = net.xmilon.craftpy.lifecycle.EventBridge.projectId(entry.getKey());
-            boolean kinetic = entry.getValue().kind() == SlotRegistry.Kind.KINETIC;
-            if ((!kinetic && entry.getValue().kind() != SlotRegistry.Kind.BLOCK) || !key.startsWith(projectId + ":")) {
+            String key = entry.getKey().startsWith("BLOCK:") ? entry.getKey().substring("BLOCK:".length()) : entry.getKey();
+            if (entry.getValue().kind() != SlotRegistry.Kind.BLOCK || !key.startsWith(projectId + ":")) {
                 continue;
             }
             String contentId = key.substring(projectId.length() + 1);
-            String slotName = SlotRegistry.slotName(entry.getValue());
-            String target = "blocks/" + slotName;
+            String target = "blocks/pcblock_" + entry.getValue().index();
             JsonObject custom = declaredLoot.get(contentId);
             // A declared table wins, even an empty one (drops=[] means "drops nothing").
             JsonObject table = custom != null ? buildLootTable(projectId, custom, target)
-                    : selfDropLoot("craftpy:" + slotName);
-            Defs.BlockDef def = kinetic ? SlotRegistry.kineticDef(entry.getValue().index()) : SlotRegistry.blockDef(entry.getValue().index());
+                    : selfDropLoot("craftpy:pcblock_" + entry.getValue().index());
+            Defs.BlockDef def = SlotRegistry.blockDef(entry.getValue().index());
             if (def != null && def.needsTool) {
                 requireTool(table, def.tool, def.minLevel);
             }
@@ -1227,8 +1198,6 @@ public final class PackBuilder {
             }
         }
         String candidate = val.contains(":") ? val : buildProject + ":" + val;
-        String nativeBlock = net.xmilon.craftpy.content.NativeContent.resolveBlock(candidate);
-        if (!nativeBlock.equals(candidate)) return nativeBlock;
         var mapping = SlotRegistry.snapshotByHolder();
 
         SlotRegistry.SlotRef slot = null;
@@ -1241,11 +1210,9 @@ public final class PackBuilder {
             if (slot == null) {
                 slot = mapping.get("ITEM:" + candidate);
             }
-            if (slot == null) slot = mapping.get("KINETIC:" + candidate);
         }
 
         if (slot != null) {
-            if (slot.kind() == SlotRegistry.Kind.KINETIC) return "craftpy:" + SlotRegistry.slotName(slot);
             if (slot.kind() == SlotRegistry.Kind.BLOCK) {
                 return "craftpy:pcblock_" + slot.index();
             }

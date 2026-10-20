@@ -5,6 +5,6 @@
   "author": "CraftPy",
   "description": "A client-side mod in Python: coordinates, health bar, held item and a clock on the screen, a hotkey to hide them, a settings window and a chat watcher. Runs only on your computer.",
   "mcVersion": "1.21.1",
-  "apiVersion": "2.9",
+  "apiVersion": "2.3",
   "side": "client"
 }

@@ -126,12 +126,11 @@ public final class RpcClient {
             out = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
             pending.clear();
 
-            Process started = process;
-            readerThread = new Thread(() -> readLoop(started), "craftpy-worker-read");
+            readerThread = new Thread(this::readLoop, "craftpy-worker-read");
             readerThread.setDaemon(true);
             readerThread.start();
 
-            stderrThread = new Thread(() -> stderrLoop(started), "craftpy-worker-stderr");
+            stderrThread = new Thread(this::stderrLoop, "craftpy-worker-stderr");
             stderrThread.setDaemon(true);
             stderrThread.start();
 
@@ -146,8 +145,6 @@ public final class RpcClient {
      * Sends one request and blocks until the worker replies or the timeout
      * elapses. Returns the "result" object on success.
      */
-    public int pendingCount() { return pending.size(); }
-
     public JsonObject call(String method, Object params, long timeoutMs) throws IOException {
         while (true) {
             if (!isRunning()) {
@@ -216,9 +213,9 @@ public final class RpcClient {
         }
     }
 
-    private void readLoop(Process started) {
+    private void readLoop() {
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(started.getInputStream(), StandardCharsets.UTF_8))) {
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.isBlank()) {
@@ -258,13 +255,13 @@ public final class RpcClient {
                 CraftPyLog.LOGGER.warn("Worker stdout closed", e);
             }
         } finally {
-            synchronized (this) { if (process == started) transportFailure(); }
+            transportFailure();
         }
     }
 
-    private void stderrLoop(Process started) {
+    private void stderrLoop() {
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(started.getErrorStream(), StandardCharsets.UTF_8))) {
+                new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
             StringBuilder buffer = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {

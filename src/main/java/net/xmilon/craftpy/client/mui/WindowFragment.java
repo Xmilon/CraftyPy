@@ -57,13 +57,6 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
     private final String windowId;
     private final Map<String, JsonElement> values = new HashMap<>();
     private Map<String, JsonElement> serverValues = new HashMap<>();
-    private final Map<String, EditText> inputs = new HashMap<>();
-    private String editingId = "";
-    private final Map<String, Integer> tabSelections = new HashMap<>();
-    private int tabCounter;
-    private boolean parentEnabled = true;
-    @Nullable private JsonObject previewData;
-    private java.util.List<String> bindingProblems = new java.util.ArrayList<>();
     private boolean closedByServer;
     @Nullable
     private LinearLayout content;
@@ -162,17 +155,10 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
 
     /** The preview; {@code shown} (optional) receives which view shows which node of {@code root}. */
     static View previewView(Context context, JsonObject root, @Nullable Map<View, JsonObject> shown) {
-        return previewView(context, root, shown, new JsonObject(), new java.util.ArrayList<>());
-    }
-
-    static View previewView(Context context, JsonObject root, @Nullable Map<View, JsonObject> shown,
-                            JsonObject data, java.util.List<String> problems) {
         JsonObject wrapper = new JsonObject();
         wrapper.add("root", root);
         WindowFragment fragment = new WindowFragment(wrapper, false);
         fragment.shownNodes = shown;
-        fragment.previewData = data;
-        fragment.bindingProblems = problems;
         return fragment.build(context, root, new HashMap<>());
     }
 
@@ -265,28 +251,12 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
             title.setText(str(tree, "title", windowId));
         }
         Map<String, JsonElement> nextServer = new HashMap<>();
-        EditText focused = null;
-        editingId = "";
-        for (var input : inputs.entrySet()) {
-            if (input.getValue().hasFocus()) { editingId = input.getKey(); focused = input.getValue(); break; }
-        }
-        int start = focused == null ? 0 : focused.getSelectionStart();
-        int end = focused == null ? 0 : focused.getSelectionEnd();
-        inputs.clear();
-        tabCounter = 0;
         box.removeAllViews();
         JsonObject root = tree.has("root") && tree.get("root").isJsonObject() ? tree.getAsJsonObject("root") : new JsonObject();
         var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         sized(box, root, lp);
         box.addView(build(box.getContext(), root, nextServer), lp);
         serverValues = nextServer;
-        EditText nextFocus = inputs.get(editingId);
-        if (nextFocus != null && nextFocus.isEnabled() && nextFocus.isShown()) {
-            nextFocus.requestFocus();
-            int length = nextFocus.getText().length();
-            nextFocus.setSelection(Math.max(0, Math.min(start, length)), Math.max(0, Math.min(end, length)));
-        }
-        editingId = "";
     }
 
     @Override
@@ -339,15 +309,7 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
 
     /** Builds the views of one node (recursive). {@code nextServer} collects the server-side value of each input. */
     View build(Context context, JsonObject node, Map<String, JsonElement> nextServer) {
-        JsonObject effective = previewData == null ? node : UiBindings.node(node, previewData, bindingProblems);
-        boolean inherited = parentEnabled;
-        boolean enabled = inherited && (!effective.has("enabled") || bool(effective, "enabled"));
-        parentEnabled = enabled;
-        View view;
-        try { view = buildView(context, effective, nextServer); }
-        finally { parentEnabled = inherited; }
-        view.setEnabled(enabled);
-        if (effective.has("visible") && !bool(effective, "visible")) view.setVisibility(previewData == null ? View.GONE : View.INVISIBLE);
+        View view = buildView(context, node, nextServer);
         if (shownNodes != null) {
             shownNodes.put(view, node);
         }
@@ -385,7 +347,6 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                     input.setSingleLine();
                 }
                 String id = str(node, "id", "");
-                if (!id.isEmpty()) inputs.put(id, input);
                 JsonElement shown = shownValue(id, new JsonPrimitive(str(node, "value", "")), nextServer);
                 input.setText(shown.getAsString());
                 if (node.has("hint")) {
@@ -506,20 +467,13 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 String token = str(node, "on_select", "");
                 JsonArray items = node.has("items") && node.get("items").isJsonArray()
                         ? node.getAsJsonArray("items") : new JsonArray();
-                String id = str(node, "id", "");
-                int selected = shownValue(id, new JsonPrimitive((int) num(node, "selected", -1)), nextServer).getAsInt();
                 for (int i = 0; i < items.size(); i++) {
                     var rowView = label(context, items.get(i).isJsonPrimitive() ? items.get(i).getAsString()
                             : items.get(i).toString(), R.attr.textAppearanceBodyMedium);
                     rowView.setPadding(rowView.dp(8), rowView.dp(6), rowView.dp(8), rowView.dp(6));
                     hoverBackground(rowView);
-                    if (i == selected) rowView.setTextColor(CraftPyFragment.color(context, R.attr.colorPrimary));
                     int index = i;
-                    rowView.setEnabled(parentEnabled);
-                    rowView.setOnClickListener(v -> {
-                        if (!id.isEmpty()) values.put(id, new JsonPrimitive(index));
-                        send(token, new JsonPrimitive(index));
-                    });
+                    rowView.setOnClickListener(v -> send(token, new JsonPrimitive(index)));
                     list.addView(rowView, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
                 }
                 return list;
@@ -599,17 +553,14 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 var pages = children(node);
                 var buttons = new java.util.ArrayList<View>();
                 Runnable[] show = new Runnable[1];
-                String tabsId = str(node, "id", "__tabs_" + tabCounter++);
-                int[] active = {Math.min(Math.max(0, tabSelections.getOrDefault(tabsId, 0)), Math.max(0, pages.size() - 1))};
+                int[] active = {0};
                 for (int i = 0; i < pages.size(); i++) {
                     int index = i;
                     var tab = button(context, str(pages.get(i), "title", "Tab " + (i + 1)), R.attr.borderlessButtonStyle,
                             v -> {
                                 active[0] = index;
-                                tabSelections.put(tabsId, index);
                                 show[0].run();
                             });
-                    tab.setEnabled(parentEnabled);
                     buttons.add(tab);
                     bar.addView(tab);
                 }
@@ -700,7 +651,7 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         }
         nextServer.put(id, server);
         JsonElement mine = values.get(id);
-        if (mine != null && (id.equals(editingId) || Objects.equals(serverValues.get(id), server))) {
+        if (mine != null && Objects.equals(serverValues.get(id), server)) {
             return mine;
         }
         values.put(id, server);

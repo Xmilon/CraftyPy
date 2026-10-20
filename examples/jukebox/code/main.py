@@ -12,8 +12,7 @@ from craftpy import *
 import player
 
 
-# Preserve the old implicit ID even if a future version changes the default shortcut.
-@keys.bind("j", id="j", name="Open Jukebox", category="Jukebox")
+@keys.bind("j")
 def open_jukebox(ctx):
     player.PLAYER.refresh()
     client.open_window("jukebox")

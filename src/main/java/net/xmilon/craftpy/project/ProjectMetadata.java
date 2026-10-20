@@ -23,8 +23,6 @@ public class ProjectMetadata {
     public net.xmilon.craftpy.security.ModulePermissions permissions = new net.xmilon.craftpy.security.ModulePermissions();
     /** Installed modules this project uses ({@code from modules.<id> import ...}); a built module lists them too. */
     public java.util.List<String> dependencies = new java.util.ArrayList<>();
-    public java.util.List<String> requiredMods = new java.util.ArrayList<>();
-    public java.util.List<String> requiredCapabilities = new java.util.ArrayList<>();
     public Map<String, Integer> slotUsage = new LinkedHashMap<>();
     /** Set when the project was decompiled from a module: Build module then replaces that module. Null otherwise. */
     public DecompiledFrom decompiledFrom;

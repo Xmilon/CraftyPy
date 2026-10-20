@@ -16,7 +16,6 @@ public final class SlotCounts {
 
     private static final int BLOCKS;
     private static final int ITEMS;
-    private static final int KINETICS;
 
     static {
         Properties properties = new Properties();
@@ -29,27 +28,23 @@ public final class SlotCounts {
             } else {
                 Files.writeString(file, "# Generic slots registered at startup (1 to " + MAX + "). Restart the game after changing.\n"
                         + "# Content beyond this many blocks / items cannot be declared at the same time.\n"
-                        + "blocks=" + DEFAULT + "\nitems=" + DEFAULT + "\nkinetics=32\n");
+                        + "blocks=" + DEFAULT + "\nitems=" + DEFAULT + "\n");
             }
         } catch (Throwable ignored) {
             // no config folder (unit tests) or unreadable: the defaults apply
         }
         BLOCKS = parse(properties.getProperty("blocks"));
         ITEMS = parse(properties.getProperty("items"));
-        KINETICS = parse(properties.getProperty("kinetics"), 32);
     }
 
     private SlotCounts() {
     }
 
     static int parse(String text) {
-        return parse(text, DEFAULT);
-    }
-    private static int parse(String text, int fallback) {
         try {
             return Math.max(1, Math.min(MAX, Integer.parseInt(text.trim())));
         } catch (RuntimeException e) {
-            return fallback;
+            return DEFAULT;
         }
     }
 
@@ -60,5 +55,4 @@ public final class SlotCounts {
     public static int items() {
         return ITEMS;
     }
-    public static int kinetics() { return KINETICS; }
 }

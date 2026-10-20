@@ -5,5 +5,5 @@
   "author": "CraftPy",
   "description": "Start here: items, blocks, recipes, events, timers, commands, two windows, a self test and a tour of the asset browser. Every file is commented.",
   "mcVersion": "1.21.1",
-  "apiVersion": "2.9"
+  "apiVersion": "2.2"
 }

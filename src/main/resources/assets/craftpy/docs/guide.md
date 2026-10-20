@@ -181,27 +181,14 @@ The Mod map (right edge) reads top to bottom:
 
 ## The UI maker
 
-Open a window in `ui/*.json` to use its **Design** and **Source** tabs in the main editor. The UI maker on the right
-lists the project's windows and Python `@window` classes; the designer itself uses the main editing area.
+The UI maker (right edge) designs the windows in `ui/*.json`. Click a window in its list to open it.
 
-- **Toolbox (left):** search controls and containers. Drag one into the window, or click a component then click the
-  window to place it. An outline previews its position in a free layout; a blue line shows its place in a box.
-  **Select** or Esc returns to selection mode. Scroll vertically to reach more components.
-- **Design surface (centre):** use the zoom controls (50–200%) and **Grid** to inspect the window. Zoom changes only
-  the editor view. New windows use a free layout; existing rows, columns, grids and other containers keep their layout.
 - **In the window preview:** click a widget to select it. Drag it to move it: anywhere inside a **canvas** (snapped to
-  4 pixels), or to another place or container (a blue line shows where). Drag the edge or corner squares to resize it, and the
+  4 pixels), or to another place in a box (a blue line shows where). Drag the corner squares to resize it, and the
   square at the window's bottom-right corner to resize the window. New windows start as a canvas.
-- **Component hierarchy (left):** drag a widget onto the top or bottom of a row to put it above or below, or onto the middle of a box
+- **In the tree:** drag a widget onto the top or bottom of a row to put it above or below, or onto the middle of a box
   to put it inside.
-- **Properties & events (right):** select a component on the surface or in the hierarchy. Edit its identity, layout,
-  appearance and values in groups; **Events** names its Python `@action` functions. **Window** selects the root and shows
-  the window title and dimensions. Drag the pane dividers to resize the toolbox and property inspector.
-- **Editing:** arrows move the selected component in a free layout by 4 pixels (Shift moves by 20); Delete removes it.
-  **Duplicate** or Ctrl+D copies it, with new input ids and the same event bindings. **Up** and **Down** change sibling order.
-- Design and Source edit the same document: **Undo**, **Redo**, **Save**, Ctrl+Z and Ctrl+S work in either view.
-  Every completed drag is one undo step in the editor tab; Esc during a gesture restores the
-  previous layout. In Python a canvas is `Canvas(Button("Go", x=8, y=8, width=96,
+- Every drag is one undo step in the editor tab. In Python a canvas is `Canvas(Button("Go", x=8, y=8, width=96,
   height=24), height=160)`; `width=` and `height=` work on any widget.
 - **Windows in code:** the list also shows the `@window` classes of your Python files. Click one to make a
   `ui/<id>.json` from it. This works when `build()` returns the layout written out (`VBox(Label(...), Button(...))`).
@@ -327,65 +314,3 @@ Type the abbreviation alone on a line and press `Tab`: `main`, `item`, `block`, 
 The **Building blocks** tool window (right edge, `Alt+8`) has ready-made pieces: windows and other UI elements, items, blocks,
 events, commands, timers, recipes and world actions. Each one has **Docs** (its part of the API reference), **Insert** (the
 code at the cursor) and **New file** (`code/<name>.py`, already imported by `main.py`).
-# API 2.9: live designer layouts and native content
-
-Keep layouts in `ui/*.json` and supply their display values with `@ui.data("window_id")`.
-The provider receives the viewer context and returns a dictionary. A widget binding such as
-`"bind": {"text": "caption", "enabled": "can_claim"}` looks up those keys; it never evaluates Python.
-Use named `@action` handlers for clicks and validate rewards/operations again on the server.
-The designer inspector offers binding fields and `preview_data` samples, with static fallback values.
-Python `@window` classes remain supported.
-
-Give module shortcuts stable identities, for example
-`@keys.bind("ctrl+k", id="open_panel", name="Open panel", category="My module")`.
-Remap them in Minecraft Controls or **Modules → Module Keybinds**. The module page supports complete
-modifier chords, conflicts, unbinding, reset and inactive assignments. Both interfaces share saved preferences;
-changing a module's default key does not erase the player's remap. Server actions receive the authenticated player.
-
-`NativeBlock("shaft", base="create:shaft")` aliases the original registered block and item.
-`NativeMob("archivist", base="irons_spellbooks:necromancer")` spawns the original entity type with separate
-CraftPy ownership/variant data. These retain native behavior and renderers, and require their original mod.
-They do not create an independent Java inheritance family. The catalog inspector distinguishes discovered,
-compatible and verified capabilities; inspection grants no Java-bridge permission.
-
-Custom `Mob` definitions accept native melee/ranged/follow/guard profiles, compatible inspected AI goals,
-named GeckoLib animation clips, owner-scoped entity state and filtered/throttled callbacks. Navigation,
-attack timing and animation playback stay native. Mod AI goals require compatible public constructors and
-the existing Java permission/approval checks.
-
-Extend a block with `Kinetic("generator", axis="x", speed=64, capacity=96)`, `Kinetic("shaft", axis="x")`,
-or `Kinetic("processor", axis="x", impact=8)`. These work with CraftPy alone. The independent network connects
-matching axes, preserves signed speed, sums matching generator capacities, stops conflicting sources and overload,
-and rebuilds within a bounded server budget without loading chunks. Create 6.0.10 switches to its native backend
-for real Create shafts/gears, stress and wrench interaction. Unsupported Create versions leave core machinery available.
-
-`EnergyStorage(100000, 1000, 1000)` adds native NeoForge FE storage. `FluidTank(16000, ["minecraft:water"])`
-adds a native fluid tank in mB. Either works without rotation or other content mods. Rotation never creates FE implicitly.
-Compatible automation uses standard NeoForge item/fluid/energy interfaces. Configure the external machine's input/output
-faces normally; CraftPy does not bypass them. Use `world.resources(pos, side="up")` for bounded snapshots and
-`world.transfer(source, target, "fluid", 1000, source_side="east", target_side="west", simulate=True)` to test a transfer.
-Transfers and processing run on the native server thread. Third-party handlers must honor NeoForge simulation semantics.
-
-Processing uses `craftpy:kinetic_processing` with `ingredient`, `result`, `duration` in ticks and `minimum_speed` in RPM.
-`world.machine(pos)` and throttled `machine_speed`/`machine_state` callbacks provide live state. Inventory, processing,
-energy and fluid survive saves; breaking a machine preserves stored energy/fluid in its block item and drops the two
-inventory slots separately. The CraftPy Machinery Wrench rotates machines without requiring Create.
-
-Machines use a separate default pool of 32 slots: configure `kinetics=32` in `config/craftpy-slots.properties` before
-startup. Changing pool size requires matching client/server settings. Existing ordinary block/item/entity slots retain
-their identities. Changing an existing content ID between native slot families requires an explicit migration.
-
-Building Blocks has 96 core templates and 24 optional templates. Its search, category filter, keyboard focus and code
-preview help find examples. Missing integration mods stay hidden; cached discovery never enables a capability.
-New file connects Python imports and adds JSON/model/animation companions together, rejecting collisions.
-Insert adds the CraftPy import when the target file needs it. Each preview identifies the execution side,
-required mods and expected behavior. Core native API examples need no extra requested permission;
-the web/file examples include their required `project.json` declarations in the inserted code comments.
-Declaring a permission does not approve it: installed modules still use **Allow requested permissions**.
-
-Only the Welcome project is seeded automatically. The other examples are plain projects in the source checkout's `examples/` folder.
-`requiredMods` and `requiredCapabilities` in project/module metadata can make optional examples explicitly unavailable.
-The permission toggle remembers access only for unchanged module bytes; revocation persists. Remote server
-acknowledgments are separately remembered by server, module ID and file hash, and can be changed in the server modules page.
-Foundry and Stress Lab are no longer shipped. See the source checkout's `src/nativeTest/README.md` for recorded checks
-and the scenarios that still require a real Minecraft client.

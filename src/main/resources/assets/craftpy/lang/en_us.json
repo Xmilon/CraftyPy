@@ -1,6 +1,4 @@
 {
-  "key.craftpy.open_ide": "Open CraftPy IDE",
-  "key.categories.craftpy": "CraftPy",
   "itemGroup.craftpy": "CraftPy",
   "itemGroup.craftpy.slots": "CraftPy Slots",
   "block.craftpy.python_computer": "CraftPy Computer",
@@ -9,6 +7,7 @@
   "block.craftpy.unloaded": "Unloaded Project Block",
   "item.craftpy.unloaded": "Unloaded Project Item",
   "item.craftpy.spawn_egg": "CraftPy Spawn Egg",
+
   "craftpy.configuration.title": "CraftPy Configs",
   "craftpy.configuration.section.craftpy.common.toml": "CraftPy Configs",
   "craftpy.configuration.section.craftpy.common.toml.title": "CraftPy Configs",
@@ -26,6 +25,5 @@
   "craftpy.configuration.slotPool.entities": "Entity Slots",
   "craftpy.configuration.slotPool.effects": "Effect Slots",
   "craftpy.configuration.slotPool.sounds": "Sound Slots",
-  "craftpy.configuration.slotPool.blockEntities": "Block Entity Slots",
-  "item.craftpy.machine_wrench": "Machinery Wrench"
+  "craftpy.configuration.slotPool.blockEntities": "Block Entity Slots"
 }

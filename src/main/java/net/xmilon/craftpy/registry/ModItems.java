@@ -15,8 +15,6 @@ public final class ModItems {
 
     public static final DeferredItem<BlockItem> PYTHON_COMPUTER = ITEMS.registerSimpleBlockItem(ModBlocks.PYTHON_COMPUTER);
     public static final DeferredItem<BlockItem> UNLOADED_BLOCK = ITEMS.registerSimpleBlockItem(ModBlocks.UNLOADED_BLOCK);
-    public static final DeferredItem<net.xmilon.craftpy.block.MachineWrenchItem> MACHINE_WRENCH = ITEMS.registerItem(
-            "machine_wrench", net.xmilon.craftpy.block.MachineWrenchItem::new, new Item.Properties().stacksTo(1));
 
     public static final DeferredItem<net.xmilon.craftpy.block.PythonWrenchItem> PYTHON_WRENCH = ITEMS.registerItem(
             "python_wrench", net.xmilon.craftpy.block.PythonWrenchItem::new, new Item.Properties().stacksTo(1));
@@ -35,7 +33,6 @@ public final class ModItems {
         for (var block : ModBlocks.SLOT_BLOCKS) {
             SLOT_BLOCK_ITEMS.add(ITEMS.registerSimpleBlockItem(block));
         }
-        for (var block : KineticSlots.BLOCKS) ITEMS.registerSimpleBlockItem(block);
         for (int i = 0; i < SlotRegistry.itemSlotCount(); i++) {
             final int index = i;
             SLOT_ITEMS.add(ITEMS.register("pcitem_" + i, () -> {

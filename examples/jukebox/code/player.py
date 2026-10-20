@@ -20,11 +20,11 @@ class Player:
         self.lists = {0: [], 1: [], 2: [t[0] for t in TRACKS]}
         self.index = -1          # what plays in the list of self.playing_source
         self.playing_source = 0
-        self.loop = storage.get("jukebox_loop", True)
-        self.shuffle = storage.get("jukebox_shuffle", False)
-        self.nearby = storage.get("jukebox_nearby", False)
-        self.volume = storage.get("jukebox_volume", 80)         # percent
-        self.instrument = storage.get("jukebox_instrument", 0)
+        self.loop = True
+        self.shuffle = False
+        self.nearby = False
+        self.volume = 80         # percent
+        self.instrument = 0
         self.message = ""
         self.melody = None       # (position, task) while a melody plays
         self.state = {"state": "stopped", "position": 0, "duration": -1, "name": ""}
@@ -130,122 +130,90 @@ def clock(seconds):
     return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
 
 
-@ui.data("jukebox")
-def player_data(ctx):
-    p, s = PLAYER, PLAYER.state
-    melody = p.melody is not None
-    duration = s.get("duration", -1)
-    position = max(0, int(s.get("position") or 0))
-    maximum = max(1, int(duration if duration > 0 else 1))
-    where = f"note {position}/{duration}" if melody else f"{clock(position)} / {clock(duration)}"
-    tracks = p.lists[p.source]
-    marks = [("▶ " if p.source == p.playing_source and i == p.index and s["state"] != "stopped" else "   ") + name
-             for i, name in enumerate(tracks[:1024])]
-    return dict(track_title="♪ " + (s.get("name") or "Nothing playing"),
-                state_caption=f"{s['state']} · {where}" + (" · heard nearby" if s.get("shared") else ""),
-                position=position, duration=maximum, seek_visible=not melody and duration > 0,
-                progress_visible=melody or duration <= 0,
-                toggle_label="⏹ Stop" if melody else "⏸ Pause" if s["state"] == "playing" else "▶ Play",
-                volume=p.volume, volume_label=f"Volume {p.volume}%", loop=p.loop, shuffle=p.shuffle,
-                nearby=p.nearby, instruments=[i.replace("_", " ") for i in INSTRUMENTS], instrument=p.instrument,
-                sources=list(SOURCES), source=p.source, tracks=marks, has_tracks=bool(tracks),
-                selected_track=p.index if p.source == p.playing_source and p.index < len(marks) else -1,
-                message=p.message or ("Showing the first 1024 tracks." if len(tracks) > 1024 else "Closing the window keeps the music playing."))
+@window("jukebox", title="♪ CraftPy Jukebox", size=(420, 470))
+class Jukebox(Window):
+    def build(self, ctx):
+        p = PLAYER
+        s = p.state
+        playing = s["state"] == "playing"
+        melody = p.melody is not None
+        duration = s.get("duration", -1)
+        where = f"note {s['position']}/{duration}" if melody else f"{clock(s.get('position'))} / {clock(duration)}"
+        items = p.lists[p.source]
+        marks = [("▶ " if p.source == p.playing_source and i == p.index and s["state"] != "stopped" else "   ") + name
+                 for i, name in enumerate(items)]
+        return VBox(
+            Label("♪ " + (s.get("name") or "Nothing playing"), style="title"),
+            Label(f"{s['state']}  ·  {where}" + ("  ·  heard nearby" if s.get("shared") else "")),
+            Slider(value=int(s.get("position") or 0), min=0, max=max(1, int(duration if duration > 0 else 1)),
+                   on_change=self.seek) if not melody and duration > 0 else ProgressBar(value=s["position"], max=max(1, duration)),
+            HBox(
+                Button("⏮", on_click=self.previous),
+                Button("⏸ Pause" if playing and not melody else ("⏹ Stop" if melody else "▶ Play"), on_click=self.toggle),
+                Button("⏹", on_click=self.stop),
+                Button("⏭", on_click=self.next),
+                Button("⟳ Refresh", on_click=self.refresh, style="text"),
+                spacing=4,
+            ),
+            HBox(Label(f"Volume {p.volume}%"), Slider(value=p.volume, min=0, max=100, on_change=self.set_volume), spacing=8),
+            HBox(Checkbox("Loop", checked=p.loop, on_change=self.set_loop),
+                 Checkbox("Shuffle", checked=p.shuffle, on_change=self.set_shuffle),
+                 Checkbox("Nearby players hear it", checked=p.nearby, on_change=self.set_nearby), spacing=8),
+            HBox(Label("Melody instrument"), Dropdown([i.replace("_", " ") for i in INSTRUMENTS], selected=p.instrument,
+                                                      on_change=self.set_instrument), spacing=8),
+            HBox(Label("Source"), Dropdown(list(SOURCES), selected=p.source, on_change=self.pick_source), spacing=8),
+            ListView(marks or ["(empty)"], on_select=self.pick),
+            Label(p.message or "Closing the window keeps the music playing.", style="hint"),
+            spacing=6, padding=6,
+        )
 
+    # ---- clicks (each one redraws the window)
 
-def _index(value, length):
-    try:
-        value = int(value)
-        return value if 0 <= value < length else None
-    except (TypeError, ValueError):
-        return None
-
-
-@action("jukebox_pick")
-def pick(ctx):
-    index = _index(ctx.value, min(1024, len(PLAYER.lists[PLAYER.source])))
-    if index is not None:
-        PLAYER.play(PLAYER.source, index)
+    def pick(self, ctx):
+        PLAYER.play(PLAYER.source, int(ctx.value))
         PLAYER.tick()
 
+    def pick_source(self, ctx):
+        PLAYER.source = int(ctx.value)
 
-@action("jukebox_source")
-def pick_source(ctx):
-    index = _index(ctx.value, len(SOURCES))
-    if index is not None:
-        PLAYER.source = index
-
-
-@action("jukebox_toggle")
-def toggle(ctx):
-    PLAYER.toggle()
-    PLAYER.tick()
-
-
-@action("jukebox_stop")
-def stop(ctx):
-    PLAYER.stop()
-    PLAYER.tick()
-
-
-@action("jukebox_next")
-def next_track(ctx):
-    PLAYER.skip(1)
-    PLAYER.tick()
-
-
-@action("jukebox_previous")
-def previous(ctx):
-    PLAYER.skip(-1)
-    PLAYER.tick()
-
-
-@action("jukebox_refresh")
-def refresh(ctx):
-    PLAYER.refresh()
-
-
-@action("jukebox_seek")
-def seek(ctx):
-    duration = PLAYER.state.get("duration", -1)
-    if not PLAYER.melody and duration > 0:
-        media.seek(max(0, min(duration, float(ctx.value))))
+    def toggle(self, ctx):
+        PLAYER.toggle()
         PLAYER.tick()
 
+    def stop(self, ctx):
+        PLAYER.stop()
+        PLAYER.tick()
 
-@action("jukebox_volume")
-def set_volume(ctx):
-    value = _index(ctx.value, 101)
-    if value is not None:
-        PLAYER.volume = value
-        storage.set("jukebox_volume", value)
-        media.volume(value / 100)
+    def next(self, ctx):
+        PLAYER.skip(1)
+        PLAYER.tick()
 
+    def previous(self, ctx):
+        PLAYER.skip(-1)
+        PLAYER.tick()
 
-@action("jukebox_loop")
-def set_loop(ctx):
-    PLAYER.loop = ctx.value is True
-    storage.set("jukebox_loop", PLAYER.loop)
+    def refresh(self, ctx):
+        PLAYER.refresh()
 
+    def seek(self, ctx):
+        media.seek(float(ctx.value))
+        PLAYER.tick()
 
-@action("jukebox_shuffle")
-def set_shuffle(ctx):
-    PLAYER.shuffle = ctx.value is True
-    storage.set("jukebox_shuffle", PLAYER.shuffle)
+    def set_volume(self, ctx):
+        PLAYER.volume = int(ctx.value)
+        media.volume(PLAYER.volume / 100)
 
+    def set_loop(self, ctx):
+        PLAYER.loop = bool(ctx.value)
 
-@action("jukebox_nearby")
-def set_nearby(ctx):
-    PLAYER.nearby = ctx.value is True
-    storage.set("jukebox_nearby", PLAYER.nearby)
+    def set_shuffle(self, ctx):
+        PLAYER.shuffle = bool(ctx.value)
 
+    def set_nearby(self, ctx):
+        PLAYER.nearby = bool(ctx.value)  # from the next track on
 
-@action("jukebox_instrument")
-def set_instrument(ctx):
-    value = _index(ctx.value, len(INSTRUMENTS))
-    if value is not None:
-        PLAYER.instrument = value
-        storage.set("jukebox_instrument", value)
+    def set_instrument(self, ctx):
+        PLAYER.instrument = int(ctx.value)
 
 
 @every(seconds=1)

@@ -17,7 +17,7 @@ import net.xmilon.craftpy.server.ProjectRequestHandler;
 import net.xmilon.craftpy.util.Json;
 
 public final class CraftPyNetwork {
-    public static final String PROTOCOL_VERSION = "6"; // 6: machine capabilities and environment metadata
+    public static final String PROTOCOL_VERSION = "4"; // 2: compressed text fields (PayloadText); 3: shared media; 4: server modules on join
 
     private CraftPyNetwork() {
     }
@@ -27,12 +27,6 @@ public final class CraftPyNetwork {
         PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
         registrar.playToServer(RequestPayload.TYPE, RequestPayload.STREAM_CODEC, CraftPyNetwork::handleRequest);
         registrar.playToClient(ResponsePayload.TYPE, ResponsePayload.STREAM_CODEC, CraftPyNetwork::handleResponse);
-        registrar.playToClient(ModuleKeysPayload.TYPE, ModuleKeysPayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> net.xmilon.craftpy.client.ModuleKeys.receive(payload.json())));
-        registrar.playToServer(ModuleKeysPayload.Press.TYPE, ModuleKeysPayload.Press.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> {
-                    if (context.player() instanceof ServerPlayer player) net.xmilon.craftpy.keys.ServerKeyActions.press(player, payload);
-                }));
         registrar.playBidirectional(MediaPayload.TYPE, MediaPayload.STREAM_CODEC, (payload, context) -> {
             if (context.player() instanceof net.minecraft.server.level.ServerPlayer player) {
                 context.enqueueWork(() -> net.xmilon.craftpy.server.MediaRelay.receive(player, payload));
@@ -97,7 +91,6 @@ public final class CraftPyNetwork {
     }
 
     public static void sendActive(ServerPlayer player) {
-        net.xmilon.craftpy.keys.ServerKeyActions.send(player);
         JsonArray ids = new JsonArray();
         for (String id : SlotRegistry.activeProjectIds()) {
             ids.add(id);

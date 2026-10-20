@@ -44,11 +44,10 @@ public final class ProjectTools {
         }
         String op = string(request, "op");
         if (!ProjectManager.isValidId(projectId) && !op.equals("trace") && !op.equals("profile") && !op.equals("modmap")
-                && !op.equals("recipe_book") && !op.equals("loot_book") && !op.equals("building_blocks")) {
+                && !op.equals("recipe_book") && !op.equals("loot_book")) {
             return done(error(op, "Invalid project id"));
         }
         return switch (op) {
-            case "building_blocks" -> done(ok(net.xmilon.craftpy.project.RuntimeFeatures.snapshot()));
             case "symbols" -> manager.snapshot(projectId).thenApply(ProjectTools::symbols);
             case "usage" -> manager.snapshot(projectId).thenApply(ProjectTools::usage);
             case "rename" -> rename(manager, projectId, request);
@@ -116,20 +115,6 @@ public final class ProjectTools {
     static ResponsePayload catalog(net.xmilon.craftpy.catalog.CatalogView view, JsonObject request) {
         JsonObject out = new JsonObject();
         out.addProperty("op", "catalog");
-        if (request.has("inspect")) {
-            String key = string(request, "kind") + ":" + string(request, "inspect");
-            JsonObject info = view.capabilities().get(key);
-            if (info == null && string(request, "kind").equals(CLASSES)) info = view.capabilities().get("goal:" + string(request, "inspect"));
-            if (info == null && string(request, "kind").equals(CLASSES)) info = view.capabilities().get("class:" + string(request, "inspect"));
-            if (info == null) out.addProperty("error", "Discovered ID only: no cached native metadata. Open a world with this mod to inspect it.");
-            else {
-                JsonObject details = info.deepCopy();
-                if (info.has("class") && view.capabilities().containsKey("class:" + info.get("class").getAsString()))
-                    details.add("public_api", view.capabilities().get("class:" + info.get("class").getAsString()));
-                out.add("inspection", details);
-            }
-            return ok(out);
-        }
         JsonArray kinds = new JsonArray();
         for (String kind : view.kinds()) {
             JsonObject row = new JsonObject();
@@ -186,7 +171,6 @@ public final class ProjectTools {
         JsonArray rows = new JsonArray();
         int matched = 0;
         List<String[]> found = new ArrayList<>(); // id, mod, detail
-        String selectedKind = kind;
         switch (kind) {
             case RECIPE_TYPES -> view.recipeTypes().forEach((type, schema) -> {
                 String namespace = type.contains(":") ? type.substring(0, type.indexOf(':')) : "minecraft";
@@ -195,16 +179,8 @@ public final class ProjectTools {
                         schema.fields.isEmpty() ? "" : "fields: " + String.join(", ", schema.fields)});
             });
             case EVENTS -> view.events().forEach(name -> found.add(new String[]{name, "", "Java event"}));
-            case CLASSES -> view.classes().forEach(name -> {
-                JsonObject info = view.capabilities().get("goal:" + name);
-                found.add(new String[]{name, "", info == null ? "discovered Java class" : "discovered AI goal · inspect public constructors · unverified"});
-            });
-            default -> view.all(kind).forEach(entry -> {
-                JsonObject info = view.capabilities().get(selectedKind + ":" + entry.id());
-                String detail = info == null ? "" : "discovered · "
-                        + (info.has("compatible") && info.get("compatible").getAsBoolean() ? "compatible native reuse" : "compatibility not established") + " · unverified";
-                found.add(new String[]{entry.id(), entry.mod(), detail});
-            });
+            case CLASSES -> view.classes().forEach(name -> found.add(new String[]{name, "", "Java class"}));
+            default -> view.all(kind).forEach(entry -> found.add(new String[]{entry.id(), entry.mod(), ""}));
         }
         for (String[] row : found) {
             if (!mod.isEmpty() && !mod.equals(row[1]) && !(row[1].isEmpty() && row[0].startsWith(mod))) {
@@ -319,18 +295,6 @@ public final class ProjectTools {
             return done(error("add_part", "Not a valid file name: " + module + " (lowercase letters, digits and _)"));
         }
         String path = "code/" + module + ".py";
-        if (request.has("template")) {
-            var block = net.xmilon.craftpy.project.BuildingBlocks.all().stream().filter(b -> b.file().equals(string(request, "template"))).findFirst().orElse(null);
-            if (block == null || !block.fits(manager.sideOf(projectId).id()) || !block.available(net.xmilon.craftpy.project.RuntimeFeatures.mods(), net.xmilon.craftpy.project.RuntimeFeatures.capabilities()))
-                return done(error("add_part", "Template is unavailable in the execution environment"));
-            Map<String, String> files = new java.util.LinkedHashMap<>(block.files(module, projectId));
-            if (!request.has("companionOnly") || !request.get("companionOnly").getAsBoolean()) files.put(path, block.fill(module, projectId));
-            return manager.addFiles(projectId, files).thenApply(result -> {
-                if (!result.success()) return error("add_part", result.message());
-                JsonObject out = new JsonObject(); out.addProperty("op", "add_part"); out.addProperty("path", path);
-                JsonArray paths = new JsonArray(); files.keySet().forEach(paths::add); out.add("files", paths); return ok(out);
-            });
-        }
         return manager.snapshot(projectId).thenCompose(snapshot -> {
             if (snapshot.paths().contains(path)) {
                 return done(error("add_part", path + " already exists"));

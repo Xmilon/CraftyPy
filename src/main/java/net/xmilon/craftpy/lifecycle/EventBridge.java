@@ -161,7 +161,6 @@ public class EventBridge {
 
     @SubscribeEvent
     public static void onPlayerLeave(PlayerEvent.PlayerLoggedOutEvent event) {
-        net.xmilon.craftpy.keys.ServerKeyActions.forgetPlayer(event.getEntity().getUUID());
         net.xmilon.craftpy.server.FileLocks.release(event.getEntity().getUUID().toString());
         playerEvent("player_leave", event.getEntity());
     }
@@ -311,11 +310,10 @@ public class EventBridge {
     }
 
     /** Sends one event to the worker and applies the shared global_state it returns. */
-    public static void fire(String event, Level level, JsonObject context) {
+    private static void fire(String event, Level level, JsonObject context) {
         if (level == null || level.isClientSide()) {
             return;
         }
-        if (!context.has("tick")) context.addProperty("tick", level.getGameTime());
         boolean handled = SlotRegistry.handlesEvent(event);
         long trace = EventTrace.begin(event, context, handled);
         if (!handled) {
@@ -361,7 +359,6 @@ public class EventBridge {
         obj.addProperty("level", player.experienceLevel);
         obj.add("held_item", wrapItem(player.getMainHandItem()));
         if (player instanceof ServerPlayer serverPlayer) {
-            obj.addProperty("operator", serverPlayer.hasPermissions(2));
             obj.addProperty("gamemode", serverPlayer.gameMode.getGameModeForPlayer().getName());
         }
         return obj;
@@ -369,8 +366,8 @@ public class EventBridge {
 
     public static JsonObject wrapEntity(Entity entity) {
         JsonObject obj = new JsonObject();
-        obj.addProperty("type", net.xmilon.craftpy.content.NativeContent.logicalId(entity));
-        obj.addProperty("native_type", BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString());
+        obj.addProperty("type", entity instanceof net.xmilon.craftpy.entity.SlottedEntity mob
+                ? projectId(mob.holder()) : BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString());
         obj.addProperty("name", entity.getName().getString());
         obj.addProperty("uuid", entity.getUUID().toString());
         obj.addProperty("x", entity.getX());
@@ -394,8 +391,6 @@ public class EventBridge {
             obj.addProperty("id", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
             obj.addProperty("craftpy", false);
         }
-        int kinetic = net.xmilon.craftpy.registry.KineticSlots.index(state.getBlock());
-        if (kinetic >= 0) { obj.addProperty("id", projectId(SlotRegistry.holderFor(SlotRegistry.Kind.KINETIC, kinetic))); obj.addProperty("craftpy", true); }
         return obj;
     }
 
@@ -415,10 +410,6 @@ public class EventBridge {
         }
         if (stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock() instanceof SlottedBlock slotted) {
             return projectId(SlotRegistry.holderForBlock(slotted.slotIndex()));
-        }
-        if (stack.getItem() instanceof BlockItem blockItem) {
-            int kinetic = net.xmilon.craftpy.registry.KineticSlots.index(blockItem.getBlock());
-            if (kinetic >= 0) return projectId(SlotRegistry.holderFor(SlotRegistry.Kind.KINETIC, kinetic));
         }
         return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
     }
