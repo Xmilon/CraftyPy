@@ -67,29 +67,8 @@ public final class OggEncoder {
         }
     }
 
-    /** {@code pip install --user soundfile}; run it only after the player agreed. */
-    public static CompletableFuture<Result> install() {
-        return CraftPyExecutors.supplyAsync(() -> {
-            Path python = PythonDiscovery.pythonExecutable();
-            if (python == null) {
-                return new Result(Status.NO_PYTHON, null, "No Python 3.13+ found.");
-            }
-            try {
-                Run run = run(installCommand(python));
-                return run.exit() == 0 ? new Result(Status.OK, null, "")
-                        : new Result(Status.FAILED, null, lastLine(run.output(), "pip failed"));
-            } catch (IOException e) {
-                return new Result(Status.FAILED, null, "Could not run pip: " + e.getMessage());
-            }
-        }, CraftPyExecutors.io());
-    }
-
     static List<String> command(Path python, Path in, Path out) {
         return List.of(python.toString(), "-c", SCRIPT, in.toString(), out.toString());
-    }
-
-    static List<String> installCommand(Path python) {
-        return List.of(python.toString(), "-m", "pip", "install", "--user", "soundfile");
     }
 
     /** Null when the run succeeded, otherwise the failure to show. */

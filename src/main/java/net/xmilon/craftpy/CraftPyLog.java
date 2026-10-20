@@ -16,7 +16,7 @@ public final class CraftPyLog {
     private CraftPyLog() {
     }
 
-    /** The mod version ("1.1.0"), from craftpy_version.properties written by the build; "dev" when it is missing. */
+    /** The mod version ("1.1.1"), from craftpy_version.properties written by the build; "dev" when it is missing. */
     public static synchronized String version() {
         if (version == null) {
             var props = new java.util.Properties();
