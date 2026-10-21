@@ -613,7 +613,7 @@ public final class ClientPython {
             List<ClientWorker> targets = new ArrayList<>();
             switch (name) {
                 case "http_response" -> addOwner(targets, context.has("owner") ? context.get("owner").getAsString() : "");
-                case "key" -> addOwner(targets, context.has("owner") ? context.get("owner").getAsString() : "");
+                case "key", "app_open" -> addOwner(targets, context.has("owner") ? context.get("owner").getAsString() : "");
                 case "ui_event" -> addOwner(targets, windowOwners.getOrDefault(
                         context.has("window") ? context.get("window").getAsString() : "", ""));
                 default -> workers.values().stream().filter(w -> w.events.contains(name)).forEach(targets::add);
@@ -641,6 +641,19 @@ public final class ClientPython {
         context.addProperty("owner", owner);
         context.addProperty("action", action);
         event("key", context);
+    }
+
+    /** Hub: opens the window a client module's app declares, as that module. */
+    public void openApp(String owner, String window) {
+        JsonObject context = new JsonObject();
+        JsonObject who = new JsonObject();
+        var player = net.minecraft.client.Minecraft.getInstance().player;
+        who.addProperty("name", player == null ? "" : player.getGameProfile().getName());
+        who.addProperty("uuid", player == null ? "" : player.getUUID().toString());
+        context.add("player", who);
+        context.addProperty("owner", owner);
+        context.addProperty("window", window);
+        event("app_open", context);
     }
 
     /** A click in a window opened by client-side Python (WindowFragment routes it here). */

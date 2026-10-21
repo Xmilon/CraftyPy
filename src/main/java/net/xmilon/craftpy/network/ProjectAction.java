@@ -43,5 +43,9 @@ public enum ProjectAction {
     /** A click or input in an in-game window (client to server). */
     WINDOW_EVENT,
     /** Whether the quick IDE key works for this player (message "true"/"false"): unlocked by crafting a CraftPy Computer. */
-    IDE_KEY
+    IDE_KEY,
+    /** The Hub apps running on the server (server to client). */
+    APPS,
+    /** A player opens a Hub app of the server: {"owner": ..., "app": ...} (client to server). */
+    APP_OPEN
 }

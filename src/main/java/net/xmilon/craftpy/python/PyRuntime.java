@@ -468,7 +468,7 @@ public final class PyRuntime {
     public CompletableFuture<JsonObject> triggerEvent(String eventName, JsonObject context) {
         return CraftPyExecutors.supplyAsync(() -> {
             List<Worker> targets = new ArrayList<>();
-            if ("http_response".equals(eventName) || "key".equals(eventName)) {
+            if ("http_response".equals(eventName) || "key".equals(eventName) || "app_open".equals(eventName)) {
                 String owner = context.has("owner") ? context.get("owner").getAsString() : "";
                 Worker worker = existing(owner);
                 if (worker != null) {

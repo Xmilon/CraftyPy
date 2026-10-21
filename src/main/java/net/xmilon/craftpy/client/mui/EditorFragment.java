@@ -609,14 +609,23 @@ public class EditorFragment extends Fragment {
             return true;
         }
         if (dock != null && dock.dirty() && !leaveConfirmed) {
-            confirmLeave();
+            confirmLeave(() -> CraftPyFragment.leave(this));
             return true;
         }
         return false;
     }
 
+    /** Leaving for another screen (the Hub): asks first when the dock holds unsaved texture or sound edits. Open files are kept by the store. */
+    void leaveGuarded(Runnable after) {
+        if (code != null && dock != null && dock.dirty() && !leaveConfirmed) {
+            confirmLeave(after);
+        } else {
+            after.run();
+        }
+    }
+
     /** The texture or sound editor holds edits that were never saved: leaving the screen would drop them. */
-    private void confirmLeave() {
+    private void confirmLeave(Runnable after) {
         var dialog = Overlays.dialog(code, "Unsaved changes", 380, -1);
         dialog.body.addView(label(code.getContext(), "The texture or sound in the dock has changes that are not saved. Leave and lose them?",
                 R.attr.textAppearanceBodyMedium));
@@ -626,7 +635,7 @@ public class EditorFragment extends Fragment {
         buttons.addView(button(code.getContext(), "Leave and discard", R.attr.buttonTonalStyle, v -> {
             dialog.dismiss();
             leaveConfirmed = true;
-            IdeHost.get().closeScreen();
+            after.run();
         }));
         var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         lp.topMargin = code.dp(10);

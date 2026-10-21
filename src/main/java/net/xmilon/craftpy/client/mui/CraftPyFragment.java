@@ -49,9 +49,14 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
     public static final int PAGE_MODULES = 1002;
     public static final int PAGE_EDITOR = 1003;
     public static final int PAGE_DOCS = 1004;
+    /** Not a page: the rail entry that returns to the Hub (only when the Hub opened this screen). */
+    private static final int PAGE_HUB = 1000;
     private static final int ID_CONTAINER = 0x2101;
 
     private final int initialPage;
+    /** The Hub opened this screen: Esc at its root and a rail entry lead back to the Hub. */
+    private final boolean fromHub;
+    private Runnable removeBack = () -> { };
     private LinearLayout nav;
     private int current;
 
@@ -75,7 +80,12 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
     }
 
     public CraftPyFragment(int initialPage) {
+        this(initialPage, false);
+    }
+
+    public CraftPyFragment(int initialPage, boolean fromHub) {
         this.initialPage = initialPage;
+        this.fromHub = fromHub;
     }
 
     /** Creates the standalone (keybind) screen. */
@@ -89,6 +99,11 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
 
     public static Screen createScreen(int page) {
         return MuiModApi.get().createScreen(new CraftPyFragment(page));
+    }
+
+    /** The editor screens the Hub opens: they return to the Hub's Editor tab. */
+    public static Screen createScreen(int page, boolean fromHub) {
+        return MuiModApi.get().createScreen(new CraftPyFragment(page, fromHub));
     }
 
     @Override
@@ -116,6 +131,9 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         nav.setGravity(Gravity.CENTER_HORIZONTAL);
         nav.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(IdeColors.PANEL));
         nav.setPadding(0, base.dp(6), 0, base.dp(6));
+        if (fromHub) {
+            nav.addView(navItem(context, PAGE_HUB, IdeIcon.Glyph.BACK, "Back to the Hub (Esc)"));
+        }
         nav.addView(navItem(context, PAGE_HOME, IdeIcon.Glyph.HOME, "Home: projects and templates"));
         nav.addView(navItem(context, PAGE_EDITOR, IdeIcon.Glyph.CODE, "Editor"));
         nav.addView(navItem(context, PAGE_MODULES, IdeIcon.Glyph.MODULES, "Modules: installed .cpm files"));
@@ -133,18 +151,32 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         host.addView(base, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
         host.setLayoutParams(new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
         store(s -> s.setListener(pendingProjectListener));
+        // Registered first, so asked last: Esc that nothing in the page wanted goes back to the Hub
+        host.post(() -> removeBack = Overlays.onBack(host, () -> {
+            if (!fromHub) {
+                return false;
+            }
+            leaveGuarded();
+            return true;
+        }));
         return host;
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        removeBack.run();
+        removeBack = () -> { };
         store(s -> s.clearListener(pendingProjectListener));
         nav = null;
     }
 
     /** Switches the visible page (UI thread). */
     public void navigate(int page) {
+        if (page == PAGE_HUB) {
+            leaveGuarded();
+            return;
+        }
         if (nav == null || page == current) {
             return;
         }
@@ -153,6 +185,37 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
             return;
         }
         navigateConfirmed(page);
+    }
+
+    /** Back to the Hub from the page that is open, after that page's own question (pending module changes, unsaved dock edits). */
+    private void leaveGuarded() {
+        var page = getChildFragmentManager().findFragmentById(ID_CONTAINER);
+        if (page instanceof ModulesFragment modules) {
+            modules.requestLeave(this::leaveToHub);
+        } else if (page instanceof EditorFragment editor) {
+            editor.leaveGuarded(this::leaveToHub);
+        } else {
+            leaveToHub();
+        }
+    }
+
+    private void leaveToHub() {
+        IdeHost.get().execute(() -> {
+            if (fromHub) {
+                HubFragment.open(HubFragment.TAB_EDITOR);
+            } else {
+                IdeHost.get().closeScreen();
+            }
+        });
+    }
+
+    /** A page of this screen is done: the Hub when it came from there, otherwise the screen just closes. */
+    static void leave(Fragment page) {
+        if (page.getParentFragment() instanceof CraftPyFragment root) {
+            root.leaveToHub();
+        } else {
+            IdeHost.get().execute(() -> IdeHost.get().closeScreen());
+        }
     }
 
     private void navigateConfirmed(int page) {

@@ -69,7 +69,41 @@ public final class ProjectRequestHandler {
             windowEvent(player, request.data());
             return CompletableFuture.completedFuture(null);
         }
+        if (request.action() == ProjectAction.APP_OPEN) {
+            appOpen(player, request.data());
+            return CompletableFuture.completedFuture(null);
+        }
         return handle(Caller.of(player), request);
+    }
+
+    /**
+     * A player opened a Hub app: like a window click it needs no IDE permission, but the app must be one this server's
+     * running module or project declares right now. The owner's Python then opens the declared window for that player.
+     */
+    private static void appOpen(ServerPlayer player, String data) {
+        try {
+            com.google.gson.JsonObject request = com.google.gson.JsonParser.parseString(data).getAsJsonObject();
+            String owner = request.get("owner").getAsString(), app = request.get("app").getAsString();
+            CraftPyExecutors.supplyAsync(() -> ServerApps.windowOf(owner, app), CraftPyExecutors.io()).thenAccept(window -> {
+                if (window == null) {
+                    player.server.execute(() -> player.displayClientMessage(
+                            net.minecraft.network.chat.Component.literal("That app is not running on this server."), true));
+                    return;
+                }
+                com.google.gson.JsonObject context = new com.google.gson.JsonObject();
+                context.addProperty("owner", owner);
+                context.addProperty("window", window);
+                context.add("player", net.xmilon.craftpy.lifecycle.EventBridge.wrapPlayer(player));
+                net.xmilon.craftpy.python.PyRuntime.get().triggerEvent("app_open", context).thenAccept(result -> {
+                    if (result != null && result.has("log") && result.get("log").isJsonArray()) {
+                        result.getAsJsonArray("log").forEach(line -> net.xmilon.craftpy.network.CraftPyNetwork
+                                .broadcastConsole(player.server, "[app] " + line.getAsString()));
+                    }
+                });
+            });
+        } catch (RuntimeException e) {
+            net.xmilon.craftpy.CraftPyLog.LOGGER.warn("Bad app request from {}: {}", player.getName().getString(), e.toString());
+        }
     }
 
     public static CompletableFuture<ResponsePayload> handle(Caller caller, RequestPayload request) {
@@ -363,6 +397,7 @@ public final class ProjectRequestHandler {
             case MODULE_RELOAD: {
                 return net.xmilon.craftpy.project.ModuleLoader.applyChanges()
                         .handle((result, error) -> {
+                            if (caller.server() != null) ServerApps.broadcast(caller.server());
                             var body = result == null ? new com.google.gson.JsonObject() : Json.COMPACT.toJsonTree(result).getAsJsonObject();
                             body.addProperty("requestId", request.data());
                             return new ResponsePayload(action, error == null && result.success(),

@@ -64,6 +64,7 @@ public final class CraftPyNetwork {
             PacketDistributor.sendToPlayer(player, payload);
         }
         ServerModules.modulesChanged(server);
+        net.xmilon.craftpy.server.ServerApps.broadcast(server);
     }
 
     /**
@@ -98,6 +99,7 @@ public final class CraftPyNetwork {
 
     public static void sendActive(ServerPlayer player) {
         net.xmilon.craftpy.keys.ServerKeyActions.send(player);
+        net.xmilon.craftpy.server.ServerApps.send(player);
         JsonArray ids = new JsonArray();
         for (String id : SlotRegistry.activeProjectIds()) {
             ids.add(id);

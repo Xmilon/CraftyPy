@@ -511,6 +511,7 @@ public final class ClientProjectStore {
         moduleMutations = 0; waitingToReload = false; moduleReloading = false;
         moduleStatusStale = false; moduleListId = "";
         moduleApplyFailed = false;
+        HubApps.clearServer();
         modules.clear(); moduleReloadSummary = "";
         pendingModuleProjects = List.of();
         var callback = moduleReloadCompletion; moduleReloadCompletion = null;
@@ -804,6 +805,10 @@ public final class ClientProjectStore {
             }
             case WINDOW -> net.xmilon.craftpy.client.mui.WindowFragment.apply(payload.message(), payload.json());
             case IDE_KEY -> ideKeyUnlocked = "true".equals(payload.message());
+            case APPS -> {
+                HubApps.receiveServer(payload.json());
+                notifyListener();
+            }
             case SET_ACTIVE -> {
                 List<String> parsed = tryParse(payload.action(), payload.json(),
                         new com.google.gson.reflect.TypeToken<List<String>>() {
@@ -945,11 +950,14 @@ public final class ClientProjectStore {
             }
             case MODULES_LIST -> {
                 JsonObject reply = tryParse(payload.action(), payload.json(), JsonObject.class);
-                if (reply == null || !reply.has("requestId") || !moduleListId.equals(reply.get("requestId").getAsString())) return;
-                if (!payload.success()) {
+                boolean serverListUnavailable = !payload.success() && remoteWorld();
+                if (payload.success() && (reply == null || !reply.has("requestId") || !moduleListId.equals(reply.get("requestId").getAsString()))) return;
+                if (!payload.success() && !serverListUnavailable) {
                     append(payload.message()); moduleStatusStale = false; notifyListener(); return;
                 }
-                var listing = tryParse(payload.action(), payload.json(), net.xmilon.craftpy.project.ModuleLoader.Listing.class);
+                // A player without CraftPy permission on someone else's server still sees and switches their own client modules.
+                var listing = serverListUnavailable ? new net.xmilon.craftpy.project.ModuleLoader.Listing(List.of(), List.of())
+                        : tryParse(payload.action(), payload.json(), net.xmilon.craftpy.project.ModuleLoader.Listing.class);
                 List<ModuleInfo> parsed = listing == null ? null : listing.modules();
                 if (parsed != null) {
                     long revision = moduleScanRevision;
@@ -1011,9 +1019,13 @@ public final class ClientProjectStore {
                 }
                 ClientPython.get().applyModuleChanges().whenComplete((client, error) -> IdeHost.get().execute(() -> {
                     if (session != moduleSession || !applyId.equals(moduleApplyId)) return;
-                    boolean success = payload.success() && error == null && client != null && client.success();
+                    // someone without CraftPy permission on a server still reloads their own client modules
+                    boolean serverDenied = !payload.success() && remoteWorld() && payload.message() != null
+                            && payload.message().startsWith("You do not have permission");
+                    boolean success = (payload.success() || serverDenied) && error == null && client != null && client.success();
                     moduleApplyFailed = !success;
                     moduleReloadSummary = result != null && client != null ? result.plus(client).summary()
+                            : serverDenied && client != null ? client.summary()
                             : payload.message() + (error == null ? "" : "; client reload failed: " + error.getMessage());
                     append(moduleReloadSummary);
                     moduleReloading = false;

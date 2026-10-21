@@ -237,15 +237,9 @@ public class CraftPyClient {
     private static void openIdeKey() {
         if (OPEN_IDE_KEY.consumeClick()) {
             Minecraft mc = Minecraft.getInstance();
-            // admins, or the owner of a singleplayer world (the server checks again on every request)
-            if (mc.player != null && (mc.player.hasPermissions(2) || mc.hasSingleplayerServer())) {
-                if (!ClientProjectStore.getInstance().ideKeyUnlocked()) {
-                    mc.player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                            "Craft a CraftPy Computer to unlock this key (until then, open the computer block)."), true);
-                } else if (mc.screen == null) {
-                    boolean project = net.xmilon.craftpy.client.ClientProjectStore.getInstance().selectedId() != null;
-                    mc.setScreen(CraftPyFragment.createScreen(project ? CraftPyFragment.PAGE_EDITOR : CraftPyFragment.PAGE_HOME));
-                }
+            // Everyone gets the Hub; its Editor tab applies the permission and the Computer unlock
+            if (mc.player != null && mc.screen == null) {
+                net.xmilon.craftpy.client.mui.HubFragment.open(net.xmilon.craftpy.client.mui.HubFragment.TAB_APPS);
             }
         }
     }

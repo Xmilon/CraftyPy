@@ -3748,6 +3748,22 @@ class _Keys:
 keys = _Keys()
 
 
+def _app_open(data):
+    """A Hub app was opened: open the window it declares for that player, as the module that declared it."""
+    log = []
+    owner = data.get("owner", "")
+    window_id = data.get("window", "")
+    _LOG_TARGET[0] = log
+    try:
+        _use_owner(owner)
+        ui.open(Player(data.get("player") or {}), window_id)
+    except Exception as exc:  # noqa: BLE001
+        log.append("[%s] app window %r could not open: %s: %s" % (owner, window_id, type(exc).__name__, exc))
+    finally:
+        _LOG_TARGET[0] = None
+    return {"log": log, "handlers": 1, "scheduled": len(_SCHEDULE)}
+
+
 def _key_event(data):
     """A key the player pressed: runs the function bound to it (by the owner that bound it)."""
     action = data.get("action", data.get("combo", ""))
@@ -4880,6 +4896,8 @@ def _trigger_event(params):
     ctx_data = params.get("context", {}) or {}
     if event_name == "ui_event":
         return _ui_event(ctx_data)
+    if event_name == "app_open":
+        return _app_open(ctx_data)
     if event_name == "key":
         return _key_event(ctx_data)
     if event_name == "http_response":

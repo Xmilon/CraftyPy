@@ -65,6 +65,8 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
     @Nullable private JsonObject previewData;
     private java.util.List<String> bindingProblems = new java.util.ArrayList<>();
     private boolean closedByServer;
+    /** Opened from a Hub app: a Back button and Esc return to the Hub. */
+    private boolean fromHub;
     @Nullable
     private LinearLayout content;
     @Nullable
@@ -102,7 +104,9 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         if (open != null && open.windowId.equals(str(tree, "id", ""))) {
             open.update(tree);
         } else {
-            minecraft.setScreen(MuiModApi.get().createScreen(new WindowFragment(tree, true)));
+            var fragment = new WindowFragment(tree, true);
+            fragment.fromHub = net.xmilon.craftpy.client.HubApps.takeReturn(str(tree, "id", ""));
+            minecraft.setScreen(MuiModApi.get().createScreen(fragment));
         }
     }
 
@@ -117,7 +121,7 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
     }
 
     /** The views of one widget tree without a screen around it (UI editor preview; nothing is sent). */
-    private static McCanvas.Painter itemPainter(String id) {
+    static McCanvas.Painter itemPainter(String id) {
         return (g, w, h, mx, my, partial) -> {
             net.minecraft.world.item.ItemStack stack = McPainters.stack(id);
             if (stack == null) {
@@ -206,13 +210,18 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable DataSet savedInstanceState) {
         Context context = requireContext();
-        var root = new FrameLayout(context);
+        var root = new Overlays.Host(context);
         var card = card(context);
         card.setBackground(filled(context));
         int pad = card.dp(12);
         card.setPadding(pad, pad, pad, pad);
 
         var header = row(context);
+        if (fromHub) {
+            var back = button(context, "‹ Hub", R.attr.borderlessButtonStyle, v -> backToHub());
+            back.setTooltipText("Back to the Hub (Esc)");
+            header.addView(back);
+        }
         title = label(context, "", R.attr.textAppearanceTitleMedium);
         header.addView(title, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         header.addView(button(context, "X", R.attr.borderlessButtonStyle, v -> Minecraft.getInstance().execute(
@@ -232,12 +241,28 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         var cardLp = new FrameLayout.LayoutParams(card.dp(size[0]), card.dp(size[1]), Gravity.CENTER);
         root.addView(card, cardLp);
         root.setBackground(new ColorDrawable(live ? 0x55000000 : 0));
+        if (fromHub) {
+            // after popups and the window's own handlers, Esc goes back to the Hub
+            root.post(() -> removeBack = Overlays.onBack(root, () -> {
+                backToHub();
+                return true;
+            }));
+        }
         return root;
+    }
+
+    private Runnable removeBack = () -> { };
+
+    private void backToHub() {
+        Minecraft.getInstance().execute(() -> Minecraft.getInstance().setScreen(
+                HubFragment.createScreen(HubFragment.TAB_APPS)));
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        removeBack.run();
+        removeBack = () -> { };
         if (live && !closedByServer) {
             send("__closed__", null);
         }

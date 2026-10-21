@@ -39,6 +39,14 @@ import static net.xmilon.craftpy.client.mui.HomeFragment.humanSize;
 /** Modules menu: every .cpm the server found, with enable toggles, details and README. */
 public class ModulesFragment extends Fragment {
 
+    /** In the Hub: client and server modules apart, server modules read-only, no administration. */
+    private final boolean hub;
+    private boolean showServer;
+    private LinearLayout left;
+    private LinearLayout bodyRow;
+    private View detailsPane;
+    private Button clientTab;
+    private Button serverTab;
     private LinearLayout list;
     private LinearLayout details;
     private TextView readme;
@@ -57,6 +65,23 @@ public class ModulesFragment extends Fragment {
     private String filter = "";
     @Nullable
     private String selectedPath;
+
+    public ModulesFragment() {
+        this(false);
+    }
+
+    public ModulesFragment(boolean hub) {
+        this.hub = hub;
+    }
+
+    private static boolean isClient(ModuleInfo module) {
+        return net.xmilon.craftpy.project.ModuleSide.of(module.side) == net.xmilon.craftpy.project.ModuleSide.CLIENT;
+    }
+
+    /** Hub only: the modules of this computer can be changed here, the server's cannot. */
+    private boolean editable(ModuleInfo module) {
+        return !hub || isClient(module);
+    }
 
     /** Client thread: snapshot the store, render on the UI thread. */
     private final Runnable storeListener = () -> {
@@ -78,8 +103,10 @@ public class ModulesFragment extends Fragment {
                 reloading = busy;
                 summary = reloadText;
                 renderReload();
+                renderTabs();
                 renderList();
                 renderDetails();
+                applyPanes();
             });
         }
     };
@@ -132,10 +159,12 @@ public class ModulesFragment extends Fragment {
             var header = row(context);
             header.addView(label(context, "Modules", R.attr.textAppearanceHeadlineMedium),
                     new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
-            header.addView(button(context, "Enable all", R.attr.borderlessButtonStyle,
-                    v -> store(s -> s.setAllModulesEnabled(true))));
-            header.addView(button(context, "Disable all", R.attr.borderlessButtonStyle,
-                    v -> store(s -> s.setAllModulesEnabled(false))));
+            if (!hub) {
+                header.addView(button(context, "Enable all", R.attr.borderlessButtonStyle,
+                        v -> store(s -> s.setAllModulesEnabled(true))));
+                header.addView(button(context, "Disable all", R.attr.borderlessButtonStyle,
+                        v -> store(s -> s.setAllModulesEnabled(false))));
+            }
             header.addView(button(context, "Open folder", R.attr.borderlessButtonStyle,
                     v -> openFolder(PyForgePaths.modules().toString())));
             reload = button(context, "RELOAD", R.attr.buttonTonalStyle,
@@ -143,23 +172,37 @@ public class ModulesFragment extends Fragment {
             reload.setVisibility(View.GONE);
             header.addView(reload);
             header.addView(button(context, "Dependencies", R.attr.borderlessButtonStyle, this::showDependencies));
-            header.addView(button(context, "Module Keybinds", R.attr.borderlessButtonStyle, ModuleKeybinds::open));
+            if (!hub) {
+                header.addView(button(context, "Module Keybinds", R.attr.borderlessButtonStyle, ModuleKeybinds::open));
+            }
             header.addView(button(context, "Refresh", R.attr.buttonTonalStyle,
                     v -> store(ClientProjectStore::refreshModules)));
             page.addView(header);
         }
-        var subtitle = label(context, "Installed modules (.cpm) in pyforge/modules/: drop new ones there, built ones land there too. Toggles are staged; press RELOAD to apply changes.",
+        var subtitle = label(context, hub ? "Modules on this computer can be switched on and off here. The server's modules are shown read-only: admins manage them in the Editor. Toggles are staged; press RELOAD to apply."
+                : "Installed modules (.cpm) in pyforge/modules/: drop new ones there, built ones land there too. Toggles are staged; press RELOAD to apply changes.",
                 R.attr.textAppearanceBodyMedium);
         subtitle.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         page.addView(subtitle);
+        if (hub) {
+            var tabs = row(context);
+            clientTab = button(context, "Client", R.attr.borderlessButtonStyle, v -> selectSide(false));
+            serverTab = button(context, "Server", R.attr.borderlessButtonStyle, v -> selectSide(true));
+            tabs.addView(clientTab);
+            tabs.addView(serverTab);
+            var tabsLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+            tabsLp.topMargin = page.dp(6);
+            page.addView(tabs, tabsLp);
+        }
         reloadSummary = label(context, "", R.attr.textAppearanceBodyMedium);
         reloadSummary.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         page.addView(reloadSummary);
 
         var body = row(context);
+        bodyRow = body;
         body.setBaselineAligned(false);
         {
-            var left = new LinearLayout(context);
+            left = new LinearLayout(context);
             left.setOrientation(LinearLayout.VERTICAL);
             var search = CraftPyFragment.field(context);
             search.setSingleLine();
@@ -201,12 +244,20 @@ public class ModulesFragment extends Fragment {
             readme.setTextIsSelectable(true);
             var scroll = new ScrollView(context);
             scroll.addView(details, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+            detailsPane = scroll;
             body.addView(scroll, new LinearLayout.LayoutParams(0, MATCH_PARENT, 3));
+        }
+        if (hub) {
+            // a narrow Hub shows the list, or - once a module is picked - its details
+            body.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (r - l != or - ol) applyPanes();
+            });
         }
         var bodyLp = new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1);
         bodyLp.topMargin = page.dp(12);
         page.addView(body, bodyLp);
 
+        renderTabs();
         renderList();
         renderDetails();
         store(s -> {
@@ -221,7 +272,18 @@ public class ModulesFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable DataSet savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         removeBack = Overlays.onBack(view, () -> {
-            requestLeave(() -> IdeHost.get().execute(() -> IdeHost.get().closeScreen()));
+            if (hub) {
+                // a picked module is one level; without one the Hub goes back to Apps (and asks about pending changes)
+                if (selectedPath == null) {
+                    return false;
+                }
+                selectedPath = null;
+                renderList();
+                renderDetails();
+                applyPanes();
+                return true;
+            }
+            requestLeave(() -> CraftPyFragment.leave(this));
             return true;
         });
     }
@@ -235,12 +297,51 @@ public class ModulesFragment extends Fragment {
         }
         checkingLeave = false;
         store(s -> s.clearListener(storeListener));
+        left = null;
+        bodyRow = null;
+        detailsPane = null;
+        clientTab = null;
+        serverTab = null;
         list = null;
         details = null;
         readme = null;
         reload = null;
         reloadSummary = null;
         super.onDestroyView();
+    }
+
+    private void selectSide(boolean server) {
+        showServer = server;
+        selectedPath = null;
+        renderTabs();
+        renderList();
+        renderDetails();
+        applyPanes();
+    }
+
+    private void renderTabs() {
+        if (clientTab == null) {
+            return;
+        }
+        long clients = modules.stream().filter(ModulesFragment::isClient).count();
+        clientTab.setText("Client (" + clients + ")");
+        serverTab.setText("Server (" + (modules.size() - clients) + ")");
+        styleChip(clientTab, !showServer);
+        styleChip(serverTab, showServer);
+    }
+
+    private boolean narrow() {
+        return bodyRow != null && bodyRow.getWidth() > 0 && bodyRow.getWidth() < bodyRow.dp(560);
+    }
+
+    /** Hub on a narrow screen: the list, or the picked module's details, one at a time. */
+    private void applyPanes() {
+        if (!hub || left == null || detailsPane == null) {
+            return;
+        }
+        boolean narrow = narrow();
+        left.setVisibility(narrow && selectedPath != null ? View.GONE : View.VISIBLE);
+        detailsPane.setVisibility(narrow && selectedPath == null ? View.GONE : View.VISIBLE);
     }
 
     private void renderReload() {
@@ -345,6 +446,9 @@ public class ModulesFragment extends Fragment {
         Context context = list.getContext();
         int shown = 0;
         for (ModuleInfo module : modules) {
+            if (hub && isClient(module) == showServer) {
+                continue;
+            }
             if (!filter.isEmpty() && !(module.id + " " + module.name).toLowerCase(Locale.ROOT).contains(filter)) {
                 continue;
             }
@@ -352,8 +456,10 @@ public class ModulesFragment extends Fragment {
             shown++;
         }
         if (shown == 0) {
-            var empty = label(context, modules.isEmpty()
-                    ? "No modules yet. Build one from a project in the Editor (Build)."
+            var empty = label(context, hub && modules.stream().noneMatch(m -> isClient(m) != showServer)
+                    ? (showServer ? "No server modules to show. Admins add them in the Editor."
+                    : "No client modules installed. Drop a .cpm into pyforge/modules/ (Open folder).")
+                    : modules.isEmpty() ? "No modules yet. Build one from a project in the Editor (Build)."
                     : "No module matches the search.", R.attr.textAppearanceBodyMedium);
             empty.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
             int dp12 = list.dp(12);
@@ -390,7 +496,10 @@ public class ModulesFragment extends Fragment {
 
         var toggle = new Switch(context);
         toggle.setChecked(module.enabled);
-        toggle.setEnabled(!reloading && (module.enabled || module.error == null || !module.error.startsWith("Unavailable:")));
+        toggle.setEnabled(!reloading && editable(module) && (module.enabled || module.error == null || !module.error.startsWith("Unavailable:")));
+        if (!editable(module)) {
+            toggle.setTooltipText("Controlled by the server. Admins change it in the Editor.");
+        }
         toggle.setOnCheckedChangeListener((v, checked) -> store(s -> s.setModuleEnabled(module.id, checked)));
         row.addView(toggle);
 
@@ -398,6 +507,7 @@ public class ModulesFragment extends Fragment {
             selectedPath = module.path;
             renderList();
             renderDetails();
+            applyPanes();
         });
         return row;
     }
@@ -420,6 +530,14 @@ public class ModulesFragment extends Fragment {
             details.addView(hint);
             return;
         }
+        if (hub && narrow()) {
+            details.addView(button(context, "‹ Modules", R.attr.borderlessButtonStyle, v -> {
+                selectedPath = null;
+                renderList();
+                renderDetails();
+                applyPanes();
+            }));
+        }
         details.addView(label(context, displayName(module), R.attr.textAppearanceTitleLarge));
         if (!module.description.isBlank()) {
             details.addView(label(context, module.description, R.attr.textAppearanceBodyMedium));
@@ -439,6 +557,9 @@ public class ModulesFragment extends Fragment {
         property(props, "Source", module.source);
         property(props, "Size", humanSize(module.sizeBytes));
         property(props, "Dependencies", module.dependencies.isEmpty() ? "none" : String.join(", ", module.dependencies));
+        if (!module.apps.isEmpty()) {
+            property(props, "Apps", module.apps.stream().map(a -> a.name).collect(java.util.stream.Collectors.joining(", ")));
+        }
         if (module.decompiledTo != null) {
             property(props, "Decompiled", "to project " + module.decompiledTo + (module.changedSinceDecompile
                     ? " - CHANGED since: this file is not the one that was decompiled (rebuilt or replaced)"
@@ -449,6 +570,11 @@ public class ModulesFragment extends Fragment {
         }
         property(props, "File", module.path);
         details.addView(props);
+        for (String problem : module.appProblems) {
+            var line = label(context, "Apps: " + problem, R.attr.textAppearanceBodySmall);
+            line.setTextColor(IdeColors.ERROR);
+            details.addView(line);
+        }
         var flags = flagTags(context, module);
         if (!flags.isEmpty()) {
             details.addView(tags(context, flags));
@@ -465,7 +591,7 @@ public class ModulesFragment extends Fragment {
             var permissionToggle = new Switch(context);
             permissionToggle.setText("Allow requested permissions");
             permissionToggle.setChecked(module.permissionsApproved);
-            permissionToggle.setEnabled(module.primary && !module.duplicate && !module.sha256.isBlank());
+            permissionToggle.setEnabled(editable(module) && module.primary && !module.duplicate && !module.sha256.isBlank());
             permissionToggle.setOnCheckedChangeListener((v, checked) -> {
                 store(s -> s.approveModule(selected.id, checked));
             });
@@ -474,7 +600,7 @@ public class ModulesFragment extends Fragment {
             details.addView(approveRow);
         }
         var actions = row(context);
-        actions.addView(button(context, "Decompile", R.attr.buttonTonalStyle,
+        if (!hub) actions.addView(button(context, "Decompile", R.attr.buttonTonalStyle,
                 v -> prompt(v, "Decompile " + Path.of(selected.path).getFileName() + " into a project? A new project is made"
                                 + (selected.decompiledTo != null ? " (it was decompiled before, into " + selected.decompiledTo
                                 + ": that project stays)" : "") + ", the module is turned off and nothing runs until you press"
@@ -482,9 +608,9 @@ public class ModulesFragment extends Fragment {
                                 + " What it asks for (web, files...) stays off until /craftpy project trust. Code from others:"
                                 + " read it first.", null, "Decompile",
                         ignored -> store(s -> s.unpackModule(selected.path)))));
-        actions.addView(button(context, "Open folder", R.attr.borderlessButtonStyle, v -> openFolder(selected.path)));
-        actions.addView(button(context, "Use in project", R.attr.borderlessButtonStyle, v -> useInProject(v, selected.id)));
-        actions.addView(button(context, "Delete", R.attr.borderlessButtonStyle,
+        if (editable(selected)) actions.addView(button(context, "Open folder", R.attr.borderlessButtonStyle, v -> openFolder(selected.path)));
+        if (!hub) actions.addView(button(context, "Use in project", R.attr.borderlessButtonStyle, v -> useInProject(v, selected.id)));
+        if (!hub) actions.addView(button(context, "Delete", R.attr.borderlessButtonStyle,
                 v -> prompt(v, "Delete " + Path.of(selected.path).getFileName() + " from disk?", null, "Delete",
                         ignored -> {
                             selectedPath = null;
@@ -499,6 +625,10 @@ public class ModulesFragment extends Fragment {
             parent.removeView(readme);
         }
         details.addView(readme, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        if (hub && selected.readme != null && !selected.readme.isBlank()) {
+            markflow.setMarkdown(readme, selected.readme); // bundled in the archive: no request needed
+            return;
+        }
         String path = selected.path;
         TextView target = readme;
         store(s -> s.requestModuleReadme(path, text -> target.post(() -> {
