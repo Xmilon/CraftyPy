@@ -14,10 +14,11 @@ import icyllis.modernui.markflow.Markflow;
 import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.TextWatcher;
 import icyllis.modernui.util.DataSet;
+import icyllis.modernui.view.Gravity;
 import icyllis.modernui.view.LayoutInflater;
 import icyllis.modernui.view.View;
 import icyllis.modernui.view.ViewGroup;
-import icyllis.modernui.widget.EditText;
+import icyllis.modernui.widget.Button;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.ScrollView;
 import icyllis.modernui.widget.Switch;
@@ -25,8 +26,10 @@ import icyllis.modernui.widget.TextView;
 import net.minecraft.Util;
 import net.xmilon.craftpy.analysis.ModuleGraph;
 import net.xmilon.craftpy.client.ClientProjectStore;
+import net.xmilon.craftpy.client.IdeHost;
 import net.xmilon.craftpy.project.ModuleInfo;
 import net.xmilon.craftpy.project.PyForgePaths;
+import net.xmilon.craftpy.util.Json;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -40,6 +43,16 @@ public class ModulesFragment extends Fragment {
     private LinearLayout details;
     private TextView readme;
     private Markflow markflow;
+    private Button reload;
+    private TextView reloadSummary;
+    private boolean pendingChanges;
+    private boolean reloading;
+    private String summary = "";
+    private boolean checkingLeave;
+    private Overlays.Dialog leaveDialog;
+    private Button leaveReload;
+    private boolean applyingChanges;
+    private Runnable removeBack = () -> { };
     private List<ModuleInfo> modules = List.of();
     private String filter = "";
     @Nullable
@@ -47,11 +60,24 @@ public class ModulesFragment extends Fragment {
 
     /** Client thread: snapshot the store, render on the UI thread. */
     private final Runnable storeListener = () -> {
-        List<ModuleInfo> snapshot = List.copyOf(ClientProjectStore.getInstance().modules());
+        var store = ClientProjectStore.getInstance();
+        // ModuleInfo is mutable: the UI must not retain the store's objects.
+        List<ModuleInfo> snapshot = store.modules().stream()
+                .map(m -> Json.COMPACT.fromJson(Json.COMPACT.toJson(m), ModuleInfo.class)).toList();
+        boolean pending = store.hasPendingModuleChanges();
+        boolean busy = store.moduleReloading();
+        String reloadText = store.moduleReloadSummary();
         View view = list;
         if (view != null) {
             view.post(() -> {
+                if (list != view) {
+                    return;
+                }
                 modules = snapshot;
+                pendingChanges = pending;
+                reloading = busy;
+                summary = reloadText;
+                renderReload();
                 renderList();
                 renderDetails();
             });
@@ -112,18 +138,23 @@ public class ModulesFragment extends Fragment {
                     v -> store(s -> s.setAllModulesEnabled(false))));
             header.addView(button(context, "Open folder", R.attr.borderlessButtonStyle,
                     v -> openFolder(PyForgePaths.modules().toString())));
-            header.addView(button(context, "Reload all", R.attr.borderlessButtonStyle,
-                    v -> store(s -> s.reloadModule("*"))));
+            reload = button(context, "RELOAD", R.attr.buttonTonalStyle,
+                    v -> store(s -> s.applyModuleChanges(ignored -> { })));
+            reload.setVisibility(View.GONE);
+            header.addView(reload);
             header.addView(button(context, "Dependencies", R.attr.borderlessButtonStyle, this::showDependencies));
             header.addView(button(context, "Module Keybinds", R.attr.borderlessButtonStyle, ModuleKeybinds::open));
             header.addView(button(context, "Refresh", R.attr.buttonTonalStyle,
                     v -> store(ClientProjectStore::refreshModules)));
             page.addView(header);
         }
-        var subtitle = label(context, "Installed modules (.cpm) in pyforge/modules/: drop new ones there, built ones land there too. Toggle to enable or disable them.",
+        var subtitle = label(context, "Installed modules (.cpm) in pyforge/modules/: drop new ones there, built ones land there too. Toggles are staged; press RELOAD to apply changes.",
                 R.attr.textAppearanceBodyMedium);
         subtitle.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         page.addView(subtitle);
+        reloadSummary = label(context, "", R.attr.textAppearanceBodyMedium);
+        reloadSummary.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
+        page.addView(reloadSummary);
 
         var body = row(context);
         body.setBaselineAligned(false);
@@ -180,16 +211,130 @@ public class ModulesFragment extends Fragment {
         renderDetails();
         store(s -> {
             s.setListener(storeListener);
+            storeListener.run();
             s.refreshModules();
         });
         return page;
     }
 
     @Override
+    public void onViewCreated(@NonNull View view, @Nullable DataSet savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        removeBack = Overlays.onBack(view, () -> {
+            requestLeave(() -> IdeHost.get().execute(() -> IdeHost.get().closeScreen()));
+            return true;
+        });
+    }
+
+    @Override
     public void onDestroyView() {
-        super.onDestroyView();
+        removeBack.run();
+        removeBack = () -> { };
+        if (leaveDialog != null) {
+            leaveDialog.dismiss();
+        }
+        checkingLeave = false;
         store(s -> s.clearListener(storeListener));
         list = null;
+        details = null;
+        readme = null;
+        reload = null;
+        reloadSummary = null;
+        super.onDestroyView();
+    }
+
+    private void renderReload() {
+        reload.setVisibility(pendingChanges || reloading ? View.VISIBLE : View.GONE);
+        reload.setEnabled(!reloading);
+        reloadSummary.setText(summary);
+        if (leaveReload != null) {
+            leaveReload.setEnabled(!reloading && !applyingChanges);
+        }
+    }
+
+    /** Every destination, including closing the screen, is deferred until the user's choice. */
+    void requestLeave(Runnable destination) {
+        View anchor = list;
+        if (anchor == null || checkingLeave || leaveDialog != null) {
+            return;
+        }
+        checkingLeave = true;
+        // Read after queued toggle actions, rather than trusting the last rendered snapshot.
+        store(s -> {
+            boolean pending = s.hasPendingModuleChanges();
+            boolean busy = s.moduleReloading();
+            String text = s.moduleReloadSummary();
+            anchor.post(() -> {
+                if (list != anchor) {
+                    return;
+                }
+                checkingLeave = false;
+                if (!pending && !busy) {
+                    destination.run();
+                    return;
+                }
+                showLeaveDialog(anchor, text, busy, destination);
+            });
+        });
+    }
+
+    private void showLeaveDialog(View anchor, String summary, boolean busy, Runnable destination) {
+        var dialog = Overlays.dialog(anchor, "Pending module changes", 480, -1);
+        leaveDialog = dialog;
+        dialog.onDismiss(() -> {
+            leaveDialog = null;
+            leaveReload = null;
+            applyingChanges = false;
+        });
+        var message = label(anchor.getContext(), summary, R.attr.textAppearanceBodyMedium);
+        dialog.body.addView(message);
+        var actions = row(anchor.getContext());
+        actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        var apply = button(anchor.getContext(), "Reload now", R.attr.buttonTonalStyle, v -> { });
+        var later = button(anchor.getContext(), "Leave for later", R.attr.borderlessButtonStyle, v -> {
+            dialog.dismiss();
+            destination.run();
+        });
+        leaveReload = apply;
+        apply.setEnabled(!busy);
+        apply.setOnClickListener(v -> {
+            applyingChanges = true;
+            apply.setEnabled(false);
+            later.setEnabled(false);
+            message.setText("Reloading modules…");
+            store(s -> {
+                // Another client action may have started a reload since this button was rendered.
+                if (s.moduleReloading()) {
+                    anchor.post(() -> {
+                        if (list == anchor && leaveDialog == dialog) {
+                            applyingChanges = false;
+                            message.setText("A module reload is already in progress. Wait for it to finish, or leave for later.");
+                            later.setEnabled(true);
+                        }
+                    });
+                    return;
+                }
+                s.applyModuleChanges(success -> anchor.post(() -> {
+                    if (list != anchor || leaveDialog != dialog) {
+                        return;
+                    }
+                    if (Boolean.TRUE.equals(success)) {
+                        dialog.dismiss();
+                        destination.run();
+                    } else {
+                        applyingChanges = false;
+                        message.setText("Module reload failed. Stay here to review the changes and try again.");
+                        apply.setEnabled(true);
+                        later.setEnabled(true);
+                    }
+                }));
+            });
+        });
+        actions.addView(apply);
+        actions.addView(later);
+        actions.addView(button(anchor.getContext(), "Stay", R.attr.borderlessButtonStyle, v -> dialog.dismiss()));
+        dialog.body.addView(actions);
+        dialog.show();
     }
 
     private void renderList() {
@@ -245,7 +390,7 @@ public class ModulesFragment extends Fragment {
 
         var toggle = new Switch(context);
         toggle.setChecked(module.enabled);
-        toggle.setEnabled(module.enabled || module.error == null || !module.error.startsWith("Unavailable:"));
+        toggle.setEnabled(!reloading && (module.enabled || module.error == null || !module.error.startsWith("Unavailable:")));
         toggle.setOnCheckedChangeListener((v, checked) -> store(s -> s.setModuleEnabled(module.id, checked)));
         row.addView(toggle);
 
@@ -337,8 +482,6 @@ public class ModulesFragment extends Fragment {
                                 + " What it asks for (web, files...) stays off until /craftpy project trust. Code from others:"
                                 + " read it first.", null, "Decompile",
                         ignored -> store(s -> s.unpackModule(selected.path)))));
-        actions.addView(button(context, "Reload", R.attr.borderlessButtonStyle,
-                v -> store(s -> s.reloadModule(selected.id))));
         actions.addView(button(context, "Open folder", R.attr.borderlessButtonStyle, v -> openFolder(selected.path)));
         actions.addView(button(context, "Use in project", R.attr.borderlessButtonStyle, v -> useInProject(v, selected.id)));
         actions.addView(button(context, "Delete", R.attr.borderlessButtonStyle,
@@ -357,12 +500,13 @@ public class ModulesFragment extends Fragment {
         }
         details.addView(readme, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         String path = selected.path;
-        store(s -> s.requestModuleReadme(path, text -> readme.post(() -> {
-            if (path.equals(selectedPath)) {
+        TextView target = readme;
+        store(s -> s.requestModuleReadme(path, text -> target.post(() -> {
+            if (readme == target && path.equals(selectedPath)) {
                 if (text == null || text.isBlank()) {
-                    readme.setText("This module has no README.");
+                    target.setText("This module has no README.");
                 } else {
-                    markflow.setMarkdown(readme, text);
+                    markflow.setMarkdown(target, text);
                 }
             }
         })));
@@ -403,6 +547,12 @@ public class ModulesFragment extends Fragment {
 
     private static String statusText(ModuleInfo m) {
         StringBuilder sb = new StringBuilder(m.enabled ? "Enabled" : "Disabled");
+        if (m.pendingReload) {
+            sb.append(" · Pending reload");
+            if (m.pendingReason != null && !m.pendingReason.isBlank()) {
+                sb.append(": ").append(m.pendingReason);
+            }
+        }
         switch (net.xmilon.craftpy.project.ModuleSide.of(m.side)) {
             case CLIENT -> sb.append(" · Client only (resource pack of this computer)");
             case SERVER -> sb.append(" · Server only");
@@ -441,22 +591,31 @@ public class ModulesFragment extends Fragment {
 
     /** Adds the module to the open project's dependencies and copies the import line to use its code. */
     private void useInProject(View anchor, String moduleId) {
-        var store = net.xmilon.craftpy.client.ClientProjectStore.getInstance();
-        if (store.activeProjectId() == null) {
-            prompt(anchor, "Open a project in the editor first: the module is added to that project.", null, "OK", ignored -> {
-            });
-            return;
-        }
-        com.google.gson.JsonObject args = new com.google.gson.JsonObject();
-        args.addProperty("module", moduleId);
-        store.tool("add_dependency", args, reply -> anchor.post(() -> {
-            String line = "from modules." + moduleId + " import *";
-            if (!reply.has("error")) {
-                net.xmilon.craftpy.client.IdeHost.get().setClipboard(line);
+        store(store -> {
+            if (store.activeProjectId() == null) {
+                anchor.post(() -> {
+                    if (anchor.isAttachedToWindow()) {
+                        prompt(anchor, "Open a project in the editor first: the module is added to that project.",
+                                null, "OK", ignored -> { });
+                    }
+                });
+                return;
             }
-            prompt(anchor, reply.has("error") ? reply.get("error").getAsString()
-                    : reply.get("message").getAsString() + "\n\nCopied to the clipboard: " + line, null, "OK", ignored -> {
+            com.google.gson.JsonObject args = new com.google.gson.JsonObject();
+            args.addProperty("module", moduleId);
+            String line = "from modules." + moduleId + " import *";
+            store.tool("add_dependency", args, reply -> {
+                if (!reply.has("error")) {
+                    IdeHost.get().setClipboard(line);
+                }
+                String message = reply.has("error") ? reply.get("error").getAsString()
+                        : reply.get("message").getAsString() + "\n\nCopied to the clipboard: " + line;
+                anchor.post(() -> {
+                    if (anchor.isAttachedToWindow()) {
+                        prompt(anchor, message, null, "OK", ignored -> { });
+                    }
+                });
             });
-        }));
+        });
     }
 }

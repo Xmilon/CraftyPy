@@ -82,12 +82,22 @@ public final class ModuleKeys {
 
     public static List<BindingStore.Entry> entries() { return store().entries(); }
 
+    public static String scopeLabel(String scope) {
+        if (scope.equals("client")) return "This client";
+        if (scope.startsWith("server:")) return "Server: " + scope.substring(7);
+        if (scope.startsWith("world:")) {
+            String path = scope.substring(6).replace('\\', '/');
+            return "World: " + path.substring(path.lastIndexOf('/') + 1);
+        }
+        return "Other context";
+    }
+
     public static void assign(BindingStore.Id id, String combo) throws IOException { store().assign(id, combo); mirror(); }
 
     public static List<String> conflicts(BindingStore.Id id, String combo) {
         String normalized = KeyCombo.normalize(combo);
         List<String> names = new ArrayList<>();
-        for (var e : store().matching(normalized)) if (!e.id().equals(id)) names.add(e.action().name() + " (" + e.id().owner() + ")");
+        for (var e : store().matching(normalized)) if (!e.id().equals(id)) names.add(e.action().name() + " (" + e.action().category() + ")");
         if (!normalized.isEmpty() && IdeHost.get().inGame()) {
             var key = input(normalized);
             for (KeyMapping mapping : Minecraft.getInstance().options.keyMappings) {
@@ -174,8 +184,7 @@ public final class ModuleKeys {
             setKeyModifierAndCode(modifier(standard), input(standard)); mirrored = combo(this);
         }
         @Override public String getName() {
-            return entry == null ? super.getName() : entry.action().name() + " (" + entry.id().owner() + "/" + entry.id().action() + ")"
-                    + (Integer.bitCount(KeyCombo.modifiers(entry.assigned())) > 1 ? " [" + entry.assigned() + "; Module Keybinds]" : "");
+            return entry == null ? super.getName() : entry.action().name();
         }
         @Override public String getCategory() { return entry == null ? super.getCategory() : entry.action().category(); }
         @Override public InputConstants.Key getDefaultKey() { return entry == null ? super.getDefaultKey() : input(entry.action().combo()); }

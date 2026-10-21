@@ -115,6 +115,7 @@ public class CraftPy {
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
+        ProjectController.get().resetModuleReloadState();
         ProjectManager.shutdown();
         net.xmilon.craftpy.python.PyRuntime.shutdown();
         net.xmilon.craftpy.project.ModuleLoader.useGlobalState();

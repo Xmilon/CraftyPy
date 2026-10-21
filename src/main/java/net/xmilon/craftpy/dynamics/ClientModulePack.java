@@ -1,26 +1,22 @@
 package net.xmilon.craftpy.dynamics;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 import net.xmilon.craftpy.CraftPyLog;
-import net.xmilon.craftpy.project.ModuleInfo;
-import net.xmilon.craftpy.project.ModuleLoader;
-import net.xmilon.craftpy.project.ModuleSide;
+import net.xmilon.craftpy.client.ClientPython;
+import net.xmilon.craftpy.client.ClientPython.AppliedModule;
 import net.xmilon.craftpy.project.ProjectManager;
 import net.xmilon.craftpy.project.PyForgePaths;
 
 /**
  * The resource pack of the client-side modules ({@code "side": "client"}): their {@code assets/} unpacked from the
- * {@code .cpm} files enabled on this computer. Built by the player's own CraftPy, so it works on any server, even one
+ * successfully applied modules cached on this computer. Built by the player's own CraftPy, so it works on any server, even one
  * without CraftPy. {@link DynamicPackManager} offers it to the game; it is rebuilt when the modules change.
  */
 public final class ClientModulePack {
@@ -34,59 +30,69 @@ public final class ClientModulePack {
         return PyForgePaths.build().resolve("clientpack").resolve("craftpy-client-modules");
     }
 
-    /** Rebuilds the pack when the enabled client modules changed; true when it did (a resource reload then shows it). */
+    /** Rebuild from applied cached assets only; scans, toggles and builds cannot apply desired bytes. */
     public static synchronized boolean refresh() {
-        Path root = root();
         try {
-            List<ModuleInfo> modules = new ArrayList<>();
-            for (ModuleInfo info : ModuleLoader.list()) {
-                if (info.enabled && info.primary && info.error == null && ModuleSide.of(info.side) == ModuleSide.CLIENT) {
-                    modules.add(info);
-                }
-            }
-            modules.sort(Comparator.comparing(m -> m.id));
-            StringBuilder fingerprint = new StringBuilder();
-            for (ModuleInfo m : modules) {
-                fingerprint.append(m.id).append('|').append(m.path).append('|').append(m.modified).append('|')
-                        .append(m.sizeBytes).append('\n');
-            }
-            Path marker = root.resolve(MARKER);
-            if (modules.isEmpty() ? !Files.exists(root)
-                    : Files.isRegularFile(marker) && Files.readString(marker).contentEquals(fingerprint)) {
-                return false;
-            }
-            ProjectManager.deleteRecursively(root);
-            if (!modules.isEmpty()) {
-                build(root, modules);
-                Files.writeString(marker, fingerprint);
-                CraftPyLog.LOGGER.info("Client modules pack rebuilt: {}", modules.stream().map(m -> m.id).toList());
-            }
-            return true;
+            return refreshChecked();
         } catch (IOException | RuntimeException e) {
             CraftPyLog.LOGGER.error("Could not build the client modules pack", e);
             return false;
         }
     }
 
-    /** Writes pack.mcmeta and the assets of {@code modules} (later ids win on the same file). */
-    static void build(Path root, List<ModuleInfo> modules) throws IOException {
+    /** Apply callers need failures instead of mistaking them for an unchanged pack. */
+    public static synchronized boolean refreshChecked() throws IOException {
+        Path root = root();
+        List<AppliedModule> modules = new ArrayList<>(ClientPython.get().appliedModules());
+        modules.sort(Comparator.comparing(AppliedModule::id));
+        StringBuilder fingerprint = new StringBuilder();
+        for (AppliedModule module : modules)
+            fingerprint.append(module.id()).append('|').append(module.snapshot().resources()).append('\n');
+        Path marker = root.resolve(MARKER);
+        if (modules.isEmpty() ? !Files.exists(root)
+                : Files.isRegularFile(marker) && Files.readString(marker).contentEquals(fingerprint)) return false;
+        Files.createDirectories(root.getParent());
+        Path staged = Files.createTempDirectory(root.getParent(), "clientpack-");
+        Path backup = root.resolveSibling(root.getFileName() + ".previous");
+        try {
+            if (!modules.isEmpty()) {
+                build(staged, modules);
+                Files.writeString(staged.resolve(MARKER), fingerprint);
+            }
+            ProjectManager.deleteRecursively(backup);
+            boolean hadPack = Files.exists(root);
+            if (hadPack) Files.move(root, backup);
+            try {
+                if (!modules.isEmpty()) Files.move(staged, root);
+            } catch (IOException e) {
+                if (hadPack) Files.move(backup, root);
+                throw e;
+            }
+            ProjectManager.deleteRecursively(backup);
+            CraftPyLog.LOGGER.info("Client modules pack rebuilt: {}", modules.stream().map(AppliedModule::id).toList());
+            return true;
+        } finally {
+            ProjectManager.deleteRecursively(staged);
+        }
+    }
+
+    /** Writes cached assets, with later ids winning on the same file. */
+    static void build(Path root, List<AppliedModule> modules) throws IOException {
         try {
             PackBuilder.writeMcmeta(root, PackBuilder.RESOURCE_FORMAT, "CraftPy client modules");
         } catch (Exception e) {
             throw new IOException(e);
         }
         Path top = root.toAbsolutePath().normalize();
-        for (ModuleInfo module : modules) {
-            try (ZipFile zip = new ZipFile(module.path)) {
-                for (ZipEntry entry : java.util.Collections.list(zip.entries())) {
-                    Path out = target(top, module.id, entry.getName());
-                    if (entry.isDirectory() || out == null) {
-                        continue;
-                    }
+        for (AppliedModule module : modules) {
+            if (!Files.isDirectory(module.assets())) continue;
+            try (var files = Files.walk(module.assets())) {
+                for (Path file : files.filter(Files::isRegularFile).sorted().toList()) {
+                    String relative = module.assets().relativize(file).toString().replace('\\', '/');
+                    Path out = target(top, module.id(), "assets/" + relative);
+                    if (out == null) continue;
                     Files.createDirectories(out.getParent());
-                    try (InputStream in = zip.getInputStream(entry)) {
-                        Files.copy(in, out, StandardCopyOption.REPLACE_EXISTING);
-                    }
+                    Files.copy(file, out, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
         }

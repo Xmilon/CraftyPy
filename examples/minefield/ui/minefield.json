@@ -1,0 +1,794 @@
+{
+  "id": "minefield",
+  "title": "Minefield",
+  "size": [
+    380,
+    470
+  ],
+  "root": {
+    "type": "vbox",
+    "padding": 8,
+    "spacing": 6,
+    "children": [
+      {
+        "type": "label",
+        "text": "Minefield",
+        "style": "title"
+      },
+      {
+        "type": "label",
+        "text": "A mine sets off TNT right next to you.",
+        "style": "hint"
+      },
+      {
+        "type": "label",
+        "text": "Pick a tile. The first one is always safe.",
+        "bind": {
+          "text": "status"
+        }
+      },
+      {
+        "type": "progress",
+        "value": 0,
+        "max": 54,
+        "bind": {
+          "value": "cleared",
+          "max": "safe_total"
+        }
+      },
+      {
+        "type": "label",
+        "text": "Mines: 10    Flags: 0",
+        "style": "hint",
+        "bind": {
+          "text": "info"
+        }
+      },
+      {
+        "type": "grid",
+        "columns": 8,
+        "spacing": 3,
+        "children": [
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_0_0",
+            "bind": {
+              "text": "t_0_0",
+              "enabled": "e_0_0"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_0_1",
+            "bind": {
+              "text": "t_0_1",
+              "enabled": "e_0_1"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_0_2",
+            "bind": {
+              "text": "t_0_2",
+              "enabled": "e_0_2"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_0_3",
+            "bind": {
+              "text": "t_0_3",
+              "enabled": "e_0_3"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_0_4",
+            "bind": {
+              "text": "t_0_4",
+              "enabled": "e_0_4"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_0_5",
+            "bind": {
+              "text": "t_0_5",
+              "enabled": "e_0_5"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_0_6",
+            "bind": {
+              "text": "t_0_6",
+              "enabled": "e_0_6"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_0_7",
+            "bind": {
+              "text": "t_0_7",
+              "enabled": "e_0_7"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_1_0",
+            "bind": {
+              "text": "t_1_0",
+              "enabled": "e_1_0"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_1_1",
+            "bind": {
+              "text": "t_1_1",
+              "enabled": "e_1_1"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_1_2",
+            "bind": {
+              "text": "t_1_2",
+              "enabled": "e_1_2"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_1_3",
+            "bind": {
+              "text": "t_1_3",
+              "enabled": "e_1_3"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_1_4",
+            "bind": {
+              "text": "t_1_4",
+              "enabled": "e_1_4"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_1_5",
+            "bind": {
+              "text": "t_1_5",
+              "enabled": "e_1_5"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_1_6",
+            "bind": {
+              "text": "t_1_6",
+              "enabled": "e_1_6"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_1_7",
+            "bind": {
+              "text": "t_1_7",
+              "enabled": "e_1_7"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_2_0",
+            "bind": {
+              "text": "t_2_0",
+              "enabled": "e_2_0"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_2_1",
+            "bind": {
+              "text": "t_2_1",
+              "enabled": "e_2_1"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_2_2",
+            "bind": {
+              "text": "t_2_2",
+              "enabled": "e_2_2"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_2_3",
+            "bind": {
+              "text": "t_2_3",
+              "enabled": "e_2_3"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_2_4",
+            "bind": {
+              "text": "t_2_4",
+              "enabled": "e_2_4"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_2_5",
+            "bind": {
+              "text": "t_2_5",
+              "enabled": "e_2_5"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_2_6",
+            "bind": {
+              "text": "t_2_6",
+              "enabled": "e_2_6"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_2_7",
+            "bind": {
+              "text": "t_2_7",
+              "enabled": "e_2_7"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_3_0",
+            "bind": {
+              "text": "t_3_0",
+              "enabled": "e_3_0"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_3_1",
+            "bind": {
+              "text": "t_3_1",
+              "enabled": "e_3_1"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_3_2",
+            "bind": {
+              "text": "t_3_2",
+              "enabled": "e_3_2"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_3_3",
+            "bind": {
+              "text": "t_3_3",
+              "enabled": "e_3_3"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_3_4",
+            "bind": {
+              "text": "t_3_4",
+              "enabled": "e_3_4"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_3_5",
+            "bind": {
+              "text": "t_3_5",
+              "enabled": "e_3_5"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_3_6",
+            "bind": {
+              "text": "t_3_6",
+              "enabled": "e_3_6"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_3_7",
+            "bind": {
+              "text": "t_3_7",
+              "enabled": "e_3_7"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_4_0",
+            "bind": {
+              "text": "t_4_0",
+              "enabled": "e_4_0"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_4_1",
+            "bind": {
+              "text": "t_4_1",
+              "enabled": "e_4_1"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_4_2",
+            "bind": {
+              "text": "t_4_2",
+              "enabled": "e_4_2"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_4_3",
+            "bind": {
+              "text": "t_4_3",
+              "enabled": "e_4_3"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_4_4",
+            "bind": {
+              "text": "t_4_4",
+              "enabled": "e_4_4"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_4_5",
+            "bind": {
+              "text": "t_4_5",
+              "enabled": "e_4_5"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_4_6",
+            "bind": {
+              "text": "t_4_6",
+              "enabled": "e_4_6"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_4_7",
+            "bind": {
+              "text": "t_4_7",
+              "enabled": "e_4_7"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_5_0",
+            "bind": {
+              "text": "t_5_0",
+              "enabled": "e_5_0"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_5_1",
+            "bind": {
+              "text": "t_5_1",
+              "enabled": "e_5_1"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_5_2",
+            "bind": {
+              "text": "t_5_2",
+              "enabled": "e_5_2"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_5_3",
+            "bind": {
+              "text": "t_5_3",
+              "enabled": "e_5_3"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_5_4",
+            "bind": {
+              "text": "t_5_4",
+              "enabled": "e_5_4"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_5_5",
+            "bind": {
+              "text": "t_5_5",
+              "enabled": "e_5_5"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_5_6",
+            "bind": {
+              "text": "t_5_6",
+              "enabled": "e_5_6"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_5_7",
+            "bind": {
+              "text": "t_5_7",
+              "enabled": "e_5_7"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_6_0",
+            "bind": {
+              "text": "t_6_0",
+              "enabled": "e_6_0"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_6_1",
+            "bind": {
+              "text": "t_6_1",
+              "enabled": "e_6_1"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_6_2",
+            "bind": {
+              "text": "t_6_2",
+              "enabled": "e_6_2"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_6_3",
+            "bind": {
+              "text": "t_6_3",
+              "enabled": "e_6_3"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_6_4",
+            "bind": {
+              "text": "t_6_4",
+              "enabled": "e_6_4"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_6_5",
+            "bind": {
+              "text": "t_6_5",
+              "enabled": "e_6_5"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_6_6",
+            "bind": {
+              "text": "t_6_6",
+              "enabled": "e_6_6"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_6_7",
+            "bind": {
+              "text": "t_6_7",
+              "enabled": "e_6_7"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_7_0",
+            "bind": {
+              "text": "t_7_0",
+              "enabled": "e_7_0"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_7_1",
+            "bind": {
+              "text": "t_7_1",
+              "enabled": "e_7_1"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_7_2",
+            "bind": {
+              "text": "t_7_2",
+              "enabled": "e_7_2"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_7_3",
+            "bind": {
+              "text": "t_7_3",
+              "enabled": "e_7_3"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_7_4",
+            "bind": {
+              "text": "t_7_4",
+              "enabled": "e_7_4"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_7_5",
+            "bind": {
+              "text": "t_7_5",
+              "enabled": "e_7_5"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_7_6",
+            "bind": {
+              "text": "t_7_6",
+              "enabled": "e_7_6"
+            }
+          },
+          {
+            "type": "button",
+            "text": "",
+            "on_click": "cell_7_7",
+            "bind": {
+              "text": "t_7_7",
+              "enabled": "e_7_7"
+            }
+          }
+        ]
+      },
+      {
+        "type": "hbox",
+        "spacing": 6,
+        "children": [
+          {
+            "type": "button",
+            "text": "New game",
+            "on_click": "new_game",
+            "weight": 1
+          },
+          {
+            "type": "button",
+            "text": "Flag mode: off",
+            "on_click": "toggle_flag",
+            "weight": 1,
+            "bind": {
+              "text": "flag_text"
+            }
+          },
+          {
+            "type": "button",
+            "text": "Close",
+            "on_click": "close",
+            "weight": 1
+          }
+        ]
+      }
+    ]
+  },
+  "preview_data": {
+    "status": "Pick a tile. The first one is always safe.",
+    "info": "Mines: 10    Flags: 0",
+    "cleared": 0,
+    "safe_total": 54,
+    "flag_text": "Flag mode: off",
+    "t_0_0": "",
+    "e_0_0": true,
+    "t_0_1": "",
+    "e_0_1": true,
+    "t_0_2": "",
+    "e_0_2": true,
+    "t_0_3": "",
+    "e_0_3": true,
+    "t_0_4": "",
+    "e_0_4": true,
+    "t_0_5": "",
+    "e_0_5": true,
+    "t_0_6": "",
+    "e_0_6": true,
+    "t_0_7": "",
+    "e_0_7": true,
+    "t_1_0": "",
+    "e_1_0": true,
+    "t_1_1": "",
+    "e_1_1": true,
+    "t_1_2": "",
+    "e_1_2": true,
+    "t_1_3": "",
+    "e_1_3": true,
+    "t_1_4": "",
+    "e_1_4": true,
+    "t_1_5": "",
+    "e_1_5": true,
+    "t_1_6": "",
+    "e_1_6": true,
+    "t_1_7": "",
+    "e_1_7": true,
+    "t_2_0": "",
+    "e_2_0": true,
+    "t_2_1": "",
+    "e_2_1": true,
+    "t_2_2": "",
+    "e_2_2": true,
+    "t_2_3": "",
+    "e_2_3": true,
+    "t_2_4": "",
+    "e_2_4": true,
+    "t_2_5": "",
+    "e_2_5": true,
+    "t_2_6": "",
+    "e_2_6": true,
+    "t_2_7": "",
+    "e_2_7": true,
+    "t_3_0": "",
+    "e_3_0": true,
+    "t_3_1": "",
+    "e_3_1": true,
+    "t_3_2": "",
+    "e_3_2": true,
+    "t_3_3": "",
+    "e_3_3": true,
+    "t_3_4": "",
+    "e_3_4": true,
+    "t_3_5": "",
+    "e_3_5": true,
+    "t_3_6": "",
+    "e_3_6": true,
+    "t_3_7": "",
+    "e_3_7": true,
+    "t_4_0": "",
+    "e_4_0": true,
+    "t_4_1": "",
+    "e_4_1": true,
+    "t_4_2": "",
+    "e_4_2": true,
+    "t_4_3": "",
+    "e_4_3": true,
+    "t_4_4": "",
+    "e_4_4": true,
+    "t_4_5": "",
+    "e_4_5": true,
+    "t_4_6": "",
+    "e_4_6": true,
+    "t_4_7": "",
+    "e_4_7": true,
+    "t_5_0": "",
+    "e_5_0": true,
+    "t_5_1": "",
+    "e_5_1": true,
+    "t_5_2": "",
+    "e_5_2": true,
+    "t_5_3": "",
+    "e_5_3": true,
+    "t_5_4": "",
+    "e_5_4": true,
+    "t_5_5": "",
+    "e_5_5": true,
+    "t_5_6": "",
+    "e_5_6": true,
+    "t_5_7": "",
+    "e_5_7": true,
+    "t_6_0": "",
+    "e_6_0": true,
+    "t_6_1": "",
+    "e_6_1": true,
+    "t_6_2": "",
+    "e_6_2": true,
+    "t_6_3": "",
+    "e_6_3": true,
+    "t_6_4": "",
+    "e_6_4": true,
+    "t_6_5": "",
+    "e_6_5": true,
+    "t_6_6": "",
+    "e_6_6": true,
+    "t_6_7": "",
+    "e_6_7": true,
+    "t_7_0": "",
+    "e_7_0": true,
+    "t_7_1": "",
+    "e_7_1": true,
+    "t_7_2": "",
+    "e_7_2": true,
+    "t_7_3": "",
+    "e_7_3": true,
+    "t_7_4": "",
+    "e_7_4": true,
+    "t_7_5": "",
+    "e_7_5": true,
+    "t_7_6": "",
+    "e_7_6": true,
+    "t_7_7": "",
+    "e_7_7": true
+  }
+}

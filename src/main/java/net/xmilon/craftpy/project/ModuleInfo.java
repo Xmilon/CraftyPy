@@ -36,6 +36,9 @@ public class ModuleInfo {
     public boolean enabled = true;
     /** Whether the module is currently loaded into the running game. */
     public boolean loaded = false;
+    /** Desired configuration or installed bytes differ from the last successful apply. */
+    public boolean pendingReload;
+    public String pendingReason = "";
     /** True when another file declares the same id and wins the load. */
     public boolean duplicate = false;
     /** True for the winning file when several share an id (the one that loads). */
@@ -49,6 +52,10 @@ public class ModuleInfo {
     public boolean changedSinceDecompile = false;
     /** Approved, but for another version of the file: its permissions are off until approved again. */
     public boolean changedSinceApproval = false;
+    /** Hub picture of the module and the apps it declares (cleaned), with what was wrong in the declaration. */
+    public String icon = "";
+    public List<ModuleApp> apps = new ArrayList<>();
+    public List<String> appProblems = new ArrayList<>();
     /** Parse/IO error, when the file could not be read. */
     public String error;
 }

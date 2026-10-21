@@ -148,6 +148,17 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         if (nav == null || page == current) {
             return;
         }
+        if (current == PAGE_MODULES && getChildFragmentManager().findFragmentById(ID_CONTAINER) instanceof ModulesFragment modules) {
+            modules.requestLeave(() -> navigateConfirmed(page));
+            return;
+        }
+        navigateConfirmed(page);
+    }
+
+    private void navigateConfirmed(int page) {
+        if (nav == null || page == current) {
+            return;
+        }
         current = page;
         updateNav();
         getChildFragmentManager().beginTransaction()

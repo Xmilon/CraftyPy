@@ -15,18 +15,19 @@ final class ModuleKeybinds {
 
     static void open(View anchor) {
         var dialog = ListDialog.open(anchor, "Module Keybinds", true, 860, 440);
-        dialog.setMessage("Use ctrl, shift and alt together, for example ctrl+shift+h. Empty means unbound. Changes also appear in Controls.");
+        dialog.setMessage("Use ctrl, shift and alt together, for example ctrl+shift+h. Empty means unbound. "
+                + "Edit combinations with multiple modifiers here; Controls supports only one modifier and shows these combinations as unbound.");
         Runnable refresh = () -> IdeHost.get().execute(() -> {
             try {
                 var entries = ModuleKeys.entries();
                 anchor.post(() -> {
                     if (!dialog.isShowing()) return;
                     dialog.setRows(entries.stream().map(entry -> ListDialog.Row.card(entry.action().name(),
-                            entry.id().owner() + " " + entry.id().scope() + " " + entry.action().category(), context -> {
+                            entry.id().owner() + " " + ModuleKeys.scopeLabel(entry.id().scope()) + " " + entry.action().category(), context -> {
                         var card = new LinearLayout(context); card.setOrientation(LinearLayout.VERTICAL);
-                        card.addView(label(context, entry.action().name() + " · " + entry.action().category()
+                        card.addView(label(context, entry.action().name()
                                 + (entry.active() ? "" : " · inactive"), R.attr.textAppearanceTitleSmall));
-                        card.addView(label(context, entry.id().owner() + "/" + entry.id().action() + " · " + entry.id().scope(), R.attr.textAppearanceBodySmall));
+                        card.addView(label(context, entry.action().category() + " · " + ModuleKeys.scopeLabel(entry.id().scope()), R.attr.textAppearanceBodySmall));
                         var controls = row(context);
                         var field = field(context); field.setSingleLine(); field.setText(entry.assigned()); field.setHint("Unbound");
                         controls.addView(field, new LinearLayout.LayoutParams(0, -2, 1));

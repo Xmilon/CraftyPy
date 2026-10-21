@@ -515,6 +515,16 @@ tasks.register('uiDesignerSmokeTest', JavaExec) {
     jvmArgs '-Xmx512M'
 }
 
+tasks.register('modulesUiSmokeTest', JavaExec) {
+    group = 'verification'
+    description = 'Checks Modules exit guards with real input in a hidden Modern UI window (requires a GPU; reload completion simulated).'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath + configurations.ideRuntime
+    mainClass = 'net.xmilon.craftpy.client.mui.ModulesInteractionCheck'
+    jvmArgs '-Xmx512M'
+    timeout = java.time.Duration.ofSeconds(45)
+}
+
 // One-click IDE: build/ide/ holds "CraftPy IDE.jar" (a launcher whose manifest lists lib/), the libraries, a .bat / .sh
 // that start it with the right Java and craftpy-ide.properties (home = the game folder). ideShortcut adds a desktop
 // shortcut on Windows.

@@ -128,6 +128,8 @@ public final class ModuleBuilder {
             modMeta.dependencies = meta.dependencies == null ? new String[0]
                     : meta.dependencies.stream().filter(d -> d != null && !d.isBlank()).toArray(String[]::new);
             modMeta.permissions = net.xmilon.craftpy.security.ModulePermissions.clean(meta.permissions);
+            modMeta.icon = ModuleApp.icon(meta.icon);
+            modMeta.apps = ModuleApp.clean(meta.apps).apps();
             modMeta.requiredMods = meta.requiredMods == null ? new String[0] : meta.requiredMods.toArray(String[]::new);
             modMeta.requiredCapabilities = meta.requiredCapabilities == null ? new String[0] : meta.requiredCapabilities.toArray(String[]::new);
             zos.putNextEntry(entry("module.json"));
@@ -230,6 +232,9 @@ public final class ModuleBuilder {
         /** What the module asks for (sites, data folder); approved by the player before it counts. */
         public net.xmilon.craftpy.security.ModulePermissions permissions;
         public String[] dependencies = new String[0];
+        /** Hub picture and entries, already cleaned by {@link ModuleApp#clean}. */
+        public String icon;
+        public java.util.List<ModuleApp> apps;
         public String[] requiredMods = new String[0];
         public String[] requiredCapabilities = new String[0];
     }

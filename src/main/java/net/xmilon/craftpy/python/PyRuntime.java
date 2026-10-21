@@ -45,6 +45,7 @@ public final class PyRuntime {
 
     private final Path workerScript;
     private final Map<String, Worker> workers = new ConcurrentHashMap<>();
+    private volatile boolean closed;
     private final java.util.concurrent.atomic.LongAdder callbackCount = new java.util.concurrent.atomic.LongAdder();
     private final java.util.concurrent.atomic.LongAdder callbackNanos = new java.util.concurrent.atomic.LongAdder();
 
@@ -159,6 +160,7 @@ public final class PyRuntime {
     }
 
     private synchronized Worker worker(String owner, List<Path> roots) {
+        if (!open || closed) throw new IllegalStateException("CraftPy's world has closed");
         Worker current = workers.get(owner);
         if (current != null && current.roots.equals(roots)) {
             return current;
@@ -273,7 +275,7 @@ public final class PyRuntime {
                 CraftPyLog.LOGGER.error("Failed to load Python module: " + id, e);
                 return new JsonObject();
             }
-        }, CraftPyExecutors.rpc());
+        }, CraftPyExecutors.io());
     }
 
     /** Sends an interrupt request to every worker to stop running code. */
@@ -294,7 +296,7 @@ public final class PyRuntime {
      * selects the module owner namespace.
      */
     public CompletableFuture<Void> unloadOwner(String id, boolean module) {
-        return CraftPyExecutors.runAsync(() -> stopWorker(owner(id, module)), CraftPyExecutors.rpc());
+        return CraftPyExecutors.runAsync(() -> stopWorker(owner(id, module)), CraftPyExecutors.io());
     }
 
     /** Calls a Python function {@code owner}'s script handed to Java (see the Java bridge). Completes with {value} or {error}. */
@@ -734,7 +736,7 @@ public final class PyRuntime {
                 CraftPyLog.LOGGER.error("run_main failed for {}", projectId, e);
                 return Declarations.error("Worker failed: " + e.getMessage());
             }
-        }, CraftPyExecutors.rpc());
+        }, CraftPyExecutors.io());
     }
 
     /** Evaluates a console line in the persistent REPL namespace on the worker. */
@@ -813,6 +815,7 @@ public final class PyRuntime {
         PyRuntime current = instance;
         instance = null;
         if (current != null) {
+            current.closed = true;
             for (Worker worker : current.running()) {
                 synchronized (worker) { worker.active = false; }
                 worker.rpc.stop();

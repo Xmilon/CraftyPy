@@ -17,7 +17,7 @@ import net.xmilon.craftpy.server.ProjectRequestHandler;
 import net.xmilon.craftpy.util.Json;
 
 public final class CraftPyNetwork {
-    public static final String PROTOCOL_VERSION = "6"; // 6: machine capabilities and environment metadata
+    public static final String PROTOCOL_VERSION = "7"; // 7: staged module state and correlated selective reload results
 
     private CraftPyNetwork() {
     }

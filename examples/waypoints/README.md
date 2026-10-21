@@ -1,7 +1,26 @@
 # Waypoints
 
-Save up to 20 personal, dimension-aware waypoints; safe destinations and a ten-second teleport cooldown.
+Save places and teleport back to them, with a short cooldown.
 
-Install the built `.cpm` in `pyforge/modules` and enable it in Modules. Nothing is placed automatically. Commands use the `waypoints:` namespace.
+- Module id: `waypoints`
+- Works on: client and server
+- CraftPy Python API: 2.9
+- Asks for: no permissions
 
-The source is included for editing. State belongs to the current world and player UUID.
+## What it does
+
+- Up to 20 waypoints per player and world; names are cut to 32 characters. Saving an existing name overwrites it.
+- Each waypoint remembers its dimension.
+- Teleporting asks for a safe spot and then waits ten seconds before the next one.
+
+## How to use it
+
+- `Ctrl+Shift+W` opens the window: type a name and save, pick one from the list to go there or remove it.
+  Change the key in Controls or on the Module Keybinds page.
+- Commands: `/waypoints:save <name>`, `/waypoints:go <name>`, `/waypoints:list`, `/waypoints:remove <name>`.
+
+## How it is made
+
+- `ui/waypoints.json` is the window layout.
+- `code/main.py`: `@ui.data('waypoints')` supplies the list; the actions `waypoint_save`, `waypoint_go` and
+  `waypoint_remove` call the same functions as the commands. Waypoints and the cooldown are in `storage`.

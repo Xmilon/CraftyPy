@@ -41,6 +41,18 @@ public final class ClientProjectStore {
     /** What was sent by the last save of each file: edits typed while the save travels keep the file unsaved. */
     private final Map<String, String> saving = new java.util.HashMap<>();
     private final List<ModuleInfo> modules = new ArrayList<>();
+    private boolean moduleReloading;
+    private String moduleReloadSummary = "";
+    private java.util.function.Consumer<Boolean> moduleReloadCompletion;
+    private int moduleMutations;
+    private boolean waitingToReload;
+    private long moduleScanRevision;
+    private boolean moduleApplyFailed;
+    private String moduleApplyId = "";
+    private volatile long moduleSession;
+    private List<String> pendingModuleProjects = List.of();
+    private boolean moduleStatusStale;
+    private String moduleListId = "";
     private final java.util.Map<String, java.util.function.Consumer<String>> readmeCallbacks = new java.util.HashMap<>();
     private final java.util.Set<String> virtualFiles = new java.util.HashSet<>();
     private boolean debugMode;
@@ -444,6 +456,68 @@ public final class ClientProjectStore {
         return Collections.unmodifiableList(modules);
     }
 
+    public boolean hasPendingModuleChanges() { return moduleStatusStale || moduleApplyFailed || moduleMutations > 0 || !pendingModuleProjects.isEmpty() || modules.stream().anyMatch(m -> m.pendingReload); }
+    public boolean moduleReloading() { return moduleReloading; }
+    public String moduleReloadSummary() { return moduleReloadSummary; }
+
+    public void applyModuleChanges(java.util.function.Consumer<Boolean> completion) {
+        if (moduleReloading) return;
+        moduleReloading = true;
+        moduleReloadCompletion = completion;
+        moduleApplyId = java.util.UUID.randomUUID().toString();
+        moduleReloadSummary = "Applying module changes…";
+        notifyListener();
+        waitingToReload = true;
+        sendModuleApplyWhenReady();
+        // A lost reply to a toggle must not leave RELOAD waiting forever: after 10 s apply anyway.
+        String id = moduleApplyId;
+        java.util.concurrent.CompletableFuture.runAsync(() -> IdeHost.get().execute(() -> {
+            if (waitingToReload && id.equals(moduleApplyId)) {
+                moduleMutations = 0;
+                sendModuleApplyWhenReady();
+            }
+        }), java.util.concurrent.CompletableFuture.delayedExecutor(10, java.util.concurrent.TimeUnit.SECONDS));
+    }
+
+    private void sendModuleApplyWhenReady() {
+        if (waitingToReload && moduleMutations == 0) {
+            waitingToReload = false;
+            request(ProjectAction.MODULE_RELOAD, null, moduleApplyId);
+        }
+    }
+
+    private boolean remoteWorld() {
+        return IdeHost.get().inGame() && !net.minecraft.client.Minecraft.getInstance().isLocalServer();
+    }
+
+    private boolean localClientModule(String id) {
+        return remoteWorld() && modules.stream().anyMatch(m -> m.primary && m.id.equals(id)
+                && net.xmilon.craftpy.project.ModuleSide.of(m.side) == net.xmilon.craftpy.project.ModuleSide.CLIENT);
+    }
+
+    private void localModuleMutation(ProjectAction action, Runnable change) {
+        long session = moduleSession;
+        net.xmilon.craftpy.util.CraftPyExecutors.runAsync(() -> { if (session == moduleSession) change.run(); },
+                net.xmilon.craftpy.util.CraftPyExecutors.forProject("@local-module-state")).whenComplete((ignored, error) ->
+                IdeHost.get().execute(() -> {
+                    if (session == moduleSession) onResponse(new ResponsePayload(action, error == null,
+                            error == null ? "Saved; press RELOAD to apply" : "Module change failed: " + error.getMessage(), ""));
+                }));
+    }
+
+    public void endModuleSession() {
+        moduleScanRevision++;
+        moduleSession++; moduleApplyId = "";
+        moduleMutations = 0; waitingToReload = false; moduleReloading = false;
+        moduleStatusStale = false; moduleListId = "";
+        moduleApplyFailed = false;
+        modules.clear(); moduleReloadSummary = "";
+        pendingModuleProjects = List.of();
+        var callback = moduleReloadCompletion; moduleReloadCompletion = null;
+        if (callback != null) callback.accept(false);
+        notifyListener();
+    }
+
     public ModuleInfo findModule(String path) {
         if (path == null) {
             return null;
@@ -479,46 +553,84 @@ public final class ClientProjectStore {
 
     private final Map<String, java.util.function.Consumer<JsonObject>> toolCallbacks = new java.util.HashMap<>();
 
-    /** Client-side modules are this computer's own resource pack: rebuild it, and reload resources when it changed. */
-    private void refreshClientModules() {
-        net.xmilon.craftpy.util.CraftPyExecutors.runAsync(() -> {
-            if (net.xmilon.craftpy.dynamics.ClientModulePack.refresh()) {
-                net.xmilon.craftpy.client.ClientPackSync.reload();
-            }
-            net.xmilon.craftpy.client.ClientPython.get().loadModules(); // code of client modules, on this computer
-        });
-    }
-
     /** Asks the server to re-scan every .cpm under pyforge/. */
     public void refreshModules() {
-        request(ProjectAction.MODULES_LIST, null, "");
+        moduleScanRevision++;
+        moduleListId = java.util.UUID.randomUUID().toString();
+        request(ProjectAction.MODULES_LIST, null, moduleListId);
     }
 
     public void setModuleEnabled(String id, boolean enabled) {
         if (id == null || id.isBlank()) {
             return;
         }
+        if (moduleReloading) return;
+        moduleMutations++;
+        moduleStatusStale = true;
+        notifyListener();
         JsonObject params = new JsonObject();
         params.addProperty("id", id);
         params.addProperty("enabled", enabled);
+        if (localClientModule(id)) {
+            long scope = net.xmilon.craftpy.project.ModuleLoader.stateRevision();
+            localModuleMutation(ProjectAction.MODULE_SET_ENABLED, () -> net.xmilon.craftpy.project.ModuleLoader.setEnabled(id, enabled, scope));
+            return;
+        }
         request(ProjectAction.MODULE_SET_ENABLED, null, Json.COMPACT.toJson(params));
     }
 
     public void setAllModulesEnabled(boolean enabled) {
+        if (moduleReloading) return;
+        moduleMutations++;
+        moduleStatusStale = true;
+        notifyListener();
+        if (remoteWorld()) {
+            long session = moduleSession;
+            long scope = net.xmilon.craftpy.project.ModuleLoader.stateRevision();
+            net.xmilon.craftpy.util.CraftPyExecutors.runAsync(() -> {
+                if (session != moduleSession) return;
+                for (var info : net.xmilon.craftpy.project.ModuleLoader.list())
+                    if (info.primary && net.xmilon.craftpy.project.ModuleSide.of(info.side) == net.xmilon.craftpy.project.ModuleSide.CLIENT)
+                        net.xmilon.craftpy.project.ModuleLoader.setEnabled(info.id, enabled, scope);
+            }, net.xmilon.craftpy.util.CraftPyExecutors.forProject("@local-module-state")).whenComplete((ignored, error) -> IdeHost.get().execute(() -> {
+                if (session != moduleSession) return;
+                if (error == null) request(ProjectAction.MODULE_SET_ALL, null, Boolean.toString(enabled));
+                else onResponse(new ResponsePayload(ProjectAction.MODULE_SET_ALL, false, error.getMessage(), ""));
+            }));
+            return;
+        }
         request(ProjectAction.MODULE_SET_ALL, null, Boolean.toString(enabled));
     }
 
     public void reloadModule(String id) {
         if (id != null && !id.isBlank()) {
-            request(ProjectAction.MODULE_RELOAD, null, id);
+            applyModuleChanges(ignored -> { });
         }
     }
 
     public void approveModule(String id, boolean approve) {
+        if (moduleReloading) return;
+        moduleMutations++;
+        moduleStatusStale = true;
+        notifyListener();
         JsonObject params = new JsonObject();
         params.addProperty("id", id);
         params.addProperty("approve", approve);
         modules.stream().filter(m -> id.equals(m.id) && m.primary).findFirst().ifPresent(m -> params.addProperty("sha256", m.sha256));
+        if (localClientModule(id)) {
+            String reviewedHash = params.has("sha256") ? params.get("sha256").getAsString() : "";
+            localModuleMutation(ProjectAction.MODULE_APPROVE, () -> {
+                try {
+                    var path = net.xmilon.craftpy.project.ModuleLoader.findFileById(id);
+                    if (path == null || !reviewedHash.equals(net.xmilon.craftpy.project.ModuleLoader.sha256(path)))
+                        throw new IllegalStateException("Module changed; refresh and review its permissions again");
+                    var info = net.xmilon.craftpy.project.ModuleLoader.readInfo(path);
+                    if (approve) net.xmilon.craftpy.security.PermissionStore.approve("module:" + id, info.permissions);
+                    else net.xmilon.craftpy.security.PermissionStore.revoke("module:" + id);
+                } catch (java.io.IOException error) { throw new java.io.UncheckedIOException(error); }
+            });
+            return;
+        }
         request(ProjectAction.MODULE_APPROVE, null, Json.COMPACT.toJson(params));
     }
 
@@ -827,17 +939,41 @@ public final class ClientProjectStore {
                 if (payload.message() != null && !payload.message().isBlank()) {
                     append(payload.message());
                 }
-                refreshClientModules();
+                refreshModules();
                 notifyListener();
                 return;
             }
             case MODULES_LIST -> {
-                List<ModuleInfo> parsed = tryParse(payload.action(), payload.json(),
-                        new TypeToken<List<ModuleInfo>>() {
-                        }.getType());
-                modules.clear();
+                JsonObject reply = tryParse(payload.action(), payload.json(), JsonObject.class);
+                if (reply == null || !reply.has("requestId") || !moduleListId.equals(reply.get("requestId").getAsString())) return;
+                if (!payload.success()) {
+                    append(payload.message()); moduleStatusStale = false; notifyListener(); return;
+                }
+                var listing = tryParse(payload.action(), payload.json(), net.xmilon.craftpy.project.ModuleLoader.Listing.class);
+                List<ModuleInfo> parsed = listing == null ? null : listing.modules();
                 if (parsed != null) {
-                    modules.addAll(parsed);
+                    long revision = moduleScanRevision;
+                    boolean remote = remoteWorld();
+                    net.xmilon.craftpy.util.CraftPyExecutors.supplyAsync(() -> {
+                        List<ModuleInfo> scanned = new ArrayList<>(parsed);
+                        if (remote) {
+                            scanned.removeIf(m -> net.xmilon.craftpy.project.ModuleSide.of(m.side) == net.xmilon.craftpy.project.ModuleSide.CLIENT);
+                            for (var local : net.xmilon.craftpy.project.ModuleLoader.list())
+                                if (net.xmilon.craftpy.project.ModuleSide.of(local.side) == net.xmilon.craftpy.project.ModuleSide.CLIENT) scanned.add(local);
+                        }
+                        ClientPython.get().describeModuleChanges(scanned);
+                        var projects = new ArrayList<>(listing.pendingProjects() == null ? List.<String>of() : listing.pendingProjects());
+                        projects.addAll(ClientPython.get().pendingProjectChanges());
+                        return new net.xmilon.craftpy.project.ModuleLoader.Listing(scanned, List.copyOf(projects));
+                    }).whenComplete((scanned, error) -> IdeHost.get().execute(() -> {
+                        if (revision != moduleScanRevision) return;
+                        if (error == null) {
+                            modules.clear(); modules.addAll(scanned.modules()); pendingModuleProjects = scanned.pendingProjects();
+                            if (moduleMutations == 0) moduleStatusStale = false;
+                        }
+                        else append("Module scan failed: " + error.getMessage());
+                        notifyListener();
+                    }));
                 }
             }
             case MODULE_README -> {
@@ -862,12 +998,39 @@ public final class ClientProjectStore {
                     refresh();
                 }
             }
-            case MODULE_SET_ENABLED, MODULE_SET_ALL, MODULE_RELOAD, MODULE_DELETE, MODULE_APPROVE -> {
+            case MODULE_RELOAD -> {
+                JsonObject body = tryParse(payload.action(), payload.json(), JsonObject.class);
+                if (body == null || !body.has("requestId") || !moduleApplyId.equals(body.get("requestId").getAsString())) return;
+                String applyId = moduleApplyId;
+                long session = moduleSession;
+                var result = body.has("failed") ? tryParse(payload.action(), payload.json(), net.xmilon.craftpy.project.ModuleChanges.Result.class) : null;
+                if (!moduleReloading) {
+                    if (payload.message() != null) append(payload.message());
+                    refreshModules();
+                    break;
+                }
+                ClientPython.get().applyModuleChanges().whenComplete((client, error) -> IdeHost.get().execute(() -> {
+                    if (session != moduleSession || !applyId.equals(moduleApplyId)) return;
+                    boolean success = payload.success() && error == null && client != null && client.success();
+                    moduleApplyFailed = !success;
+                    moduleReloadSummary = result != null && client != null ? result.plus(client).summary()
+                            : payload.message() + (error == null ? "" : "; client reload failed: " + error.getMessage());
+                    append(moduleReloadSummary);
+                    moduleReloading = false;
+                    var callback = moduleReloadCompletion;
+                    moduleReloadCompletion = null;
+                    refreshModules();
+                    notifyListener();
+                    if (callback != null) callback.accept(success);
+                }));
+            }
+            case MODULE_SET_ENABLED, MODULE_SET_ALL, MODULE_DELETE, MODULE_APPROVE -> {
+                if (payload.action() != ProjectAction.MODULE_DELETE && moduleMutations > 0) moduleMutations--;
                 if (payload.message() != null && !payload.message().isBlank()) {
                     append(payload.message());
                 }
                 refreshModules();
-                refreshClientModules();
+                sendModuleApplyWhenReady();
             }
             default -> {
                 if (payload.message() != null && !payload.message().isBlank()) {

@@ -23,6 +23,10 @@ public class ProjectMetadata {
     public net.xmilon.craftpy.security.ModulePermissions permissions = new net.xmilon.craftpy.security.ModulePermissions();
     /** Installed modules this project uses ({@code from modules.<id> import ...}); a built module lists them too. */
     public java.util.List<String> dependencies = new java.util.ArrayList<>();
+    /** Picture of the project in the Hub: an item id or a PNG under assets/ ({@link ModuleApp#icon}). */
+    public String icon = "";
+    /** Entries this project adds to the Hub; each opens one of its windows. */
+    public java.util.List<ModuleApp> apps = new java.util.ArrayList<>();
     public java.util.List<String> requiredMods = new java.util.ArrayList<>();
     public java.util.List<String> requiredCapabilities = new java.util.ArrayList<>();
     public Map<String, Integer> slotUsage = new LinkedHashMap<>();

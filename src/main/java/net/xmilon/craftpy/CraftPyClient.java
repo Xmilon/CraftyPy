@@ -139,9 +139,8 @@ public class CraftPyClient {
                 return 0;
             }
             net.xmilon.craftpy.project.ModuleLoader.setEnabled(id, on);
-            net.xmilon.craftpy.client.ClientPython.get().loadModules();
             ctx.getSource().sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                    id + (on ? " is on for this server" : " is off for this server")));
+                    id + (on ? " will be enabled" : " will be disabled") + " on RELOAD"));
             return 1;
         }));
     }
@@ -196,6 +195,7 @@ public class CraftPyClient {
         net.xmilon.craftpy.client.ClientPython python = net.xmilon.craftpy.client.ClientPython.get();
         python.event("client_leave", new com.google.gson.JsonObject());
         python.shutdown();
+        net.xmilon.craftpy.client.ClientProjectStore.getInstance().endModuleSession();
         net.xmilon.craftpy.client.media.MediaPlayer.get().stopAll();
         net.xmilon.craftpy.client.ServerPack.forget();
         if (!Minecraft.getInstance().isLocalServer()) {

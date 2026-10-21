@@ -78,13 +78,13 @@ public final class ProjectRequestHandler {
         }
         ProjectManager manager = ProjectManager.get();
         if (manager == null) {
-            return CompletableFuture.completedFuture(fail(request.action(), "Project manager not ready"));
+            return CompletableFuture.completedFuture(failRequest(request, "Project manager not ready"));
         }
         if (caller.server() == null && NEEDS_SERVER.contains(request.action())) {
-            return CompletableFuture.completedFuture(fail(request.action(), NEEDS_GAME));
+            return CompletableFuture.completedFuture(failRequest(request, NEEDS_GAME));
         }
         if (!caller.allowed()) {
-            return CompletableFuture.completedFuture(fail(request.action(),
+            return CompletableFuture.completedFuture(failRequest(request,
                     "You do not have permission to use CraftPy (requires permission level "
                             + Config.get(Config.PERMISSION_LEVEL) + ")"));
         }
@@ -312,13 +312,7 @@ public final class ProjectRequestHandler {
                         if (result.installed() != null && caller.server() == null) {
                             message += " - installed; it loads when the game starts";
                         } else if (result.installed() != null) {
-                            if (result.replaced()) {
-                                net.xmilon.craftpy.project.ModuleLoader.reload(result.moduleId());
-                                message += " - replaced the installed module";
-                            } else {
-                                net.xmilon.craftpy.project.ModuleLoader.loadModule(result.installed());
-                                message += " - installed as a new module";
-                            }
+                            message += result.replaced() ? " - replaced; press RELOAD to apply" : " - installed; enable it and press RELOAD";
                         }
                         return new ResponsePayload(ProjectAction.BUILD, true, message, result.moduleId());
                     } catch (java.io.IOException e) {
@@ -327,8 +321,11 @@ public final class ProjectRequestHandler {
                 }, CraftPyExecutors.io());
             }
             case MODULES_LIST:
-                return CraftPyExecutors.supplyAsync(() -> new ResponsePayload(ProjectAction.MODULES_LIST, true, "",
-                        Json.COMPACT.toJson(net.xmilon.craftpy.project.ModuleLoader.list())), CraftPyExecutors.io());
+                return CraftPyExecutors.supplyAsync(() -> {
+                    var body = Json.COMPACT.toJsonTree(net.xmilon.craftpy.project.ModuleLoader.listing()).getAsJsonObject();
+                    body.addProperty("requestId", request.data());
+                    return new ResponsePayload(ProjectAction.MODULES_LIST, true, "", body.toString());
+                }, CraftPyExecutors.io()).exceptionally(error -> failRequest(request, "Module scan failed: " + error.getMessage()));
             case MODULE_README: {
                 final String requestedPath = request.data() == null ? "" : request.data();
                 return CraftPyExecutors.supplyAsync(() -> {
@@ -347,40 +344,30 @@ public final class ProjectRequestHandler {
                 }
                 final String moduleId = toggle.id;
                 final boolean enabled = toggle.enabled;
+                final long scope = net.xmilon.craftpy.project.ModuleLoader.stateRevision();
                 return CraftPyExecutors.runAsync(
-                        () -> net.xmilon.craftpy.project.ModuleLoader.setEnabled(moduleId, enabled),
-                        CraftPyExecutors.io())
+                        () -> net.xmilon.craftpy.project.ModuleLoader.setEnabled(moduleId, enabled, scope),
+                        CraftPyExecutors.forProject("@module-state"))
                         .thenApply(v -> ResponsePayload.success(action,
-                                (enabled ? "Enabled " : "Disabled ") + moduleId, ""));
+                                (enabled ? "Will enable " : "Will disable ") + moduleId + " on RELOAD", ""));
             }
             case MODULE_SET_ALL: {
                 final boolean enabled = Boolean.parseBoolean(request.data());
+                final long scope = net.xmilon.craftpy.project.ModuleLoader.stateRevision();
                 return CraftPyExecutors.runAsync(
-                        () -> net.xmilon.craftpy.project.ModuleLoader.setAllEnabled(enabled),
-                        CraftPyExecutors.io())
+                        () -> net.xmilon.craftpy.project.ModuleLoader.setAllEnabled(enabled, scope),
+                        CraftPyExecutors.forProject("@module-state"))
                         .thenApply(v -> ResponsePayload.success(action,
-                                (enabled ? "Enabled" : "Disabled") + " all modules", ""));
+                                (enabled ? "Will enable" : "Will disable") + " all modules on RELOAD", ""));
             }
             case MODULE_RELOAD: {
-                final String moduleId = request.data();
-                return CraftPyExecutors.supplyAsync(() -> {
-                    try {
-                        if ("*".equals(moduleId)) {
-                            int count = 0;
-                            for (var module : new java.util.ArrayList<>(net.xmilon.craftpy.project.ModuleLoader.loadedModules())) {
-                                if (net.xmilon.craftpy.project.ModuleLoader.reload(module.id)) {
-                                    count++;
-                                }
-                            }
-                            return ResponsePayload.success(action, "Reloaded " + count + " module(s)", "");
-                        }
-                        boolean ok = net.xmilon.craftpy.project.ModuleLoader.reload(moduleId);
-                        return ok ? ResponsePayload.success(action, "Reloaded module " + moduleId, "")
-                                : fail(action, "Module not found: " + moduleId);
-                    } catch (java.io.IOException e) {
-                        return fail(action, "Reload failed: " + e.getMessage());
-                    }
-                }, CraftPyExecutors.io());
+                return net.xmilon.craftpy.project.ModuleLoader.applyChanges()
+                        .handle((result, error) -> {
+                            var body = result == null ? new com.google.gson.JsonObject() : Json.COMPACT.toJsonTree(result).getAsJsonObject();
+                            body.addProperty("requestId", request.data());
+                            return new ResponsePayload(action, error == null && result.success(),
+                                    error == null ? result.summary() : "Reload failed: " + error.getMessage(), body.toString());
+                        });
             }
             case MODULE_DELETE: {
                 ModulePath modulePath = Json.COMPACT.fromJson(request.data(), ModulePath.class);
@@ -693,6 +680,13 @@ public final class ProjectRequestHandler {
 
     private static ResponsePayload fail(ProjectAction action, String message) {
         return new ResponsePayload(action, false, message, "");
+    }
+
+    private static ResponsePayload failRequest(RequestPayload request, String message) {
+        if (request.action() != ProjectAction.MODULE_RELOAD && request.action() != ProjectAction.MODULES_LIST)
+            return fail(request.action(), message);
+        var body = new com.google.gson.JsonObject(); body.addProperty("requestId", request.data());
+        return new ResponsePayload(request.action(), false, message, body.toString());
     }
 
 }

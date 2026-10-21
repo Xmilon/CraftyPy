@@ -20,6 +20,8 @@ public final class Debouncer {
     private ScheduledFuture<?> pending;
     private boolean running;
     private boolean again;
+    private CompletableFuture<Void> pendingCompletion;
+    private CompletableFuture<Void> runningCompletion;
 
     public Debouncer(String name, long delayMs, Supplier<CompletableFuture<?>> job) {
         this.delayMs = delayMs;
@@ -32,10 +34,17 @@ public final class Debouncer {
     }
 
     public synchronized void request() {
+        requestAndWait();
+    }
+
+    /** Completes after the run that includes this request, including requests made during another run. */
+    public synchronized CompletableFuture<Void> requestAndWait() {
+        if (pendingCompletion == null) pendingCompletion = new CompletableFuture<>();
         if (pending != null) {
             pending.cancel(false);
         }
         pending = timer.schedule(this::start, delayMs, TimeUnit.MILLISECONDS);
+        return pendingCompletion;
     }
 
     private synchronized void start() {
@@ -45,21 +54,26 @@ public final class Debouncer {
             return;
         }
         running = true;
+        runningCompletion = pendingCompletion;
+        pendingCompletion = null;
         CompletableFuture<?> run;
         try {
             run = job.get();
         } catch (RuntimeException error) {
             CraftPyLog.LOGGER.error("CraftPy background job failed", error);
-            run = CompletableFuture.completedFuture(null);
+            run = CompletableFuture.failedFuture(error);
         }
-        run.whenComplete((ignored, error) -> finished());
+        run.whenComplete((ignored, error) -> finished(error));
     }
 
-    private synchronized void finished() {
+    private synchronized void finished(Throwable error) {
+        CompletableFuture<Void> completed = runningCompletion;
+        runningCompletion = null;
         running = false;
         if (again) {
             again = false;
             request();
         }
+        if (error == null) completed.complete(null); else completed.completeExceptionally(error);
     }
 }

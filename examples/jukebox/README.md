@@ -3,34 +3,37 @@
 A media player that runs on your own computer.
 
 - Module id: `jukebox`
-- Works on: client (your computer; any server)
+- Works on: client (any server)
 - CraftPy Python API: 2.9
-- Asks for: reading `pyforge/shared/music`
+- Asks for: reading `pyforge/shared/music`, nothing else
 
 ## What it plays
 
-- **My music**: your files in `pyforge/shared/music` (subfolders too): OGG, WAV, AIFF, MP3 and FLAC. Opus, M4A and
-  AAC are not supported; convert those to OGG or MP3 first.
-- **Packs**: the music sound events of the game, resource packs and mods (music discs, music packs, sound addons).
+- **My music**: your files in `pyforge/shared/music` (subfolders too): OGG, WAV, AIFF, MP3 and FLAC. Opus, M4A and AAC
+  are not supported; convert them to OGG or MP3 first.
+- **Packs**: the music sound events of the game, resource packs and mods.
 - **Melodies**: five public domain note block songs.
 
 ## How to use it
 
-1. Put audio files in `pyforge/shared/music` (it is created on the first start).
-2. Approve the module once on the **Modules** page (it asks to read that folder, nothing else).
-3. Press **J** in game, pick a file. **Refresh** reads the folder again after you add files.
+1. Put audio files in `pyforge/shared/music` (created on the first start).
+2. Approve the module once on the Modules page: turn on Allow requested permissions.
+3. Press `J` in game and pick a track. Refresh reads the folder again after you add files.
+4. Change the key in Controls or on the Module Keybinds page. The action id `j` is kept so older remaps still work.
 
-Play / pause, stop, previous / next, a seek bar, volume, loop and shuffle. Closing the window keeps the music
-playing; open it again with J to change it. The volume also follows the game's *Jukebox/Note Blocks* slider.
+The window has play and pause, stop, previous and next, a seek bar, volume, loop and shuffle. Closing the window
+keeps the music playing. The volume also follows the game's Jukebox/Note Blocks slider.
 
-**Nearby players hear it**: the next track you start is sent to the server, which passes it to the players around
-you (48 blocks by default; the server can turn it off or change the size limit in `craftpy-common.toml`,
-`media.*`). They hear it around you, and can turn other players' media off with `media.hearOthers`.
+**Nearby players hear it**: the next track you start is sent to the server, which passes it to players around you
+(48 blocks by default). The server can turn this off or change the limit in `craftpy-common.toml` (`media.*`), and a
+player can mute other players' media with `media.hearOthers`.
 
-## How it works
+## How it is made
 
-`code/player.py` keeps the play list and the player at module level, so it lives on while the window is closed; the
-window shows it once a second (`ui.refresh`). Files play with `media.play(...)`, pack music with `media.play_sound(...)`
-and melodies note by note with `client.sound(...)`.
-
-The window layouts are in `ui/*.json`: edit them in Design. Python `@ui.data` providers supply live values and named `@action` handlers apply changes. Module shortcuts can be remapped in Controls or Module Keybinds.
+- `code/main.py` has the `J` key, which refreshes the list and opens the window.
+- `code/player.py` keeps the play list and the player at module level, so it lives on while the window is closed.
+  The window refreshes once a second. Files play with `media.play(...)`, pack music with `media.play_sound(...)` and
+  melodies note by note with `client.sound(...)`. The `jukebox_*` actions are the window's buttons.
+- `code/songs.py` holds the melodies as text.
+- `ui/jukebox.json` is the window layout. Edit it visually in the UI maker.
+- `assets/textures/pocket_jukebox.png` is the icon.

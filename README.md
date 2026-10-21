@@ -68,6 +68,14 @@ and the module is replaced and marked *Changed*. Another project imports a modul
 after listing it under `"dependencies"`. The **Mod map** on the right shows what each mod, module and project does and
 how they connect.
 
+Module switches are saved immediately and take effect when you press **RELOAD**. Changed code, windows, permissions
+and dependencies restart only the affected owners; unchanged workers keep their state. Asset-only changes refresh the
+packs without restarting Python. Leaving Modules with pending changes offers **Reload now**, **Leave for later** or
+**Stay**. Revoking a permission takes effect immediately. A reload failure stays pending so you can fix it and retry.
+
+This InDev build uses network protocol **7**; clients and servers must use matching CraftPy builds. The Python API stays
+at **2.9**.
+
 ## Independent machinery and Building Blocks
 
 CraftPy includes its own rotation network, generator/shaft/processor roles, two-slot processing, FE batteries and fluid tanks.

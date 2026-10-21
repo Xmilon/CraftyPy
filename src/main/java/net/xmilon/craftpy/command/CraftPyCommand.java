@@ -742,11 +742,11 @@ public final class CraftPyCommand {
             fail(ctx, "Unknown module '" + id + "'. Use /craftpy module list.");
             return 0;
         }
-        CraftPyExecutors.runAsync(() -> ModuleLoader.setEnabled(id, enabled), CraftPyExecutors.io())
+        long scope = ModuleLoader.stateRevision();
+        CraftPyExecutors.runAsync(() -> ModuleLoader.setEnabled(id, enabled, scope), CraftPyExecutors.forProject("@module-state"))
                 .thenRun(() -> next(ctx, () -> {
                     ctx.getSource().sendSuccess(() -> Component.literal(
-                            (enabled ? "Enabled" : "Disabled (fully unloads after a restart)") + " module '" + id + "'."), true);
-                    net.xmilon.craftpy.network.ServerModules.modulesChanged(ctx.getSource().getServer());
+                            (enabled ? "Will enable" : "Will disable") + " module '" + id + "' on RELOAD."), true);
                 }));
         return 1;
     }
@@ -756,22 +756,11 @@ public final class CraftPyCommand {
             fail(ctx, "Missing permission " + CraftPyPermissions.MODULE.getNodeName() + ".");
             return 0;
         }
-        CraftPyExecutors.supplyAsync(() -> {
-            try {
-                return ModuleLoader.reload(id);
-            } catch (java.io.IOException e) {
-                return null;
-            }
-        }, CraftPyExecutors.io()).thenAccept(reloaded -> next(ctx, () -> {
-            if (reloaded == null) {
-                ctx.getSource().sendFailure(Component.literal("Reload failed for '" + id + "'."));
-            } else if (Boolean.TRUE.equals(reloaded)) {
-                ctx.getSource().sendSuccess(() -> Component.literal("Reloaded module '" + id + "'."), true);
-            } else {
-                ctx.getSource().sendFailure(Component.literal("Module '" + id + "' is not file-backed; cannot reload."));
-            }
-        }));
-        return 1;
+        if (ModuleLoader.findFileById(id) == null) {
+            fail(ctx, "Unknown module '" + id + "'.");
+            return 0;
+        }
+        return moduleReloadAll(ctx);
     }
 
     private static int moduleReloadAll(CommandContext<CommandSourceStack> ctx) {
@@ -779,16 +768,11 @@ public final class CraftPyCommand {
             fail(ctx, "Missing permission " + CraftPyPermissions.MODULE.getNodeName() + ".");
             return 0;
         }
-        List<String> ids = new ArrayList<>();
-        for (ModuleBuilder.ModuleMetadata module : ModuleLoader.loadedModules()) {
-            ids.add(module.id);
-        }
-        ctx.getSource().sendSuccess(
-                () -> Component.literal("Reloading " + ids.size() + " module(s): " + String.join(", ", ids) + "..."),
-                true);
-        for (String id : ids) {
-            moduleReload(ctx, id);
-        }
+        ModuleLoader.applyChanges().whenComplete((result, error) -> next(ctx, () -> {
+            if (error != null) fail(ctx, "Reload failed: " + error.getMessage());
+            else if (!result.success()) fail(ctx, result.summary());
+            else ctx.getSource().sendSuccess(() -> Component.literal(result.summary()), true);
+        }));
         return 1;
     }
 
