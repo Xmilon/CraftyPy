@@ -1,0 +1,15 @@
+{
+  "id": "media_gallery",
+  "name": "Media Gallery",
+  "description": "Pictures, an animated background, a video and sound effects inside an ordinary window, mixed with buttons, a slider and a checkbox.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.10",
+  "mcVersion": "1.21.1",
+  "side": "both",
+  "permissions": {},
+  "icon": "icon.png",
+  "apps": [
+    {"id": "gallery", "name": "Media Gallery", "description": "An animated background, a clip and sound effects mixed with buttons and a slider.", "window": "gallery", "category": "Media", "order": 20}
+  ]
+}

@@ -73,8 +73,30 @@ and dependencies restart only the affected owners; unchanged workers keep their 
 packs without restarting Python. Leaving Modules with pending changes offers **Reload now**, **Leave for later** or
 **Stay**. Revoking a permission takes effect immediately. A reload failure stays pending so you can fix it and retry.
 
-This InDev build uses network protocol **7**; clients and servers must use matching CraftPy builds. The Python API stays
-at **2.9**.
+This InDev build uses network protocol **7**; clients and servers must use matching CraftPy builds. The Python API is
+**2.10**.
+
+## The Hub (beta)
+
+The key that used to open the IDE (**Open CraftPy Hub** in Controls, default `I`) opens the **Hub**, marked Beta, for every
+player. Tabs: **Settings** (yours: editor colours and font, module keybinds; the server's, read-only), **Editor** (opens the full
+editor; Esc or the arrow in its rail comes back), **Modules** (*Client* modules you can switch here, *Server* modules read-only),
+**Apps** (windows that enabled, loaded modules offer: search, categories, arrow keys, a Hub button in the window) and
+**Marketplace** (coming soon). Esc closes a popup, then goes back one level, and closes the Hub only from Apps.
+
+A module adds apps with `"apps"` and `"icon"` in `project.json`, for example `{"id": "journal", "name": "Task Journal",
+"window": "journal", "category": "Tools"}`; every example under `examples/` has a 64 x 64 `assets/icon.png` and those with windows
+list them as apps (see the guide).
+
+## Pictures, GIFs, video and sound in windows
+
+Windows made in the UI maker (or with `Image`, `Video` and `Audio`) show your own files from `assets/media/`:
+**PNG, JPEG, BMP and animated GIF** pictures (with transparency), **video as Motion JPEG in an AVI** (its sound is a separate file), and
+**OGG, WAV, MP3, FLAC, AIFF and AU** sound. They take `fit`, `crop`, `opacity`, layering with `z`, play, pause, loop, seek, speed (not
+for sound), volume and mute, an optional control bar, `on_end` / `on_loop` / `on_error`, and can be driven from Python through
+`@ui.data` bindings. MP4, WebM, H.264, APNG, WebP, sound inside a video and web addresses are **not** supported. Decoding is
+off the screen threads and bounded; see the guide for the limits and the `ffmpeg` commands, and
+[examples/media_gallery](examples/media_gallery/README.md) for a window that mixes media with buttons and a slider.
 
 ## Independent machinery and Building Blocks
 

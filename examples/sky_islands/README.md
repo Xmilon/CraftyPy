@@ -7,7 +7,8 @@ with lanterns. The hub carries a spire you can see from every island. Each of th
 
 - Module id: `sky_islands`
 - Works on: client and server
-- CraftPy Python API: 2.9
+- CraftPy Python API: 2.10
+- In the Hub: Sky Islands and Expedition in the Apps tab (declared in `project.json`; the icon is `assets/icon.png`)
 - Asks for: no permissions; it only places blocks
 
 ## How to play

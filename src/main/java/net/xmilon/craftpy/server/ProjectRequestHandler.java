@@ -28,6 +28,13 @@ public final class ProjectRequestHandler {
      * Forwards a click / value change to the worker as the internal {@code ui_event}. The worker only
      * accepts tokens that belong to a window it opened for exactly this player.
      */
+    private static final java.util.Map<java.util.UUID, Long> LAST_APP_OPEN = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** A player left: forget when they last opened an app. */
+    public static void forgetPlayer(java.util.UUID player) {
+        LAST_APP_OPEN.remove(player);
+    }
+
     private static void windowEvent(ServerPlayer player, String data) {
         try {
             com.google.gson.JsonObject event = com.google.gson.JsonParser.parseString(data).getAsJsonObject();
@@ -81,6 +88,11 @@ public final class ProjectRequestHandler {
      * running module or project declares right now. The owner's Python then opens the declared window for that player.
      */
     private static void appOpen(ServerPlayer player, String data) {
+        long now = System.currentTimeMillis();
+        Long last = LAST_APP_OPEN.put(player.getUUID(), now);
+        if (last != null && now - last < 250) {
+            return; // a player cannot make the server scan its modules and call Python faster than a click
+        }
         try {
             com.google.gson.JsonObject request = com.google.gson.JsonParser.parseString(data).getAsJsonObject();
             String owner = request.get("owner").getAsString(), app = request.get("app").getAsString();

@@ -4,7 +4,8 @@ Save places and teleport back to them, with a short cooldown.
 
 - Module id: `waypoints`
 - Works on: client and server
-- CraftPy Python API: 2.9
+- CraftPy Python API: 2.10
+- In the Hub: Waypoints in the Apps tab (declared in `project.json`; the icon is `assets/icon.png`)
 - Asks for: no permissions
 
 ## What it does

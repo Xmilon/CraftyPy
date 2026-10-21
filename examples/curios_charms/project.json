@@ -11,5 +11,6 @@
   "requiredMods": [
     "curios"
   ],
-  "requiredCapabilities": []
+  "requiredCapabilities": [],
+  "icon": "icon.png"
 }

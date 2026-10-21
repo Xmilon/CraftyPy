@@ -4,7 +4,8 @@ A personal checklist per player, with optional reminders.
 
 - Module id: `task_journal`
 - Works on: client and server
-- CraftPy Python API: 2.9
+- CraftPy Python API: 2.10
+- In the Hub: Task Journal in the Apps tab (declared in `project.json`; the icon is `assets/icon.png`)
 - Asks for: no permissions
 
 ## What it does

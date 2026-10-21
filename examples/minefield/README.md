@@ -5,7 +5,8 @@ to you in the world.
 
 - Module id: `minefield`
 - Works on: client and server
-- CraftPy Python API: 2.9
+- CraftPy Python API: 2.10
+- In the Hub: Minefield in the Apps tab (declared in `project.json`; the icon is `assets/icon.png`)
 - Asks for: no permissions
 
 ## What it does

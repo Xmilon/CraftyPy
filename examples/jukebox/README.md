@@ -4,7 +4,8 @@ A media player that runs on your own computer.
 
 - Module id: `jukebox`
 - Works on: client (any server)
-- CraftPy Python API: 2.9
+- CraftPy Python API: 2.10
+- In the Hub: Jukebox in the Apps tab (declared in `project.json`; the icon is `assets/icon.png`)
 - Asks for: reading `pyforge/shared/music`, nothing else
 
 ## What it plays

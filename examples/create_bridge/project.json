@@ -13,5 +13,6 @@
   ],
   "requiredCapabilities": [
     "rotation.create"
-  ]
+  ],
+  "icon": "icon.png"
 }

@@ -4,8 +4,12 @@
   "description": "A designer-editable personal checklist, bounded to 32 tasks, with persistent reminder settings.",
   "author": "CraftPy",
   "version": "1.0.0",
-  "apiVersion": "2.9",
+  "apiVersion": "2.10",
   "mcVersion": "1.21.1",
   "side": "both",
-  "permissions": {}
+  "permissions": {},
+  "icon": "icon.png",
+  "apps": [
+    {"id": "journal", "name": "Task Journal", "description": "Your personal checklist with reminders.", "window": "journal", "category": "Tools", "order": 10}
+  ]
 }

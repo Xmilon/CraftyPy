@@ -1,0 +1,146 @@
+{
+  "id": "gallery",
+  "title": "Media Gallery",
+  "size": [
+    480,
+    340
+  ],
+  "root": {
+    "type": "canvas",
+    "padding": 0,
+    "width": 460,
+    "height": 300,
+    "children": [
+      {
+        "type": "image",
+        "id": "sky",
+        "source": "media/background.gif",
+        "x": 0,
+        "y": 0,
+        "width": 460,
+        "height": 300,
+        "fit": "cover",
+        "opacity": 0.4,
+        "z": -1
+      },
+      {
+        "type": "label",
+        "text": "Media Gallery",
+        "style": "headline",
+        "x": 14,
+        "y": 8
+      },
+      {
+        "type": "video",
+        "id": "clip",
+        "source": "media/clip.avi",
+        "audio": "media/clip.wav",
+        "controls": true,
+        "fit": "contain",
+        "x": 14,
+        "y": 48,
+        "width": 260,
+        "height": 190,
+        "on_end": "clip_done",
+        "bind": {
+          "muted": "mute",
+          "volume": "volume"
+        }
+      },
+      {
+        "type": "label",
+        "text": "Sound effects",
+        "style": "title",
+        "x": 292,
+        "y": 48
+      },
+      {
+        "type": "button",
+        "text": "Click",
+        "on_click": "sfx_click",
+        "x": 292,
+        "y": 76,
+        "width": 70,
+        "height": 26
+      },
+      {
+        "type": "button",
+        "text": "Chime",
+        "on_click": "sfx_chime",
+        "x": 370,
+        "y": 76,
+        "width": 70,
+        "height": 26
+      },
+      {
+        "type": "checkbox",
+        "id": "mute",
+        "label": "Mute everything",
+        "checked": false,
+        "on_change": "mute_changed",
+        "x": 292,
+        "y": 114,
+        "width": 150,
+        "height": 24,
+        "bind": {
+          "checked": "mute"
+        }
+      },
+      {
+        "type": "label",
+        "text": "Volume",
+        "x": 292,
+        "y": 148
+      },
+      {
+        "type": "slider",
+        "id": "volume_slider",
+        "min": 0,
+        "max": 100,
+        "value": 80,
+        "on_change": "volume_changed",
+        "x": 292,
+        "y": 168,
+        "width": 150,
+        "height": 24,
+        "bind": {
+          "value": "volume_slider"
+        }
+      },
+      {
+        "type": "audio",
+        "id": "click",
+        "source": "media/click.wav",
+        "x": 0,
+        "y": 0,
+        "bind": {
+          "restart": "click_n",
+          "muted": "mute",
+          "volume": "volume"
+        }
+      },
+      {
+        "type": "audio",
+        "id": "chime",
+        "source": "media/chime.wav",
+        "x": 0,
+        "y": 0,
+        "bind": {
+          "restart": "chime_n",
+          "muted": "mute",
+          "volume": "volume"
+        }
+      },
+      {
+        "type": "label",
+        "text": "Press play on the clip.",
+        "x": 14,
+        "y": 252,
+        "width": 430,
+        "bind": {
+          "text": "status"
+        }
+      }
+    ]
+  }
+}

@@ -4,7 +4,8 @@ A client-side mod written in Python. It runs only on your computer and never tou
 
 - Module id: `hud_pack`
 - Works on: client only
-- CraftPy Python API: 2.9
+- CraftPy Python API: 2.10
+- In the Hub: HUD Settings in the Apps tab (declared in `project.json`; the icon is `assets/icon.png`)
 - Asks for: no permissions
 
 ## What it does

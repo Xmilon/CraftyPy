@@ -162,6 +162,7 @@ public class EventBridge {
     @SubscribeEvent
     public static void onPlayerLeave(PlayerEvent.PlayerLoggedOutEvent event) {
         net.xmilon.craftpy.keys.ServerKeyActions.forgetPlayer(event.getEntity().getUUID());
+        net.xmilon.craftpy.server.ProjectRequestHandler.forgetPlayer(event.getEntity().getUUID());
         net.xmilon.craftpy.server.FileLocks.release(event.getEntity().getUUID().toString());
         playerEvent("player_leave", event.getEntity());
     }

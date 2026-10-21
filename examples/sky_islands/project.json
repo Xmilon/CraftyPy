@@ -5,8 +5,13 @@
   "author": "CraftPy",
   "description": "A floating archipelago grown live above you: groves, waterfalls, ruins, gardens and crystal fields joined by rope bridges, a spire on the hub, five themes, and a Sky Crystal on every island to find against the clock.",
   "mcVersion": "1.21.1",
-  "apiVersion": "2.9",
+  "apiVersion": "2.10",
   "side": "both",
   "permissions": {},
-  "dependencies": []
+  "dependencies": [],
+  "icon": "icon.png",
+  "apps": [
+    {"id": "archipelago", "name": "Sky Islands", "description": "Grow a floating archipelago above you.", "window": "archipelago", "category": "Games", "order": 10},
+    {"id": "expedition", "name": "Expedition", "description": "Your crystal hunt: status and timer.", "window": "sky_status", "category": "Games", "order": 11}
+  ]
 }

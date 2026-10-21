@@ -209,6 +209,87 @@ lists the project's windows and Python `@window` classes; the designer itself us
   `@action("name")` functions (Copy Python writes them). Your Python file is not changed.
 - If a `ui/*.json` is not valid JSON, the designer shows the error and does not touch the file until you fix it.
 
+### Pictures, GIFs, video and sound in windows
+
+Windows can show your own media next to buttons, sliders and lists. Put the files in the project's `assets/media/` folder (they
+go into the module and, for server windows, are sent to the players with the resource pack) and name them in `source`, written
+`media/<file>`, or `othermodule:media/<file>`. Only files of the module are used: web addresses are refused, so media never
+need a permission, and nothing is downloaded while the game runs.
+
+| Widget | What it shows | Formats |
+|---|---|---|
+| `Image("media/logo.png")` | a picture; a GIF animates | PNG, JPEG, BMP, GIF (a GIF can have transparency and any frame timing) |
+| `Video("media/clip.avi")` | a video | **Motion JPEG in an AVI** (a video file has no sound of its own: name it in `audio=`) |
+| `Audio("media/hit.wav")` | a sound (nothing to see unless `controls=True`) | OGG, WAV, MP3, FLAC, AIFF, AU |
+
+An `Image` whose source does not start with `media/` is still a texture or item of the game, exactly as before.
+
+Not supported: MP4, WebM, H.264 and other video codecs (Java cannot decode them without a native library, and CraftPy adds none),
+APNG and WebP pictures, sound inside a video file, streaming, and web addresses. Make a video the supported way:
+
+```
+ffmpeg -i in.mp4 -an -c:v mjpeg -q:v 5 -vf scale=480:-2,fps=15 clip.avi
+ffmpeg -i in.mp4 -vn -ac 1 -ar 22050 clip.wav
+```
+
+Limits (a file over a limit shows its reason in the widget and calls `on_error`): pictures up to 2048 x 2048; a GIF up to
+512 frames, 1024 x 1024 and 96 MiB decoded; a video file up to 48 MiB, 1280 x 720 and 36 000 frames (frames stay compressed and are
+decoded a few ahead, so a long clip costs about its file size); a sound file up to 32 MiB. Decoding and file reading never run
+on the screen's threads; a window that closes, or a module that unloads, releases the pictures, the video and the sound.
+
+Options (also in the **Media** group of the property inspector): `fit` (`contain`, `cover` or `stretch`), `crop=[x, y, width,
+height]` in picture pixels, `opacity` (0 to 1), `z` (drawing order in a free layout: a lower number is behind), `autoplay`,
+`loop`, `speed` (0.25 to 4), `position` (seconds), `volume` (0 to 1), `muted` and `controls=True` for a bar with play and pause,
+seek, speed (pictures and video), mute and volume. A GIF plays and loops by itself; a video or a sound starts when told to
+(`autoplay=True`, or `playing` bound to a value). The sound engine plays at its own rate, so speed does not change sound: a video
+with another speed than 1 is silent. Pictures drawn by Modern UI sit in the layer order of the window: a GIF with `z=-1` is a
+background behind everything.
+
+Control them from Python without a player of your own: bind `playing`, `position`, `speed`, `volume`, `muted`, `opacity` or
+`restart` to a key of `@ui.data` (`"bind": {"restart": "click_n"}`); a value is acted on when it changes since the last
+version of the window, so a refresh does not restart a clip. A new `restart` number plays the widget again from the start
+(sound effects). React with `on_end` (a clip that does not loop finished), `on_loop` and `on_error` (the message is
+`ctx.value`); `ctx.values[id]` holds `position`, `duration`, `playing`, `ended` and `error` of each media widget.
+
+In the UI maker preview pictures, GIFs and video play (read straight from the project, before it is loaded into the world); sounds
+stay silent and show a note. Media of a server window need the module's resource pack: after adding a file, run the project or
+RELOAD the module so the pack is rebuilt. A folder named `media` directly under `assets/` is this folder, not a namespace.
+
+## The Hub
+
+The Hub is the front door of CraftPy: press its key (**Open CraftPy Hub** in Controls, default `I`). It is marked **Beta**. Esc closes a popup first, then goes back one level (any tab goes back to **Apps**; a selected
+module is a level of its own), and closes the Hub only from Apps. The close button always closes it. Pending module changes are
+asked about before leaving the Modules tab by any route.
+
+- **Apps:** what enabled, loaded modules offer. Search by name, description or module, filter by category, move with the arrow
+  keys (Home and End jump, Enter opens). An app that cannot open is dimmed and says why (not loaded yet: RELOAD; a missing mod;
+  not running on the server); clicking it opens Modules. A badge marks modules that wait for a permission. A window opened from
+  an app has a **Hub** button and Esc returns to the Hub.
+- **Modules:** *Client* modules live on your computer: switch them and their permission toggle here, then RELOAD. *Server* modules
+  are shown read-only (details, README, status). Administration (Delete, Decompile, Enable all, servers) is in the editor.
+- **Editor:** opens the full editor (needs permission and the CraftPy Computer, as before). Its rail has an arrow back to the Hub.
+- **Settings:** yours (editor colour scheme and font, module keybinds, client modules, music of others) and the server's
+  (read-only; values are shown only in your own world).
+- **Marketplace:** a placeholder (coming soon).
+
+### Adding your module to the Hub
+
+List apps in `project.json` (a built module carries them in `module.json`): each opens one of your windows.
+
+```json
+"icon": "icon.png",
+"apps": [
+  {"id": "journal", "name": "Task Journal", "description": "Your checklist.",
+   "window": "journal", "icon": "minecraft:book", "category": "Tools", "order": 10}
+]
+```
+
+`window` is the id of a `ui/*.json` or `@window`. A module with side `client` opens it on the player's computer; `both` and
+`server` modules ask the server, which checks that the app is declared and running. `icon` is a 64 x 64 PNG under `assets/`
+(PNG only, 256 KiB and 256 x 256 at most) or an item id; without one the Hub draws coloured letters. `category` is one of Tools,
+Games, Server, Media, Machinery. Limits: 32 apps per module, names of 32 and descriptions of 120 characters; an id that
+is declared twice keeps the first (the Modules page reports the rest). The Hub does not run a module to list its apps.
+
 ## Permissions
 
 A project only gets what its `project.json` asks for under `"permissions"`: `"net"` (sites), `"files"` (its data
@@ -266,7 +347,7 @@ See the *Java bridge* topic: `java.cls("net.minecraft...")`, `java.new(...)`, `@
 
 ## Keyboard shortcuts
 
-The quick IDE key (`I`, in Controls) works once you have crafted a CraftPy Computer; until then open the computer block.
+The Hub key (`I`, in Controls: **Open CraftPy Hub**) opens the Hub for everyone; its Editor tab works once you have crafted a CraftPy Computer; until then open the computer block.
 
 - `Esc`: Step back: dialog, completion, find bar, selection, zen mode
 - `Ctrl+S`: Save (trims trailing spaces if enabled)

@@ -7,5 +7,6 @@
   "apiVersion": "2.9",
   "mcVersion": "1.21.1",
   "side": "both",
-  "permissions": {}
+  "permissions": {},
+  "icon": "icon.png"
 }
