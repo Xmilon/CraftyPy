@@ -15,7 +15,7 @@ def found(event):
     event.player.say("Rubies!")
 ```
 
-Version 1.1.0. Minecraft 1.21.1, NeoForge 21.1, Java 21. The editor needs [Modern UI](https://modrinth.com/mod/modern-ui) 3.13+ on
+Version 1.2.0. Minecraft 1.21.1, NeoForge 21.1, Java 21. The editor needs [Modern UI](https://modrinth.com/mod/modern-ui) 3.13+ on
 the client; servers don't.
 
 ## Install

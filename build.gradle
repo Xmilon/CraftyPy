@@ -377,7 +377,7 @@ tasks.named('jar', Jar) {
 }
 
 // The small download: the same mod without the five Python runtimes (players install Python 3.13 themselves, see
-// dist/INSTALL.md). The install scripts and instructions are copied next to the jars.
+// python-installer/INSTALL.md). The install scripts and instructions are copied next to the jars.
 def liteJar = tasks.register('liteJar', Jar) {
     group = 'build'
     description = 'Builds craftpy-<version>-no-python.jar (no bundled Python) next to the normal jar.'
@@ -392,7 +392,7 @@ def liteJar = tasks.register('liteJar', Jar) {
 tasks.register('distScripts', Copy) {
     group = 'build'
     description = 'Copies install-python.cmd / .sh and INSTALL.md next to the jars.'
-    from layout.projectDirectory.dir('dist')
+    from layout.projectDirectory.dir('python-installer')
     include 'install-python.cmd', 'install-python.sh', 'INSTALL.md'
     into layout.buildDirectory.dir('libs')
 }

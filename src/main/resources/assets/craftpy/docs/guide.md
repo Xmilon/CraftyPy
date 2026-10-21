@@ -97,8 +97,8 @@ four tabs (Preview, Texture, Sound, Assets). Drag its edge to resize it; `x` hid
 * **Sound** shows the waveform of an `.ogg` or `.wav` file. Drag to select, click to place the cursor, wheel to zoom. Play the
   sound, the selection or a loop (`Space`); trim, cut (`Delete`), silence, fade in / out, gain, normalize, reverse, faster /
   slower, mono and insert silence, all undoable. Minecraft plays Ogg Vorbis only, so *Save* writes an `.ogg`: Python with the
-  `soundfile` package encodes it (if it is missing the editor offers *Install encoder*, which runs `pip install --user soundfile`,
-  or *Save as .wav*, a file Minecraft cannot play).
+  `soundfile` package encodes it (if it is missing the editor tells you to run `python -m pip install soundfile` yourself once, because the mod never
+  downloads anything, or *Save as .wav*, a file Minecraft cannot play).
 
 * **Assets** (`Alt+9`, right edge) is described above: click opens, drag inserts or copies.
 

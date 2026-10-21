@@ -42,8 +42,8 @@ import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
  * undoable. Playback uses the JDK's audio output, independent of the game's sound engine.
  * <p>
  * Minecraft can only play Ogg Vorbis and Java cannot write it, so Save hands the sound to a short-lived Python with the
- * soundfile package ({@link OggEncoder}); when the package is missing the panel offers to install it, or to save a 16 bit
- * WAV instead.
+ * soundfile package ({@link OggEncoder}); when the package is missing the panel tells the player to install it themselves
+ * (the mod never downloads anything), or to save a 16 bit WAV instead.
  */
 final class SoundEditorPanel implements DockPanel {
     private static final int HISTORY = 12;
@@ -60,7 +60,6 @@ final class SoundEditorPanel implements DockPanel {
     private final TextView redoButton;
     private final Consumer<String> onSaved;
     private final LinearLayout fallbackRow;
-    private final TextView installButton;
     private final ArrayDeque<AudioClip> undo = new ArrayDeque<>();
     private final ArrayDeque<AudioClip> redo = new ArrayDeque<>();
 
@@ -132,12 +131,10 @@ final class SoundEditorPanel implements DockPanel {
         status.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         root.addView(status);
         fallbackRow = row(context);
-        installButton = chip("Install encoder", "Runs: python -m pip install --user soundfile", v -> installEncoder());
-        fallbackRow.addView(installButton);
         fallbackRow.addView(chip("Save as .wav", "Save a 16 bit WAV instead (Minecraft cannot play it)", v -> saveWav()));
         fallbackRow.setVisibility(View.GONE);
         root.addView(fallbackRow);
-        var hint = label(context, "Saves Ogg Vorbis (the only format Minecraft plays). That needs Python with the soundfile package; the editor offers to install it.",
+        var hint = label(context, "Saves Ogg Vorbis (the only format Minecraft plays). That needs Python with the soundfile package: run  python -m pip install soundfile  yourself once.",
                 R.attr.textAppearanceBodySmall);
         hint.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         root.addView(hint);
@@ -396,13 +393,11 @@ final class SoundEditorPanel implements DockPanel {
             switch (result.status()) {
                 case OK -> upload(target, result.ogg(), saved);
                 case MISSING_MODULE -> {
-                    say("Saving .ogg needs the Python package soundfile.");
-                    installButton.setVisibility(View.VISIBLE);
+                    say("Saving .ogg needs the Python package soundfile. Run in a terminal: python -m pip install soundfile");
                     fallbackRow.setVisibility(View.VISIBLE);
                 }
                 default -> {
                     say("Could not make the .ogg: " + result.message());
-                    installButton.setVisibility(View.GONE);
                     fallbackRow.setVisibility(View.VISIBLE);
                 }
             }
@@ -418,20 +413,6 @@ final class SoundEditorPanel implements DockPanel {
             nameBox.setText(wav);
             upload(wav, clip.toWav(), clip);
         }
-    }
-
-    private void installEncoder() {
-        say("Installing soundfile with pip ...");
-        installButton.setVisibility(View.GONE);
-        OggEncoder.install().thenAccept(result -> root.post(() -> {
-            if (result.status() == OggEncoder.Status.OK) {
-                fallbackRow.setVisibility(View.GONE);
-                say("soundfile installed. Press Save again.");
-            } else {
-                installButton.setVisibility(View.VISIBLE);
-                say("Install failed: " + result.message());
-            }
-        }));
     }
 
     /** The checked file name of the name box, or null (after telling the player). */
