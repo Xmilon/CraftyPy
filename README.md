@@ -37,7 +37,7 @@ The first start unpacks Python to `pyforge/system/python/` and checks it against
 4. `/craftpy give <you> <project>:<id> block` gives you what you made.
 
 The **Docs** page in game has the guide and the full API reference ([api.md](src/main/resources/assets/craftpy/docs/api.md)).
-The Welcome module is a guided tour. The other examples are plain projects under `examples/` (not packed in the jar); copy one into `pyforge/projects` to edit it, or build a `.cpm` from it in the IDE. Nothing recreates editable tutorial projects automatically.
+**Welcome tour** is a template: choose it in **New project** (Home) and the whole tour is written into a project of your name, with every file commented (items, blocks, recipes, events, timers, commands, two windows, a test). It needs no other mod and nothing exists until you create it. The only other example is `examples/bank`, a plain project (a Hub app: deposit, withdraw and send emeralds); copy it into `pyforge/projects` or build a `.cpm` from it.
 
 ## Commands
 
@@ -85,8 +85,7 @@ editor; Esc or the arrow in its rail comes back), **Modules** (*Client* modules 
 **Marketplace** (coming soon). Esc closes a popup, then goes back one level, and closes the Hub only from Apps.
 
 A module adds apps with `"apps"` and `"icon"` in `project.json`, for example `{"id": "journal", "name": "Task Journal",
-"window": "journal", "category": "Tools"}`; every example under `examples/` has a 64 x 64 `assets/icon.png` and those with windows
-list them as apps (see the guide).
+"window": "journal", "category": "Tools"}`; the Welcome tour and the Bank have a 64 x 64 `assets/icon.png` and list their windows as apps (see the guide).
 
 ## Pictures, GIFs, video and sound in windows
 
@@ -95,8 +94,7 @@ Windows made in the UI maker (or with `Image`, `Video` and `Audio`) show your ow
 **OGG, WAV, MP3, FLAC, AIFF and AU** sound. They take `fit`, `crop`, `opacity`, layering with `z`, play, pause, loop, seek, speed (not
 for sound), volume and mute, an optional control bar, `on_end` / `on_loop` / `on_error`, and can be driven from Python through
 `@ui.data` bindings. MP4, WebM, H.264, APNG, WebP, sound inside a video and web addresses are **not** supported. Decoding is
-off the screen threads and bounded; see the guide for the limits and the `ffmpeg` commands, and
-[examples/media_gallery](examples/media_gallery/README.md) for a window that mixes media with buttons and a slider.
+off the screen threads and bounded; see the guide for the limits and the `ffmpeg` commands.
 
 ## Independent machinery and Building Blocks
 
@@ -120,10 +118,8 @@ Building Blocks contains **120 templates: 96 core and 24 optional integration te
 preview code, then Insert or New file. Templates with layouts or assets add their companion files without overwriting yours.
 Mod-specific entries appear only when the actual execution environment supports them.
 
-The ten-module collection is HUD Pack, Jukebox, Waypoints, Death Compass, Task Journal, Server Toolkit, Activity Stats,
-Workshop, Create Bridge and Curios Charms. Welcome, Ruby Rush and Sky Islands also ship built. See
-[examples/modules/README.md](examples/modules/README.md) for controls and commands. Bundled files install once, disabled;
-existing modules and deliberately deleted examples are left alone.
+No module is installed for you: `pyforge/modules` starts empty. The tests pack the Welcome tour and the Bank into modules on demand
+(`packExamples`), and nothing is shipped in the jar or recreated automatically.
 
 The Modules permission toggle remembers approval for the exact file. A changed file asks again; switching access off revokes
 it. Server-module acknowledgments can be remembered per server/module/version without granting any local permission.

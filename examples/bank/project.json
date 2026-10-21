@@ -1,0 +1,15 @@
+{
+  "id": "bank",
+  "name": "Bank",
+  "description": "Keep emeralds safe in an account, take them out again, or send them to other players, online or not.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.10",
+  "mcVersion": "1.21.1",
+  "side": "both",
+  "permissions": {},
+  "icon": "icon.png",
+  "apps": [
+    {"id": "bank", "name": "Bank", "description": "Deposit, withdraw and send emeralds.", "window": "bank", "category": "Tools", "order": 5}
+  ]
+}

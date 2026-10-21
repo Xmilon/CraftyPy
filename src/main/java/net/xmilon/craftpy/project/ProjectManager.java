@@ -254,7 +254,12 @@ public final class ProjectManager {
             }
             try {
                 createDirectories(dir);
-                ProjectMetadata metadata = new ProjectMetadata(id, rawName == null || rawName.isBlank() ? id : rawName.trim());
+                String displayName = rawName == null || rawName.isBlank() ? id : rawName.trim();
+                if (chosenSide != ModuleSide.CLIENT && ProjectTemplates.materialize(template, id, displayName, chosenSide.id(), dir)) {
+                    net.xmilon.craftpy.security.PermissionStore.trust(id);
+                    return OpResult.ok(id, "Created project " + id);
+                }
+                ProjectMetadata metadata = new ProjectMetadata(id, displayName);
                 metadata.side = chosenSide.id();
                 Json.write(dir.resolve("project.json"), metadata);
                 String starter = chosenSide == ModuleSide.CLIENT ? "client" : template;

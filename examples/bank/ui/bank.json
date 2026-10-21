@@ -1,0 +1,122 @@
+{
+  "id": "bank",
+  "title": "Bank",
+  "size": [
+    380,
+    430
+  ],
+  "preview_data": {
+    "balance": "Balance: 42 emerald(s)",
+    "carrying": "In your inventory: 7",
+    "history": [
+      "Sent 5 to Steve",
+      "Deposited 20"
+    ],
+    "status": "Deposited 20 emerald(s). Balance: 42."
+  },
+  "root": {
+    "type": "vbox",
+    "padding": 10,
+    "spacing": 8,
+    "children": [
+      {
+        "type": "label",
+        "text": "Bank",
+        "style": "headline"
+      },
+      {
+        "type": "label",
+        "text": "Balance: 0 emerald(s)",
+        "style": "title",
+        "bind": {
+          "text": "balance"
+        }
+      },
+      {
+        "type": "label",
+        "text": "In your inventory: 0",
+        "bind": {
+          "text": "carrying"
+        }
+      },
+      {
+        "type": "text_input",
+        "id": "amount",
+        "value": "1",
+        "hint": "How many emeralds"
+      },
+      {
+        "type": "hbox",
+        "spacing": 6,
+        "children": [
+          {
+            "type": "button",
+            "text": "Deposit",
+            "on_click": "bank_deposit"
+          },
+          {
+            "type": "button",
+            "text": "Deposit all",
+            "on_click": "bank_deposit_all",
+            "style": "text"
+          },
+          {
+            "type": "button",
+            "text": "Withdraw",
+            "on_click": "bank_withdraw"
+          },
+          {
+            "type": "button",
+            "text": "Withdraw all",
+            "on_click": "bank_withdraw_all",
+            "style": "text"
+          }
+        ]
+      },
+      {
+        "type": "label",
+        "text": "Send emeralds from your account",
+        "style": "title"
+      },
+      {
+        "type": "hbox",
+        "spacing": 6,
+        "children": [
+          {
+            "type": "text_input",
+            "id": "recipient",
+            "value": "",
+            "hint": "Player name",
+            "weight": 1
+          },
+          {
+            "type": "button",
+            "text": "Send",
+            "on_click": "bank_send"
+          }
+        ]
+      },
+      {
+        "type": "label",
+        "text": "Recent",
+        "style": "title"
+      },
+      {
+        "type": "list",
+        "items": [
+          "Nothing yet."
+        ],
+        "bind": {
+          "items": "history"
+        }
+      },
+      {
+        "type": "label",
+        "text": "",
+        "bind": {
+          "text": "status"
+        }
+      }
+    ]
+  }
+}

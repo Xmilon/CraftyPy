@@ -1,0 +1,8 @@
+{
+  "description": "A tour of CraftPy that needs no other mod: items, blocks, recipes, events, timers, commands and two windows, with every file commented.",
+  "icon": "icon.png",
+  "apps": [
+    {"id": "counter", "name": "Click Counter", "description": "Click ten times, then claim three gems.", "window": "counter", "category": "Games", "order": 10},
+    {"id": "settings", "name": "Welcome Settings", "description": "A window drawn in the UI maker: text, switch and slider.", "window": "settings", "category": "Tools", "order": 20}
+  ]
+}

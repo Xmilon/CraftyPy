@@ -627,12 +627,12 @@ tasks.register('ideShortcut') {
 // build/generated/example-modules on demand.
 def exampleModulesDir = layout.buildDirectory.dir('generated/example-modules')
 tasks.register('packExamples', JavaExec) {
-    dependsOn tasks.named('compileJava')
-    classpath = files(sourceSets.main.output.classesDirs) + sourceSets.main.compileClasspath
+    dependsOn tasks.named('compileJava'), tasks.named('processResources')
+    classpath = files(sourceSets.main.output.classesDirs, sourceSets.main.output.resourcesDir) + sourceSets.main.compileClasspath
     mainClass = 'net.xmilon.craftpy.project.ExampleModules'
     args projectDir.absolutePath, exampleModulesDir.get().asFile.absolutePath
     inputs.files(fileTree('examples') { exclude '**/__pycache__/**' })
-    inputs.dir('src/main/resources/craftpy_default/welcome')
+    inputs.dir('src/main/resources/craftpy_templates/welcome')
     outputs.dir(exampleModulesDir)
 }
 tasks.named('test', Test) { dependsOn tasks.named('packExamples') }
