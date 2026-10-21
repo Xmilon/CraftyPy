@@ -60,6 +60,19 @@ public final class BindingStore {
         try { save(); } catch (IOException error) { entries.put(id, old); throw error; }
     }
 
+    /** Drops one saved preference (and with it the remap the player made). Active actions come back with their defaults. */
+    public synchronized void forget(Id id) throws IOException {
+        if (entries.remove(id) != null) save();
+    }
+
+    /** Drops every preference whose module is not running now: old modules, other servers, deleted projects. */
+    public synchronized int forgetInactive() throws IOException {
+        int before = entries.size();
+        entries.values().removeIf(entry -> !entry.active());
+        if (entries.size() != before) save();
+        return before - entries.size();
+    }
+
     public synchronized List<Entry> entries() { return List.copyOf(entries.values()); }
 
     public synchronized List<Entry> matching(String combo) {

@@ -94,6 +94,12 @@ public final class ModuleKeys {
 
     public static void assign(BindingStore.Id id, String combo) throws IOException { store().assign(id, combo); mirror(); }
 
+    /** Removes the saved preference of one action that is not active (its module is gone). */
+    public static void forget(BindingStore.Id id) throws IOException { store().forget(id); mirror(); }
+
+    /** Removes every saved preference of actions that are not active; returns how many. */
+    public static int forgetInactive() throws IOException { int removed = store().forgetInactive(); mirror(); return removed; }
+
     public static List<String> conflicts(BindingStore.Id id, String combo) {
         String normalized = KeyCombo.normalize(combo);
         List<String> names = new ArrayList<>();
@@ -139,7 +145,9 @@ public final class ModuleKeys {
         if (store == null || !IdeHost.get().inGame()) return;
         Minecraft mc = Minecraft.getInstance();
         List<KeyMapping> all = new ArrayList<>(java.util.Arrays.stream(mc.options.keyMappings).filter(k -> !(k instanceof Mapping)).toList());
-        for (var entry : store.entries()) {
+        var entries = store.entries();
+        MAPPINGS.keySet().removeIf(id -> entries.stream().noneMatch(e -> e.id().equals(id))); // a forgotten action leaves Controls
+        for (var entry : entries) {
             Mapping mapping = MAPPINGS.computeIfAbsent(entry.id(), id -> new Mapping(entry));
             mapping.apply(entry);
             if (entry.active()) all.add(mapping);
