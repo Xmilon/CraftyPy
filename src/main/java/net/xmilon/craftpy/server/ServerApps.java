@@ -63,8 +63,11 @@ public final class ServerApps {
         return row;
     }
 
+    /** Where an app opens: its window, and whether its owner is a module (its worker is named module:<id>) or a project. */
+    public record Target(String window, boolean module) { }
+
     /** The window of a declared app, or null when this owner has no such app running. */
-    public static String windowOf(String owner, String app) {
+    public static Target find(String owner, String app) {
         for (var row : list()) {
             JsonObject entry = row.getAsJsonObject();
             if (!entry.get("owner").getAsString().equals(owner)) {
@@ -73,7 +76,7 @@ public final class ServerApps {
             for (var raw : entry.getAsJsonArray("apps")) {
                 JsonObject declared = raw.getAsJsonObject();
                 if (declared.get("id").getAsString().equals(app)) {
-                    return declared.get("window").getAsString();
+                    return new Target(declared.get("window").getAsString(), "module".equals(entry.get("kind").getAsString()));
                 }
             }
         }

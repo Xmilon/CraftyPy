@@ -96,17 +96,22 @@ public final class ProjectRequestHandler {
         try {
             com.google.gson.JsonObject request = com.google.gson.JsonParser.parseString(data).getAsJsonObject();
             String owner = request.get("owner").getAsString(), app = request.get("app").getAsString();
-            CraftPyExecutors.supplyAsync(() -> ServerApps.windowOf(owner, app), CraftPyExecutors.io()).thenAccept(window -> {
-                if (window == null) {
+            CraftPyExecutors.supplyAsync(() -> ServerApps.find(owner, app), CraftPyExecutors.io()).thenAccept(target -> {
+                if (target == null) {
                     player.server.execute(() -> player.displayClientMessage(
                             net.minecraft.network.chat.Component.literal("That app is not running on this server."), true));
                     return;
                 }
                 com.google.gson.JsonObject context = new com.google.gson.JsonObject();
-                context.addProperty("owner", owner);
-                context.addProperty("window", window);
+                // the worker of a module is named module:<id>, the worker of a project just <id>
+                context.addProperty("owner", net.xmilon.craftpy.python.PyRuntime.owner(owner, target.module()));
+                context.addProperty("window", target.window());
                 context.add("player", net.xmilon.craftpy.lifecycle.EventBridge.wrapPlayer(player));
                 net.xmilon.craftpy.python.PyRuntime.get().triggerEvent("app_open", context).thenAccept(result -> {
+                    if (result == null || !result.has("handlers") || result.get("handlers").getAsInt() == 0) {
+                        player.server.execute(() -> player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                                "The app did not open: its module is not running on this server."), true));
+                    }
                     if (result != null && result.has("log") && result.get("log").isJsonArray()) {
                         result.getAsJsonArray("log").forEach(line -> net.xmilon.craftpy.network.CraftPyNetwork
                                 .broadcastConsole(player.server, "[app] " + line.getAsString()));

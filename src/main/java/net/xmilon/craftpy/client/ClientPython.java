@@ -651,7 +651,7 @@ public final class ClientPython {
         who.addProperty("name", player == null ? "" : player.getGameProfile().getName());
         who.addProperty("uuid", player == null ? "" : player.getUUID().toString());
         context.add("player", who);
-        context.addProperty("owner", owner);
+        context.addProperty("owner", "module:" + owner); // client workers are named module:<id>
         context.addProperty("window", window);
         event("app_open", context);
     }
