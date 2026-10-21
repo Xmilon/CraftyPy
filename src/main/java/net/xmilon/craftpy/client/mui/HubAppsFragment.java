@@ -47,6 +47,9 @@ public final class HubAppsFragment extends Fragment {
     private TextView count;
     private EditText search;
     private ScrollView scroll;
+    /** Modern UI never leaves touch mode, so tiles cannot take focus: the grid does, and it tracks the tile it points at. */
+    private String selectedKey = "";
+    private List<HubApps.App> shown = List.of();
 
     /** Client thread: the apps of the moment (the store's module list is mutable, so only immutable values leave). */
     private final Runnable storeListener = () -> {
@@ -99,7 +102,8 @@ public final class HubAppsFragment extends Fragment {
                 return true;
             }
             if (keyCode == KeyEvent.KEY_DOWN && grid != null && grid.getChildCount() > 0) {
-                grid.getChildAt(0).requestFocus();
+                grid.requestFocus();
+                applySelection();
                 return true;
             }
             return false;
@@ -115,6 +119,10 @@ public final class HubAppsFragment extends Fragment {
         page.addView(chipScroll, chipLp);
 
         grid = new TileGrid(context);
+        grid.setFocusable(true);
+        grid.setFocusableInTouchMode(true);
+        grid.setOnKeyListener((v, keyCode, event) -> event.getAction() == KeyEvent.ACTION_DOWN && gridKey(keyCode));
+        grid.setOnFocusChangeListener((v, focused) -> applySelection());
         empty = new LinearLayout(context);
         empty.setOrientation(LinearLayout.VERTICAL);
         empty.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -135,6 +143,11 @@ public final class HubAppsFragment extends Fragment {
         page.addView(footer, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
         render();
+        grid.post(() -> {
+            if (grid != null && search != null && !search.hasFocus()) {
+                grid.requestFocus(); // the arrow keys and Enter work as soon as the Hub is open
+            }
+        });
         store(s -> {
             s.setListener(storeListener);
             storeListener.run();
@@ -194,21 +207,12 @@ public final class HubAppsFragment extends Fragment {
             category = ALL; // the last app of a category went away
         }
         renderChips(context);
-        boolean hadFocus = grid.hasFocus();
-        String focusedKey = hadFocus && grid.findFocus() != null && grid.findFocus().getTag() instanceof String key ? key : null;
         grid.removeAllViews();
-        List<HubApps.App> shown = visible();
-        View refocus = null;
+        shown = visible();
         for (HubApps.App app : shown) {
-            View tile = tile(context, app);
-            grid.addView(tile);
-            if (app.key().equals(focusedKey)) {
-                refocus = tile;
-            }
+            grid.addView(tile(context, app));
         }
-        if (refocus != null) {
-            refocus.requestFocus(); // a refresh must not drop the keyboard focus of the tile being used
-        }
+        applySelection(); // a refresh keeps the tile the keyboard points at
         renderEmpty(context, shown.isEmpty());
         long available = shown.stream().filter(HubApps.App::available).count();
         count.setText(shown.size() + (shown.size() == 1 ? " app" : " apps")
@@ -268,12 +272,10 @@ public final class HubAppsFragment extends Fragment {
         tile.setBackground(IdeColors.tile(tile));
         tile.setPadding(tile.dp(12), tile.dp(10), tile.dp(12), tile.dp(10));
         tile.setClickable(true);
-        tile.setFocusable(true);
         tile.setAlpha(app.available() ? 1f : 0.6f);
         tile.setTooltipText(app.available() ? app.def().name + " (" + app.ownerName() + ")"
                 : app.reason() + "\nClick to open Modules.");
         tile.setOnClickListener(v -> open(app));
-        tile.setOnKeyListener((v, keyCode, event) -> event.getAction() == KeyEvent.ACTION_DOWN && key(tile, app, keyCode));
 
         var top = row(context);
         top.addView(HubIcons.icon(context, app.owner(), app.def().name, app.icon(), 48));
@@ -324,12 +326,37 @@ public final class HubAppsFragment extends Fragment {
         return tile;
     }
 
-    /** Arrow keys move between tiles, Enter and Space open the focused one. */
-    private boolean key(View tile, HubApps.App app, int keyCode) {
+    /** Marks the tile the keyboard points at (only while the grid has the focus); the first one when none was chosen. */
+    private void applySelection() {
         if (grid == null) {
+            return;
+        }
+        boolean focused = grid.hasFocus();
+        int index = indexOf(selectedKey);
+        if (focused && index < 0 && !shown.isEmpty()) {
+            index = 0; // nothing chosen yet, or the chosen app left the list
+            selectedKey = shown.get(0).key();
+        }
+        for (int i = 0; i < grid.getChildCount(); i++) {
+            grid.getChildAt(i).setSelected(focused && i == index);
+        }
+    }
+
+    private int indexOf(String key) {
+        for (int i = 0; i < shown.size(); i++) {
+            if (shown.get(i).key().equals(key)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Arrow keys move between tiles, Home and End jump, Enter and Space open the one pointed at. */
+    private boolean gridKey(int keyCode) {
+        if (grid == null || shown.isEmpty()) {
             return false;
         }
-        int index = grid.indexOfChild(tile), columns = grid.columns(), last = grid.getChildCount() - 1;
+        int index = Math.max(0, indexOf(selectedKey)), columns = grid.columns(), last = shown.size() - 1;
         int target = switch (keyCode) {
             case KeyEvent.KEY_LEFT -> index - 1;
             case KeyEvent.KEY_RIGHT -> index + 1;
@@ -338,21 +365,24 @@ public final class HubAppsFragment extends Fragment {
             case KeyEvent.KEY_HOME -> 0;
             case KeyEvent.KEY_END -> last;
             case KeyEvent.KEY_ENTER, KeyEvent.KEY_KP_ENTER, KeyEvent.KEY_SPACE -> {
-                open(app);
+                open(shown.get(index));
                 yield index;
             }
-            default -> -1;
+            default -> -2;
         };
+        if (target == -2) {
+            return false;
+        }
         if (target < 0 && keyCode == KeyEvent.KEY_UP && search != null) {
             search.requestFocus(); // up from the first row goes back to the search field
+            applySelection();
             return true;
         }
-        if (target < 0 || target > last) {
-            return target == index || keyCode == KeyEvent.KEY_DOWN || keyCode == KeyEvent.KEY_UP
-                    || keyCode == KeyEvent.KEY_LEFT || keyCode == KeyEvent.KEY_RIGHT;
-        }
-        if (target != index) {
-            grid.getChildAt(target).requestFocus();
+        if (target >= 0 && target <= last && target != index) {
+            selectedKey = shown.get(target).key();
+            applySelection();
+            grid.getChildAt(target).requestRectangleOnScreen(new icyllis.modernui.graphics.Rect(0, 0,
+                    grid.getChildAt(target).getWidth(), grid.getChildAt(target).getHeight()), false);
         }
         return true;
     }

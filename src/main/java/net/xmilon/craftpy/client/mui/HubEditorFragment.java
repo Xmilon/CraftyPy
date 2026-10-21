@@ -12,6 +12,7 @@ import icyllis.modernui.widget.Button;
 import icyllis.modernui.widget.LinearLayout;
 import net.minecraft.client.Minecraft;
 import net.xmilon.craftpy.client.ClientProjectStore;
+import net.xmilon.craftpy.client.IdeHost;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -39,6 +40,9 @@ public final class HubEditorFragment extends Fragment {
 
     /** The same rule as the editor key: a server admin or the owner of a singleplayer world (the server checks again). */
     private static boolean allowed() {
+        if (!IdeHost.get().inGame()) {
+            return false;
+        }
         Minecraft mc = Minecraft.getInstance();
         return mc.player != null && (mc.player.hasPermissions(2) || mc.hasSingleplayerServer());
     }

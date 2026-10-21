@@ -647,6 +647,9 @@ public class EditorFragment extends Fragment {
     public void onDestroyView() {
         super.onDestroyView();
         removeBack.run();
+        if (windowDesignHost != null) {
+            MediaView.releaseAll(windowDesignHost);
+        }
         if (dock != null) {
             dock.dispose();
         }
@@ -2667,7 +2670,8 @@ public class EditorFragment extends Fragment {
         styleChip(windowDesignTab, design);
         styleChip(windowSourceTab, !design);
         if (!window) {
-            windowDesignHost.removeAllViews();
+            MediaView.releaseAll(windowDesignHost);
+        windowDesignHost.removeAllViews();
             windowDesigner = null;
             designedWindowKey = null;
             designedWindowText = null;
@@ -2684,6 +2688,7 @@ public class EditorFragment extends Fragment {
         if (!key.equals(designedWindowKey)) windowSelection = List.of();
         designedWindowKey = key;
         designedWindowText = text;
+        MediaView.releaseAll(windowDesignHost);
         windowDesignHost.removeAllViews();
         windowDesigner = null;
         String problem = UiDesigner.problem(text);

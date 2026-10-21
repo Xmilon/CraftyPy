@@ -65,6 +65,10 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
     @Nullable private JsonObject previewData;
     private java.util.List<String> bindingProblems = new java.util.ArrayList<>();
     private boolean closedByServer;
+    /** Media widgets live across rebuilds (a refresh must not restart a clip), by widget id. */
+    private final Map<String, MediaWidget> media = new HashMap<>();
+    private final java.util.Set<String> seenMedia = new java.util.HashSet<>();
+    private int mediaCounter;
     /** Opened from a Hub app: a Back button and Esc return to the Hub. */
     private boolean fromHub;
     @Nullable
@@ -263,6 +267,8 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         super.onDestroyView();
         removeBack.run();
         removeBack = () -> { };
+        media.values().forEach(widget -> widget.view.release());
+        media.clear();
         if (live && !closedByServer) {
             send("__closed__", null);
         }
@@ -299,12 +305,21 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         int end = focused == null ? 0 : focused.getSelectionEnd();
         inputs.clear();
         tabCounter = 0;
+        mediaCounter = 0;
+        seenMedia.clear();
         box.removeAllViews();
         JsonObject root = tree.has("root") && tree.get("root").isJsonObject() ? tree.getAsJsonObject("root") : new JsonObject();
         var lp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         sized(box, root, lp);
         box.addView(build(box.getContext(), root, nextServer), lp);
         serverValues = nextServer;
+        media.entrySet().removeIf(entry -> {
+            if (seenMedia.contains(entry.getKey())) {
+                return false;
+            }
+            entry.getValue().view.release(); // the widget left the window
+            return true;
+        });
         EditText nextFocus = inputs.get(editingId);
         if (nextFocus != null && nextFocus.isEnabled() && nextFocus.isShown()) {
             nextFocus.requestFocus();
@@ -345,6 +360,11 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         }
         JsonObject all = new JsonObject();
         values.forEach(all::add);
+        media.values().forEach(widget -> {
+            if (!widget.id.isEmpty()) {
+                all.add(widget.id, widget.view.snapshot()); // where each clip is, for ctx.values
+            }
+        });
         event.add("values", all);
         String data = event.toString();
         if (tree.has("local") && tree.get("local").getAsBoolean()) {
@@ -570,11 +590,17 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 // drawn by Minecraft itself (McCanvas): the real item model / texture
                 boolean icon = "item_icon".equals(type);
                 String ref = str(node, icon ? "item" : "source", "");
+                if (!icon && isMediaFile(ref)) {
+                    return mediaWidget(context, node, type);
+                }
                 McCanvas canvas = new McCanvas(context, icon ? itemPainter(ref) : imagePainter(ref));
                 canvas.setFallback(ref);
                 int size = node.has("size") && node.get("size").isJsonPrimitive() ? node.get("size").getAsInt() : (icon ? 32 : 64);
                 canvas.setLayoutParams(new LinearLayout.LayoutParams(canvas.dp(size), canvas.dp(size)));
                 return canvas;
+            }
+            case "video", "audio" -> {
+                return mediaWidget(context, node, type);
             }
             case "vbox", "hbox" -> {
                 return linear(context, node, "hbox".equals(type), nextServer);
@@ -584,7 +610,10 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 var canvas = new FrameLayout(context);
                 int pad = canvas.dp((float) num(node, "padding", 0));
                 canvas.setPadding(pad, pad, pad, pad);
-                for (JsonObject child : children(node)) {
+                // later children are drawn over earlier ones; z (default 0) reorders them, equal z keeps the order
+                var layered = new java.util.ArrayList<>(children(node));
+                layered.sort(java.util.Comparator.comparingDouble(child -> num(child, "z", 0)));
+                for (JsonObject child : layered) {
                     var lp = new FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP | Gravity.START);
                     sized(canvas, child, lp);
                     lp.leftMargin = canvas.dp((float) num(child, "x", 0));
@@ -703,6 +732,16 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
      */
     static void sized(View parent, JsonObject node, ViewGroup.LayoutParams lp) {
         String type = str(node, "type", "");
+        if ("video".equals(type) && !node.has("width") && !node.has("height")) {
+            lp.width = parent.dp(160);
+            lp.height = parent.dp(90) + (bool(node, "controls") ? parent.dp(36) : 0);
+            return;
+        }
+        if ("audio".equals(type) && !bool(node, "controls")) {
+            lp.width = 0;
+            lp.height = 0; // a sound has nothing to see: it only needs to exist
+            return;
+        }
         if (("image".equals(type) || "item_icon".equals(type)) && !node.has("width") && !node.has("height")) {
             int size = node.has("size") && node.get("size").isJsonPrimitive() ? node.get("size").getAsInt()
                     : ("item_icon".equals(type) ? 32 : 64);
@@ -718,7 +757,78 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         }
     }
 
-    /** What to show for an input: the player's value when the server did not change it since the last tree. */
+    /** A source such as media/clip.gif or module:media/clip.gif: a file of the module, as opposed to a texture of the game. */
+    static boolean isMediaFile(String source) {
+        String path = source.contains(":") ? source.substring(source.indexOf(':') + 1) : source;
+        return path.strip().startsWith("media/");
+    }
+
+    private String owner() {
+        String owner = str(tree, "owner", "");
+        return owner.isEmpty() ? net.xmilon.craftpy.client.ClientProjectStore.getInstance().activeProjectId() : owner;
+    }
+
+    private View mediaWidget(Context context, JsonObject node, String type) {
+        String id = str(node, "id", "");
+        String key = type + ":" + (id.isEmpty() ? "#" + mediaCounter++ : id);
+        seenMedia.add(key);
+        MediaWidget widget = media.get(key);
+        if (widget == null) {
+            widget = new MediaWidget(context, type);
+            media.put(key, widget);
+        }
+        widget.update(node, id);
+        if (widget.box.getParent() instanceof ViewGroup parent) {
+            parent.removeView(widget.box); // the old tree is gone; the widget moves into the new one
+        }
+        return widget.box;
+    }
+
+    /** One media widget with its optional control bar; the window keeps it between rebuilds. */
+    private final class MediaWidget {
+        final MediaView view;
+        final MediaControls controls;
+        final LinearLayout box;
+        String id = "";
+        String onEnd = "";
+        String onLoop = "";
+        String onError = "";
+
+        MediaWidget(Context context, String type) {
+            var reader = live ? net.xmilon.craftpy.client.media.MediaStore.gameReader() : ProjectMedia.reader();
+            view = new MediaView(context, type, reader, !live, new MediaView.Listener() {
+                @Override
+                public void ended() {
+                    send(onEnd, null);
+                }
+
+                @Override
+                public void looped() {
+                    send(onLoop, null);
+                }
+
+                @Override
+                public void failed(String message) {
+                    send(onError, new JsonPrimitive(message));
+                }
+            });
+            controls = new MediaControls(context, view);
+            view.observe(controls::refresh);
+            box = MediaControls.stack(context, view, controls);
+        }
+
+        void update(JsonObject node, String widgetId) {
+            id = widgetId;
+            onEnd = str(node, "on_end", "");
+            onLoop = str(node, "on_loop", "");
+            onError = str(node, "on_error", "");
+            controls.setVisibility(bool(node, "controls") ? View.VISIBLE : View.GONE);
+            view.apply(node, owner());
+            controls.refresh();
+        }
+    }
+
+    /** What to show for an input: the value of the player when the server did not change it since the last tree. */
     private JsonElement shownValue(String id, JsonElement server, Map<String, JsonElement> nextServer) {
         if (id.isEmpty()) {
             return server;

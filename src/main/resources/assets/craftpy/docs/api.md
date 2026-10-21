@@ -591,11 +591,18 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.9** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.10** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.10 (2026-10-21)
+
+- **Added:** Hub apps: `"apps": [{"id", "name", "description", "window", "icon", "category", "order"}]` and `"icon"` in project.json / module.json put windows of the module into the Hub (Apps tab). Client modules open them on this computer, server modules on the server; only enabled and loaded modules are listed.
+- **Added:** `Image` shows files of the module under `assets/media/` (PNG, JPEG, BMP, animated GIF) with `fit`, `crop`, `opacity`, `z`, playback options and an optional control bar.
+- **Added:** `Video` (Motion JPEG in an AVI, sound from a separate `audio=` file) and `Audio` (ogg, wav, mp3, flac, aiff, au): `autoplay`, `loop`, `playing`, `speed`, `position`, `volume`, `muted`, `restart`, `controls`.
+- **Added:** Media widgets report to `on_end`, `on_loop` and `on_error`, and their position and state arrive in `ctx.values[id]`. `playing`, `position`, `speed`, `volume`, `muted`, `opacity` and `restart` can be bound with `@ui.data`.
 
 ### 2.9 (2026-10-19)
 
@@ -2223,10 +2230,10 @@ Returns: A widget.
 
 #### `Image(source='', **p)`
 
-A picture.
+A picture. A source such as 'media/logo.png' or 'media/loop.gif' is a file of the module (PNG, JPEG, GIF, BMP; a GIF animates) and takes the media options; any other source is a texture of the game.
 
-- `source` (default `''`): Texture id or project asset.
-- `**p`: id.
+- `source` (default `''`): Texture id, or a file under media/ of the module (assets/media/).
+- `**p`: id, width, height, size, fit='contain'|'cover'|'stretch', crop=[x, y, width, height] in picture pixels, opacity (0-1), z (draw order in a Canvas), autoplay, loop, speed, position (seconds), controls=True for a bar, on_end, on_loop, on_error.
 
 Returns: A widget.
 
@@ -2236,6 +2243,24 @@ The icon of an item.
 
 - `item` (default `''`): Item id.
 - `**p`: id.
+
+Returns: A widget.
+
+#### `Video(source='', **p)`
+
+A video: Motion JPEG in an AVI file of the module (assets/media/clip.avi). Sound is a separate file named by audio=. Needs no controls: start it with playing=True or autoplay=True.
+
+- `source` (default `''`): A file under media/ ending in .avi.
+- `**p`: id, width, height, audio='media/clip.ogg', autoplay (default False), loop (default False), playing, speed (0.25-4), position (seconds), volume (0-1), muted, restart, fit, crop, opacity, z, controls=True for a play/seek/speed/volume bar, on_end, on_loop, on_error.
+
+Returns: A widget.
+
+#### `Audio(source='', **p)`
+
+A sound for the window: it plays through Minecraft (Records volume), has nothing to see unless controls=True. Use it for effects and background sound.
+
+- `source` (default `''`): A file under media/ (ogg, wav, mp3, flac, aiff, au).
+- `**p`: id, autoplay, loop, playing, position (seconds), volume (0-1), muted, restart (set a new number to play again), controls=True, on_end, on_loop, on_error.
 
 Returns: A widget.
 

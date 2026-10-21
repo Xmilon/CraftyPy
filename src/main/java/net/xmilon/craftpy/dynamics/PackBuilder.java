@@ -446,7 +446,7 @@ public final class PackBuilder {
     /** Folders of a resource pack namespace; directly under {@code assets/} they belong to the project's own namespace. */
     private static final java.util.Set<String> RESOURCE_FOLDERS = java.util.Set.of(
             "textures", "models", "blockstates", "sounds", "lang", "font", "particles", "atlases", "shaders", "texts",
-            "items", "equipment", "post_effect", "gpu_warnlist", "regional_compliancies", "geo", "animations");
+            "items", "equipment", "post_effect", "gpu_warnlist", "regional_compliancies", "geo", "animations", "media");
 
     /**
      * Where an entry directly under a project's {@code assets/} goes. {@code textures/}, {@code models/}, {@code lang/}...

@@ -37,10 +37,12 @@ import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
 final class UiDesigner {
     private static final Set<String> CONTAINERS = Set.of("vbox", "hbox", "grid", "tabs", "scroll", "canvas");
     private static final List<String> TYPES = List.of("label", "button", "text_input", "text_area", "checkbox",
-            "slider", "dropdown", "list", "progress", "image", "item_icon", "canvas", "vbox", "hbox", "grid", "tabs",
+            "slider", "dropdown", "list", "progress", "image", "item_icon", "video", "audio", "canvas", "vbox", "hbox", "grid", "tabs",
             "scroll");
     private static final Set<String> NUMBERS = Set.of("size", "weight", "spacing", "padding", "columns", "min", "max",
-            "selected", "width", "height", "x", "y");
+            "selected", "width", "height", "x", "y", "speed", "volume", "position", "opacity", "z");
+    private static final Set<String> BOOLEANS = Set.of("checked", "visible", "enabled", "autoplay", "loop", "muted", "controls");
+    private static final List<String> FITS = List.of("contain", "cover", "stretch");
     /** Positions and sizes snap to this many dp. */
     static final int GRID = 4;
     /** The smallest width or height a handle makes. */
@@ -813,6 +815,7 @@ final class UiDesigner {
     }
 
     private void refreshPreview() {
+        MediaView.releaseAll(previewHolder); // the clips of the old preview stop and give their memory back
         previewHolder.removeAllViews();
         int[] size = windowSize();
         var frame = card(context);
@@ -1404,6 +1407,14 @@ final class UiDesigner {
                 node.addProperty("width", 32);
                 node.addProperty("height", 32);
             }
+            case "video" -> {
+                node.addProperty("width", 160);
+                node.addProperty("height", 126);
+            }
+            case "audio" -> {
+                node.addProperty("width", 200);
+                node.addProperty("height", 32);
+            }
             default -> {
                 node.addProperty("width", 80);
                 node.addProperty("height", 24);
@@ -1575,6 +1586,16 @@ final class UiDesigner {
             }
             case "progress" -> node.addProperty("value", 0.5);
             case "image" -> node.addProperty("source", "texture.png");
+            case "video" -> {
+                node.addProperty("id", "video");
+                node.addProperty("source", "media/clip.avi");
+                node.addProperty("controls", true);
+            }
+            case "audio" -> {
+                node.addProperty("id", "sound");
+                node.addProperty("source", "media/sound.ogg");
+                node.addProperty("controls", true);
+            }
             case "item_icon" -> node.addProperty("item", "minecraft:diamond");
             case "grid" -> node.addProperty("columns", 2);
             default -> {
@@ -1603,7 +1624,7 @@ final class UiDesigner {
     // Properties
     // ------------------------------------------------------------------
 
-    private static List<String> propsOf(String type) {
+    private static List<String> propsOf(String type, JsonObject node) {
         List<String> list = new ArrayList<>();
         switch (type) {
             case "label" -> list.addAll(List.of("text", "size", "color", "style"));
@@ -1615,7 +1636,18 @@ final class UiDesigner {
             case "dropdown" -> list.addAll(List.of("id", "options", "selected", "on_change"));
             case "list" -> list.addAll(List.of("id", "items", "selected", "on_select"));
             case "progress" -> list.addAll(List.of("value", "max"));
-            case "image" -> list.add("source");
+            case "image" -> {
+                list.add("source");
+                // the options of a file of the module; a texture of the game has none
+                if (WindowFragment.isMediaFile(WindowFragment.str(node, "source", ""))) {
+                    list.addAll(List.of("fit", "crop", "opacity", "z", "autoplay", "loop", "speed", "position", "controls", "id",
+                            "on_end", "on_loop", "on_error"));
+                }
+            }
+            case "video" -> list.addAll(List.of("id", "source", "audio", "fit", "crop", "opacity", "z", "autoplay", "loop", "speed",
+                    "position", "volume", "muted", "controls", "on_end", "on_loop", "on_error"));
+            case "audio" -> list.addAll(List.of("id", "source", "autoplay", "loop", "position", "volume", "muted", "controls",
+                    "on_end", "on_loop", "on_error"));
             case "item_icon" -> list.add("item");
             case "vbox", "hbox" -> list.addAll(List.of("spacing", "padding"));
             case "grid" -> list.addAll(List.of("columns", "spacing"));
@@ -1646,12 +1678,12 @@ final class UiDesigner {
         }
         String type = WindowFragment.str(selected, "type", "?");
         props.addView(section(displayName(type)));
-        List<String> keys = new ArrayList<>(propsOf(type));
+        List<String> keys = new ArrayList<>(propsOf(type, selected));
         Entry entry = entryOf(selected);
         if (entry != null && entry.parent != null && "canvas".equals(WindowFragment.str(entry.parent, "type", ""))) {
             keys.addAll(0, List.of("x", "y")); // placed freely in its canvas
         }
-        for (String group : List.of("Identity", "Layout", "Appearance & values", "Events")) {
+        for (String group : List.of("Identity", "Layout", "Appearance & values", "Media", "Events")) {
             List<String> fields = keys.stream().filter(key -> propertyGroup(key).equals(group)).toList();
             if (fields.isEmpty()) continue;
             props.addView(section(group));
@@ -1689,9 +1721,31 @@ final class UiDesigner {
         props.addView(bindingStatus);
     }
 
+    private static final Set<String> MEDIA_KEYS = Set.of("fit", "crop", "opacity", "z", "autoplay", "loop", "speed", "position",
+            "volume", "muted", "controls", "audio");
+
+    private static String hint(String key) {
+        return switch (key) {
+            case "source" -> "A texture of the game, or a file of the module under media/ (assets/media/): png, jpg, bmp, gif, avi, ogg, wav, mp3, flac";
+            case "audio" -> "Sound file of the video, for example media/clip.ogg (a video file has no sound of its own)";
+            case "fit" -> "contain: whole picture inside the box; cover: fills the box, edges cut; stretch: fills the box, distorted";
+            case "crop" -> "x, y, width, height of the part to show, in picture pixels (empty: all)";
+            case "opacity" -> "0 transparent to 1 solid";
+            case "z" -> "Draw order inside a free layout: higher is in front";
+            case "autoplay" -> "Start by itself (GIFs: on unless set off)";
+            case "loop" -> "Start over at the end (GIFs: on unless set off)";
+            case "speed" -> "0.25 to 4; pictures and video only, the sound plays at normal speed";
+            case "position" -> "Seconds from the start";
+            case "volume" -> "0 to 1";
+            case "controls" -> "Show a bar with play, seek, speed and volume";
+            default -> key;
+        };
+    }
+
     static String propertyGroup(String key) {
         if (key.startsWith("on_")) return "Events";
         if (Set.of("id", "text", "label", "title").contains(key)) return "Identity";
+        if (MEDIA_KEYS.contains(key)) return "Media";
         if (Set.of("x", "y", "width", "height", "weight", "spacing", "padding", "columns").contains(key)) return "Layout";
         return "Appearance & values";
     }
@@ -1707,9 +1761,20 @@ final class UiDesigner {
         column.setGravity(Gravity.CENTER_VERTICAL);
         var name = label(context, key.replace("on_", "").replace('_', ' '), R.attr.textAppearanceLabelMedium);
         name.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
-        name.setTooltipText(key.startsWith("on_") ? "Python @action name for " + key : key);
+        name.setTooltipText(key.startsWith("on_") ? "Python @action name for " + key : hint(key));
         column.addView(name, new LinearLayout.LayoutParams(name.dp(76), WRAP_CONTENT));
-        if (Set.of("checked", "visible", "enabled").contains(key)) {
+        if (key.equals("fit")) {
+            var cycle = button(context, value.isEmpty() ? FITS.get(0) : value, R.attr.buttonTonalStyle, null);
+            cycle.setContentDescription(key);
+            cycle.setOnClickListener(view -> {
+                String next = FITS.get((FITS.indexOf(cycle.getText().toString()) + 1) % FITS.size());
+                cycle.setText(next);
+                onChange.accept(next);
+            });
+            column.addView(cycle);
+            return column;
+        }
+        if (BOOLEANS.contains(key)) {
             var checked = new icyllis.modernui.widget.CheckBox(context);
             checked.setChecked(Boolean.parseBoolean(value));
             checked.setContentDescription(key);
@@ -1778,7 +1843,10 @@ final class UiDesigner {
 
     private static String nodeValue(JsonObject node, String key) {
         if (!node.has(key)) {
-            return key.equals("visible") || key.equals("enabled") ? "true" : "";
+            if (key.equals("autoplay") || key.equals("loop")) {
+                return Boolean.toString(WindowFragment.str(node, "source", "").toLowerCase(java.util.Locale.ROOT).endsWith(".gif"));
+            }
+            return key.equals("visible") || key.equals("enabled") ? "true" : BOOLEANS.contains(key) ? "false" : "";
         }
         JsonElement value = node.get(key);
         if (value.isJsonArray()) {
@@ -1802,7 +1870,22 @@ final class UiDesigner {
                 }
             }
             selected.add(key, array);
-        } else if (Set.of("checked", "visible", "enabled").contains(key)) {
+        } else if (key.equals("crop")) {
+            String[] parts = text.split("[ ,]+");
+            if (parts.length != 4) {
+                return; // keep the old crop until it has x, y, width and height
+            }
+            try {
+                JsonArray crop = new JsonArray();
+                for (String part : parts) {
+                    double number = Double.parseDouble(part);
+                    crop.add(number % 1 == 0 ? (Number) Integer.valueOf((int) number) : (Number) Double.valueOf(number));
+                }
+                selected.add(key, crop);
+            } catch (NumberFormatException e) {
+                return;
+            }
+        } else if (BOOLEANS.contains(key)) {
             selected.add(key, new JsonPrimitive(text.equalsIgnoreCase("true")));
         } else if (NUMBERS.contains(key) || (key.equals("value") && isNumberWidget())) {
             try {

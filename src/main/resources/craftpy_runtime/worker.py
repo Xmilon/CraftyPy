@@ -2568,7 +2568,7 @@ def run(command_text):
 
 # Widget callbacks. A function becomes a token for the window being rendered; a string is the name of an @action.
 # The client only ever sends these strings back, and only tokens/names of the open window are accepted.
-_UI_ACTIONS = ("on_click", "on_change", "on_select", "on_submit")
+_UI_ACTIONS = ("on_click", "on_change", "on_select", "on_submit", "on_end", "on_loop", "on_error")
 _UI_BUILD = [None]    # {"tokens": {token: fn}, "named": set()} while a window renders
 _UI_OPEN = {}         # (player name, window id) -> {"inst", "tokens", "named", "owner"}
 _UI_NAMED = {}        # (owner, name) -> fn, from @action
@@ -2652,6 +2652,14 @@ def Image(source="", **p):
 
 def ItemIcon(item="", **p):
     return Widget("item_icon", item=item, **p)
+
+
+def Video(source="", **p):
+    return Widget("video", source=source, **p)
+
+
+def Audio(source="", **p):
+    return Widget("audio", source=source, **p)
 
 
 def VBox(*children, **p):
@@ -2763,7 +2771,8 @@ _WIDGET_CALLS = {  # function -> (json type, its positional parameters; None for
     "TextArea": ("text_area", ["value"]), "Checkbox": ("checkbox", ["label", "checked"]),
     "Slider": ("slider", ["value", "min", "max"]), "Dropdown": ("dropdown", ["options", "selected"]),
     "ListView": ("list", ["items"]), "ProgressBar": ("progress", ["value"]), "Image": ("image", ["source"]),
-    "ItemIcon": ("item_icon", ["item"]), "VBox": ("vbox", None), "HBox": ("hbox", None), "Grid": ("grid", None),
+    "ItemIcon": ("item_icon", ["item"]), "Video": ("video", ["source"]), "Audio": ("audio", ["source"]),
+    "VBox": ("vbox", None), "HBox": ("hbox", None), "Grid": ("grid", None),
     "TabView": ("tabs", None), "ScrollView": ("scroll", None), "Canvas": ("canvas", None),
 }
 
@@ -2945,6 +2954,11 @@ def _ui_collect(node, build):
             _ui_collect(child, build)
 
 
+# What a running window can set on a picture, clip or sound; the client acts on a value when it changes.
+_UI_MEDIA = {"playing": "bool", "position": "number", "speed": "number", "opacity": "number", "restart": "number"}
+_UI_SOUND = {"volume": "number", "muted": "bool"}
+
+
 def _ui_binding_fields(kind):
     fields = {"visible": "bool", "enabled": "bool"}
     for prop, expected in {
@@ -2955,7 +2969,9 @@ def _ui_binding_fields(kind):
         "progress": {"value": "number", "max": "number"},
         "dropdown": {"options": "list", "selected": "index"},
         "list": {"items": "list", "selected": "index"},
-        "image": {"source": "text"}, "item_icon": {"item": "text"},
+        "image": {"source": "text", **_UI_MEDIA}, "item_icon": {"item": "text"},
+        "video": {"source": "text", "audio": "text", **_UI_MEDIA, **_UI_SOUND},
+        "audio": {"source": "text", **_UI_MEDIA, **_UI_SOUND},
     }.get(kind, {}).items():
         fields[prop] = expected
     return fields
@@ -3007,6 +3023,7 @@ def _ui_render(entry):
         if not isinstance(data, dict):
             raise TypeError("ui.data(%r) must return a dictionary" % entry["inst"].id)
         _ui_bind(tree.get("root"), data, entry["inst"].id)
+        tree["owner"] = entry["owner"]  # media/... sources of the window name files of this module
         entry["tokens"] = _UI_BUILD[0]["tokens"]
         entry["named"] = _UI_BUILD[0]["named"]
     finally:
@@ -3316,9 +3333,15 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.9"
+API_VERSION = "2.10"
 
 API_CHANGES = [
+    {"version": "2.10", "date": "2026-10-21",
+     "added": ["Hub apps: `\"apps\": [{\"id\", \"name\", \"description\", \"window\", \"icon\", \"category\", \"order\"}]` and `\"icon\"` in project.json / module.json put windows of the module into the Hub (Apps tab). "
+               "Client modules open them on this computer, server modules on the server; only enabled and loaded modules are listed.",
+               "`Image` shows files of the module under `assets/media/` (PNG, JPEG, BMP, animated GIF) with `fit`, `crop`, `opacity`, `z`, playback options and an optional control bar.",
+               "`Video` (Motion JPEG in an AVI, sound from a separate `audio=` file) and `Audio` (ogg, wav, mp3, flac, aiff, au): `autoplay`, `loop`, `playing`, `speed`, `position`, `volume`, `muted`, `restart`, `controls`.",
+               "Media widgets report to `on_end`, `on_loop` and `on_error`, and their position and state arrive in `ctx.values[id]`. `playing`, `position`, `speed`, `volume`, `muted`, `opacity` and `restart` can be bound with `@ui.data`."]},
     {"version": "2.9", "date": "2026-10-19",
      "added": ["`keys.bind(combo, id=..., name=..., category=...)`: stable, remappable module actions on client and server. "
                "Assignments survive reloads and restarts. Server callbacks receive the authenticated `ctx.player`.",
@@ -3856,7 +3879,7 @@ client = _Client()
 _CLIENT_NAMES = frozenset({
     "on", "every", "after", "run_later", "run_every", "run_next_tick", "scheduler", "storage", "Pos", "has",
     "window", "Window", "ui", "action", "Label", "Button", "TextInput", "TextArea", "Checkbox", "Slider", "Dropdown",
-    "ListView", "ProgressBar", "Image", "ItemIcon", "VBox", "HBox", "Grid", "TabView", "ScrollView", "Canvas",
+    "ListView", "ProgressBar", "Image", "ItemIcon", "Video", "Audio", "VBox", "HBox", "Grid", "TabView", "ScrollView", "Canvas",
     "hud", "keys", "client", "API_VERSION", "http", "files", "Response", "media",
 })
 
@@ -3889,7 +3912,7 @@ def _server_api_names():
         "run_later": run_later, "run_every": run_every, "run_next_tick": run_next_tick,
         "Label": Label, "Button": Button, "TextInput": TextInput, "TextArea": TextArea,
         "Checkbox": Checkbox, "Slider": Slider, "Dropdown": Dropdown, "ListView": ListView,
-        "ProgressBar": ProgressBar, "Image": Image, "ItemIcon": ItemIcon,
+        "ProgressBar": ProgressBar, "Image": Image, "ItemIcon": ItemIcon, "Video": Video, "Audio": Audio,
         "VBox": VBox, "HBox": HBox, "Grid": Grid, "TabView": TabView, "ScrollView": ScrollView, "Canvas": Canvas,
         "has": has, "core": core, "requires_restart": requires_restart,
         # simple API
@@ -6858,7 +6881,11 @@ def _load_docs():
         "Dropdown": ("A drop-down list.", {"options": "List of texts.", "selected": "Index of the chosen one.", "p": "id, on_select."}, "A widget."),
         "ListView": ("A list of texts.", {"items": "List of texts.", "p": "id, on_select."}, "A widget."),
         "ProgressBar": ("A progress bar.", {"value": "Current value.", "p": "max (default 100), id."}, "A widget."),
-        "Image": ("A picture.", {"source": "Texture id or project asset.", "p": "id."}, "A widget."),
+        "Image": ("A picture. A source such as 'media/logo.png' or 'media/loop.gif' is a file of the module (PNG, JPEG, GIF, BMP; a GIF animates) and takes the media options; any other source is a texture of the game.", {"source": "Texture id, or a file under media/ of the module (assets/media/).", "p": "id, width, height, size, fit='contain'|'cover'|'stretch', crop=[x, y, width, height] in picture pixels, opacity (0-1), z (draw order in a Canvas), "
+            "autoplay, loop, speed, position (seconds), controls=True for a bar, on_end, on_loop, on_error."}, "A widget."),
+        "Video": ("A video: Motion JPEG in an AVI file of the module (assets/media/clip.avi). Sound is a separate file named by audio=. Needs no controls: start it with playing=True or autoplay=True.", {"source": "A file under media/ ending in .avi.", "p": "id, width, height, audio='media/clip.ogg', autoplay (default False), loop (default False), playing, speed (0.25-4), position (seconds), volume (0-1), muted, restart, "
+            "fit, crop, opacity, z, controls=True for a play/seek/speed/volume bar, on_end, on_loop, on_error."}, "A widget."),
+        "Audio": ("A sound for the window: it plays through Minecraft (Records volume), has nothing to see unless controls=True. Use it for effects and background sound.", {"source": "A file under media/ (ogg, wav, mp3, flac, aiff, au).", "p": "id, autoplay, loop, playing, position (seconds), volume (0-1), muted, restart (set a new number to play again), controls=True, on_end, on_loop, on_error."}, "A widget."),
         "ItemIcon": ("The icon of an item.", {"item": "Item id.", "p": "id."}, "A widget."),
         "VBox": ("Stacks children top to bottom.", {"children": "Widgets.", "p": "spacing (pixels between), padding."}, "A widget."),
         "HBox": ("Places children side by side.", {"children": "Widgets.", "p": "spacing, padding."}, "A widget."),

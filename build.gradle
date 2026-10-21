@@ -525,6 +525,16 @@ tasks.register('modulesUiSmokeTest', JavaExec) {
     timeout = java.time.Duration.ofSeconds(45)
 }
 
+tasks.register('hubUiSmokeTest', JavaExec) {
+    group = 'verification'
+    description = 'Checks the Hub (tabs, Back, Escape, apps, modules) and the media widgets with real input in a hidden Modern UI window (requires a GPU; game, Python and server simulated).'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath + configurations.ideRuntime
+    mainClass = 'net.xmilon.craftpy.client.mui.HubInteractionCheck'
+    jvmArgs '-Xmx768M'
+    timeout = java.time.Duration.ofSeconds(90)
+}
+
 // One-click IDE: build/ide/ holds "CraftPy IDE.jar" (a launcher whose manifest lists lib/), the libraries, a .bat / .sh
 // that start it with the right Java and craftpy-ide.properties (home = the game folder). ideShortcut adds a desktop
 // shortcut on Windows.

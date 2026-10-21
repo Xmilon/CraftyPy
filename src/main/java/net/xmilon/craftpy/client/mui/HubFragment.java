@@ -22,6 +22,7 @@ import icyllis.modernui.widget.HorizontalScrollView;
 import icyllis.modernui.widget.LinearLayout;
 import icyllis.modernui.widget.TextView;
 import net.minecraft.client.Minecraft;
+import net.xmilon.craftpy.client.IdeHost;
 import net.minecraft.client.gui.screens.Screen;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
@@ -257,11 +258,7 @@ public final class HubFragment extends Fragment implements ScreenCallback {
 
     /** The close button and the backdrop: leave the Hub from anywhere, after the pending-changes question. */
     void closeHub() {
-        Runnable close = () -> Minecraft.getInstance().execute(() -> {
-            if (Minecraft.getInstance().screen != null) {
-                Minecraft.getInstance().screen.onClose();
-            }
-        });
+        Runnable close = () -> IdeHost.get().execute(() -> IdeHost.get().closeScreen());
         if (tab == TAB_MODULES && getChildFragmentManager().findFragmentById(ID_PAGES) instanceof ModulesFragment modules) {
             modules.requestLeave(close);
         } else {

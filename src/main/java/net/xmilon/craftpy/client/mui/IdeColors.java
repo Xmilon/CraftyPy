@@ -178,11 +178,11 @@ public final class IdeColors {
         return bg;
     }
 
-    /** A clickable tile (Hub apps): raised, a lighter fill on hover, the accent border while it has the keyboard focus. */
+    /** A clickable tile (Hub apps): raised, a lighter fill on hover, the accent border while the keyboard points at it (selected). */
     static icyllis.modernui.graphics.drawable.Drawable tile(icyllis.modernui.view.View view) {
         var list = new icyllis.modernui.graphics.drawable.StateListDrawable();
         list.addState(new int[]{R.attr.state_pressed}, shape(view, 8, SELECTED, BORDER));
-        list.addState(new int[]{R.attr.state_focused}, shape(view, 8, HOVER, ACCENT));
+        list.addState(new int[]{R.attr.state_selected}, shape(view, 8, HOVER, ACCENT));
         list.addState(new int[]{R.attr.state_hovered}, shape(view, 8, HOVER, BORDER));
         list.addState(StateSet.WILD_CARD, shape(view, 8, RAISED, HOVER));
         list.setEnterFadeDuration(90);

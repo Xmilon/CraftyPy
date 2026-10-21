@@ -25,6 +25,7 @@ import net.xmilon.craftpy.Config;
 import net.xmilon.craftpy.CraftPyLog;
 import net.xmilon.craftpy.client.EditorSettings;
 import net.xmilon.craftpy.client.EditorTheme;
+import net.xmilon.craftpy.client.IdeHost;
 import net.xmilon.craftpy.python.PyApi;
 
 import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
@@ -98,7 +99,7 @@ public final class HubSettingsFragment extends Fragment {
     }
 
     private static boolean ownServer() {
-        return Minecraft.getInstance().hasSingleplayerServer();
+        return IdeHost.get().inGame() && Minecraft.getInstance().hasSingleplayerServer();
     }
 
     private static String serverNote() {
@@ -109,7 +110,7 @@ public final class HubSettingsFragment extends Fragment {
     /** What the server decides; values only where this computer is the server. */
     private static java.util.List<View> serverRows(Context context) {
         var rows = new java.util.ArrayList<View>();
-        var player = Minecraft.getInstance().player;
+        var player = IdeHost.get().inGame() ? Minecraft.getInstance().player : null;
         rows.add(info(context, "Your access", player != null && (player.hasPermissions(2) || ownServer())
                 ? "The editor and the server's modules" : "The Hub, your client modules and server apps"));
         if (!ownServer()) {

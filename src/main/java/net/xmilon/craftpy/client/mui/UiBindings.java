@@ -20,12 +20,27 @@ final class UiBindings {
             case "progress" -> { out.put("value", "number"); out.put("max", "number"); }
             case "dropdown" -> { out.put("options", "list"); out.put("selected", "index"); }
             case "list" -> { out.put("items", "list"); out.put("selected", "index"); }
-            case "image" -> out.put("source", "text");
+            case "image" -> { out.put("source", "text"); media(out, false); }
+            case "video" -> { out.put("source", "text"); out.put("audio", "text"); media(out, true); }
+            case "audio" -> { out.put("source", "text"); media(out, true); }
             case "item_icon" -> out.put("item", "text");
             default -> { }
         }
         out.put("visible", "bool"); out.put("enabled", "bool");
         return out;
+    }
+
+    /** What a window can set on a picture, clip or sound while it runs; each value is acted on when it changes. */
+    private static void media(Map<String, String> out, boolean sound) {
+        out.put("playing", "bool");
+        out.put("position", "number"); // seconds
+        out.put("speed", "number");
+        out.put("opacity", "number");
+        out.put("restart", "number"); // any new value starts again from the beginning
+        if (sound) {
+            out.put("volume", "number");
+            out.put("muted", "bool");
+        }
     }
 
     static boolean valid(JsonElement value, String expected) {

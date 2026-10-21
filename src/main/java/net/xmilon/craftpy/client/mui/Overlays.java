@@ -192,6 +192,9 @@ final class Overlays {
 
     @Nullable
     static Host host(View view) {
+        if (view instanceof Host self) {
+            return self; // the host itself is a fine anchor
+        }
         ViewParent parent = view.getParent();
         while (parent != null) {
             if (parent instanceof Host host) {
