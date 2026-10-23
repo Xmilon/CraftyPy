@@ -82,7 +82,8 @@ public final class FileStore {
         }
         Files.createDirectories(file.getParent());
         inside(root, name, true); // again, now that the folders exist: a link made in between would show here
-        Files.write(file, bytes);
+        // a temporary file moved over the old one: a crash while writing leaves the old file, never half of the new one
+        net.neoforged.neoforge.common.IOUtilities.atomicWrite(file, out -> out.write(bytes));
     }
 
     public static boolean delete(String owner, String name) throws IOException {

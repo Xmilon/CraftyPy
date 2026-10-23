@@ -37,6 +37,18 @@ public final class MachineState {
     private static Object eventServer;
     public static void resetNotifications() { eventServer = null; events = 0; eventTick = 0; }
 
+    /** Machine block entities that ticked on a server; unloaded ones are dropped by the GC or by {@link #loaded}. */
+    private static final java.util.Set<BlockEntity> TICKING = java.util.Collections.synchronizedSet(
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>()));
+
+    /** The machine block entities that are loaded on the server now (for backups). */
+    public static java.util.List<BlockEntity> loaded() {
+        synchronized (TICKING) {
+            TICKING.removeIf(entity -> entity.isRemoved() || entity.getLevel() == null);
+            return java.util.List.copyOf(TICKING);
+        }
+    }
+
     public MachineState(BlockEntity entity) {
         this.entity = entity; host = (MachineAccess) entity;
         inventory = new KineticInventory() { @Override protected void onContentsChanged(int slot) { changed(); } };
@@ -141,6 +153,7 @@ public final class MachineState {
         configure();
         var level = entity.getLevel();
         if (level == null || level.isClientSide) return;
+        TICKING.add(entity);
         emptyContainerSlot();
         boolean before = running; running = false;
         if (processing()) {

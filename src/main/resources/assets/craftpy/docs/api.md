@@ -383,6 +383,11 @@ storage.set("home:" + p.name, [p.x, p.y, p.z])
 
 - Shared by all your handlers and saved with the world: values are still there after a restart.
 - Values must be JSON: numbers, text, `True`/`False`, `None`, lists and dicts.
+- Each project and module has its own values: another one cannot read or change them. Use a player's `uuid` in keys.
+- Saved with the world on autosave, `/save-all` and quitting, written to a temporary file first so a crash never leaves
+  half a file. Values changed after the last save are lost if the game crashes, like the rest of the world.
+- `/craftpy backup create` writes every project's values, `files.*` data and loaded machines to
+  `<world>/craftpy_backups/<time>.json`; `/craftpy backup restore <file>` puts them back (and first backs up what it replaces).
 
 ## Client-side code
 
@@ -603,8 +608,10 @@ This page describes Python API **2.12** (`API_VERSION` in your code). `apiVersio
 ### 2.12 (2026-10-23)
 
 - **Added:** Tags everywhere: `Fluid(tags=[...])` (the still and flowing liquid both), `Block(item_tags=[...])` for the block's item, `tag(...)` checks the tag id and type and takes `#other_tag` values; a liquid's bucket works in tags and recipes. Use the shared `c:` tags (`c:dusts/diorite`, `c:ingots/tin`) so other mods use your items.
+- **Added:** `/craftpy backup create [project]`, `list` and `restore <file> [project]`: the `storage` values, `files.*` folders and loaded machines of every module and project as one JSON file in `<world>/craftpy_backups/`; a restore first backs up what it replaces.
 - **Changed:** A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.
 - **Changed:** Several recipes for the same item each keep their own id (the second one used to replace the first).
+- **Changed:** `files.*` and client `storage` are written to a temporary file and moved over the old one, so a crash keeps the old file whole; a world `storage` file that cannot be read is copied aside (`craftpy_storage.dat.unreadable-<time>`) before anything is saved over it.
 
 ### 2.11 (2026-10-23)
 

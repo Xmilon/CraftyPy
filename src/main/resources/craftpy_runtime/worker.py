@@ -3634,9 +3634,13 @@ API_CHANGES = [
     {"version": "2.12", "date": "2026-10-23",
      "added": ["Tags everywhere: `Fluid(tags=[...])` (the still and flowing liquid both), `Block(item_tags=[...])` for the block's item, "
                "`tag(...)` checks the tag id and type and takes `#other_tag` values; a liquid's bucket works in tags and recipes. "
-               "Use the shared `c:` tags (`c:dusts/diorite`, `c:ingots/tin`) so other mods use your items."],
+               "Use the shared `c:` tags (`c:dusts/diorite`, `c:ingots/tin`) so other mods use your items.",
+               "`/craftpy backup create [project]`, `list` and `restore <file> [project]`: the `storage` values, `files.*` folders and loaded machines "
+               "of every module and project as one JSON file in `<world>/craftpy_backups/`; a restore first backs up what it replaces."],
      "changed": ["A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.",
-                 "Several recipes for the same item each keep their own id (the second one used to replace the first)."]},
+                 "Several recipes for the same item each keep their own id (the second one used to replace the first).",
+                 "`files.*` and client `storage` are written to a temporary file and moved over the old one, so a crash keeps the old file whole; "
+                 "a world `storage` file that cannot be read is copied aside (`craftpy_storage.dat.unreadable-<time>`) before anything is saved over it."]},
     {"version": "2.11", "date": "2026-10-23",
      "added": ["`Fluid(id, ...)`: custom liquids that are real NeoForge fluids (flowing, swimmable, buckets, tanks and pipes of any mod). "
                "`density`, `viscosity`, `temperature`, `light`, `color` or own `still` / `flowing` textures, `effects` while an entity is in it, "

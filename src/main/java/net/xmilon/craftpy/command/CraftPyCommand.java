@@ -69,6 +69,7 @@ public final class CraftPyCommand {
                 .then(py())
                 .then(window())
                 .then(debug())
+                .then(BackupCommand.node())
                 .then(game()));
     }
 

@@ -40,7 +40,15 @@ final class ClientStorage {
                     }
                 }
             } catch (IOException | RuntimeException broken) {
-                CraftPyLog.LOGGER.warn("client_storage.json could not be read; starting empty: {}", broken.toString());
+                // kept aside, so the next save cannot overwrite what may still be rescued from it
+                Path aside = file().resolveSibling("client_storage.json.unreadable-" + System.currentTimeMillis());
+                try {
+                    Files.copy(file(), aside);
+                } catch (IOException copy) {
+                    aside = null;
+                }
+                CraftPyLog.LOGGER.error("client_storage.json could not be read; starting empty{}: {}",
+                        aside == null ? "" : " (the file was kept as " + aside.getFileName() + ")", broken.toString());
             }
         }
         return values;
@@ -95,7 +103,9 @@ final class ClientStorage {
             Files.createDirectories(file().getParent());
             JsonObject all = new JsonObject();
             values().forEach(all::add);
-            Files.writeString(file(), all.toString(), StandardCharsets.UTF_8);
+            byte[] bytes = all.toString().getBytes(StandardCharsets.UTF_8);
+            // written next to it and moved over it: a crash while saving keeps the previous file whole
+            net.neoforged.neoforge.common.IOUtilities.atomicWrite(file(), out -> out.write(bytes));
         } catch (IOException e) {
             CraftPyLog.LOGGER.warn("client_storage.json could not be saved: {}", e.toString());
         }
