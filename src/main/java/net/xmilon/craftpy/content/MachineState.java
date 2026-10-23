@@ -230,13 +230,13 @@ public final class MachineState {
         out.add("inventory", groups);
         out.add("values", net.xmilon.craftpy.menu.ScreenValues.toJson(values));
         out.addProperty("energy", energy.getEnergyStored()); out.addProperty("energy_capacity", energy.getMaxEnergyStored());
-        out.addProperty("fluid", BuiltInRegistries.FLUID.getKey(fluid.getFluid().getFluid()).toString());
+        out.addProperty("fluid", net.xmilon.craftpy.lifecycle.EventBridge.fluidId(fluid.getFluid().getFluid()));
         out.addProperty("fluid_amount", fluid.getFluidAmount()); out.addProperty("fluid_capacity", fluid.getCapacity());
         // every tank: tanks[1]["fluid"], ["amount"], ["capacity"]
         com.google.gson.JsonArray all = new com.google.gson.JsonArray();
         for (int i = 0; i < tanks.count(); i++) {
             JsonObject tank = new JsonObject();
-            tank.addProperty("fluid", BuiltInRegistries.FLUID.getKey(tanks.tank(i).getFluid().getFluid()).toString());
+            tank.addProperty("fluid", net.xmilon.craftpy.lifecycle.EventBridge.fluidId(tanks.tank(i).getFluid().getFluid()));
             tank.addProperty("amount", tanks.tank(i).getFluidAmount());
             tank.addProperty("capacity", tanks.tank(i).getCapacity());
             all.add(tank);

@@ -111,6 +111,8 @@ public final class NativeContent {
     public static String logicalId(Entity entity) {
         var variant = entity.getPersistentData().getCompound("craftpy:variant");
         if (variant.contains("id")) return variant.getString("id");
+        // a prop is its item: @on.entity_interact(entity=backpack) hears a placed backpack
+        if (entity instanceof net.xmilon.craftpy.entity.PropEntity prop) return net.xmilon.craftpy.lifecycle.EventBridge.itemId(prop.item());
         return entity instanceof net.xmilon.craftpy.entity.SlottedEntity mob
                 ? net.xmilon.craftpy.lifecycle.EventBridge.projectId(mob.holder()) : BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
     }

@@ -312,6 +312,10 @@ public final class Defs {
         /** Enchantment value, negative = default. */
         public int enchantValue = -1;
         public float cooldownSeconds;
+        /** Item(model="backpack"): the project's own item model (assets/models/item/backpack.json), null = flat sprite. */
+        public String model;
+        /** Placeable(width, height): shift + right click on a block sets it down as a prop entity of that size; null = not. */
+        public float[] prop;
         public final List<String> tooltip = new ArrayList<>();
         public String tooltipColor = "gray";
         /** Attribute modifiers while held or worn (Attributes extension): any attribute of the game or of a mod. */
@@ -326,6 +330,7 @@ public final class Defs {
             def.food = foodFrom(json);
             def.burnTime = Math.max(0, i(json, "burn_time", 0));
             def.useEffect = effectFrom(json);
+            def.model = json.has("model") && json.get("model").isJsonPrimitive() ? json.get("model").getAsString() : null;
             def.components = json.has("components") && json.get("components").isJsonObject() ? json.getAsJsonObject("components") : null;
             for (JsonObject ext : extensions(json)) {
                 switch (s(ext, "type", "")) {
@@ -347,6 +352,8 @@ public final class Defs {
                     }
                     case "enchantable" -> def.enchantValue = Math.max(0, Math.min(50, i(ext, "value", 0)));
                     case "cooldown" -> def.cooldownSeconds = Math.max(0f, f(ext, "seconds", 0f));
+                    case "placeable" -> def.prop = new float[] { Math.max(0.125f, Math.min(4f, f(ext, "width", 0.6f))),
+                            Math.max(0.125f, Math.min(4f, f(ext, "height", 0.6f))) };
                     case "tooltip" -> {
                         def.tooltipColor = s(ext, "color", "gray");
                         JsonElement lines = ext.get("lines");

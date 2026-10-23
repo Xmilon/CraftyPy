@@ -619,11 +619,18 @@ This page describes Python API **2.12** (`API_VERSION` in your code). `apiVersio
 - **Added:** Tags everywhere: `Fluid(tags=[...])` (the still and flowing liquid both), `Block(item_tags=[...])` for the block's item, `tag(...)` checks the tag id and type and takes `#other_tag` values; a liquid's bucket works in tags and recipes. Use the shared `c:` tags (`c:dusts/diorite`, `c:ingots/tin`) so other mods use your items.
 - **Added:** `/craftpy backup create [project]`, `list` and `restore <file> [project]`: the `storage` values, `files.*` folders and loaded machines of every module and project as one JSON file in `<world>/craftpy_backups/`; a restore first backs up what it replaces.
 - **Added:** `@command(name, level=...)`: who may run the command (0 every player, 2 operators, 3 server admins, 4 the server owner); an argument with a default value may be left out when typing it.
+- **Added:** `machine_recipe(machine, inputs=, outputs=, energy=, seconds=, fluid_input=, fluid_output=)`: recipes of your machine blocks (items with counts or `#tags`, outputs with a chance, liquids in and out). JEI and EMI show them on a page of the machine; `world.machine_recipe(pos)` finds the one its input slots and tanks can make and `world.machine_finish(pos, recipe=)` makes it (inputs taken, outputs put in, energy spent, all or nothing).
+- **Added:** `Item(model="backpack")`: your own 3D item model (assets/models/item/). `Placeable(width, height)`: shift + right click on a block sets the item down as itself, with everything its stack carries; hitting it picks it up again. `@on.entity_interact(entity=item)` hears a right click on it and `ui.open_screen(..., entity=ctx.entity)` opens the same window as in the hand.
+- **Added:** Minecraft-style windows: Minecraft's own slots, arrow, flame, panel and buttons, Mekanism's energy bar and gauges when it is installed (`style` auto, mekanism or plain); grids up to 13 x 9 and windows up to 320 units; image pieces of any texture; button pieces heard by `@on.screen_button(button=, window=)`.
+- **Added:** `FluidTank(..., tanks=1..4)` with gauges bound to `fluid:N`; `Inventory` groups `fluid_in`, `fluid_out`, `energy_in` and `energy_out` fill and empty tanks and the energy store with buckets and batteries of any mod; `Inventory(keep=True)` keeps the items in the dropped block.
+- **Added:** `ui.open_screen(..., hand="main")` keeps a window's slots, `energy=` and `tanks=` in the held item; `ui.screen_update(player, energy=, fluid=, tank=)` changes and reads them while it is open.
 - **Changed:** A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.
 - **Changed:** Several recipes for the same item each keep their own id (the second one used to replace the first).
 - **Changed:** `files.*` and client `storage` are written to a temporary file and moved over the old one, so a crash keeps the old file whole; a world `storage` file that cannot be read is copied aside (`craftpy_storage.dat.unreadable-<time>`) before anything is saved over it.
 - **Changed:** `@command` needs `level=` in projects written for API 2.12 (older ones get 2, operators, and a console note). A command now runs only in the project that declared it (two projects with a `heal` command no longer both run), disappears when its project stops, keeps working after `/reload`, and a changed declaration replaces the old command. Player arguments arrive as the player.
 - **Changed:** `/craftpy` lists the commands you may use; `/craftpy window` (it never worked), `give ... block|item` (the kind is found from the id) and `module reload <module>` (every module reloads together) are gone; `/craftpy module` lists the modules everywhere.
+- **Changed:** Machine snapshots (`world.machine`) name a project's liquids by their project id, like its items.
+- **Changed:** `ctx.window` of `@on.screen_button` is the layout's name (`"pack"`), without the project in front.
 
 ### 2.11 (2026-10-23)
 
@@ -714,7 +721,7 @@ Every function, class and method with all its parameters, by topic. Use the sear
 
 ### Items and blocks
 
-#### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(), components=None, **extra) -> 'Content'`
+#### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(), components=None, model=None, **extra) -> 'Content'`
 
 Declares an item and returns it; the result can be used anywhere an item id is expected.
 
@@ -729,6 +736,7 @@ Declares an item and returns it; the result can be used anywhere an item id is e
 - `extensions` (default `()`): List of extensions (Sword(...), Durability(...), your own); same as .extends(...).
 - `tags` (default `()`): Item tags to join: ['minecraft:swords', 'gems'] (a bare name is this project's tag).
 - `components` (default `None`): Data components every stack gets, from any mod: {'apotheosis:affixes': {...}}. A listed component is filled in when a stack does not have it yet; later changes (a reforge) are kept.
+- `model` (default `None`): Your own 3D mesh in assets/models/item/ ('backpack'), drawn instead of the flat texture.
 - `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The item (a string 'project:id' with .extends(...)).
@@ -1048,6 +1056,13 @@ The item can only be used again after a pause, shown as a bar.
 
 - `seconds` (default `1.0`): 0.05 to 3600.
 
+#### `Placeable(width=0.6, height=0.6)`
+
+Shift + right click on a block sets the item down as itself, data and all; hit it to pick it up.
+
+- `width` (default `0.6`): Blocks wide, 0.125 to 4.
+- `height` (default `0.6`): Blocks high, 0.125 to 4.
+
 #### `Tooltip(*lines, color='gray')`
 
 Extra lines in the item tooltip.
@@ -1216,6 +1231,19 @@ Stonecutter recipe.
 - `ingredient`: Item put in.
 - `result`: Item produced.
 - `count` (default `1`): Items produced per input.
+
+#### `machine_recipe(machine, inputs=(), outputs=(), *, energy=0, seconds=1.0, fluid_input=None, fluid_output=None, id=None)`
+
+A recipe of your machine block, shown by JEI and EMI under it: machine_recipe(grinder, inputs=['diorite'], outputs=[(dust, 2), (dust, 1, 0.25)], energy=400, seconds=4).
+
+- `machine`: Your machine block.
+- `inputs` (default `()`): Items, (item, count) or '#c:tag' (up to 9).
+- `outputs` (default `()`): item, (item, count) or (item, count, chance) with chance 0..1 (up to 9).
+- `energy` (default `0`): FE spent when it finishes.
+- `seconds` (default `1.0`): How long it takes (0.05 to 3600).
+- `fluid_input` (default `None`): 'minecraft:lava' (1000 mB), (liquid, mB) or a '#tag'.
+- `fluid_output` (default `None`): A liquid or (liquid, mB).
+- `id` (default `None`): Recipe file name (default: machine_result).
 
 #### `recipe(type, id=None, **fields)`
 
@@ -1924,6 +1952,29 @@ Set free values (numbers or short texts, at most 32 keys) on a loaded machine bl
 
 Returns: dict
 
+#### `world.machine_recipe(x, y=None, z=None, dimension='minecraft:overworld')`
+
+The first machine_recipe of this block its input slots and tanks can make now, as {id, energy, ticks, seconds}, or None. Changes nothing.
+
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
+
+Returns: dict
+
+#### `world.machine_finish(x, y=None, z=None, *, recipe, dimension='minecraft:overworld') -> bool`
+
+Makes the recipe machine_recipe returned: takes the inputs and liquid, puts the outputs in (rolled against their chance), spends its energy; all or nothing. False when it cannot.
+
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `recipe`: What world.machine_recipe returned (or its id).
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
+
+Returns: bool
+
 #### `world.resources(x, y=None, z=None, dimension='minecraft:overworld', *, side=None) -> dict`
 
 Bounded native NeoForge item/FE/fluid snapshot from a loaded block face.
@@ -2273,6 +2324,17 @@ Opens a Minecraft-style window that belongs to an entity or to the player (item 
 - `tanks` (default `0`): How many liquid tanks (0..4).
 - `tank_capacity` (default `8000`): mB of each tank.
 - `values` (default `None`): {key: number or text} for bars and labels.
+
+#### `ui.screen_update(player, *, energy=0, fluid=0, tank=0) -> dict`
+
+Adds energy (negative takes it) or removes liquid (mB, negative) from the window the player has open from ui.open_screen; returns its energy, tanks and values.
+
+- `player`: Player or name.
+- `energy` (default `0`): FE to add.
+- `fluid` (default `0`): mB to remove, 0 or negative.
+- `tank` (default `0`): 0 to 3.
+
+Returns: dict
 
 #### `ui.screen_set(player, values)`
 

@@ -85,6 +85,7 @@ public class CraftPyClient {
                 event.registerEntityRenderer(type.get(), net.xmilon.craftpy.client.SlottedEntityRenderer::new));
         net.xmilon.craftpy.registry.ModEntities.MONSTERS.forEach(type ->
                 event.registerEntityRenderer(type.get(), net.xmilon.craftpy.client.SlottedEntityRenderer::new));
+        event.registerEntityRenderer(net.xmilon.craftpy.registry.ModEntities.PROP.get(), net.xmilon.craftpy.client.PropRenderer::new);
     }
 
     /** The spawn egg takes the colors of the mob it names (stored on the stack by /craftpy give ... egg). */

@@ -1,4 +1,5 @@
 {
+  "entity.craftpy.prop": "Placed Item",
   "key.craftpy.open_ide": "Open CraftPy Hub",
   "key.categories.craftpy": "CraftPy",
   "itemGroup.craftpy": "CraftPy",

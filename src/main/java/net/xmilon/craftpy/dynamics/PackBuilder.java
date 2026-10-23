@@ -148,12 +148,18 @@ public final class PackBuilder {
             String id = "pcitem_" + i;
 
             JsonObject itemModel = new JsonObject();
-            // tools and weapons are held like vanilla ones (handheld); everything else is a flat sprite
-            itemModel.addProperty("parent", def != null && (def.tool != null || def.weapon != null)
-                    ? "minecraft:item/handheld" : "minecraft:item/generated");
-            JsonObject textures = new JsonObject();
-            textures.addProperty("layer0", texture);
-            itemModel.add("textures", textures);
+            if (def != null && def.model != null && !def.model.isBlank()) {
+                // Item(model="backpack"): the project's own mesh, assets/<project>/models/item/backpack.json
+                itemModel.addProperty("parent", def.model.contains(":") ? def.model
+                        : projectId + ":item/" + def.model.replaceFirst("^(models/)?(item/)?", ""));
+            } else {
+                // tools and weapons are held like vanilla ones (handheld); everything else is a flat sprite
+                itemModel.addProperty("parent", def != null && (def.tool != null || def.weapon != null)
+                        ? "minecraft:item/handheld" : "minecraft:item/generated");
+                JsonObject textures = new JsonObject();
+                textures.addProperty("layer0", texture);
+                itemModel.add("textures", textures);
+            }
             writeJson(itemModel, assets.resolve("models/item/" + id + ".json"));
 
             lang.addProperty("item.craftpy." + id, name);
@@ -769,6 +775,11 @@ public final class PackBuilder {
             writeJson(modRecipe(raw, projectId), data.resolve("recipe/" + name + ".json"));
             return;
         }
+        if (type.equals("machine")) {
+            String name = fileName(jsonString(raw, "id", "machine_" + Integer.toHexString(raw.toString().hashCode())));
+            writeJson(machineRecipe(raw, projectId), data.resolve("recipe/" + name + ".json"));
+            return;
+        }
         if (!BUILT_IN_RECIPES.contains(type)) { // it used to become a shapeless recipe, which is never what was meant
             CraftPyLog.LOGGER.warn("Project {}: recipe type '{}' is unknown and was skipped (use recipe(\"mod:type\", ...) for other mods)", projectId, type);
             return;
@@ -837,6 +848,50 @@ public final class PackBuilder {
         }
         String name = fileName(jsonString(raw, "id", fallback));
         writeJson(out, data.resolve("recipe/" + name + ".json"));
+    }
+
+    /** machine_recipe(...): a craftpy:machine recipe with the project's machine, items and liquids named by their slots. */
+    static JsonObject machineRecipe(JsonObject raw, String projectId) {
+        JsonObject out = new JsonObject();
+        out.addProperty("type", "craftpy:machine");
+        out.addProperty("machine", mapRef(jsonString(raw, "machine", ""), projectId, SlotRegistry.Kind.KINETIC));
+        JsonArray inputs = new JsonArray();
+        if (raw.has("inputs") && raw.get("inputs").isJsonArray()) {
+            for (JsonElement element : raw.getAsJsonArray("inputs")) {
+                JsonObject input = element.getAsJsonObject();
+                JsonObject mapped = new JsonObject();
+                mapped.add("ingredient", ingredient(input.get("ingredient"), "minecraft:stone", projectId));
+                mapped.addProperty("count", jsonInt(input, "count", 1));
+                inputs.add(mapped);
+            }
+        }
+        out.add("inputs", inputs);
+        JsonArray outputs = new JsonArray();
+        if (raw.has("outputs") && raw.get("outputs").isJsonArray()) {
+            for (JsonElement element : raw.getAsJsonArray("outputs")) {
+                JsonObject output = element.getAsJsonObject();
+                JsonObject result = output.getAsJsonObject("result");
+                JsonObject mapped = new JsonObject();
+                mapped.add("result", resultObject(mapRef(jsonString(result, "id", "minecraft:stone"), projectId, SlotRegistry.Kind.ITEM),
+                        jsonInt(result, "count", 1)));
+                mapped.addProperty("chance", jsonFloat(output, "chance", 1f));
+                outputs.add(mapped);
+            }
+        }
+        out.add("outputs", outputs);
+        for (String key : new String[] { "fluid_input", "fluid_output" }) {
+            if (raw.has(key) && raw.get(key).isJsonObject()) {
+                JsonObject liquid = raw.getAsJsonObject(key);
+                String fluid = jsonString(liquid, "fluid", "minecraft:water");
+                JsonObject mapped = new JsonObject();
+                mapped.addProperty("fluid", fluid.startsWith("#") ? fluid : mapRef(fluid, projectId, SlotRegistry.Kind.FLUID));
+                mapped.addProperty("amount", jsonInt(liquid, "amount", 1000));
+                out.add(key, mapped);
+            }
+        }
+        out.addProperty("energy", jsonInt(raw, "energy", 0));
+        out.addProperty("time", jsonInt(raw, "time", 20));
+        return out;
     }
 
     private static final java.util.Set<String> BUILT_IN_RECIPES = java.util.Set.of("shaped", "shapeless", "smelting", "blasting",

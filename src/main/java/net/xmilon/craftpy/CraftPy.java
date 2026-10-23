@@ -39,6 +39,7 @@ public class CraftPy {
         net.xmilon.craftpy.registry.KineticSlots.register(modEventBus);
         net.xmilon.craftpy.registry.FluidSlots.register(modEventBus);
         net.xmilon.craftpy.content.KineticRecipe.register(modEventBus);
+        net.xmilon.craftpy.content.MachineRecipe.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);
         net.xmilon.craftpy.registry.ModAttachments.TYPES.register(modEventBus);

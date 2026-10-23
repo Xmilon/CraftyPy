@@ -428,6 +428,16 @@ public class EventBridge {
         return obj;
     }
 
+    /** {@code project:id} for a project's liquid (still or flowing), the registry id otherwise. */
+    public static String fluidId(net.minecraft.world.level.material.Fluid fluid) {
+        for (int i = 0; i < net.xmilon.craftpy.registry.FluidSlots.SOURCES.size(); i++) {
+            if (net.xmilon.craftpy.registry.FluidSlots.SOURCES.get(i).get().isSame(fluid)) {
+                return projectId(SlotRegistry.holderFor(SlotRegistry.Kind.FLUID, i));
+            }
+        }
+        return BuiltInRegistries.FLUID.getKey(fluid).toString();
+    }
+
     /** {@code project:id} for CraftPy content, the registry id otherwise. */
     public static String itemId(ItemStack stack) {
         if (stack.getItem() instanceof SlottedItem slotted) {

@@ -85,6 +85,14 @@ public final class HostBridge {
                     machine.machineState().adjust(energy, fluid, tank);
                     JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
                 });
+                case "world.machine_recipe", "world.machine_finish" -> onServer(server -> {
+                    ServerLevel level = level(server, params);
+                    if (level == null) return error("unknown dimension");
+                    BlockPos pos = pos(params);
+                    if (!level.hasChunkAt(pos)) return error("Machine chunk is not loaded");
+                    if (!(level.getBlockEntity(pos) instanceof net.xmilon.craftpy.content.MachineAccess machine)) return error("No CraftPy machine here");
+                    return machineRecipe(level, pos, machine.machineState(), method.equals("world.machine_finish"), string(params, "recipe", ""));
+                });
                 case "world.machine_set" -> onServer(server -> {
                     ServerLevel level = level(server, params);
                     if (level == null) return error("unknown dimension");
@@ -98,6 +106,22 @@ public final class HostBridge {
                     JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
                 });
                 case "ui.open_screen" -> onServer(server -> openScreen(server, owner, params));
+                case "ui.screen_update" -> onServer(server -> {
+                    ServerPlayer player = findPlayer(server, string(params, "player", ""));
+                    if (player == null) return error("player not found");
+                    if (!(player.containerMenu instanceof net.xmilon.craftpy.menu.MachineMenu menu
+                            && menu.source() instanceof net.xmilon.craftpy.menu.VirtualSource window)) {
+                        return error("this player has no window opened with ui.open_screen");
+                    }
+                    int energy = params.has("energy") ? params.get("energy").getAsInt() : 0;
+                    int fluid = params.has("fluid") ? params.get("fluid").getAsInt() : 0;
+                    int tank = params.has("tank") ? params.get("tank").getAsInt() : 0;
+                    if (fluid > 0 || fluid < -1_000_000 || tank < 0 || tank >= net.xmilon.craftpy.content.Tanks.MAX) return error("fluid or tank out of range");
+                    window.adjust(energy, fluid, tank);
+                    JsonObject result = ok();
+                    result.add("window", window.snapshot());
+                    return result;
+                });
                 case "ui.screen_set" -> onServer(server -> {
                     ServerPlayer player = findPlayer(server, string(params, "player", ""));
                     if (player == null) return error("player not found");
@@ -513,6 +537,41 @@ public final class HostBridge {
      * hand ({@code hand}): its slots, tanks, energy and values are kept in that entity's or item's data under the layout's name.
      * The entity must be near the player.
      */
+    /**
+     * The first recipe of this machine block ({@code machine_recipe(...)}) its input slots and tanks can make, or with
+     * {@code finish} that recipe made: inputs and liquid taken, outputs put in, its energy spent, all or nothing.
+     */
+    private static JsonObject machineRecipe(ServerLevel level, BlockPos pos, net.xmilon.craftpy.content.MachineState state, boolean finish,
+                                            String wanted) {
+        var machine = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(level.getBlockState(pos).getBlock());
+        for (var holder : net.xmilon.craftpy.content.MachineRecipe.of(level, machine)) {
+            var recipe = holder.value();
+            if (!wanted.isEmpty() && !holder.id().toString().equals(wanted)) continue;
+            if (!recipe.matches(state.inventory, state.tanks)) continue;
+            if (!finish) {
+                JsonObject found = new JsonObject();
+                found.addProperty("id", holder.id().toString());
+                found.addProperty("energy", recipe.energy());
+                found.addProperty("ticks", recipe.time());
+                found.addProperty("seconds", recipe.time() / 20.0);
+                JsonObject result = ok();
+                result.add("recipe", found);
+                return result;
+            }
+            if (state.energy.getEnergyStored() < recipe.energy()) return done(false);
+            if (!recipe.finish(state.inventory, state.tanks, level.random)) return done(false);
+            if (recipe.energy() > 0) state.energy.extractEnergy(recipe.energy(), false);
+            return done(true);
+        }
+        return finish ? done(false) : ok();
+    }
+
+    private static JsonObject done(boolean done) {
+        JsonObject result = ok();
+        result.addProperty("done", done);
+        return result;
+    }
+
     private static JsonObject openScreen(MinecraftServer server, String owner, JsonObject p) {
         ServerPlayer player = findPlayer(server, string(p, "player", ""));
         if (player == null) {

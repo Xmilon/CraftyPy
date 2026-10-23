@@ -197,6 +197,29 @@ public class SlottedItem extends Item {
     }
 
 
+    /** Placeable: shift + right click on a block sets one of the stack down as a prop, data and all. */
+    @Override
+    public net.minecraft.world.InteractionResult useOn(net.minecraft.world.item.context.UseOnContext context) {
+        Defs.ItemDef def = definition();
+        Player player = context.getPlayer();
+        if (def == null || def.prop == null || player == null || !player.isShiftKeyDown()) return super.useOn(context);
+        Level level = context.getLevel();
+        var pos = context.getClickLocation();
+        var spot = new net.minecraft.world.phys.Vec3(pos.x, context.getClickedFace() == net.minecraft.core.Direction.DOWN
+                ? pos.y - def.prop[1] : pos.y, pos.z);
+        var box = net.minecraft.world.entity.EntityDimensions.scalable(def.prop[0], def.prop[1]).makeBoundingBox(spot);
+        if (!level.noCollision(box)) return net.minecraft.world.InteractionResult.FAIL;
+        if (!level.isClientSide) {
+            var prop = net.xmilon.craftpy.entity.PropEntity.of(net.xmilon.craftpy.registry.ModEntities.PROP.get(), level,
+                    context.getItemInHand(), spot, player.getYRot() + 180f, def.prop[0], def.prop[1]);
+            level.addFreshEntity(prop);
+            level.playSound(null, spot.x, spot.y, spot.z, net.minecraft.sounds.SoundEvents.ARMOR_EQUIP_LEATHER.value(),
+                    net.minecraft.sounds.SoundSource.PLAYERS, 0.8f, 1f);
+            context.getItemInHand().consume(1, player);
+        }
+        return net.minecraft.world.InteractionResult.sidedSuccess(level.isClientSide);
+    }
+
     // ------------------------------------------------------------------
     // Extensions: tools, durability, weapons, armor, fuel (data from Defs.ItemDef)
     // ------------------------------------------------------------------

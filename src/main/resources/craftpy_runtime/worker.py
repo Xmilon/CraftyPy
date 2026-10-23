@@ -757,8 +757,12 @@ def _native_base(base):
 
 
 def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(),
-         components=None, **extra) -> "Content":
+         components=None, model=None, **extra) -> "Content":
     """Declares an item and returns it.
+
+    ``model="backpack"`` draws it with your own 3D mesh instead of a flat sprite: assets/models/item/backpack.json
+    (Blockbench "Java Block/Item" export; its ``display`` part says how it sits in the hand, the inventory and on the
+    floor). Its textures are named like ``"myproject:backpack"`` (assets/textures/backpack.png).
 
     ``tags=["minecraft:swords", "gems"]`` puts the item in item tags (a bare name is this project's tag).
 
@@ -784,6 +788,11 @@ def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, e
         definition["use_effect"] = _effect_spec(effect)
     if components:
         definition["components"] = _components(components)
+    if model:
+        import re
+        if not isinstance(model, str) or not re.fullmatch(r"[a-z0-9_./:-]{1,120}", model):
+            raise ValueError("model must be the name of a file in assets/models/item/, such as \"backpack\"")
+        definition["model"] = model[:-5] if model.endswith(".json") else model
     _DECLS["items"].append({"id": id, "definition": definition})
     item = Content("%s:%s" % (_namespace(), id), "item", id, definition["name"], definition)
     _content_tags(tags, "item", str(item))
@@ -1335,6 +1344,28 @@ class Cooldown(_Data):
         return {"seconds": self.seconds}
 
 
+class Placeable(_Data):
+    """The item can be set down in the world as itself: shift + right click on a block places one, drawn with its model
+    (``Item(model=...)``), ``width`` x ``height`` blocks big (0.125 to 4). It keeps everything the stack carries (the
+    slots, energy and liquids of a window opened with ``ui.open_screen(..., hand=)``, its name): hitting it, or shift +
+    right click with an empty hand, picks it up again with all of that. A plain right click is
+    ``@on.entity_interact(entity=item)``; ``ui.open_screen(..., entity=ctx.entity)`` there opens the very same window."""
+    applies_to = ("item",)
+    type = "placeable"
+
+    def __init__(self, width=0.6, height=0.6):
+        self.width = _num("Placeable width", width, 0.125, 4.0)
+        self.height = _num("Placeable height", height, 0.125, 4.0)
+
+    def data(self):
+        return {"width": self.width, "height": self.height}
+
+    def configure(self, target):
+        super().configure(target)
+        if target._definition.get("max_stack") == 64:
+            target.set("max_stack", 1)      # each one carries its own data
+
+
 class Tooltip(_Data):
     """Extra lines in the item tooltip. lines: up to 10 texts of at most 120 characters.
     color: one of the 16 Minecraft colors ("gray", "gold", "aqua", "red"...)."""
@@ -1690,7 +1721,7 @@ _EXTENSION_NAMES = {
     "Extension": Extension, "extension": extension, "ItemType": ItemType, "BlockType": BlockType,
     "Tool": Tool, "Sword": Sword, "Pickaxe": Pickaxe, "Axe": Axe, "Shovel": Shovel, "Hoe": Hoe,
     "Durability": Durability, "Weapon": Weapon, "Fuel": Fuel, "Armor": Armor, "Enchantable": Enchantable,
-    "Cooldown": Cooldown, "Tooltip": Tooltip, "MineableBy": MineableBy, "Drops": Drops, "Redstone": Redstone,
+    "Cooldown": Cooldown, "Placeable": Placeable, "Tooltip": Tooltip, "MineableBy": MineableBy, "Drops": Drops, "Redstone": Redstone,
     "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes, "Kinetic": Kinetic, "EnergyStorage": EnergyStorage, "FluidTank": FluidTank, "Screen": Screen, "Inventory": Inventory,
 }
 
@@ -1860,6 +1891,67 @@ def stonecut(ingredient, result, count=1):
             id="%s_stonecutting" % _ref(result).split(":")[-1])
 
 
+def _amount(value, what):
+    """(liquid, mB) or "liquid" (1000 mB) -> {"fluid", "amount"}; a "#tag" stays a tag."""
+    if value is None:
+        return None
+    liquid, amount = (value if isinstance(value, (tuple, list)) else (value, 1000))
+    _integer(what + " amount", amount, 1, 1_000_000)
+    text = str(liquid)
+    return {"fluid": "#" + _tag_id(text, what) if text.startswith("#") else _ref(liquid), "amount": int(amount)}
+
+
+def machine_recipe(machine, inputs=(), outputs=(), *, energy=0, seconds=1.0, fluid_input=None, fluid_output=None, id=None):
+    """machine_recipe(grinder, inputs=["diorite"], outputs=[(diorite_dust, 2), (diorite_dust, 1, 0.5)], energy=400, seconds=4)
+
+    A recipe of your machine block: JEI and EMI show it under the block, and ``world.machine_recipe(pos)`` /
+    ``world.machine_finish(pos, recipe=...)`` find and make it from the block's input slots and tanks.
+    inputs: items, ``(item, count)`` or ``"#c:tag"`` (up to 9). outputs: ``item``, ``(item, count)`` or
+    ``(item, count, chance)`` with chance 0..1 (up to 9). fluid_input / fluid_output: ``"minecraft:lava"`` (1000 mB) or
+    ``(liquid, mB)``; an input may be a ``"#tag"``. energy: FE spent when it finishes. seconds: how long it takes."""
+    def item_input(value):
+        item, count = (value if isinstance(value, (tuple, list)) else (value, 1))
+        _integer("input count", count, 1, 64)
+        text = _ref(item)
+        ingredient = {"tag": _tag_id(text[1:], "machine_recipe input")} if text.startswith("#") else {"item": text}
+        return {"ingredient": ingredient, "count": int(count)}
+
+    def item_output(value):
+        parts = list(value) if isinstance(value, (tuple, list)) else [value]
+        item, count, chance = (parts + [1, 1.0])[:3] if len(parts) == 1 else (parts + [1.0])[:3]
+        _integer("output count", count, 1, 64)
+        if not isinstance(chance, (int, float)) or not 0 < chance <= 1:
+            raise ValueError("machine_recipe output chance must be above 0 and at most 1, got %r" % (chance,))
+        text = _ref(item)
+        if text.startswith("#"):
+            raise ValueError("a machine makes items, not a tag (%s): name an item; tags are for inputs" % text)
+        return {"result": {"id": text, "count": int(count)}, "chance": float(chance)}
+
+    if isinstance(inputs, (str, Content)) or isinstance(inputs, tuple) and len(inputs) == 2 and isinstance(inputs[1], int):
+        inputs = [inputs]
+    if isinstance(outputs, (str, Content)) or isinstance(outputs, tuple) and 2 <= len(outputs) <= 3 and isinstance(outputs[1], int):
+        outputs = [outputs]
+    ins, outs = [item_input(v) for v in inputs], [item_output(v) for v in outputs]
+    if len(ins) > 9 or len(outs) > 9:
+        raise ValueError("machine_recipe has at most 9 inputs and 9 outputs")
+    if not ins and fluid_input is None:
+        raise ValueError("machine_recipe needs inputs or fluid_input")
+    if not outs and fluid_output is None:
+        raise ValueError("machine_recipe needs outputs or fluid_output")
+    if isinstance(fluid_output, (tuple, list)) and str(fluid_output[0]).startswith("#") or str(fluid_output or "").startswith("#"):
+        raise ValueError("fluid_output names one liquid, not a tag")
+    _integer("energy", energy, 0, 1_000_000_000)
+    if not isinstance(seconds, (int, float)) or not 0.05 <= seconds <= 3600:
+        raise ValueError("machine_recipe seconds must be 0.05 to 3600, got %r" % (seconds,))
+    payload = {"machine": _ref(machine), "inputs": ins, "outputs": outs, "energy": int(energy), "time": max(1, int(round(seconds * 20)))}
+    if fluid_input is not None:
+        payload["fluid_input"] = _amount(fluid_input, "fluid_input")
+    if fluid_output is not None:
+        payload["fluid_output"] = _amount(fluid_output, "fluid_output")
+    name = id or "%s_%s" % (_ref(machine).split(":")[-1], (outs[0]["result"]["id"] if outs else payload["fluid_output"]["fluid"]).split(":")[-1])
+    _recipe("machine", id=str(name), **payload)
+
+
 def recipe(type, id=None, **fields):
     """recipe("create:mixing", ingredients=[...], results=[...]) - a recipe of another mod's type.
 
@@ -1941,10 +2033,10 @@ class _On:
 
     def __call__(self, event, every=None, priority="normal", throttle_ticks=0, **filters):
         throttle_ticks = _num("Event throttle_ticks", throttle_ticks, 0, 12000, whole=True)
-        unknown = set(filters) - set(_FILTER_KEYS)
+        unknown = set(filters) - set(_FILTER_KEYS) - set(_PLAIN_FILTERS)
         if unknown:
             raise TypeError("@on(%r): unknown filter %s (use %s)"
-                            % (event, ", ".join(sorted(unknown)), ", ".join(_FILTER_KEYS)))
+                            % (event, ", ".join(sorted(unknown)), ", ".join(_FILTER_KEYS + _PLAIN_FILTERS)))
         # block=, item=, entity= name content (ids); button=, window=, hand= are plain words of the event
         wanted = {key: str(value) if key in _PLAIN_FILTERS else _ref(value) for key, value in filters.items()}
 
@@ -2411,6 +2503,22 @@ class _World:
         _integer("tank", tank, 0, 3)
         return _ok(_host_call("world.machine_update", dict(x=x, y=y, z=z, energy=energy, fluid=fluid, tank=tank,
                                                             dimension=dimension))).get("machine", {})
+
+    def machine_recipe(self, x, y=None, z=None, dimension=_OVERWORLD):
+        """The first ``machine_recipe(...)`` of this machine block that its input slots and tanks can make right now, as
+        ``{"id", "energy", "ticks", "seconds"}``, or None. Nothing changes; call ``machine_finish`` when its time is up."""
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.machine_recipe", dict(x=x, y=y, z=z, dimension=dimension))).get("recipe")
+
+    def machine_finish(self, x, y=None, z=None, *, recipe, dimension=_OVERWORLD) -> bool:
+        """Makes the recipe ``machine_recipe`` returned (its dict or id): takes the inputs and liquid, puts the outputs into
+        the output slots (each rolled against its chance) and spends its energy, all or nothing. False when it cannot
+        (inputs gone, outputs full, not enough energy); then nothing changed."""
+        x, y, z = _xyz(x, y, z)
+        ident = recipe.get("id") if isinstance(recipe, dict) else recipe
+        if not isinstance(ident, str) or not ident:
+            raise ValueError("machine_finish(recipe=...) takes what world.machine_recipe(...) returned")
+        return bool(_ok(_host_call("world.machine_finish", dict(x=x, y=y, z=z, recipe=ident, dimension=dimension))).get("done"))
 
     def resources(self, x, y=None, z=None, dimension=_OVERWORLD, *, side=None) -> dict:
         """Bounded native NeoForge item/FE/fluid snapshot from a loaded block face."""
@@ -3382,6 +3490,17 @@ class _Ui:
             params["values"] = _screen_values(values)
         return _ok(_host_call("ui.open_screen", params))
 
+    def screen_update(self, player, *, energy=0, fluid=0, tank=0) -> dict:
+        """Changes what the window ``player`` has open from ``ui.open_screen`` stores, and returns it as
+        ``{"energy", "energy_capacity", "tanks": [{"fluid", "amount", "capacity"}], "values"}``; all zero just reads it.
+        ``energy`` is added in FE (negative takes it), ``fluid`` is removed in mB from ``tank`` (0 or negative), within
+        what it holds. With ``@on.screen_button`` this is how a button turns liquid into energy."""
+        _integer("energy", energy, -1_000_000_000, 1_000_000_000)
+        _integer("fluid", fluid, -1_000_000, 0)
+        _integer("tank", tank, 0, 3)
+        return _ok(_host_call("ui.screen_update", dict(player=_player_name(player), energy=energy, fluid=fluid,
+                                                        tank=tank))).get("window", {})
+
     def screen_set(self, player, values):
         """Changes the free values of the window ``player`` has open from ``ui.open_screen`` (bars and labels follow)."""
         return _ok(_host_call("ui.screen_set", dict(player=_player_name(player), values=_screen_values(values))))
@@ -3697,7 +3816,23 @@ API_CHANGES = [
                "`/craftpy backup create [project]`, `list` and `restore <file> [project]`: the `storage` values, `files.*` folders and loaded machines "
                "of every module and project as one JSON file in `<world>/craftpy_backups/`; a restore first backs up what it replaces.",
                "`@command(name, level=...)`: who may run the command (0 every player, 2 operators, 3 server admins, 4 the server owner); "
-               "an argument with a default value may be left out when typing it."],
+               "an argument with a default value may be left out when typing it.",
+               "`machine_recipe(machine, inputs=, outputs=, energy=, seconds=, fluid_input=, fluid_output=)`: recipes of your machine blocks "
+               "(items with counts or `#tags`, outputs with a chance, liquids in and out). JEI and EMI show them on a page of the machine; "
+               "`world.machine_recipe(pos)` finds the one its input slots and tanks can make and `world.machine_finish(pos, recipe=)` makes it "
+               "(inputs taken, outputs put in, energy spent, all or nothing).",
+               "`Item(model=\"backpack\")`: your own 3D item model (assets/models/item/). `Placeable(width, height)`: shift + right click on a "
+               "block sets the item down as itself, with everything its stack carries; hitting it picks it up again. "
+               "`@on.entity_interact(entity=item)` hears a right click on it and `ui.open_screen(..., entity=ctx.entity)` opens the same "
+               "window as in the hand.",
+               "Minecraft-style windows: Minecraft's own slots, arrow, flame, panel and buttons, Mekanism's energy bar and gauges when it is "
+               "installed (`style` auto, mekanism or plain); grids up to 13 x 9 and windows up to 320 units; image pieces of any texture; "
+               "button pieces heard by `@on.screen_button(button=, window=)`.",
+               "`FluidTank(..., tanks=1..4)` with gauges bound to `fluid:N`; `Inventory` groups `fluid_in`, `fluid_out`, `energy_in` and "
+               "`energy_out` fill and empty tanks and the energy store with buckets and batteries of any mod; `Inventory(keep=True)` keeps "
+               "the items in the dropped block.",
+               "`ui.open_screen(..., hand=\"main\")` keeps a window's slots, `energy=` and `tanks=` in the held item; `ui.screen_update(player, "
+               "energy=, fluid=, tank=)` changes and reads them while it is open."],
      "changed": ["A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.",
                  "Several recipes for the same item each keep their own id (the second one used to replace the first).",
                  "`files.*` and client `storage` are written to a temporary file and moved over the old one, so a crash keeps the old file whole; "
@@ -3706,7 +3841,9 @@ API_CHANGES = [
                  "only in the project that declared it (two projects with a `heal` command no longer both run), disappears when its project stops, "
                  "keeps working after `/reload`, and a changed declaration replaces the old command. Player arguments arrive as the player.",
                  "`/craftpy` lists the commands you may use; `/craftpy window` (it never worked), `give ... block|item` (the kind is found from the id) "
-                 "and `module reload <module>` (every module reloads together) are gone; `/craftpy module` lists the modules everywhere."]},
+                 "and `module reload <module>` (every module reloads together) are gone; `/craftpy module` lists the modules everywhere.",
+                 "Machine snapshots (`world.machine`) name a project's liquids by their project id, like its items.",
+                 "`ctx.window` of `@on.screen_button` is the layout's name (`\"pack\"`), without the project in front."]},
     {"version": "2.11", "date": "2026-10-23",
      "added": ["`Fluid(id, ...)`: custom liquids that are real NeoForge fluids (flowing, swimmable, buckets, tanks and pipes of any mod). "
                "`density`, `viscosity`, `temperature`, `light`, `color` or own `still` / `flowing` textures, `effects` while an entity is in it, "
@@ -4314,7 +4451,7 @@ def _server_api_names():
         # simple API
         "Block": Block, "NativeBlock": NativeBlock, "NativeMob": NativeMob, "Item": Item, "Food": Food, "Content": Content, "Mob": Mob, "Spawn": Spawn, "Effect": Effect, "Fluid": Fluid,
         "Pool": Pool, "Structure": Structure,
-        "shaped": shaped, "shapeless": shapeless, "smelt": smelt, "stonecut": stonecut,
+        "shaped": shaped, "shapeless": shapeless, "smelt": smelt, "stonecut": stonecut, "machine_recipe": machine_recipe,
         "after": after, "Pos": Pos, "Player": Player, "Entity": Entity,
         "player": player, "say": say, "run": run, "java": java, "JavaError": JavaError,
     }
@@ -6997,6 +7134,7 @@ def _load_docs():
             "texture": "PNG file name in assets/textures/ ('ruby.png'), a vanilla texture ('minecraft:item/diamond') or tex(...).",
             "stack": "Largest stack, 1 to 64 (default 64; tools and armor set 1 themselves).",
             "glow": "True draws the enchantment shimmer.",
+            "model": "Your own 3D mesh in assets/models/item/ ('backpack'), drawn instead of the flat texture.",
             "food": "A number (hunger points) or Food(...). Makes the item edible.",
             "fuel": "Furnace burn time in seconds (0 = not a fuel). Same as .extends(Fuel(seconds)).",
             "effect": "Right click applies an effect: 'speed' or (name, level, seconds), level 1 = normal.",
@@ -7146,6 +7284,12 @@ def _load_docs():
             "using": "'furnace' (default), 'blast_furnace', 'smoker' or 'campfire'."}, ""),
         "stonecut": ("Stonecutter recipe.", {"ingredient": "Item put in.", "result": "Item produced.",
                                              "count": "Items produced per input."}, ""),
+        "machine_recipe": ("A recipe of your machine block, shown by JEI and EMI under it: machine_recipe(grinder, inputs=['diorite'], outputs=[(dust, 2), (dust, 1, 0.25)], energy=400, seconds=4).", {
+            "machine": "Your machine block.", "inputs": "Items, (item, count) or '#c:tag' (up to 9).",
+            "outputs": "item, (item, count) or (item, count, chance) with chance 0..1 (up to 9).",
+            "energy": "FE spent when it finishes.", "seconds": "How long it takes (0.05 to 3600).",
+            "fluid_input": "'minecraft:lava' (1000 mB), (liquid, mB) or a '#tag'.", "fluid_output": "A liquid or (liquid, mB).",
+            "id": "Recipe file name (default: machine_result)."}, ""),
         "recipe": ("A recipe of another mod's type: recipe('create:mixing', ingredients=[...], results=[...]).", {
             "type": "Recipe type id 'mod:type' (the IDE lists the types of the installed mods).",
             "id": "File name of the recipe (optional).",
@@ -7251,8 +7395,11 @@ def _load_docs():
         "world.machine": ("Read a loaded kinetic machine without loading chunks. Snapshot includes speed, theoretical_speed, overstressed, processing, progress, recipe and input/output stacks.", dict(POS3, dimension=DIM), "dict"),
         "world.machine_set": ("Set free values (numbers or short texts, at most 32 keys) on a loaded machine block; a window bar bound to value:key and a label with {key} show them. Returns the new snapshot.", dict(POS3, values="{key: number or text}; keys are lowercase words.", dimension=DIM), "dict"),
         "ui.open_screen": ("Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).", {"player": "Player or name.", "layout": "A Minecraft-style window of the UI maker; none shows the standard window of the inventory.", "title": "Text at the top.", "entity": "Entity or player that owns the slots (within 8 blocks); default the player.", "hand": "\"main\" or \"off\": the window belongs to the item in that hand instead (its data travels with the item).", "inventory": "Inventory(...) giving the window item slots.", "energy": "FE the window can store (0: none).", "tanks": "How many liquid tanks (0..4).", "tank_capacity": "mB of each tank.", "values": "{key: number or text} for bars and labels."}, ""),
+        "ui.screen_update": ("Adds energy (negative takes it) or removes liquid (mB, negative) from the window the player has open from ui.open_screen; returns its energy, tanks and values.", {"player": "Player or name.", "energy": "FE to add.", "fluid": "mB to remove, 0 or negative.", "tank": "0 to 3."}, "dict"),
         "ui.screen_set": ("Changes the free values of the window the player has open from ui.open_screen.", {"player": "Player or name.", "values": "{key: number or text}."}, ""),
         "world.machine_slot": ("Put a stack into a slot ('group.number') of a loaded machine block, replacing what is there; item=None empties it. Returns the new snapshot.", dict(POS3, slot="'group.number' of the block's Inventory, such as 'input.0' or 'output.1'.", item="Item or id, or None to empty the slot.", count="Stack size, 0..64 (and the group's max_stack).", dimension=DIM), "dict"),
+        "world.machine_recipe": ("The first machine_recipe of this block its input slots and tanks can make now, as {id, energy, ticks, seconds}, or None. Changes nothing.", dict(POS3, dimension=DIM), "dict"),
+        "world.machine_finish": ("Makes the recipe machine_recipe returned: takes the inputs and liquid, puts the outputs in (rolled against their chance), spends its energy; all or nothing. False when it cannot.", dict(POS3, recipe="What world.machine_recipe returned (or its id).", dimension=DIM), "bool"),
         "world.machine_update": ("Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.", dict(POS3, energy="FE to add (negative removes).", fluid="mB to remove, 0 or negative.", tank="Which tank of FluidTank(..., tanks=n) the fluid comes from (0 the first).", dimension=DIM), "dict"),
         "world.set_block": ("Places a block: world.set_block(x, y, z, 'stone') or world.set_block(pos, 'stone').", dict(
             POS3, block="Block id or Block object.", dimension=DIM, replace="False only places into air.") , ""),
@@ -7423,6 +7570,7 @@ def _load_docs():
             "toughness": "Armor toughness, 0 to 20.", "knockback_resistance": "0 to 1."}, ""),
         "Enchantable": ("How good enchantments from an enchanting table are.", {"value": "0 (none) to 50; gold armor is 25."}, ""),
         "Cooldown": ("The item can only be used again after a pause, shown as a bar.", {"seconds": "0.05 to 3600."}, ""),
+        "Placeable": ("Shift + right click on a block sets the item down as itself, data and all; hit it to pick it up.", {"width": "Blocks wide, 0.125 to 4.", "height": "Blocks high, 0.125 to 4."}, ""),
         "Tooltip": ("Extra lines in the item tooltip.", {"lines": "1 to 10 texts of at most 120 characters.", "color": "One of the 16 chat colors ('gray', 'gold', 'aqua'...)."}, ""),
         "MineableBy": ("Which tool mines a block.", {
             "tool": "'pickaxe', 'axe', 'shovel' or 'hoe'.", "tier": "Lowest tool tier that works ('wood' to 'netherite'; None = any).",

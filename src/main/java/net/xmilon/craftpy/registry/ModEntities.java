@@ -52,6 +52,11 @@ public final class ModEntities {
         }
     }
 
+    /** Items set down in the world as themselves (Placeable): one type for every project, the stack says what it is. */
+    public static final DeferredHolder<EntityType<?>, EntityType<net.xmilon.craftpy.entity.PropEntity>> PROP = ENTITY_TYPES.register("prop",
+            () -> EntityType.Builder.<net.xmilon.craftpy.entity.PropEntity>of(net.xmilon.craftpy.entity.PropEntity::new, MobCategory.MISC)
+                    .sized(0.6f, 0.6f).clientTrackingRange(10).updateInterval(20).build(CraftPyLog.MODID + ":prop"));
+
     private ModEntities() {
     }
 

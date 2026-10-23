@@ -34,6 +34,8 @@ repositories {
     maven { url 'https://maven.izzel.io/releases/' }
     // JEI API (optional: the Recipes & drops window draws JEI's own recipe layouts when JEI is installed)
     maven { url 'https://maven.blamejared.com/' }
+    // EMI API (optional: machine recipes of projects shown in EMI when it is installed)
+    maven { url 'https://maven.terraformersmc.com/releases/' }
     // GeckoLib (optional: Python mobs with .geo.json models are drawn by GeckoLib when it is installed)
     maven { url 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
     maven { url 'https://api.modrinth.com/maven' }
@@ -184,6 +186,8 @@ dependencies {
     // JEI: compile against its API only; at runtime CraftPy uses it only when the JEI mod is installed
     compileOnly("mezz.jei:jei-1.21.1-common-api:19.64.0.455") { transitive = false }
     compileOnly("mezz.jei:jei-1.21.1-neoforge-api:19.64.0.455") { transitive = false }
+    // EMI: compile against its API only; the plugin is found by EMI and never loaded without it
+    compileOnly("dev.emi:emi-neoforge:1.1.22+1.21.1:api") { transitive = false }
     // Audio decoders for the media player (Minecraft itself plays only OGG Vorbis): MP3 (JLayer, LGPL 2.1) and FLAC
     // (jFLAC, Apache 2.0), pure Java, bundled inside the mod jar (jarJar) and on the dev runs' classpath.
     jarJar(implementation("javazoom:jlayer:1.0.1") { transitive = false })

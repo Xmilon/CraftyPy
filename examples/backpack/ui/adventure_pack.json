@@ -1,0 +1,120 @@
+{
+  "id": "adventure_pack",
+  "title": "Adventurer's Pack",
+  "legacy": true,
+  "size": [
+    248,
+    222
+  ],
+  "root": {
+    "type": "canvas",
+    "children": [
+      {
+        "type": "lg_panel",
+        "x": 0,
+        "y": 0,
+        "width": 248,
+        "height": 222
+      },
+      {
+        "type": "lg_label",
+        "x": 8,
+        "y": 6,
+        "width": 150,
+        "height": 9,
+        "text": "{title}",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_fluid",
+        "x": 8,
+        "y": 18,
+        "width": 16,
+        "height": 54,
+        "bind": "fluid:0"
+      },
+      {
+        "type": "lg_fluid",
+        "x": 27,
+        "y": 18,
+        "width": 16,
+        "height": 54,
+        "bind": "fluid:1"
+      },
+      {
+        "type": "lg_slot",
+        "x": 7,
+        "y": 76,
+        "slot": "fluid_in.0"
+      },
+      {
+        "type": "lg_slot",
+        "x": 26,
+        "y": 76,
+        "slot": "fluid_out.0"
+      },
+      {
+        "type": "lg_button",
+        "x": 7,
+        "y": 98,
+        "width": 38,
+        "height": 16,
+        "text": "Distill",
+        "bind": "distill"
+      },
+      {
+        "type": "lg_label",
+        "x": 7,
+        "y": 118,
+        "width": 40,
+        "height": 9,
+        "text": "{status}",
+        "color": "#606060"
+      },
+      {
+        "type": "lg_slots",
+        "x": 49,
+        "y": 18,
+        "slot": "storage",
+        "columns": 9,
+        "rows": 6
+      },
+      {
+        "type": "lg_energy",
+        "x": 216,
+        "y": 18,
+        "width": 12,
+        "height": 54,
+        "bind": "energy"
+      },
+      {
+        "type": "lg_slot",
+        "x": 213,
+        "y": 76,
+        "slot": "energy_in.0"
+      },
+      {
+        "type": "lg_slot",
+        "x": 213,
+        "y": 96,
+        "slot": "energy_out.0"
+      },
+      {
+        "type": "lg_label",
+        "x": 43,
+        "y": 129,
+        "width": 120,
+        "height": 9,
+        "text": "{inventory}",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_player",
+        "x": 43,
+        "y": 140,
+        "width": 162,
+        "height": 76
+      }
+    ]
+  }
+}

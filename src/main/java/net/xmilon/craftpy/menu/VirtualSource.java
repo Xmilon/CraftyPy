@@ -126,6 +126,20 @@ public final class VirtualSource implements MenuSource {
 
     /** The window state of {@code entity} (a mob, a player) for the window {@code key}. */
     public static VirtualSource of(Entity entity, String key, String owner, Defs.InventorySpec spec, int energy, int tanks, int tankCapacity) {
+        if (entity instanceof net.xmilon.craftpy.entity.PropEntity prop) {
+            // a prop keeps its windows in its item, so they are the same in the hand and on the floor
+            ItemStack stack = prop.item();
+            return new VirtualSource(new Holder() {
+                @Override public CompoundTag root() { return stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag().getCompound(ROOT); }
+                @Override public void store(CompoundTag root) { CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.put(ROOT, root)); }
+                @Override public boolean valid(Player player) { return prop.isAlive() && prop.item() == stack && prop.distanceToSqr(player) <= 64; }
+                @Override public void describe(JsonObject context) {
+                    context.add("entity", EventBridge.wrapEntity(prop));
+                    context.add("item", EventBridge.wrapItem(stack));
+                }
+                @Override public HolderLookup.Provider registries() { return prop.level().registryAccess(); }
+            }, clean(key), owner, spec, energy, tanks, tankCapacity, -1);
+        }
         return new VirtualSource(new Holder() {
             @Override public CompoundTag root() { return entity.getPersistentData().getCompound(ROOT); }
             @Override public void store(CompoundTag root) { entity.getPersistentData().put(ROOT, root); }
@@ -176,6 +190,32 @@ public final class VirtualSource implements MenuSource {
         holder.store(root);
     }
 
+    /** Adds energy (negative takes it) and removes {@code -fluid} mB from {@code tank}, within what it holds. */
+    public void adjust(int energyDelta, int fluid, int tank) {
+        if (energyDelta > 0) energy.receiveEnergy(energyDelta, false);
+        if (energyDelta < 0) energy.extractEnergy(-energyDelta, false);
+        if (fluid < 0 && tank < tanks.count()) tanks.tank(tank).drain(-fluid, net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+        save();
+    }
+
+    /** What Python sees of the window: its energy, tanks (liquids by project id) and values. */
+    public JsonObject snapshot() {
+        JsonObject out = new JsonObject();
+        out.addProperty("energy", energy.getEnergyStored());
+        out.addProperty("energy_capacity", energy.getMaxEnergyStored());
+        com.google.gson.JsonArray all = new com.google.gson.JsonArray();
+        for (int i = 0; i < tanks.count(); i++) {
+            JsonObject tank = new JsonObject();
+            tank.addProperty("fluid", EventBridge.fluidId(tanks.tank(i).getFluid().getFluid()));
+            tank.addProperty("amount", tanks.tank(i).getFluidAmount());
+            tank.addProperty("capacity", tanks.tank(i).getCapacity());
+            all.add(tank);
+        }
+        out.add("tanks", all);
+        out.add("values", ScreenValues.toJson(values));
+        return out;
+    }
+
     /** The player inventory slot that holds this window's item (it may not be moved while open), or -1. */
     public int lockedSlot() {
         return lockedSlot;
@@ -195,7 +235,9 @@ public final class VirtualSource implements MenuSource {
     @Override
     public void describe(JsonObject context) {
         holder.describe(context);
-        context.addProperty("window", key);
+        // the layout's name, as @on.screen_button(window="pack") names it (the key starts with the owner)
+        String prefix = clean(owner) + "_";
+        context.addProperty("window", key.startsWith(prefix) ? key.substring(prefix.length()) : key);
     }
 
     @Override
