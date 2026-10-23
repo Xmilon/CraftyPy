@@ -41,6 +41,31 @@ public final class MachineInteractions {
         if (!level.isClientSide) { var rest = inventory.insertItem(0, stack, false); if (!player.isCreative()) player.setItemInHand(hand, rest); machine.syncMachine(); }
         return ItemInteractionResult.sidedSuccess(level.isClientSide);
     }
+    /** Right click without a held item (or with one that did not act): the Screen(...) window, else take the output. */
+    public static InteractionResult use(Level level, BlockPos pos, Player player, net.minecraft.world.level.block.Block block) {
+        var def = net.xmilon.craftpy.registry.SlotRegistry.kineticDef(net.xmilon.craftpy.registry.KineticSlots.index(block));
+        if (def != null && def.screen != null && level.getBlockEntity(pos) instanceof MachineAccess machine) {
+            if (!level.isClientSide && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                var screen = def.screen;
+                String title = screen.has("title") && !screen.get("title").isJsonNull() ? screen.get("title").getAsString() : def.name;
+                boolean energy = (!screen.has("energy") || screen.get("energy").getAsBoolean()) && def.energy != null;
+                boolean fluid = (!screen.has("fluid") || screen.get("fluid").getAsBoolean()) && def.fluid != null;
+                boolean slots = !screen.has("slots") || screen.get("slots").getAsBoolean();
+                serverPlayer.openMenu(new net.minecraft.world.SimpleMenuProvider((id, inventory, p) -> new net.xmilon.craftpy.menu.MachineMenu(
+                        id, inventory, pos, machine, title, energy, fluid, slots), net.minecraft.network.chat.Component.literal(title)),
+                        buf -> { buf.writeBlockPos(pos); buf.writeUtf(title, 64); buf.writeBoolean(energy); buf.writeBoolean(fluid); buf.writeBoolean(slots); });
+            }
+            return InteractionResult.sidedSuccess(level.isClientSide);
+        }
+        return extract(level, pos, player);
+    }
+
+    /** The hitbox the project declared (Block(shape=...) or taken from its model); null = the block's own. */
+    public static net.minecraft.world.phys.shapes.VoxelShape shape(net.minecraft.world.level.block.Block block) {
+        var def = net.xmilon.craftpy.registry.SlotRegistry.kineticDef(net.xmilon.craftpy.registry.KineticSlots.index(block));
+        return def == null ? null : def.shape;
+    }
+
     public static InteractionResult extract(Level level, BlockPos pos, Player player) {
         if (!player.mayBuild() || !(level.getBlockEntity(pos) instanceof MachineAccess machine)) return InteractionResult.PASS;
         if (!level.isClientSide) { var stack = machine.machineState().inventory.extractItem(player.isShiftKeyDown() ? 0 : 1, 64, false); if (!player.addItem(stack)) player.drop(stack, false); machine.syncMachine(); }

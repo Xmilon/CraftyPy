@@ -146,8 +146,14 @@ public class CraftPyClient {
     }
 
     @SubscribeEvent
+    static void onRegisterFluidExtensions(net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent event) {
+        net.xmilon.craftpy.client.FluidClientExtensions.register(event);
+    }
+
+    @SubscribeEvent
     static void onRegisterMenuScreens(RegisterMenuScreensEvent event) {
         // The computer block opens the CraftPy home screen (Modern UI).
+        event.register(ModMenus.MACHINE.get(), net.xmilon.craftpy.client.MachineScreen::new);
         event.register(ModMenus.COMPUTER.get(),
                 icyllis.modernui.mc.neoforge.MenuScreenFactory.create(menu -> new CraftPyFragment()));
     }

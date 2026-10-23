@@ -85,6 +85,7 @@ public final class Declarations {
         addContents(declarations.contents, raw.getAsJsonArray("items"), "item");
         addContents(declarations.contents, raw.getAsJsonArray("entities"), "entity");
         addContents(declarations.contents, raw.getAsJsonArray("effects"), "effect");
+        addContents(declarations.contents, raw.getAsJsonArray("fluids"), "fluid");
 
         JsonArray handlers = raw.getAsJsonArray("handlers");
         if (handlers != null) {

@@ -15,6 +15,10 @@ public final class ModMenus {
     public static final DeferredHolder<MenuType<?>, MenuType<ComputerMenu>> COMPUTER =
             MENUS.register("computer", () -> IMenuTypeExtension.create(ComputerMenu::new));
 
+    /** The Minecraft-style window of machine blocks that declared Screen(...). */
+    public static final DeferredHolder<MenuType<?>, MenuType<net.xmilon.craftpy.menu.MachineMenu>> MACHINE =
+            MENUS.register("machine", () -> IMenuTypeExtension.create(net.xmilon.craftpy.menu.MachineMenu::new));
+
     private ModMenus() {
     }
 }

@@ -440,9 +440,12 @@ http.get("https://api.open-meteo.com/v1/forecast?latitude=52.5&longitude=13.4&cu
   another module's sites, data folder or saved values, nor read its files.
 - Two more permissions: `"commands": true` for `server.run_command` (runs at level 2, like a command block) and
   `"java": true` for the [Java bridge](java.md) (full trust: it can do anything the game can).
-- The **server owner** decides which sites exist at all: `config/craftpy-access.toml`, `net.allowedDomains` (general sites)
-  and `net.dangerDomains` (sites where anyone can upload files or receive data, such as GitHub, pastebins, Discord webhooks:
-  allowed only with approval and shown as DANGER ZONE). Remove a line to forbid a site.
+- **Any site may be declared**, with the module's `"permissions": {"net": [...]}`; say in its README what it requests
+  (for example *"requests wikipedia.org for summaries"*). `config/craftpy-access.toml` keeps a **trusted list**
+  (`net.allowedDomains`: reference, weather, Minecraft and API sites): a site on it is shown plainly. A site that is not
+  on it is **flagged** on the Modules page, in the README warning and when the module is switched on, and one in
+  `net.dangerDomains` (GitHub, pastebins, Discord webhooks, anyone-can-upload sites) is shown as DANGER ZONE. Nothing is
+  blocked because of the lists; the player's approval of that exact module file is what allows a request.
 - `https://` only, named sites only (no IP numbers, no addresses of your computer or home network), at most 30 requests a
   minute, 2 MB answers, 15 seconds. Redirects are checked like the first request.
 - **API keys** go into `net.httpKeys` (`openai=api.openai.com=Authorization: Bearer sk-...`); code writes `key="openai"` and
@@ -591,11 +594,18 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.10** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.11** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.11 (2026-10-23)
+
+- **Added:** `Fluid(id, ...)`: custom liquids that are real NeoForge fluids (flowing, swimmable, buckets, tanks and pipes of any mod). `density`, `viscosity`, `temperature`, `light`, `color` or own `still` / `flowing` textures, `effects` while an entity is in it, `bucket_texture`; `fluid.bucket` is the bucket item. Eight liquid slots by default (`fluids=` in craftpy-slots.properties).
+- **Added:** `Block(model=, shape=)`: your own mesh from assets/models/block/ and a hitbox of boxes in sixteenths of a block; without `shape` the hitbox follows the model's boxes when the project runs from its folder.
+- **Added:** `Screen(title=)` extension: a Minecraft-style window for machine blocks (two item slots, liquid gauge, energy bar on the right). A bucket in the first slot is emptied into the block's `FluidTank`.
+- **Added:** `world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block.
 
 ### 2.10 (2026-10-21)
 
@@ -695,7 +705,7 @@ Declares an item and returns it; the result can be used anywhere an item id is e
 
 Returns: The item (a string 'project:id' with .extends(...)).
 
-#### `Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None, needs_tool=False, sound=None, drops=None, extensions=(), tags=(), **extra) -> 'Content'`
+#### `Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None, needs_tool=False, sound=None, drops=None, extensions=(), tags=(), model=None, shape=None, **extra) -> 'Content'`
 
 Declares a block and returns it; usable anywhere a block or item id is expected.
 
@@ -711,6 +721,8 @@ Declares a block and returns it; usable anywhere a block or item id is expected.
 - `drops` (default `None`): What it drops: an item, a list, (item, count) / (item, count, weight), 'self' or [] for nothing. Default: the block itself.
 - `extensions` (default `()`): List of extensions (MineableBy(...), Redstone(...), your own); same as .extends(...).
 - `tags` (default `()`): Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag).
+- `model` (default `None`): Your own mesh: the name of a file in assets/models/block/ (a Blockbench 'Java Block/Item' export), such as 'pedestal'.
+- `shape` (default `None`): Hitbox (outline and collision): one box (x1, y1, z1, x2, y2, z2) or a list of up to 32, in sixteenths of a block (0..16). Default: the boxes of the model, or a full cube without one.
 - `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The block.
@@ -744,7 +756,7 @@ Class form of Item(...): attributes id, name, texture, stack, glow, food, fuel, 
 
 Class form of Block(...): attributes id, name, texture, hardness, resistance, light, tool, needs_tool, sound, drops and extensions are the keyword arguments.
 
-### Mobs and effects
+### Mobs, effects and liquids
 
 #### `Mob(id, name=None, texture=None, model='humanoid', animation=None, health=10, speed=0.25, damage=2, armor=0, hostile=False, width=0.6, height=1.8, scale=1.0, follow_range=16, egg=None, spawns=(), drops=None, behavior=None, goals=(), animations=None, **extra) -> 'Content'`
 
@@ -809,6 +821,25 @@ Declares a potion effect and returns it: player.effect(rage), Item(effect=rage),
 - `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The effect (a string 'project:id').
+
+#### `Fluid(id, name=None, color='#3fa7ff', density=1000, viscosity=1000, temperature=300, light=0, effects=(), still=None, flowing=None, bucket_texture=None, **extra) -> 'Content'`
+
+Declares a liquid (a real NeoForge fluid with a bucket: Fluid(...).bucket). Flows, can be swum in, fills tanks and pipes.
+
+- `id`: Lowercase id with letters, digits and _ (for example 'ruby_ore'). The game id becomes '<project>:<id>'.
+- `name` (default `None`): Display name; default is the id in title case.
+- `color` (default `'#3fa7ff'`): Tint of the water textures, '#rrggbb'.
+- `density` (default `1000`): kg/m3: water 1000, lava 3000; negative rises like a gas.
+- `viscosity` (default `1000`): Water 1000, lava 6000: higher slows flowing and swimming.
+- `temperature` (default `300`): Kelvin: water 300, lava 1300.
+- `light` (default `0`): Light given off, 0 to 15.
+- `effects` (default `()`): Applied while an entity is in it: [('poison', 5), (rage, 8, 2)] as (effect, seconds, level).
+- `still` (default `None`): Own texture of the still liquid (assets/textures/), instead of tinted water.
+- `flowing` (default `None`): Own texture of the flowing liquid.
+- `bucket_texture` (default `None`): Texture of the bucket item; default: the water bucket.
+- `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
+
+Returns: The fluid; fluid.bucket is the bucket item.
 
 ### Structures
 
@@ -1073,6 +1104,19 @@ Native NeoForge tank in mB; allowed is an optional list of fluid resource IDs.
 
 - `capacity`: Maximum mB (1..1000000).
 - `allowed` (default `None`): Optional list of up to 64 namespaced fluid IDs; None permits all.
+
+#### `Screen(title=None, *, energy=True, fluid=True, slots=True)`
+
+A Minecraft-style window for a machine block: right click opens it (sneak-click places a block instead).
+
+It shows the block's two item slots (the input takes a filled bucket or tank item and empties it into the block's
+FluidTank, the empty container comes out in the second slot), a fluid gauge when the block has a FluidTank, an energy
+bar on the right when it has EnergyStorage, and your inventory. ``title`` is the text at the top.
+
+- `title` (default `None`): Text at the top of the window.
+- `energy` (default `True`): Show the energy bar (needs EnergyStorage).
+- `fluid` (default `True`): Show the fluid gauge (needs FluidTank).
+- `slots` (default `True`): Show the two item slots.
 
 ### Recipes
 
@@ -1773,6 +1817,19 @@ Read a loaded kinetic machine without loading chunks. Snapshot includes speed, t
 - `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
 - `y` (default `None`): Y coordinate (height).
 - `z` (default `None`): Z coordinate.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
+
+Returns: dict
+
+#### `world.machine_update(x, y=None, z=None, *, energy=0, fluid=0, dimension='minecraft:overworld') -> dict`
+
+Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.
+
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `energy` (default `0`): FE to add (negative removes).
+- `fluid` (default `0`): mB to remove, 0 or negative.
 - `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: dict

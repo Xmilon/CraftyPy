@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.SingleRecipeInput;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.neoforge.energy.EnergyStorage;
@@ -42,7 +43,8 @@ public final class MachineState {
             if (def == null || def.fluid == null) return false;
             var allowed = def.fluid.get("allowed");
             return allowed == null || allowed.isJsonNull() || allowed.getAsJsonArray().asList().stream()
-                    .anyMatch(id -> id.getAsString().equals(BuiltInRegistries.FLUID.getKey(stack.getFluid()).toString()));
+                    .anyMatch(id -> net.xmilon.craftpy.registry.SlotRegistry.resolve(id.getAsString(), net.xmilon.craftpy.registry.SlotRegistry.Kind.FLUID)
+                            .equals(BuiltInRegistries.FLUID.getKey(stack.getFluid()).toString()));
         }) {
             @Override protected void onContentsChanged() {
                 var def = definition();
@@ -71,10 +73,36 @@ public final class MachineState {
         if (entity.getLevel() != null) entity.getLevel().invalidateCapabilities(entity.getBlockPos());
         if (entity.getLevel() != null && !entity.getLevel().isClientSide) host.syncMachine();
     }
+    /** Python's world.machine_update: energy between 0 and the capacity, and at most what the tank holds. */
+    public void adjust(int energyDelta, int fluidDelta) {
+        configure();
+        if (energyDelta != 0) energy.adjust(energyDelta);
+        if (fluidDelta < 0) fluid.drain(-fluidDelta, net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+        host.syncMachine();
+    }
+
+    /**
+     * The first item slot of a block with a Screen and a FluidTank takes a filled bucket or tank item: its fluid goes into the
+     * tank (only what the tank accepts) and the emptied container comes out in the second slot.
+     */
+    private void emptyContainerSlot() {
+        var def = definition();
+        if (def == null || def.screen == null || def.fluid == null) return;
+        ItemStack in = inventory.getStackInSlot(0);
+        if (in.isEmpty()) return;
+        var simulated = net.neoforged.neoforge.fluids.FluidUtil.tryEmptyContainer(in.copyWithCount(1), fluid, fluid.getSpace(), null, false);
+        if (!simulated.isSuccess() || !inventory.insertItem(1, simulated.getResult(), true).isEmpty()) return;
+        var done = net.neoforged.neoforge.fluids.FluidUtil.tryEmptyContainer(in.copyWithCount(1), fluid, fluid.getSpace(), null, true);
+        if (!done.isSuccess()) return;
+        inventory.insertItem(1, done.getResult(), false);
+        inventory.extractItem(0, 1, false);
+    }
+
     public void tick() {
         configure();
         var level = entity.getLevel();
         if (level == null || level.isClientSide) return;
+        emptyContainerSlot();
         boolean before = running; running = false;
         if (processing()) {
             var match = level.getRecipeManager().getRecipeFor(KineticRecipe.TYPE.get(), new SingleRecipeInput(inventory.getStackInSlot(0)), level);
@@ -170,6 +198,11 @@ public final class MachineState {
         void configure(JsonObject def) {
             insertionCapacity = def == null ? 0 : def.get("capacity").getAsInt(); capacity = Math.max(energy, insertionCapacity);
             maxReceive = def == null ? 0 : def.get("max_receive").getAsInt(); maxExtract = def == null ? Integer.MAX_VALUE : def.get("max_extract").getAsInt();
+        }
+        /** Python's change: bypasses the per-call limits, never leaves 0..capacity. */
+        void adjust(int delta) {
+            int next = (int) Math.max(0, Math.min((long) insertionCapacity, (long) energy + delta));
+            if (next != energy) { energy = next; capacity = Math.max(energy, insertionCapacity); changed(); }
         }
         @Override public int receiveEnergy(int amount, boolean simulate) { int n = super.receiveEnergy(Math.min(Math.max(0, amount), Math.max(0, insertionCapacity - energy)), simulate); if (n > 0 && !simulate) changed(); return n; }
         @Override public int extractEnergy(int amount, boolean simulate) { int n = super.extractEnergy(Math.max(0, amount), simulate); capacity = Math.max(energy, insertionCapacity); if (n > 0 && !simulate) changed(); return n; }

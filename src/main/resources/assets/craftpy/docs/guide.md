@@ -109,6 +109,141 @@ Menus close when you click outside, press Esc or move the pointer away from them
 *Tools > New UI window* creates `ui/<id>.json`; *Tools > UI designer* opens the visual editor. Buttons name an
 `@action("...")` function in Python. Windows can also be written in code (`@window` classes, see the API).
 
+## Tutorials
+
+Each one is a whole `main.py` you can paste into a new project and press F5 on. Texture names are files in the project's
+`assets/textures/`; use the Assets window (Alt+9) to add them, or write a vanilla one such as `minecraft:block/stone`.
+
+### 1. A block that reacts when you right click it
+
+```python
+from craftpy import *
+
+lamp = Block("party_lamp", name="Party Lamp", texture="minecraft:block/glowstone", light=15, hardness=1)
+
+@on.block_interact(block=lamp)
+def toggled(ctx):
+    ctx.player.actionbar("The lamp hums")
+```
+
+`Block(...)` declares the block; `@on.block_interact(block=lamp)` runs when someone right clicks that block (the filter keeps
+it from running for every other block). `light=15` is the light it gives off.
+
+### 2. A block with its own mesh and hitbox
+
+1. Model the block in Blockbench and export it as **Java Block/Item**. Save it as `assets/models/block/pedestal.json`, and
+   its textures as PNG files in the same project (the model refers to them as `yourproject:block/name`).
+2. Declare the block with the model. The hitbox (outline and collision) is taken from the model's boxes, so you
+   normally write nothing more. To override it, give `shape`: boxes in sixteenths of a block (0 to 16).
+
+```python
+from craftpy import *
+
+Block("pedestal", name="Pedestal", model="pedestal")
+
+# the same block with a hitbox of your own (here a simple base and column)
+Block("pedestal2", name="Pedestal 2", model="pedestal",
+      shape=[(2, 0, 2, 14, 3, 14), (5, 3, 5, 11, 12, 11)])
+```
+
+Without `model` and `shape` the block is a cube with `texture`. The hitbox follows the model's boxes as they are drawn; a rotation set on a box in Blockbench is not applied to it (use `shape` then).
+A model that does not fill the cube can show the sky or a cave behind it from the side (the game hides the faces of
+blocks next to it as if it were a full block): keep the model's footprint close to the whole cube where that matters.
+
+### 3. A block that stores energy and fluid
+
+```python
+from craftpy import *
+
+Block("battery", name="Battery", texture="minecraft:block/iron_block").extends(
+    EnergyStorage(capacity=100000, max_receive=500, max_extract=500))
+
+Block("tank", name="Tank", texture="minecraft:block/glass").extends(
+    FluidTank(capacity=16000, allowed=["minecraft:water"]))
+```
+
+They are real NeoForge energy (FE) and fluid (mB) storages, so pipes and cables of other mods connect to them. To move
+things yourself, `world.transfer(source, target, kind, amount)` takes block coordinates and a kind of `"energy"`,
+`"fluid"` or `"item"` (the Python API topic lists every parameter).
+
+### 4. A liquid, a window and energy for cables
+
+The **Power Cell** example (`examples/powercell`) is a whole project that does this; here are its parts.
+
+A liquid is a real game fluid, with a bucket:
+
+```python
+from craftpy import *
+
+sap = Fluid("volt_sap", name="Volt Sap", color="#5CE03C",
+            density=1400, viscosity=2600, temperature=340, light=7,
+            effects=[("glowing", 15), ("poison", 3)],    # (effect, seconds, level) while you stand in it
+            bucket_texture="volt_sap_bucket.png")
+```
+
+A machine block gets a tank, an energy store and a window, and its own mesh:
+
+```python
+generator = Block("sap_generator", name="Sap Generator", model="generator", texture="generator.png",
+                  hardness=3, tool="pickaxe").extends(
+    FluidTank(capacity=8000, allowed=[sap]),
+    EnergyStorage(capacity=400_000, max_receive=0, max_extract=2000),  # gives energy out, takes none in
+    Screen(title="Sap Generator"),
+)
+```
+
+Right click it with a bucket of `sap` to fill it; right click it with an empty hand to open the window (a bucket slot, the
+liquid gauge and the energy bar on the right). Python turns liquid into energy, because it decides what the machine does:
+
+```python
+@on.machine_state(block=generator)
+def burn(ctx):
+    machine = ctx.machine
+    mb = min(machine.fluid_amount, 100, (machine.energy_capacity - machine.energy) // 80)
+    if mb > 0:
+        world.machine_update(ctx.x, ctx.y, ctx.z, energy=mb * 80, fluid=-mb, dimension=ctx.dimension)
+```
+
+`machine_state` fires when the block's contents change (a bucket, a cable taking energy), so the generator burns more as
+room appears. Energy and liquid are the game's standard storages, so a cable of Mekanism (or any other mod) that takes
+energy from a neighbour takes it from the generator, and any pipe can fill the tank. Nothing in the project names those mods.
+
+### 5. A command with arguments
+
+```python
+from craftpy import *
+
+@command("heal")
+def heal(ctx, amount: int = 4):
+    ctx.player.actionbar("Healed %d" % amount)
+```
+
+The parameter types come from the annotations (`int`, `float`, `bool`, `str`, `Player`), and the IDE completes them in game.
+
+### 6. A window with a button
+
+Draw the window in the UI maker (`ui/hello.json`), give the button an action name, then answer it in Python:
+
+```python
+from craftpy import *
+
+@action("hello_click")
+def hello_click(ctx):
+    ctx.player.actionbar("Hello from a window")
+
+@command("hello")
+def hello(ctx):
+    ui.open(ctx.player, "hello")
+```
+
+The Bank example in the examples folder is a complete version with fields, bound values and checks done on the server.
+
+### 7. Where to go next
+
+* *Working with other mods* (below) for ids of other mods and their recipe types.
+* *Building modules* to share it.
+* The Welcome template (New project > Welcome) is a small project to read.
+
 ## Extensions
 
 Behaviour of items and blocks is added with extensions: `Item("ruby_sword").extends(Sword(tier="diamond"), Durability(1200))`.

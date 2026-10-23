@@ -84,6 +84,20 @@ public class SlottedBlock extends Block implements EntityBlock {
         return SlotRegistry.blockDef(slotIndex);
     }
 
+    /** The hitbox the project declared with Block(shape=...); a full cube otherwise. */
+    @Override
+    protected net.minecraft.world.phys.shapes.VoxelShape getShape(BlockState state, net.minecraft.world.level.BlockGetter level,
+            BlockPos pos, net.minecraft.world.phys.shapes.CollisionContext context) {
+        Defs.BlockDef def = definition();
+        return def != null && def.shape != null ? def.shape : super.getShape(state, level, pos, context);
+    }
+
+    @Override
+    protected net.minecraft.world.phys.shapes.VoxelShape getCollisionShape(BlockState state,
+            net.minecraft.world.level.BlockGetter level, BlockPos pos, net.minecraft.world.phys.shapes.CollisionContext context) {
+        return getShape(state, level, pos, context);
+    }
+
     public boolean isUnloadedPlaceholder() {
         return definition() == null;
     }

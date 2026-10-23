@@ -23,7 +23,7 @@ import net.xmilon.craftpy.content.RotationNetworks;
 import net.xmilon.craftpy.registry.KineticSlots;
 
 public final class NativeMachineBlock extends Block implements EntityBlock {
-    public NativeMachineBlock() { super(Properties.of().strength(2, 6)); registerDefaultState(stateDefinition.any().setValue(BlockStateProperties.AXIS, Direction.Axis.Y)); }
+    public NativeMachineBlock() { super(Properties.of().strength(2, 6).noOcclusion()); registerDefaultState(stateDefinition.any().setValue(BlockStateProperties.AXIS, Direction.Axis.Y)); }
     @Override protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) { builder.add(BlockStateProperties.AXIS); }
     @Override public BlockState getStateForPlacement(BlockPlaceContext context) { return KineticSlots.configuredState(this); }
     @Override public BlockEntity newBlockEntity(BlockPos pos, BlockState state) { return new NativeMachine(pos, state); }
@@ -32,5 +32,10 @@ public final class NativeMachineBlock extends Block implements EntityBlock {
     @Override protected void neighborChanged(BlockState state, Level level, BlockPos pos, Block block, BlockPos neighbor, boolean moving) { if (!level.isClientSide) RotationNetworks.changed(level); }
     @Override protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState next, boolean moving) { if (!state.is(next.getBlock())) MachineInteractions.drop(level, pos); if (!level.isClientSide) RotationNetworks.changed(level); super.onRemove(state, level, pos, next, moving); }
     @Override protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) { return MachineInteractions.insert(stack, level, pos, player, hand); }
-    @Override protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hit) { return MachineInteractions.extract(level, pos, player); }
+    @Override protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hit) { return MachineInteractions.use(level, pos, player, this); }
+    @Override protected net.minecraft.world.phys.shapes.VoxelShape getShape(BlockState state, net.minecraft.world.level.BlockGetter level, BlockPos pos, net.minecraft.world.phys.shapes.CollisionContext context) {
+        var shape = MachineInteractions.shape(this);
+        return shape != null ? shape : super.getShape(state, level, pos, context);
+    }
+    @Override protected net.minecraft.world.phys.shapes.VoxelShape getCollisionShape(BlockState state, net.minecraft.world.level.BlockGetter level, BlockPos pos, net.minecraft.world.phys.shapes.CollisionContext context) { return getShape(state, level, pos, context); }
 }

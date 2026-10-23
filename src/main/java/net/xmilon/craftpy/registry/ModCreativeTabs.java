@@ -45,6 +45,9 @@ public final class ModCreativeTabs {
                                 output.accept(item);
                             }
                         }
+                        for (int i = 0; i < FluidSlots.BUCKETS.size(); i++) {
+                            if (SlotRegistry.fluidDef(i) != null) output.accept(FluidSlots.BUCKETS.get(i).get());
+                        }
                         for (int i = 0; i < KineticSlots.BLOCKS.size(); i++) {
                             if (SlotRegistry.kineticDef(i) != null) output.accept(KineticSlots.BLOCKS.get(i).get());
                         }

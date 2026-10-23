@@ -102,8 +102,72 @@ public final class Defs {
         public KineticDef kinetic;
         public JsonObject energy;
         public JsonObject fluid;
+        /** The Minecraft-style window of a machine block (Screen(...)); null = none. */
+        public JsonObject screen;
+        /** Own mesh: a model of the project's assets/models/block/ ("" = the generated cube). */
+        public String model = "";
+        /** Hitbox (outline and collision); null = a full cube. */
+        public net.minecraft.world.phys.shapes.VoxelShape shape;
 
-        public boolean machine() { return kinetic != null || energy != null || fluid != null; }
+        public boolean machine() { return kinetic != null || energy != null || fluid != null || screen != null; }
+
+        /**
+         * The hitbox of an imported model: the union of its {@code elements} boxes (a Blockbench "Java Block/Item" export),
+         * clamped to the block. Null when the file is missing, unreadable or has no elements. Rotations are not applied.
+         */
+        public static net.minecraft.world.phys.shapes.VoxelShape shapeOfModel(java.nio.file.Path file) {
+            try {
+                JsonObject model = com.google.gson.JsonParser.parseString(
+                        java.nio.file.Files.readString(file, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+                if (!model.has("elements") || !model.get("elements").isJsonArray()) {
+                    return null;
+                }
+                JsonArray boxes = new JsonArray();
+                for (JsonElement element : model.getAsJsonArray("elements")) {
+                    if (boxes.size() >= 64 || !element.isJsonObject()) {
+                        continue;
+                    }
+                    JsonObject e = element.getAsJsonObject();
+                    if (!e.has("from") || !e.has("to") || e.getAsJsonArray("from").size() != 3
+                            || e.getAsJsonArray("to").size() != 3) {
+                        continue;
+                    }
+                    JsonArray box = new JsonArray();
+                    for (String key : new String[]{"from", "to"}) {
+                        for (JsonElement n : e.getAsJsonArray(key)) {
+                            box.add(n);
+                        }
+                    }
+                    boxes.add(box);
+                }
+                JsonObject wrapper = new JsonObject();
+                wrapper.add("shape", boxes);
+                return shapeOf(wrapper);
+            } catch (java.io.IOException | RuntimeException unreadable) {
+                return null;
+            }
+        }
+
+        /** The "shape" boxes (sixteenths of a block) as one shape; null when absent or empty. */
+        private static net.minecraft.world.phys.shapes.VoxelShape shapeOf(JsonObject json) {
+            if (!json.has("shape") || !json.get("shape").isJsonArray()) {
+                return null;
+            }
+            net.minecraft.world.phys.shapes.VoxelShape shape = net.minecraft.world.phys.shapes.Shapes.empty();
+            for (JsonElement element : json.getAsJsonArray("shape")) {
+                if (!element.isJsonArray() || element.getAsJsonArray().size() != 6) {
+                    continue;
+                }
+                JsonArray box = element.getAsJsonArray();
+                double[] n = new double[6];
+                for (int k = 0; k < 6; k++) {
+                    n[k] = Math.max(0, Math.min(16, box.get(k).getAsDouble())) / 16.0;
+                }
+                shape = net.minecraft.world.phys.shapes.Shapes.or(shape,
+                        net.minecraft.world.phys.shapes.Shapes.box(n[0], n[1], n[2], n[3], n[4], n[5]));
+            }
+            return shape.isEmpty() ? null : shape;
+        }
 
         public static BlockDef from(JsonObject json) {
             BlockDef def = new BlockDef();
@@ -115,11 +179,14 @@ public final class Defs {
             def.hardness = f(json, "hardness", 2.0f);
             def.resistance = f(json, "resistance", 6.0f);
             def.light = Math.max(0, Math.min(15, i(json, "light", 0)));
+            def.model = s(json, "model", "");
+            def.shape = shapeOf(json);
             for (JsonObject ext : extensions(json)) {
                 switch (s(ext, "type", "")) {
                     case "kinetic" -> def.kinetic = KineticDef.from(ext);
                     case "energy_storage" -> def.energy = MachineState.validateEnergy(ext);
                     case "fluid_tank" -> def.fluid = MachineState.validateFluid(ext);
+                    case "screen" -> def.screen = ext.deepCopy();
                     case "mineable" -> def.minLevel = Math.max(0, Math.min(4, i(ext, "level", 0)));
                     case "redstone" -> def.redstone = Math.max(0, Math.min(15, i(ext, "power", 0)));
                     case "flammable" -> {
@@ -255,6 +322,66 @@ public final class Defs {
      * A declared mob effect: name, icon, color and category, plus attribute modifiers per level while it is active.
      * {@code @on.effect_tick} handlers in Python do the rest.
      */
+    /** A declared liquid (Fluid(...)): how it flows and looks, and what it does to whoever stands in it. */
+    public static final class FluidDef {
+        /** An effect applied while an entity is in the liquid. */
+        public record Touch(net.minecraft.resources.ResourceLocation effect, int amplifier, int seconds) {
+        }
+
+        public String name;
+        public int color;
+        public int density = 1000, viscosity = 1000, temperature = 300, light;
+        /** The liquid's own textures (project assets), or null for the water ones tinted with {@link #color}. */
+        public net.minecraft.resources.ResourceLocation still, flowing;
+        public final List<Touch> effects = new ArrayList<>();
+        /** Texture of the bucket (project assets or a vanilla one); "" = the water bucket. */
+        public String bucket = "";
+
+        /** "name.png" of the project's assets/textures/ as the atlas location {@code project:name}; null when empty. */
+        private static net.minecraft.resources.ResourceLocation textureOf(String text, String projectId) {
+            if (text.isBlank()) {
+                return null;
+            }
+            String clean = text.endsWith(".png") ? text.substring(0, text.length() - 4) : text;
+            return net.minecraft.resources.ResourceLocation.tryParse(clean.contains(":") ? clean : projectId + ":" + clean);
+        }
+
+        public static FluidDef from(JsonObject json, String projectId) {
+            FluidDef def = new FluidDef();
+            def.name = s(json, "name", "CraftPy Liquid");
+            def.color = 0xFF000000 | parseColor(s(json, "color", "#3fa7ff"));
+            def.density = Math.max(-20000, Math.min(20000, i(json, "density", 1000)));
+            def.viscosity = Math.max(0, Math.min(20000, i(json, "viscosity", 1000)));
+            def.temperature = Math.max(0, Math.min(5000, i(json, "temperature", 300)));
+            def.light = Math.max(0, Math.min(15, i(json, "light", 0)));
+            def.bucket = s(json, "bucket", "");
+            def.still = textureOf(s(json, "still", ""), projectId);
+            def.flowing = textureOf(s(json, "flowing", ""), projectId);
+            if (json.get("effects") instanceof JsonArray list) {
+                for (JsonElement element : list) {
+                    if (def.effects.size() >= 8 || !element.isJsonPrimitive()) {
+                        continue;
+                    }
+                    String spec = element.getAsString(); // id:amplifier:seconds, the id may hold a colon
+                    int last = spec.lastIndexOf(':'), middle = last < 0 ? -1 : spec.lastIndexOf(':', last - 1);
+                    if (middle < 0) {
+                        continue;
+                    }
+                    try {
+                        var id = net.minecraft.resources.ResourceLocation.tryParse(spec.substring(0, middle));
+                        if (id != null) {
+                            def.effects.add(new Touch(id, Math.max(0, Math.min(255, Integer.parseInt(spec.substring(middle + 1, last)))),
+                                    Math.max(1, Math.min(600, Integer.parseInt(spec.substring(last + 1))))));
+                        }
+                    } catch (NumberFormatException ignored) {
+                        // a malformed effect is skipped
+                    }
+                }
+            }
+            return def;
+        }
+    }
+
     public static final class EffectDef {
         public String name;
         public String icon;

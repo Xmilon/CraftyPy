@@ -109,11 +109,15 @@ public final class PackBuilder {
             String name = def != null && def.name != null ? def.name : "Unloaded: " + holder;
             String id = "pcblock_" + i;
 
+            // Block(model="pedestal"): the project's own mesh, assets/<project>/models/block/pedestal.json
+            String modelRef = def != null && def.model != null && !def.model.isBlank()
+                    ? (def.model.contains(":") ? def.model : projectId + ":block/" + def.model.replaceFirst("^(models/)?(block/)?", ""))
+                    : "craftpy:block/" + id;
             JsonObject state = new JsonObject();
             JsonObject variants = new JsonObject();
             for (int light = 0; light <= 15; light++) {
                 JsonObject variant = new JsonObject();
-                variant.addProperty("model", "craftpy:block/" + id);
+                variant.addProperty("model", modelRef);
                 variants.add("craftpy_light=" + light, variant);
             }
             state.add("variants", variants);
@@ -127,7 +131,7 @@ public final class PackBuilder {
             writeJson(model, assets.resolve("models/block/" + id + ".json"));
 
             JsonObject itemModel = new JsonObject();
-            itemModel.addProperty("parent", "craftpy:block/" + id);
+            itemModel.addProperty("parent", modelRef);
             writeJson(itemModel, assets.resolve("models/item/" + id + ".json"));
 
             lang.addProperty("block.craftpy." + id, name);
@@ -156,6 +160,7 @@ public final class PackBuilder {
         }
 
         writeKinetics(assets, lang, usedTextures);
+        writeFluids(assets, lang, usedTextures);
         writeMobsAndEffects(assets, lang);
 
         // Merge translations declared from Python via lang("key", "value").
@@ -190,15 +195,52 @@ public final class PackBuilder {
      * missing texture. Atlas files of all packs are merged, so this adds one {@code single} source per such texture: every
      * texture a slot model uses and every PNG a project ships (its own models may use them). Package-visible for tests.
      */
+    /** The liquid pool: a catch-all blockstate and a particle-only model per liquid block, and a bucket item model. */
+    private static void writeFluids(Path assets, JsonObject lang, java.util.Set<String> used) throws Exception {
+        for (int i = 0; i < net.xmilon.craftpy.registry.SlotCounts.fluids(); i++) {
+            var def = SlotRegistry.fluidDef(i);
+            String holder = SlotRegistry.holderFor(SlotRegistry.Kind.FLUID, i), owner = ownerOf(holder);
+            String block = "pcfluid_block_" + i, bucket = "pcfluid_bucket_" + i;
+            JsonObject variant = new JsonObject();
+            variant.addProperty("model", "craftpy:block/" + block);
+            JsonObject variants = new JsonObject();
+            variants.add("", variant);
+            JsonObject state = new JsonObject();
+            state.add("variants", variants);
+            writeJson(state, assets.resolve("blockstates/" + block + ".json"));
+            JsonObject model = new JsonObject();
+            JsonObject textures = new JsonObject();
+            textures.addProperty("particle", "minecraft:block/water_still");
+            model.add("textures", textures);
+            writeJson(model, assets.resolve("models/block/" + block + ".json"));
+            String bucketTexture = def != null && !def.bucket.isBlank()
+                    ? texturePath(mapRef(def.bucket, owner, null), owner, "item") : "minecraft:item/water_bucket";
+            used.add(bucketTexture);
+            JsonObject item = new JsonObject();
+            item.addProperty("parent", "minecraft:item/generated");
+            JsonObject layers = new JsonObject();
+            layers.addProperty("layer0", bucketTexture);
+            item.add("textures", layers);
+            writeJson(item, assets.resolve("models/item/" + bucket + ".json"));
+            lang.addProperty("block.craftpy." + block, def == null ? "Unloaded: " + holder : def.name);
+            lang.addProperty("item.craftpy." + bucket, def == null ? "Unloaded: " + holder : def.name + " Bucket");
+            lang.addProperty("fluid_type.craftpy.pcfluid_" + i, def == null ? "Unloaded: " + holder : def.name);
+        }
+    }
+
     private static void writeKinetics(Path assets, JsonObject lang, java.util.Set<String> used) throws Exception {
         for (int i = 0; i < net.xmilon.craftpy.registry.SlotCounts.kinetics(); i++) {
             var def = SlotRegistry.kineticDef(i);
             String holder = SlotRegistry.holderFor(SlotRegistry.Kind.KINETIC, i), owner = ownerOf(holder), id = "pckinetic_" + i;
             String texture = def != null && def.texture != null ? texturePath(mapRef(def.texture, owner, null), owner, "block") : UNLOADED_TEXTURE;
             used.add(texture);
+            // Block(model="..."): the project's own mesh instead of the generated cube
+            String modelRef = def != null && def.model != null && !def.model.isBlank()
+                    ? (def.model.contains(":") ? def.model : owner + ":block/" + def.model.replaceFirst("^(models/)?(block/)?", ""))
+                    : "craftpy:block/" + id;
             JsonObject variants = new JsonObject();
             for (String axis : java.util.List.of("x", "y", "z")) {
-                JsonObject variant = new JsonObject(); variant.addProperty("model", "craftpy:block/" + id); variants.add("axis=" + axis, variant);
+                JsonObject variant = new JsonObject(); variant.addProperty("model", modelRef); variants.add("axis=" + axis, variant);
             }
             JsonObject state = new JsonObject(); state.add("variants", variants); writeJson(state, assets.resolve("blockstates/" + id + ".json"));
             JsonObject model = Json.GSON.fromJson("{\"textures\":{},\"elements\":[{\"from\":[2,2,2],\"to\":[14,14,14],\"faces\":{}}]}", JsonObject.class);
@@ -210,7 +252,7 @@ public final class PackBuilder {
             JsonObject rotor = new JsonObject(); rotor.addProperty("parent", def == null || def.kinetic == null ? "craftpy:block/machine_rotor" : def.kinetic.model());
             if (def == null) rotor.add("textures", textures.deepCopy());
             writeJson(rotor, assets.resolve("models/block/" + id + "_rotor.json"));
-            JsonObject item = new JsonObject(); item.addProperty("parent", def != null && def.kinetic != null && def.kinetic.role().equals("shaft") ? "craftpy:block/" + id + "_rotor" : "craftpy:block/" + id);
+            JsonObject item = new JsonObject(); item.addProperty("parent", def != null && def.kinetic != null && def.kinetic.role().equals("shaft") ? "craftpy:block/" + id + "_rotor" : modelRef);
             writeJson(item, assets.resolve("models/item/" + id + ".json"));
             lang.addProperty("block.craftpy." + id, def == null ? "Unloaded: " + holder : def.name);
         }

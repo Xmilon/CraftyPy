@@ -1,0 +1,12 @@
+{
+  "id": "powercell",
+  "name": "Power Cell",
+  "description": "A generator with its own mesh, texture and window that burns a custom liquid into energy that Mekanism cables carry away.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.11",
+  "mcVersion": "1.21.1",
+  "side": "both",
+  "permissions": {},
+  "icon": "icon.png"
+}

@@ -36,7 +36,7 @@ import net.xmilon.craftpy.util.Json;
  */
 public final class SlotRegistry {
     public enum Kind {
-        BLOCK, ITEM, EFFECT, ENTITY, SOUND, MONSTER, KINETIC
+        BLOCK, ITEM, EFFECT, ENTITY, SOUND, MONSTER, KINETIC, FLUID
     }
 
     /** Mobs (passive ones are {@code pcentity_N}, hostile ones {@code pcmonster_N}) and effects: fixed pools. */
@@ -54,6 +54,7 @@ public final class SlotRegistry {
             case EFFECT -> "pceffect_" + ref.index();
             case SOUND -> "pcsound_" + ref.index();
             case KINETIC -> "pckinetic_" + ref.index();
+            case FLUID -> "pcfluid_" + ref.index();
         };
     }
 
@@ -69,6 +70,12 @@ public final class SlotRegistry {
             if (kind == Kind.BLOCK || kind == Kind.ITEM) {
                 String nativeBlock = net.xmilon.craftpy.content.NativeContent.resolveBlock(ref);
                 if (!java.util.Objects.equals(nativeBlock, ref)) return nativeBlock;
+            }
+            if (kind == Kind.ITEM && ref.endsWith("_bucket")) {
+                SlotRef fluid = MAPPING.get("FLUID:" + ref.substring(0, ref.length() - "_bucket".length()));
+                if (fluid != null) {
+                    return CraftPyLog.MODID + ":pcfluid_bucket_" + fluid.index();
+                }
             }
             SlotRef slot = MAPPING.get(kind.name() + ":" + ref);
             if (slot == null && (kind == Kind.BLOCK || kind == Kind.ITEM)) slot = MAPPING.get("KINETIC:" + ref);
@@ -97,6 +104,7 @@ public final class SlotRegistry {
     private static final Map<String, Defs.BlockDef> KINETIC_DEFS = new ConcurrentHashMap<>();
     private static final Map<String, Defs.ItemDef> ITEM_DEFS = new ConcurrentHashMap<>();
     private static final Map<String, Defs.EffectDef> EFFECT_DEFS = new ConcurrentHashMap<>();
+    private static final Map<String, Defs.FluidDef> FLUID_DEFS = new ConcurrentHashMap<>();
     private static final Map<String, Defs.EntityDef> ENTITY_DEFS = new ConcurrentHashMap<>();
     private static final Map<String, Declarations> PROJECT_DECLS = new ConcurrentHashMap<>();
     private static final Map<String, Boolean> ACTIVE_PROJECTS = new ConcurrentHashMap<>();
@@ -114,7 +122,8 @@ public final class SlotRegistry {
         }
         String path = id.getPath();
         return path.startsWith("pcblock_") || path.startsWith("pcitem_") || path.startsWith("pcentity_")
-                || path.startsWith("pcmonster_") || path.startsWith("pceffect_") || path.startsWith("pckinetic_");
+                || path.startsWith("pcmonster_") || path.startsWith("pceffect_") || path.startsWith("pckinetic_")
+                || path.startsWith("pcfluid_");
     }
 
     private SlotRegistry() {
@@ -166,6 +175,10 @@ public final class SlotRegistry {
     /** The live definition of a mob slot ({@link Kind#ENTITY} or {@link Kind#MONSTER}), null when unloaded. */
     public static Defs.EntityDef entityDef(Kind kind, int index) {
         return ENTITY_DEFS.get(key(kind, index));
+    }
+
+    public static Defs.FluidDef fluidDef(int index) {
+        return FLUID_DEFS.get(key(Kind.FLUID, index));
     }
 
     public static Defs.EffectDef effectDef(int index) {
@@ -280,12 +293,26 @@ public final class SlotRegistry {
     // Allocation / application (server thread)
     // ------------------------------------------------------------------
 
+    /** A block with its own model and no shape: the hitbox follows the model's boxes (assets/models/block/<model>.json). */
+    private static void deriveShape(Defs.BlockDef def, String projectId) {
+        if (def.shape != null || def.model == null || def.model.isBlank() || def.model.contains(":")) {
+            return;
+        }
+        String name = def.model.replaceFirst("^(models/)?(block/)?", "");
+        if (!name.matches("[a-z0-9_./-]+") || name.contains("..")) {
+            return;
+        }
+        def.shape = Defs.BlockDef.shapeOfModel(net.xmilon.craftpy.project.PyForgePaths.projects().resolve(projectId)
+                .resolve("assets/models/block").resolve(name + ".json"));
+    }
+
     /**
      * Applies a block declaration. Returns the assigned registry reference.
      * If the content already has a slot, it is reused (stable across reloads).
      */
     public static synchronized SlotRef applyBlock(String projectId, String contentId, JsonObject definition) {
         Defs.BlockDef def = Defs.BlockDef.from(definition);
+        deriveShape(def, projectId);
         Kind family = def.machine() ? Kind.KINETIC : Kind.BLOCK;
         if (MAPPING.containsKey(SlotPlan.key(family == Kind.BLOCK ? Kind.KINETIC : Kind.BLOCK, projectId, contentId)))
             throw new IllegalStateException("Block cannot change native slot family without an explicit migration");
@@ -377,6 +404,7 @@ public final class SlotRegistry {
             case ITEM -> ITEM_DEFS.remove(key(Kind.ITEM, ref.index()));
             case ENTITY, MONSTER -> ENTITY_DEFS.remove(key(ref.kind(), ref.index()));
             case EFFECT -> EFFECT_DEFS.remove(key(Kind.EFFECT, ref.index()));
+            case FLUID -> FLUID_DEFS.remove(key(Kind.FLUID, ref.index()));
             default -> {
             }
         }
@@ -398,11 +426,13 @@ public final class SlotRegistry {
         Map<String, Defs.EntityDef> mobs = new LinkedHashMap<>();
         Map<String, Defs.EntityDef> monsters = new LinkedHashMap<>();
         Map<String, Defs.EffectDef> effects = new LinkedHashMap<>();
+        Map<String, Defs.FluidDef> fluids = new LinkedHashMap<>();
         for (Declarations.Content content : declarations.contents()) {
             if (content.definition().has("native_base")) continue;
             switch (content.kind()) {
                 case "block" -> {
                     Defs.BlockDef definition = Defs.BlockDef.from(content.definition());
+                    deriveShape(definition, projectId);
                     Kind family = definition.machine() ? Kind.KINETIC : Kind.BLOCK;
                     Kind previous = family == Kind.BLOCK ? Kind.KINETIC : Kind.BLOCK;
                     if (MAPPING.containsKey(SlotPlan.key(previous, projectId, content.id())))
@@ -421,6 +451,7 @@ public final class SlotRegistry {
                     (def.hostile() ? monsters : mobs).put(content.id(), def);
                 }
                 case "effect" -> effects.put(content.id(), Defs.EffectDef.from(content.definition()));
+                case "fluid" -> fluids.put(content.id(), Defs.FluidDef.from(content.definition(), projectId));
                 default -> {
                 }
             }
@@ -434,9 +465,9 @@ public final class SlotRegistry {
         }
         Map<String, SlotRef> next = SlotPlan.allocate(MAPPING, projectId,
                 Map.of(Kind.BLOCK, blocks.keySet(), Kind.ITEM, items.keySet(), Kind.ENTITY, mobs.keySet(),
-                        Kind.MONSTER, monsters.keySet(), Kind.EFFECT, effects.keySet(), Kind.KINETIC, kinetics.keySet()),
+                        Kind.MONSTER, monsters.keySet(), Kind.EFFECT, effects.keySet(), Kind.KINETIC, kinetics.keySet(), Kind.FLUID, fluids.keySet()),
                 Map.of(Kind.BLOCK, poolSize(Kind.BLOCK, blockCap), Kind.ITEM, poolSize(Kind.ITEM, itemCap),
-                        Kind.ENTITY, ENTITY_SLOTS, Kind.MONSTER, MONSTER_SLOTS, Kind.EFFECT, EFFECT_SLOTS, Kind.KINETIC, SlotCounts.kinetics()));
+                        Kind.ENTITY, ENTITY_SLOTS, Kind.MONSTER, MONSTER_SLOTS, Kind.EFFECT, EFFECT_SLOTS, Kind.KINETIC, SlotCounts.kinetics(), Kind.FLUID, SlotCounts.fluids()));
 
         // Commit: nothing below can fail for lack of room.
         net.xmilon.craftpy.content.NativeContent.commit(nativePlan);
@@ -447,6 +478,7 @@ public final class SlotRegistry {
         mobs.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.ENTITY, projectId, id)));
         monsters.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.MONSTER, projectId, id)));
         effects.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.EFFECT, projectId, id)));
+        fluids.keySet().forEach(id -> declared.add(SlotPlan.key(Kind.FLUID, projectId, id)));
         for (String contentKey : SlotPlan.keysOf(MAPPING, projectId)) {
             if (!declared.contains(contentKey)) {
                 detach(MAPPING.get(contentKey));
@@ -459,6 +491,7 @@ public final class SlotRegistry {
         items.forEach((id, def) -> ITEM_DEFS.put(key(Kind.ITEM, next.get(SlotPlan.key(Kind.ITEM, projectId, id)).index()), def));
         mobs.forEach((id, def) -> ENTITY_DEFS.put(key(Kind.ENTITY, next.get(SlotPlan.key(Kind.ENTITY, projectId, id)).index()), def));
         monsters.forEach((id, def) -> ENTITY_DEFS.put(key(Kind.MONSTER, next.get(SlotPlan.key(Kind.MONSTER, projectId, id)).index()), def));
+        fluids.forEach((id, def) -> FLUID_DEFS.put(key(Kind.FLUID, next.get(SlotPlan.key(Kind.FLUID, projectId, id)).index()), def));
         effects.forEach((id, def) -> EFFECT_DEFS.put(key(Kind.EFFECT, next.get(SlotPlan.key(Kind.EFFECT, projectId, id)).index()), def));
         ACTIVE_PROJECTS.put(projectId, Boolean.TRUE);
         PROJECT_DECLS.put(projectId, declarations);
@@ -517,6 +550,7 @@ public final class SlotRegistry {
         ITEM_DEFS.clear();
         ENTITY_DEFS.clear();
         EFFECT_DEFS.clear();
+        FLUID_DEFS.clear();
         PROJECT_DECLS.clear();
         ACTIVE_PROJECTS.clear();
         save();

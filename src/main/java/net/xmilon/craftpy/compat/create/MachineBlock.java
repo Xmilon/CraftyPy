@@ -24,7 +24,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.xmilon.craftpy.registry.KineticSlots;
 
 final class MachineBlock extends KineticBlock implements IBE<BlockEntity>, IWrenchable {
-    MachineBlock() { super(Properties.of().strength(2, 6)); registerDefaultState(stateDefinition.any().setValue(BlockStateProperties.AXIS, Direction.Axis.Y)); }
+    MachineBlock() { super(Properties.of().strength(2, 6).noOcclusion()); registerDefaultState(stateDefinition.any().setValue(BlockStateProperties.AXIS, Direction.Axis.Y)); }
     @Override protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> b) { b.add(BlockStateProperties.AXIS); }
     @Override public BlockState getStateForPlacement(BlockPlaceContext context) { return KineticSlots.configuredState(this); }
     @Override public Direction.Axis getRotationAxis(BlockState state) { return state.getValue(BlockStateProperties.AXIS); }
@@ -43,6 +43,13 @@ final class MachineBlock extends KineticBlock implements IBE<BlockEntity>, IWren
         return net.xmilon.craftpy.content.MachineInteractions.insert(stack, level, pos, player, hand);
     }
     @Override protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hit) {
-        return net.xmilon.craftpy.content.MachineInteractions.extract(level, pos, player);
+        return net.xmilon.craftpy.content.MachineInteractions.use(level, pos, player, this);
+    }
+    @Override protected net.minecraft.world.phys.shapes.VoxelShape getShape(BlockState state, net.minecraft.world.level.BlockGetter level, BlockPos pos, net.minecraft.world.phys.shapes.CollisionContext context) {
+        var shape = net.xmilon.craftpy.content.MachineInteractions.shape(this);
+        return shape != null ? shape : super.getShape(state, level, pos, context);
+    }
+    @Override protected net.minecraft.world.phys.shapes.VoxelShape getCollisionShape(BlockState state, net.minecraft.world.level.BlockGetter level, BlockPos pos, net.minecraft.world.phys.shapes.CollisionContext context) {
+        return getShape(state, level, pos, context);
     }
 }

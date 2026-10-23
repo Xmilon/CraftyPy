@@ -415,7 +415,7 @@ def _try_host(method, params=None, timeout=10.0, default=None):
 # Declarative API
 # ---------------------------------------------------------------------------
 
-_DECL_KEYS = ("blocks", "items", "entities", "effects", "handlers", "recipes",
+_DECL_KEYS = ("blocks", "items", "entities", "effects", "fluids", "handlers", "recipes",
               "loot_tables", "tags", "lang", "commands", "advancements",
               "sounds", "particles", "enchantments", "raw", "meta")
 
@@ -646,9 +646,30 @@ def Food(hunger=4, saturation=0.6, always_eat=False, fast=False):
             "always_eat": bool(always_eat), "fast": bool(fast)}
 
 
+def _shape(value):
+    """shape=[(x1, y1, z1, x2, y2, z2), ...] in sixteenths of a block (0..16): the boxes of a block's hitbox."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)) and len(value) == 6 and all(isinstance(n, (int, float)) for n in value):
+        value = [value]  # one box
+    if not isinstance(value, (list, tuple)) or not value or len(value) > 32:
+        raise ValueError("shape must be a box (x1, y1, z1, x2, y2, z2) or a list of up to 32 boxes, in 0..16")
+    boxes = []
+    for box in value:
+        if not isinstance(box, (list, tuple)) or len(box) != 6 or not all(
+                isinstance(n, (int, float)) and not isinstance(n, bool) and 0 <= n <= 16 for n in box):
+            raise ValueError("each shape box is (x1, y1, z1, x2, y2, z2) with numbers from 0 to 16, got %r" % (box,))
+        boxes.append([float(min(box[i], box[i + 3])) for i in range(3)] + [float(max(box[i], box[i + 3])) for i in range(3)])
+    return boxes
+
+
 def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None,
-          needs_tool=False, sound=None, drops=None, extensions=(), tags=(), **extra) -> "Content":
+          needs_tool=False, sound=None, drops=None, extensions=(), tags=(), model=None, shape=None, **extra) -> "Content":
     """Declares a block and returns it (usable anywhere an id is expected).
+
+    ``model="pedestal"`` uses your own mesh: assets/models/block/pedestal.json (Blockbench "Java Block/Item" export).
+    ``shape=[(2, 0, 2, 14, 12, 14)]`` is the hitbox (outline and collision) as boxes in sixteenths of a block; without
+    it the hitbox follows the model's boxes (a full cube without a model).
 
     ``extensions=[...]`` or ``.extends(...)`` adds behaviour (MineableBy, Redstone, Flammable, your own...).
     ``tags=["minecraft:mineable/pickaxe", "gems"]`` puts the block in block tags (a bare name is this project's tag)."""
@@ -668,6 +689,13 @@ def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, t
         definition["needs_tool"] = True
     if sound:
         definition["sound"] = sound
+    if model:
+        import re
+        if not isinstance(model, str) or not re.fullmatch(r"[a-z0-9_./:-]{1,120}", model):
+            raise ValueError("model must be the name of a file in assets/models/block/, such as \"pedestal\"")
+        definition["model"] = model[:-5] if model.endswith(".json") else model
+    if shape is not None:
+        definition["shape"] = _shape(shape)
     _DECLS["blocks"].append({"id": id, "definition": definition})
     block = Content("%s:%s" % (_namespace(), id), "block", id, definition["name"], definition)
     _content_tags(tags, "block", str(block))
@@ -866,6 +894,50 @@ def Effect(id, name=None, icon=None, color="#8899ff", category="neutral", attrib
     return Content("%s:%s" % (_namespace(), id), "effect", id, definition["name"], definition)
 
 
+def Fluid(id, name=None, color="#3fa7ff", density=1000, viscosity=1000, temperature=300, light=0, effects=(),
+          still=None, flowing=None, bucket_texture=None, **extra) -> "Content":
+    """Declares a liquid and returns it. ``Fluid("sap", ...).bucket`` is its bucket item.
+
+    A real NeoForge fluid: it flows, you swim in it, buckets fill and empty it, tanks and pipes of other mods hold it.
+    ``density`` (kg/m3; water 1000, lava 3000, negative floats up like gas) and ``viscosity`` (water 1000, lava 6000:
+    higher flows and moves you slower) change how it behaves; ``temperature`` is in kelvin (water 300, lava 1300) and
+    ``light`` is the light it gives (0..15). ``color`` tints the water textures; ``still`` / ``flowing`` name your own
+    textures (assets/textures/) instead, ``bucket_texture`` the bucket's.
+    ``effects=[("poison", 5), (rage, 8, 2)]`` are applied while an entity is in it: (effect, seconds, level).
+    Use it in a FluidTank: ``FluidTank(16000, allowed=[sap])``."""
+    _check_id(id)
+    if extra:
+        raise TypeError("Fluid(%r) has no attribute %s. Valid attributes: name, color, density, viscosity, temperature, "
+                        "light, effects, still, flowing, bucket_texture" % (id, ", ".join(repr(k) for k in sorted(extra))))
+    listed = list(effects or ())
+    if len(listed) > 8:
+        raise ValueError("Fluid effects: at most 8")
+    specs = []
+    for entry in listed:
+        if isinstance(entry, (tuple, list)) and not isinstance(entry, Content):
+            parts = list(entry)  # (effect, seconds, level)
+            name_, seconds_, level_ = parts[0], parts[1] if len(parts) > 1 else 5, parts[2] if len(parts) > 2 else 1
+        else:
+            name_, seconds_, level_ = entry, 5, 1
+        specs.append(_effect_spec((name_, level_, seconds_)))
+    definition = {"name": name or _pretty(id), "color": str(color),
+                  "density": _num("Fluid density", density, -20000, 20000, whole=True),
+                  "viscosity": _num("Fluid viscosity", viscosity, 0, 20000, whole=True),
+                  "temperature": _num("Fluid temperature", temperature, 0, 5000, whole=True),
+                  "light": _num("Fluid light", light, 0, 15, whole=True),
+                  "effects": specs}
+    if still is not None:
+        definition["still"] = _texture(still)
+    if flowing is not None:
+        definition["flowing"] = _texture(flowing)
+    if bucket_texture is not None:
+        definition["bucket"] = _texture(bucket_texture)
+    _DECLS["fluids"].append({"id": id, "definition": definition})
+    fluid = Content("%s:%s" % (_namespace(), id), "fluid", id, definition["name"], definition)
+    fluid.bucket = Content("%s:%s_bucket" % (_namespace(), id), "item", id + "_bucket", definition["name"] + " Bucket", {})
+    return fluid
+
+
 def _ref_structure(name):
     """'ruins/house' is this project's; 'mod:path' stays."""
     name = str(name).strip()
@@ -997,7 +1069,8 @@ _SMELTERS = ("furnace", "blast_furnace", "smoker", "campfire")
 _COLORS = ("black", "dark_blue", "dark_green", "dark_aqua", "dark_red", "dark_purple", "gold", "gray", "dark_gray",
            "blue", "green", "aqua", "red", "light_purple", "yellow", "white")
 _ITEM_ATTRS = ("name", "texture", "stack", "glow", "food", "fuel", "effect", "tags")
-_BLOCK_ATTRS = ("name", "texture", "hardness", "resistance", "light", "tool", "needs_tool", "sound", "drops", "tags")
+_BLOCK_ATTRS = ("name", "texture", "hardness", "resistance", "light", "tool", "needs_tool", "sound", "drops", "tags",
+                "model", "shape")
 
 
 def _reject_unknown(what, ident, extra, extensions):
@@ -1487,6 +1560,27 @@ class FluidTank(_Data):
         return dict(capacity=self.capacity, allowed=self.allowed)
 
 
+class Screen(_Data):
+    """A Minecraft-style window for a machine block: right click opens it (sneak-click places a block instead).
+
+    It shows the block's two item slots (the input takes a filled bucket or tank item and empties it into the block's
+    FluidTank, the empty container comes out in the second slot), a fluid gauge when the block has a FluidTank, an energy
+    bar on the right when it has EnergyStorage, and your inventory. ``title`` is the text at the top."""
+    applies_to = ("block",)
+    type = "screen"
+
+    def __init__(self, title=None, *, energy=True, fluid=True, slots=True):
+        if title is not None and (not isinstance(title, str) or len(title) > 64):
+            raise ValueError("Screen title must be text of at most 64 characters")
+        self.title = title
+        self.energy = bool(energy)
+        self.fluid = bool(fluid)
+        self.slots = bool(slots)
+
+    def data(self):
+        return dict(title=self.title, energy=self.energy, fluid=self.fluid, slots=self.slots)
+
+
 def _integer(label, value, low, high):
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise ValueError(f"{label} must be an integer from {low} to {high}")
@@ -1505,7 +1599,7 @@ _EXTENSION_NAMES = {
     "Tool": Tool, "Sword": Sword, "Pickaxe": Pickaxe, "Axe": Axe, "Shovel": Shovel, "Hoe": Hoe,
     "Durability": Durability, "Weapon": Weapon, "Fuel": Fuel, "Armor": Armor, "Enchantable": Enchantable,
     "Cooldown": Cooldown, "Tooltip": Tooltip, "MineableBy": MineableBy, "Drops": Drops, "Redstone": Redstone,
-    "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes, "Kinetic": Kinetic, "EnergyStorage": EnergyStorage, "FluidTank": FluidTank,
+    "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes, "Kinetic": Kinetic, "EnergyStorage": EnergyStorage, "FluidTank": FluidTank, "Screen": Screen,
 }
 
 
@@ -2138,6 +2232,19 @@ class _World:
         """Snapshot of a loaded kinetic machine: speed, overstressed, progress, input/output. No chunk loading."""
         x, y, z = _xyz(x, y, z)
         return _ok(_host_call("world.machine", dict(x=x, y=y, z=z, dimension=dimension))).get("machine", {})
+
+    def machine_update(self, x, y=None, z=None, *, energy=0, fluid=0, dimension=_OVERWORLD) -> dict:
+        """Changes what a loaded machine block stores and returns its new snapshot.
+
+        ``energy`` is added in FE (negative removes), ``fluid`` is removed in mB (use a negative number to take fluid out;
+        a positive number is not accepted: fluid goes in through buckets, pipes and ``world.transfer``). The block's own
+        limits apply: energy stays between 0 and its capacity, and no more fluid leaves than it holds. This is how a
+        generator turns fuel into energy: read ``world.machine``, then call this with the conversion."""
+        x, y, z = _xyz(x, y, z)
+        _integer("energy", energy, -1_000_000_000, 1_000_000_000)
+        _integer("fluid", fluid, -1_000_000, 0)
+        return _ok(_host_call("world.machine_update", dict(x=x, y=y, z=z, energy=energy, fluid=fluid,
+                                                            dimension=dimension))).get("machine", {})
 
     def resources(self, x, y=None, z=None, dimension=_OVERWORLD, *, side=None) -> dict:
         """Bounded native NeoForge item/FE/fluid snapshot from a loaded block face."""
@@ -3333,9 +3440,18 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.10"
+API_VERSION = "2.11"
 
 API_CHANGES = [
+    {"version": "2.11", "date": "2026-10-23",
+     "added": ["`Fluid(id, ...)`: custom liquids that are real NeoForge fluids (flowing, swimmable, buckets, tanks and pipes of any mod). "
+               "`density`, `viscosity`, `temperature`, `light`, `color` or own `still` / `flowing` textures, `effects` while an entity is in it, "
+               "`bucket_texture`; `fluid.bucket` is the bucket item. Eight liquid slots by default (`fluids=` in craftpy-slots.properties).",
+               "`Block(model=, shape=)`: your own mesh from assets/models/block/ and a hitbox of boxes in sixteenths of a block; without `shape` "
+               "the hitbox follows the model's boxes when the project runs from its folder.",
+               "`Screen(title=)` extension: a Minecraft-style window for machine blocks (two item slots, liquid gauge, energy bar on the right). "
+               "A bucket in the first slot is emptied into the block's `FluidTank`.",
+               "`world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block."]},
     {"version": "2.10", "date": "2026-10-21",
      "added": ["Hub apps: `\"apps\": [{\"id\", \"name\", \"description\", \"window\", \"icon\", \"category\", \"order\"}]` and `\"icon\"` in project.json / module.json put windows of the module into the Hub (Apps tab). "
                "Client modules open them on this computer, server modules on the server; only enabled and loaded modules are listed.",
@@ -3916,7 +4032,7 @@ def _server_api_names():
         "VBox": VBox, "HBox": HBox, "Grid": Grid, "TabView": TabView, "ScrollView": ScrollView, "Canvas": Canvas,
         "has": has, "core": core, "requires_restart": requires_restart,
         # simple API
-        "Block": Block, "NativeBlock": NativeBlock, "NativeMob": NativeMob, "Item": Item, "Food": Food, "Content": Content, "Mob": Mob, "Spawn": Spawn, "Effect": Effect,
+        "Block": Block, "NativeBlock": NativeBlock, "NativeMob": NativeMob, "Item": Item, "Food": Food, "Content": Content, "Mob": Mob, "Spawn": Spawn, "Effect": Effect, "Fluid": Fluid,
         "Pool": Pool, "Structure": Structure,
         "shaped": shaped, "shapeless": shapeless, "smelt": smelt, "stonecut": stonecut,
         "after": after, "Pos": Pos, "Player": Player, "Entity": Entity,
@@ -3993,7 +4109,7 @@ def content():
     """Everything this project declares (after the last Run): blocks, items, mobs, recipes, handlers..."""
     decls = _console_state()["decls"]
     lines = []
-    for key in ("blocks", "items", "entities", "effects", "enchantments", "recipes", "loot_tables",
+    for key in ("blocks", "items", "entities", "effects", "fluids", "enchantments", "recipes", "loot_tables",
                 "commands", "sounds", "advancements"):
         rows = decls.get(key) or []
         if rows:
@@ -6301,29 +6417,33 @@ def _definition(params):
     m = re.search(r'((?:[A-Za-z_]\w*\.)+)$', line[:start])
     chain = (m.group(1) if m else "") + word
     _text, index = _api_stub()
+    if chain == "craftpy":
+        return {"kind": "api", "path": STUB_PATH, "line": 0, "symbol": chain}
+    if chain.startswith("craftpy."):  # `import craftpy` / `craftpy.world.x`: the API names live at the top of the stub
+        chain = chain[len("craftpy."):]
     if _resolve_chain(chain) is not None:
         key = chain
         while key and key not in index:
             key = key.rsplit(".", 1)[0] if "." in key else ""
         if key:
             return {"kind": "api", "path": STUB_PATH, "line": index[key], "symbol": chain}
-    if chain == word:
-        try:
-            tree = ast.parse(code)
-        except SyntaxError:
-            return {"kind": "none", "symbol": word}
-        best = None
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return {"kind": "none", "symbol": word}
+    best = None
+    # also methods and attributes (`self.helper()`, `obj.method`): the definition of the last name in this file
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == word:
+            best = node.lineno - 1
+            break
+    if best is None and chain == word:
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == word:
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == word:
                 best = node.lineno - 1
                 break
-        if best is None:
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == word:
-                    best = node.lineno - 1
-                    break
-        if best is not None:
-            return {"kind": "local", "line": best, "symbol": word}
+    if best is not None:
+        return {"kind": "local", "line": best, "symbol": word}
     return {"kind": "none", "symbol": word}
 
 
@@ -6608,6 +6728,8 @@ def _load_docs():
             "drops": "What it drops: an item, a list, (item, count) / (item, count, weight), 'self' or [] for nothing. Default: the block itself.",
             "extensions": "List of extensions (MineableBy(...), Redstone(...), your own); same as .extends(...).",
             "tags": "Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag).",
+            "model": "Your own mesh: the name of a file in assets/models/block/ (a Blockbench 'Java Block/Item' export), such as 'pedestal'.",
+            "shape": "Hitbox (outline and collision): one box (x1, y1, z1, x2, y2, z2) or a list of up to 32, in sixteenths of a block (0..16). Default: the boxes of the model, or a full cube without one.",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The block."),
         "NativeBlock": ("References an original installed block/item, retaining its native machine behavior and renderer. "
@@ -6673,6 +6795,19 @@ def _load_docs():
             "attributes": "Stat changes while active: [Attributes('minecraft:generic.attack_damage', 2)]; the amount is per level.",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The effect (a string 'project:id')."),
+        "Fluid": ("Declares a liquid (a real NeoForge fluid with a bucket: Fluid(...).bucket). Flows, can be swum in, fills tanks and pipes.", {
+            "id": ID, "name": "Display name; default is the id in title case.",
+            "color": "Tint of the water textures, '#rrggbb'.",
+            "density": "kg/m3: water 1000, lava 3000; negative rises like a gas.",
+            "viscosity": "Water 1000, lava 6000: higher slows flowing and swimming.",
+            "temperature": "Kelvin: water 300, lava 1300.",
+            "light": "Light given off, 0 to 15.",
+            "effects": "Applied while an entity is in it: [('poison', 5), (rage, 8, 2)] as (effect, seconds, level).",
+            "still": "Own texture of the still liquid (assets/textures/), instead of tinted water.",
+            "flowing": "Own texture of the flowing liquid.",
+            "bucket_texture": "Texture of the bucket item; default: the water bucket.",
+            "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
+        }, "The fluid; fluid.bucket is the bucket item."),
         "Food": ("Food values for Item(food=...).", {
             "hunger": "Hunger points restored (each is half a drumstick).",
             "saturation": "Saturation modifier; 0.6 is bread, 1.2 cooked meat.",
@@ -6822,6 +6957,7 @@ def _load_docs():
         # ---------------------------------------------------------------- world
         "world.get_block": ("The block id at a position.", dict(POS3, dimension=DIM), "str, for example 'minecraft:stone'"),
         "world.machine": ("Read a loaded kinetic machine without loading chunks. Snapshot includes speed, theoretical_speed, overstressed, processing, progress, recipe and input/output stacks.", dict(POS3, dimension=DIM), "dict"),
+        "world.machine_update": ("Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.", dict(POS3, energy="FE to add (negative removes).", fluid="mB to remove, 0 or negative.", dimension=DIM), "dict"),
         "world.set_block": ("Places a block: world.set_block(x, y, z, 'stone') or world.set_block(pos, 'stone').", dict(
             POS3, block="Block id or Block object.", dimension=DIM, replace="False only places into air.") , ""),
         "world.fill": ("Fills the box between two corners (at most 32768 blocks).", {
@@ -7037,6 +7173,7 @@ def _doc_text(summary, params, returns):
 _DOCS = _load_docs()
 _DOCS.update({
     'EnergyStorage': (EnergyStorage.__doc__, dict(capacity='Maximum stored FE (1..1000000000).', max_receive='Maximum FE per receive call; default capacity.', max_extract='Maximum FE per extraction call; default capacity.'), ''),
+    'Screen': (Screen.__doc__, dict(title='Text at the top of the window.', energy='Show the energy bar (needs EnergyStorage).', fluid='Show the fluid gauge (needs FluidTank).', slots='Show the two item slots.'), ''),
     'FluidTank': (FluidTank.__doc__, dict(capacity='Maximum mB (1..1000000).', allowed='Optional list of up to 64 namespaced fluid IDs; None permits all.'), ''),
     'world.resources': (_World.resources.__doc__, dict(x='Block X, tuple or Pos.', y='Block Y.', z='Block Z.', dimension='Dimension resource ID.', side='Capability face or None for unsided access.'), 'dict'),
     'world.transfer': (_World.transfer.__doc__, dict(source='Three source block coordinates.', target='Three destination coordinates in the same dimension.', kind='item, fluid or energy.', amount='Requested count, mB or FE (1..1000000; items capped to 64).', source_side='Source capability face or None.', target_side='Destination capability face or None.', slot='Source item slot; default 0.', simulate='True checks without changing contents.', dimension='Dimension resource ID.'), 'int'),

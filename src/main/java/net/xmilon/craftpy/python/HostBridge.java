@@ -71,6 +71,18 @@ public final class HostBridge {
                     if (!(level.getBlockEntity(pos) instanceof net.xmilon.craftpy.content.MachineAccess machine)) return error("No CraftPy machine here");
                     JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
                 });
+                case "world.machine_update" -> onServer(server -> {
+                    ServerLevel level = level(server, params);
+                    if (level == null) return error("unknown dimension");
+                    BlockPos pos = pos(params);
+                    if (!level.hasChunkAt(pos)) return error("Machine chunk is not loaded");
+                    if (!(level.getBlockEntity(pos) instanceof net.xmilon.craftpy.content.MachineAccess machine)) return error("No CraftPy machine here");
+                    int energy = params.has("energy") ? params.get("energy").getAsInt() : 0;
+                    int fluid = params.has("fluid") ? params.get("fluid").getAsInt() : 0;
+                    if (fluid > 0 || Math.abs((long) energy) > 1_000_000_000L || fluid < -1_000_000) return error("energy or fluid out of range");
+                    machine.machineState().adjust(energy, fluid);
+                    JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
+                });
                 case "world.resources" -> onServer(server -> net.xmilon.craftpy.content.ResourceAccess.snapshot(level(server, params), params));
                 case "world.transfer" -> onServer(server -> net.xmilon.craftpy.content.ResourceAccess.transfer(level(server, params), params));
                 case "world.set_block" -> onServer(server -> setBlock(server, params));
