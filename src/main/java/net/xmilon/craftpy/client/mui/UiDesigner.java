@@ -18,6 +18,7 @@ import icyllis.modernui.text.Editable;
 import icyllis.modernui.text.TextWatcher;
 import icyllis.modernui.view.Gravity;
 import icyllis.modernui.view.KeyEvent;
+import icyllis.modernui.view.MeasureSpec;
 import icyllis.modernui.view.View;
 import icyllis.modernui.view.ViewGroup;
 import icyllis.modernui.widget.LinearLayout;
@@ -361,15 +362,18 @@ final class UiDesigner {
             List<String> group = matching.stream().filter(type -> isContainer(type) == layouts).toList();
             if (group.isEmpty()) continue;
             toolbox.addView(section(layouts ? "Containers" : "Controls"));
+            var tiles = new FlowLayout(context);
+            tiles.setPadding(tiles.dp(6), tiles.dp(2), tiles.dp(6), tiles.dp(6));
+            toolbox.addView(tiles, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
             for (String type : group) {
-                var item = label(context, (layouts ? "▣  " : "+  ") + displayName(type), R.attr.textAppearanceBodyMedium);
-                item.setPadding(item.dp(12), item.dp(7), item.dp(8), item.dp(7));
+                var item = label(context, displayName(type), R.attr.textAppearanceBodyMedium);
+                item.setPadding(item.dp(9), item.dp(5), item.dp(9), item.dp(5));
                 item.setClickable(true);
                 item.setTooltipText("Drag to the design surface, or click then click the window to place");
                 item.setOnClickListener(v -> chooseTool(type.equals(placementType) ? null : type));
                 item.setOnTouchListener(new PaletteDrag(type));
                 styleChip(item, type.equals(placementType));
-                toolbox.addView(item, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+                tiles.addView(item);
                 toolButtons.put(type, item);
             }
         }
@@ -481,9 +485,16 @@ final class UiDesigner {
     private record Entry(JsonObject node, @Nullable JsonObject parent, int depth) {
     }
 
+    /** Boxes whose children are folded away in the hierarchy (by identity: the nodes are edited in place). */
+    private final java.util.Set<JsonObject> collapsed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+    private static boolean hasChildren(JsonObject node) {
+        return node.has("children") && node.get("children").isJsonArray() && !node.getAsJsonArray("children").isEmpty();
+    }
+
     private void collect(JsonObject node, @Nullable JsonObject parent, int depth, List<Entry> out) {
         out.add(new Entry(node, parent, depth));
-        if (node.has("children") && node.get("children").isJsonArray()) {
+        if (!collapsed.contains(node) && node.has("children") && node.get("children").isJsonArray()) {
             for (JsonElement child : node.getAsJsonArray("children")) {
                 if (child.isJsonObject()) {
                     collect(child.getAsJsonObject(), node, depth + 1, out);
@@ -515,14 +526,18 @@ final class UiDesigner {
 
     private void refreshTree() {
         treeColumn.removeAllViews();
+        // the selected widget is never hidden inside a folded box
+        JsonObject treeRoot = window.getAsJsonObject("root");
+        for (JsonObject up = parentOf(treeRoot, selected); up != null; up = parentOf(treeRoot, up)) {
+            collapsed.remove(up);
+        }
         List<Entry> all = entries();
         List<View> rows = new ArrayList<>();
         for (Entry entry : all) {
             String type = WindowFragment.str(entry.node, "type", "?");
             String text = WindowFragment.str(entry.node, "text", WindowFragment.str(entry.node, "label",
                     WindowFragment.str(entry.node, "id", "")));
-            var rowView = label(context, "  ".repeat(entry.depth) + (CONTAINERS.contains(type) ? "▾ " : "") + type
-                    + (text.isEmpty() ? "" : "  · " + text), R.attr.textAppearanceBodyMedium);
+            var rowView = label(context, type + (text.isEmpty() ? "" : "  · " + text), R.attr.textAppearanceBodyMedium);
             rowView.setPadding(rowView.dp(8), rowView.dp(5), rowView.dp(8), rowView.dp(5));
             styleChip(rowView, entry.node == selected);
             rowView.setOnClickListener(v -> {
@@ -539,7 +554,23 @@ final class UiDesigner {
                 rowView.setOnTouchListener(new TreeDrag(entry.node, all, rows));
             }
             rows.add(rowView);
-            treeColumn.addView(rowView, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+            var line = row(context);
+            var arrow = label(context, hasChildren(entry.node) ? (collapsed.contains(entry.node) ? "▸" : "▾") : "",
+                    R.attr.textAppearanceBodyMedium);
+            arrow.setGravity(Gravity.CENTER);
+            if (hasChildren(entry.node)) {
+                arrow.setOnClickListener(v -> {
+                    if (!collapsed.remove(entry.node)) {
+                        collapsed.add(entry.node);
+                    }
+                    refreshTree();
+                });
+            }
+            var arrowLp = new LinearLayout.LayoutParams(arrow.dp(18), MATCH_PARENT);
+            arrowLp.setMarginStart(arrow.dp(12) * entry.depth);
+            line.addView(arrow, arrowLp);
+            line.addView(rowView, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
+            treeColumn.addView(line, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         }
     }
 
@@ -1264,7 +1295,7 @@ final class UiDesigner {
             float handle = dp(3);
             if (showGrid) {
                 paint.setStyle(icyllis.modernui.graphics.Paint.FILL);
-                paint.setColor(0x444E5157);
+                paint.setColor(IdeColors.BORDER & 0xFFFFFF | 0x44000000);
                 for (var entry : shown.entrySet()) {
                     if (!entry.getKey().isShown() || !"canvas".equals(WindowFragment.str(entry.getValue(), "type", ""))) continue;
                     float[] box = rect(entry.getKey());

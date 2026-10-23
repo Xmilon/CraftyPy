@@ -551,7 +551,7 @@ final class SoundEditorPanel implements DockPanel {
         protected void onDraw(@NonNull Canvas canvas) {
             int w = getWidth();
             int h = getHeight();
-            paint.setColor(0xFF1E1E1E);
+            paint.setColor(IdeColors.EDITOR);
             canvas.drawRect(0, 0, w, h, paint);
             if (shown == null || w < 2) {
                 return;
@@ -563,22 +563,22 @@ final class SoundEditorPanel implements DockPanel {
                 peaksTo = to;
             }
             float mid = h / 2f;
-            paint.setColor(0xFF2A2A2A);
+            paint.setColor(IdeColors.BORDER);
             canvas.drawRect(0, mid, w, mid + 1, paint);
             if (hasSelection()) {
                 paint.setColor(0x44FFFFFF);
                 canvas.drawRect(Math.max(0, xOf(selFrom())), 0, Math.min(w, xOf(selTo())), h, paint);
             }
-            paint.setColor(0xFF4FC3F7);
+            paint.setColor(IdeColors.INFO);
             for (int x = 0; x < w; x++) {
                 float low = peaks[x * 2];
                 float high = peaks[x * 2 + 1];
                 canvas.drawRect(x, mid - high * mid * 0.95f, x + 1, Math.max(mid - high * mid * 0.95f + 1, mid - low * mid * 0.95f), paint);
             }
-            paint.setColor(0xFFFFFFFF);
+            paint.setColor(IdeColors.TEXT);
             canvas.drawRect(xOf(cursor), 0, xOf(cursor) + 1, h, paint);
             if (playhead >= 0) {
-                paint.setColor(0xFFFFC107);
+                paint.setColor(IdeColors.WARNING);
                 canvas.drawRect(xOf(playhead), 0, xOf(playhead) + 2, h, paint);
             }
         }

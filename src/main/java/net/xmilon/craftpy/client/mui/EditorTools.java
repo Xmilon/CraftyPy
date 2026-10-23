@@ -1047,7 +1047,7 @@ final class EditorTools {
         traceText = new PlainText(context);
         traceText.setTypeface(Typeface.MONOSPACED);
         traceText.setTextSize(12);
-        traceText.setTextColor(0xFFBCBEC4);
+        traceText.setTextColor(IdeColors.TEXT);
         traceText.setTextIsSelectable(true);
         traceText.setPadding(traceText.dp(8), traceText.dp(2), traceText.dp(8), traceText.dp(2));
         traceScroll = new ScrollView(context);
@@ -1199,7 +1199,7 @@ final class EditorTools {
                         + "    (" + row.get(1).getAsString() + ")", R.attr.textAppearanceBodySmall);
                 variable.setTypeface(Typeface.MONOSPACED);
                 variable.setTextIsSelectable(true);
-                variable.setTextColor(0xFFBCBEC4);
+                variable.setTextColor(IdeColors.TEXT);
                 debugList.addView(variable);
             }
             for (JsonElement f : hit.getAsJsonArray("stack")) {

@@ -61,7 +61,6 @@ import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
  */
 public class EditorFragment extends Fragment {
 
-    private static final int CONSOLE_TEXT = 0xFFBCBEC4;
     private static final long EDIT_DELAY_MS = 150;
     private static final long DOUBLE_CLICK_MS = 400;
     private static final int PANEL_CONSOLE = 0;
@@ -2306,8 +2305,8 @@ public class EditorFragment extends Fragment {
         consoleView.setOnCtrlClick(this::jumpFromConsole);
         console = consoleView;
         console.setTypeface(EditorFont.get());
-        console.setTextSize(12);
-        console.setTextColor(CONSOLE_TEXT);
+        console.setTextSize(Math.max(8, settings.fontSize - 1));
+        console.setTextColor(IdeColors.TEXT);
         int dp8 = panelView.dp(8);
         console.setPadding(dp8, dp8 / 2, dp8, dp8 / 2);
         consoleScroll = new ScrollView(context);
@@ -2462,6 +2461,7 @@ public class EditorFragment extends Fragment {
 
     private void applyTheme() {
         EditorTheme theme = settings.theme();
+        IdeColors.apply(theme);
         code.setTheme(theme);
         code.setRulerColumn(settings.ruler);
         codeScroll.setBackground(new ColorDrawable(theme.bg));
@@ -2475,6 +2475,12 @@ public class EditorFragment extends Fragment {
     private void applyFontSize() {
         code.setTextSize(settings.fontSize);
         gutter.setTextSize(settings.fontSize);
+        if (console != null) {
+            console.setTextSize(Math.max(8, settings.fontSize - 1));
+        }
+        if (split != null) {
+            split.applySettings();
+        }
         gutter.post(rebuildGutter);
     }
 

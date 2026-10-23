@@ -53,6 +53,10 @@ public final class HubSettingsFragment extends Fragment {
         page.addView(stepper(context, "Color scheme", () -> editor.theme().label, step -> {
             EditorTheme[] all = EditorTheme.values();
             editor.theme = all[Math.floorMod(editor.theme().ordinal() + step, all.length)].name();
+            editor.save();
+            IdeColors.apply(editor.theme());
+            // views keep the colors they were built with: open the Hub again on this tab
+            IdeHost.get().execute(() -> HubFragment.open(HubFragment.TAB_SETTINGS));
         }, editor));
         page.addView(stepper(context, "Font size", () -> Math.round(editor.fontSize) + "",
                 step -> editor.fontSize = Math.clamp(editor.fontSize + step, 8, 32), editor));

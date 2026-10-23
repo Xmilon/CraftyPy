@@ -52,11 +52,11 @@ final class RecipeBookPanel {
         void hide();
     }
 
+    private static int rowHover() {
+        return IdeColors.TEXT & 0xFFFFFF | 0x30000000;
+    }
+
     private static final int MAX_CARDS = 80;
-    private static final int TEXT = 0xFFDFE1E5;
-    private static final int DIM = 0xFF8C8F94;
-    private static final int ACCENT = 0xFF6FA8FF;
-    private static final int ROW_HOVER = 0x30FFFFFF;
 
     private enum Tab { MADE_BY, USED_IN, DROPPED_BY }
 
@@ -393,7 +393,7 @@ final class RecipeBookPanel {
             columns = Math.max(1, (width - 4) / 18);
             viewHeight = height;
             contentHeight = (shown.size() + columns - 1) / columns * 18 + 14;
-            g.drawString(font, shown.size() + " items" + (RecipeSources.jei() ? " · recipes by JEI" : ""), 4, 2 - (int) scroll, DIM, false);
+            g.drawString(font, shown.size() + " items" + (RecipeSources.jei() ? " · recipes by JEI" : ""), 4, 2 - (int) scroll, IdeColors.TEXT_SECONDARY, false);
             ItemStack hovered = null;
             int top = 12 - (int) scroll;
             int first = Math.max(0, -top / 18 * columns);
@@ -404,7 +404,7 @@ final class RecipeBookPanel {
                     break;
                 }
                 if (inside(mouseX, mouseY, x, y, 18, 18)) {
-                    g.fill(x, y, x + 18, y + 18, ROW_HOVER);
+                    g.fill(x, y, x + 18, y + 18, rowHover());
                     hovered = shown.get(i);
                 }
                 g.renderItem(shown.get(i), x + 1, y + 1);
@@ -462,13 +462,13 @@ final class RecipeBookPanel {
                 }
                 String id = shown.get(i);
                 if (inside(mouseX, mouseY, 0, y, width, ROW)) {
-                    g.fill(0, y, width, y + ROW, ROW_HOVER);
+                    g.fill(0, y, width, y + ROW, rowHover());
                 }
                 var type = BuiltInRegistries.ENTITY_TYPE.get(ResourceLocation.parse(id));
                 SpawnEggItem egg = SpawnEggItem.byId(type);
                 item(g, font, egg == null ? null : new ItemStack(egg), 3, y + 2);
-                g.drawString(font, font.plainSubstrByWidth(type.getDescription().getString(), width - 28), 24, y + 2, TEXT, false);
-                g.drawString(font, font.plainSubstrByWidth(id, width - 28), 24, y + 11, DIM, false);
+                g.drawString(font, font.plainSubstrByWidth(type.getDescription().getString(), width - 28), 24, y + 2, IdeColors.TEXT, false);
+                g.drawString(font, font.plainSubstrByWidth(id, width - 28), 24, y + 11, IdeColors.TEXT_SECONDARY, false);
             }
         }
 
@@ -523,15 +523,15 @@ final class RecipeBookPanel {
             Font font = Minecraft.getInstance().font;
             viewHeight = height;
             if (cards == null) {
-                g.drawString(font, "Loading...", 4, 4, DIM, false);
+                g.drawString(font, "Loading...", 4, 4, IdeColors.TEXT_SECONDARY, false);
                 return;
             }
             if (reply != null && reply.has("error")) {
-                g.drawString(font, font.plainSubstrByWidth(reply.get("error").getAsString(), width - 8), 4, 4, DIM, false);
+                g.drawString(font, font.plainSubstrByWidth(reply.get("error").getAsString(), width - 8), 4, 4, IdeColors.TEXT_SECONDARY, false);
                 return;
             }
             if (cards.isEmpty()) {
-                g.drawString(font, usedIn ? "Not used in any recipe." : "No recipe makes this.", 4, 4, DIM, false);
+                g.drawString(font, usedIn ? "Not used in any recipe." : "No recipe makes this.", 4, 4, IdeColors.TEXT_SECONDARY, false);
                 return;
             }
             boxes.clear();
@@ -554,7 +554,7 @@ final class RecipeBookPanel {
                         g.pose().popPose();
                         tx += 14;
                     }
-                    g.drawString(font, font.plainSubstrByWidth(card.title(), width - tx - 4), tx, y + 3, ACCENT, false);
+                    g.drawString(font, font.plainSubstrByWidth(card.title(), width - tx - 4), tx, y + 3, IdeColors.INFO, false);
                     int cy = y + TITLE;
                     int mx = mouseX < 0 ? -1 : Math.round((mouseX - x) / s);
                     int my = mouseY < 0 ? -1 : Math.round((mouseY - cy) / s);
@@ -721,7 +721,7 @@ final class RecipeBookPanel {
             }
             int ax = x + gridW * 18 + 4;
             int ay = y + (gridH * 18) / 2 - 4;
-            g.drawString(font, "→", ax + 3, ay, TEXT, false);
+            g.drawString(font, "→", ax + 3, ay, IdeColors.TEXT, false);
             int ox = x + gridW * 18 + 24;
             for (int i = 0; i < outputs.size(); i++) {
                 int sx = ox + (i % 3) * 20;
@@ -737,7 +737,7 @@ final class RecipeBookPanel {
             }
             int ly = y + Math.max(gridH, (outputs.size() + 2) / 3) * 18 + 2;
             for (String line : lines) {
-                g.drawString(font, line, x, ly, DIM, false);
+                g.drawString(font, line, x, ly, IdeColors.TEXT_SECONDARY, false);
                 ly += 10;
             }
         }
@@ -788,15 +788,15 @@ final class RecipeBookPanel {
             Font font = Minecraft.getInstance().font;
             viewHeight = height;
             if (reply == null) {
-                g.drawString(font, "Loading...", 4, 4, DIM, false);
+                g.drawString(font, "Loading...", 4, 4, IdeColors.TEXT_SECONDARY, false);
                 return;
             }
             if (reply.has("error")) {
-                g.drawString(font, font.plainSubstrByWidth(reply.get("error").getAsString(), width - 8), 4, 4, DIM, false);
+                g.drawString(font, font.plainSubstrByWidth(reply.get("error").getAsString(), width - 8), 4, 4, IdeColors.TEXT_SECONDARY, false);
                 return;
             }
             if (rows.isEmpty()) {
-                g.drawString(font, "No mob, block or chest drops this.", 4, 4, DIM, false);
+                g.drawString(font, "No mob, block or chest drops this.", 4, 4, IdeColors.TEXT_SECONDARY, false);
                 return;
             }
             contentHeight = rows.size() * ROW + 4;
@@ -811,12 +811,12 @@ final class RecipeBookPanel {
                 String kind = row.get("kind").getAsString();
                 String source = row.get("source").getAsString();
                 if (inside(mouseX, mouseY, 0, y, width, ROW)) {
-                    g.fill(0, y, width, y + ROW, ROW_HOVER);
+                    g.fill(0, y, width, y + ROW, rowHover());
                     hovered = row;
                 }
                 item(g, font, sourceIcon(kind, source), 3, y + 3);
-                g.drawString(font, font.plainSubstrByWidth(sourceName(kind, source), width - 28), 24, y + 2, TEXT, false);
-                g.drawString(font, font.plainSubstrByWidth(dropText(row.getAsJsonObject("drop")), width - 28), 24, y + 12, DIM, false);
+                g.drawString(font, font.plainSubstrByWidth(sourceName(kind, source), width - 28), 24, y + 2, IdeColors.TEXT, false);
+                g.drawString(font, font.plainSubstrByWidth(dropText(row.getAsJsonObject("drop")), width - 28), 24, y + 12, IdeColors.TEXT_SECONDARY, false);
             }
             if (hovered != null && hovered.getAsJsonObject("drop").has("notes")) {
                 List<net.minecraft.network.chat.Component> tip = new ArrayList<>();
@@ -940,19 +940,19 @@ final class RecipeBookPanel {
             mob.paint(g, width, stageHeight, -1, -1, partialTick);
             g.pose().popPose();
             if (problem != null) {
-                g.drawString(font, font.plainSubstrByWidth(problem, width - 8), 4, 4, DIM, false);
+                g.drawString(font, font.plainSubstrByWidth(problem, width - 8), 4, 4, IdeColors.TEXT_SECONDARY, false);
             }
             int top = stageHeight + 4;
             viewHeight = height - top;
             if (reply == null) {
-                g.drawString(font, "Loading drops...", 4, top, DIM, false);
+                g.drawString(font, "Loading drops...", 4, top, IdeColors.TEXT_SECONDARY, false);
                 return;
             }
             if (reply.has("error")) {
-                g.drawString(font, font.plainSubstrByWidth(reply.get("error").getAsString(), width - 8), 4, top, DIM, false);
+                g.drawString(font, font.plainSubstrByWidth(reply.get("error").getAsString(), width - 8), 4, top, IdeColors.TEXT_SECONDARY, false);
                 return;
             }
-            g.drawString(font, drops.isEmpty() ? "Drops nothing." : "Drops (" + reply.get("table").getAsString() + ")", 4, top, ACCENT, false);
+            g.drawString(font, drops.isEmpty() ? "Drops nothing." : "Drops (" + reply.get("table").getAsString() + ")", 4, top, IdeColors.INFO, false);
             contentHeight = drops.size() * ROW + 12;
             g.enableScissor(0, top + 10, width, height); // nested in the canvas scissor: keeps rows out of the mob
             int y0 = top + 12 - (int) scroll;
@@ -966,14 +966,14 @@ final class RecipeBookPanel {
                 JsonObject drop = drops.get(i);
                 ItemStack stack = stackOf(drop.get("item").getAsString());
                 if (inside(mouseX, mouseY, 0, y, width, ROW) && mouseY > top + 10) {
-                    g.fill(0, y, width, y + ROW, ROW_HOVER);
+                    g.fill(0, y, width, y + ROW, rowHover());
                     hovered = drop;
                     hoveredStack = stack;
                 }
                 item(g, font, stack, 3, y + 3);
                 String name = stack == null ? drop.get("item").getAsString() : stack.getHoverName().getString();
-                g.drawString(font, font.plainSubstrByWidth(name, width - 28), 24, y + 2, TEXT, false);
-                g.drawString(font, font.plainSubstrByWidth(dropText(drop), width - 28), 24, y + 12, DIM, false);
+                g.drawString(font, font.plainSubstrByWidth(name, width - 28), 24, y + 2, IdeColors.TEXT, false);
+                g.drawString(font, font.plainSubstrByWidth(dropText(drop), width - 28), 24, y + 12, IdeColors.TEXT_SECONDARY, false);
             }
             g.disableScissor();
             if (hovered != null) {

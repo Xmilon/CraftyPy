@@ -886,6 +886,14 @@ public final class ProjectManager {
                         }
                     }
                 }
+                // an imported module of the project (`import helpers`): its file, from the top
+                for (Path file : pyFiles) {
+                    String relative = dir.relativize(file).toString().replace('\\', '/');
+                    if (relative.endsWith("/" + symbol + ".py") || relative.equals(symbol + ".py")
+                            || relative.endsWith("/" + symbol + "/__init__.py")) {
+                        return new FindResult(true, relative, 0);
+                    }
+                }
             } catch (IOException e) {
                 CraftPyLog.LOGGER.warn("findDefinition failed for {}: {}", id, e.getMessage());
             }

@@ -87,7 +87,8 @@ final class HelpPanel {
                     String markdown = load(TOPICS[index][1]);
                     text.post(() -> {
                         markflow.setMarkdown(text, markdown);
-                        fillContents(contents, headings(markdown), text, scroll);
+                        highlightCode(text, markdown);
+                        fillContents(contents, contentsScroll, headings(markdown), text, scroll);
                     });
                 });
             });
@@ -139,7 +140,7 @@ final class HelpPanel {
         var text = new PlainText(context);
         text.setTextIsSelectable(true);
         text.setTextSize(15);
-        text.setLineSpacing(0, 1.35f);
+        text.setLineSpacing(0, 1.42f);
         text.setTextColor(IdeColors.TEXT);
         text.setLinkTextColor(IdeColors.ACCENT);
         text.setHighlightColor(IdeColors.FOCUS);
@@ -155,8 +156,8 @@ final class HelpPanel {
                         .headingBreakColor(IdeColors.BORDER)
                         .headingBreakHeightDp(1)
                         .thematicBreakColor(IdeColors.BORDER)
-                        .codeTypeface(Typeface.MONOSPACED)
-                        .codeBlockTypeface(Typeface.MONOSPACED)
+                        .codeTypeface(EditorFont.get())
+                        .codeBlockTypeface(EditorFont.get())
                         .codeTextColor(IdeColors.ACCENT)
                         .codeBackgroundColor(IdeColors.RAISED)
                         .codeBlockTextColor(IdeColors.TEXT)
@@ -199,10 +200,88 @@ final class HelpPanel {
         return out;
     }
 
-    /** Fills the contents list; a click scrolls the text to that heading (found in order in the rendered text). */
-    private static void fillContents(LinearLayout contents, List<Heading> headings, TextView text, ScrollView scroll) {
+    /** A fenced code block of a document: its language tag ("python", "json", "") and its text. */
+    record CodeBlock(String language, String code) {
+    }
+
+    /** The fenced code blocks of a Markdown document, in order. */
+    static List<CodeBlock> codeBlocks(String markdown) {
+        List<CodeBlock> out = new ArrayList<>();
+        StringBuilder code = null;
+        String language = "";
+        for (String line : markdown.split("\n", -1)) {
+            String trimmed = line.strip();
+            if (trimmed.startsWith("```")) {
+                if (code == null) {
+                    language = trimmed.substring(3).strip().toLowerCase(java.util.Locale.ROOT);
+                    code = new StringBuilder();
+                } else {
+                    out.add(new CodeBlock(language, code.toString().stripTrailing()));
+                    code = null;
+                }
+            } else if (code != null) {
+                code.append(line).append('\n');
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Colors the code blocks of the rendered text with the editor's syntax colors (Python, JSON, Markdown, ...): each block
+     * is found in the rendered text in order, then its lines are tokenized like the editor does.
+     */
+    static void highlightCode(TextView view, String markdown) {
+        if (!(view.getText() instanceof icyllis.modernui.text.Spannable spannable)) {
+            return;
+        }
+        var theme = net.xmilon.craftpy.client.EditorSettings.get().theme();
+        String rendered = spannable.toString();
+        int from = 0;
+        for (CodeBlock block : codeBlocks(markdown)) {
+            if (block.code().isEmpty()) {
+                continue;
+            }
+            int at = rendered.indexOf(block.code(), from);
+            if (at < 0) {
+                continue;
+            }
+            from = at + block.code().length();
+            String path = switch (block.language()) {
+                case "python", "py", "" -> "x.py";
+                case "json" -> "x.json";
+                case "markdown", "md" -> "x.md";
+                default -> null;
+            };
+            if (path == null) {
+                continue;
+            }
+            String language = net.xmilon.craftpy.client.Syntax.language(path);
+            int pos = at;
+            for (String line : block.code().split("\n", -1)) {
+                int cursor = pos;
+                for (var token : net.xmilon.craftpy.client.Syntax.tokenize(line, language)) {
+                    int end = cursor + token.text().length();
+                    if (token.kind() != net.xmilon.craftpy.client.Syntax.Kind.TEXT && end > cursor) {
+                        spannable.setSpan(new icyllis.modernui.text.style.ForegroundColorSpan(theme.color(token.kind())),
+                                cursor, end, icyllis.modernui.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    }
+                    cursor = end;
+                }
+                pos += line.length() + 1;
+            }
+        }
+    }
+
+    /**
+     * Fills the contents list; a click scrolls the text to that heading (found in order in the rendered text), and the
+     * heading you are reading is marked in the list while you scroll.
+     */
+    private static void fillContents(LinearLayout contents, ScrollView contentsScroll, List<Heading> headings, TextView text,
+                                     ScrollView scroll) {
         String rendered = text.getText().toString();
         int from = 0;
+        List<TextView> entries = new ArrayList<>();
+        List<Integer> offsets = new ArrayList<>();
         for (Heading heading : headings) {
             int at = rendered.indexOf(heading.title(), from);
             if (at < 0) {
@@ -221,8 +300,43 @@ final class HelpPanel {
                     scroll.scrollTo(0, text.getPaddingTop() + layout.getLineTop(layout.getLineForOffset(at)));
                 }
             });
+            entries.add(entry);
+            offsets.add(at);
             contents.addView(entry, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         }
+        int[] marked = {-1};
+        Runnable mark = () -> {
+            var layout = text.getLayout();
+            if (layout == null || entries.isEmpty()) {
+                return;
+            }
+            int reading = scroll.getScrollY() + text.dp(48);
+            int current = 0;
+            for (int i = 0; i < offsets.size(); i++) {
+                if (text.getPaddingTop() + layout.getLineTop(layout.getLineForOffset(offsets.get(i))) <= reading) {
+                    current = i;
+                }
+            }
+            if (current == marked[0]) {
+                return;
+            }
+            marked[0] = current;
+            for (int i = 0; i < entries.size(); i++) {
+                boolean here = i == current;
+                entries.get(i).setSelected(here);
+                entries.get(i).setTextColor(here ? IdeColors.ACCENT
+                        : headings.size() > i && headings.get(i).level() <= 2 ? IdeColors.TEXT : IdeColors.TEXT_SECONDARY);
+            }
+            View entry = entries.get(current);
+            int top = entry.getTop(), bottom = entry.getBottom();
+            if (top < contentsScroll.getScrollY()) {
+                contentsScroll.scrollTo(0, Math.max(0, top - entry.dp(8)));
+            } else if (bottom > contentsScroll.getScrollY() + contentsScroll.getHeight()) {
+                contentsScroll.scrollTo(0, bottom - contentsScroll.getHeight() + entry.dp(8));
+            }
+        };
+        scroll.setOnScrollChangeListener((v, x, y, oldX, oldY) -> mark.run());
+        text.post(mark);
     }
 
     private static String load(String file) {

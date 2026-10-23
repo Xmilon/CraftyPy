@@ -137,7 +137,7 @@ public class HomeFragment extends Fragment {
     private record CreateRequest(String name, String template, String side) {
     }
 
-    /** Chips for the starter templates (50) with the description of the selected one. */
+    /** A wrapped grid of the starter templates (50) with the description of the selected one. */
     private View templateGallery(Context context, View anchor) {
         var column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
@@ -145,13 +145,13 @@ public class HomeFragment extends Fragment {
         caption.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         caption.setPadding(0, column.dp(10), 0, column.dp(4));
         column.addView(caption);
-        var chips = row(context);
+        var chips = new FlowLayout(context);
         var description = label(context, "", R.attr.textAppearanceBodySmall);
         description.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         description.setPadding(0, column.dp(6), 0, 0);
-        var scroll = new icyllis.modernui.widget.HorizontalScrollView(context);
+        var scroll = new ScrollView(context);
         scroll.addView(chips);
-        column.addView(scroll);
+        column.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, column.dp(170)));
         column.addView(description);
         List<TextView> views = new java.util.ArrayList<>();
         Runnable refresh = () -> {
@@ -174,9 +174,7 @@ public class HomeFragment extends Fragment {
                 template = t.id();
                 refresh.run();
             });
-            var lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-            lp.rightMargin = chip.dp(6);
-            chips.addView(chip, lp);
+            chips.addView(chip);
             views.add(chip);
         }
         refresh.run();

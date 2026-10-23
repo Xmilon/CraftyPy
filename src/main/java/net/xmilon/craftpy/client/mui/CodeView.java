@@ -132,7 +132,7 @@ public class CodeView extends EditText {
         }
     }
 
-    /** Ctrl + click on a name (go to definition); gets the text offset under the mouse. */
+    /** Ctrl + click or Shift + click on a name (go to definition); gets the text offset under the mouse. */
     public void setOnCtrlClick(IntConsumer onCtrlClick) {
         this.onCtrlClick = onCtrlClick;
     }
@@ -157,7 +157,7 @@ public class CodeView extends EditText {
 
     @Override
     public boolean onTouchEvent(@NonNull MotionEvent event) {
-        if (event.getAction() == MotionEvent.ACTION_DOWN && event.isCtrlPressed()) {
+        if (event.getAction() == MotionEvent.ACTION_DOWN && (event.isCtrlPressed() || event.isShiftPressed())) {
             int offset = offsetAt(event.getX(), event.getY());
             if (offset >= 0 && TextOps.wordAt(getText().toString(), offset) != null) {
                 ctrlGesture = true;

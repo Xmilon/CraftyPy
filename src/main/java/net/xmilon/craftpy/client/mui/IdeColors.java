@@ -10,66 +10,115 @@ import icyllis.modernui.util.StateSet;
 import icyllis.modernui.view.Gravity;
 import icyllis.modernui.widget.Button;
 import icyllis.modernui.widget.EditText;
+import net.xmilon.craftpy.client.EditorSettings;
+import net.xmilon.craftpy.client.EditorTheme;
 
 /**
- * The IDE's own dark palette, laid out like IntelliJ's New UI (dark editor, slightly lighter tool windows and bars, thin
- * separators) with CraftPy's green as the accent. Every page asks for colors through {@link CraftPyFragment#color}, which
- * answers from here, so the IDE looks the same in the game (whatever Modern UI theme is set) and in the standalone window.
+ * The IDE's palette, laid out like IntelliJ's New UI (editor, slightly different tool windows and bars, thin
+ * separators) with CraftPy's green as the accent. It follows the editor color scheme ({@link #apply}); Dark is the
+ * original look. Every page asks for colors through {@link CraftPyFragment#color}, which answers from here, so the IDE
+ * looks the same in the game (whatever Modern UI theme is set) and in the standalone window. Views read the colors when
+ * they are built, so after {@link #apply} the open pages must be rebuilt.
  */
 public final class IdeColors {
-    public static final int EDITOR = 0xFF1E1F22;
-    public static final int PANEL = 0xFF2B2D30;
-    public static final int RAISED = 0xFF313438;
-    public static final int HOVER = 0xFF393B40;
-    public static final int SELECTED = 0xFF43454A;
-    public static final int SEPARATOR = 0xFF1E1F22;
-    public static final int BORDER = 0xFF4E5157;
-    public static final int TEXT = 0xFFDFE1E5;
-    public static final int TEXT_SECONDARY = 0xFF9DA0A8;
-    public static final int TEXT_DISABLED = 0xFF6F737A;
-    public static final int ACCENT = 0xFF36B37E;
-    public static final int ACCENT_HOVER = 0xFF2E9C6D;
-    public static final int ACCENT_SOFT = 0xFF1F4A37;
-    public static final int FOCUS = 0xFF2E436E;
-    public static final int ERROR = 0xFFF75464;
-    public static final int WARNING = 0xFFF2C55C;
-    public static final int SUCCESS = 0xFF5FB865;
-    public static final int INFO = 0xFF548AF7;
+    public static int EDITOR, PANEL, RAISED, HOVER, SELECTED, SEPARATOR, BORDER, TEXT, TEXT_SECONDARY, TEXT_DISABLED;
+    public static int ACCENT, ACCENT_HOVER, ACCENT_SOFT, FOCUS, ERROR, WARNING, SUCCESS, INFO;
 
+    private static int lowest, accentPressed, tertiaryContainer, errorContainer, onErrorContainer;
     /** Material color roles the pages use, answered with the palette. Roles not listed fall back to the Modern UI theme. */
-    private static final Map<String, Integer> ROLES = Map.ofEntries(
-            Map.entry(R.attr.colorSurface, EDITOR),
-            Map.entry(R.attr.colorSurfaceContainerLowest, 0xFF19191C),
-            Map.entry(R.attr.colorSurfaceContainerLow, PANEL),
-            Map.entry(R.attr.colorSurfaceContainer, PANEL),
-            Map.entry(R.attr.colorSurfaceContainerHigh, RAISED),
-            Map.entry(R.attr.colorSurfaceContainerHighest, HOVER),
-            Map.entry(R.attr.colorSurfaceVariant, RAISED),
-            Map.entry(R.attr.colorOnSurface, TEXT),
-            Map.entry(R.attr.colorOnSurfaceVariant, TEXT_SECONDARY),
-            Map.entry(R.attr.colorPrimary, ACCENT),
-            Map.entry(R.attr.colorOnPrimary, 0xFFFFFFFF),
-            Map.entry(R.attr.colorPrimaryContainer, ACCENT_SOFT),
-            Map.entry(R.attr.colorOnPrimaryContainer, TEXT),
-            Map.entry(R.attr.colorSecondary, TEXT_SECONDARY),
-            Map.entry(R.attr.colorSecondaryContainer, SELECTED),
-            Map.entry(R.attr.colorOnSecondaryContainer, TEXT),
-            Map.entry(R.attr.colorTertiary, WARNING), // warnings in the problem list
-            Map.entry(R.attr.colorTertiaryContainer, 0xFF253627),
-            Map.entry(R.attr.colorOnTertiaryContainer, TEXT),
-            Map.entry(R.attr.colorError, ERROR),
-            Map.entry(R.attr.colorOnError, 0xFFFFFFFF),
-            Map.entry(R.attr.colorErrorContainer, 0xFF5E2B30),
-            Map.entry(R.attr.colorOnErrorContainer, 0xFFFFD9DC),
-            Map.entry(R.attr.colorOutline, BORDER),
-            Map.entry(R.attr.colorOutlineVariant, HOVER));
+    private static volatile Map<String, Integer> roles = Map.of();
+
+    static {
+        EditorTheme theme = EditorTheme.DARK;
+        try {
+            theme = EditorSettings.get().theme();
+        } catch (RuntimeException notReady) {
+            // no config folder yet: the default look
+        }
+        apply(theme);
+    }
 
     private IdeColors() {
     }
 
+    /** {@code from} moved {@code percent} of the way to {@code to}. */
+    private static int blend(int from, int to, int percent) {
+        int out = 0xFF000000;
+        for (int shift = 0; shift <= 16; shift += 8) {
+            int a = from >> shift & 0xFF, b = to >> shift & 0xFF;
+            out |= (a + (b - a) * percent / 100) << shift;
+        }
+        return out;
+    }
+
+    /** Derives the whole palette from an editor color scheme: surfaces step from its background toward its text color. */
+    public static synchronized void apply(EditorTheme theme) {
+        if (theme == EditorTheme.DARK) {
+            EDITOR = 0xFF1E1F22; PANEL = 0xFF2B2D30; RAISED = 0xFF313438; HOVER = 0xFF393B40; SELECTED = 0xFF43454A;
+            SEPARATOR = 0xFF1E1F22; BORDER = 0xFF4E5157; TEXT = 0xFFDFE1E5; TEXT_SECONDARY = 0xFF9DA0A8;
+            TEXT_DISABLED = 0xFF6F737A;
+            ACCENT = 0xFF36B37E; ACCENT_HOVER = 0xFF2E9C6D; ACCENT_SOFT = 0xFF1F4A37; FOCUS = 0xFF2E436E;
+            ERROR = 0xFFF75464; WARNING = 0xFFF2C55C; SUCCESS = 0xFF5FB865; INFO = 0xFF548AF7;
+            lowest = 0xFF19191C; accentPressed = accentPressed; tertiaryContainer = 0xFF253627; errorContainer = 0xFF5E2B30;
+            onErrorContainer = 0xFFFFD9DC;
+        } else {
+            boolean light = theme == EditorTheme.LIGHT;
+            int bg = theme.bg, fg = theme.text;
+            EDITOR = bg;
+            PANEL = blend(bg, fg, light ? 4 : 7);
+            RAISED = blend(bg, fg, light ? 8 : 11);
+            HOVER = blend(bg, fg, light ? 12 : 16);
+            SELECTED = blend(bg, fg, light ? 18 : 22);
+            SEPARATOR = blend(bg, fg, light ? 14 : 4);
+            BORDER = blend(bg, fg, light ? 30 : 32);
+            TEXT = fg;
+            TEXT_SECONDARY = blend(fg, bg, 35);
+            TEXT_DISABLED = blend(fg, bg, 58);
+            ACCENT = light ? 0xFF1F9D6B : theme == EditorTheme.HIGH_CONTRAST ? 0xFF00E676 : 0xFF36B37E;
+            ACCENT_HOVER = blend(ACCENT, bg, light ? 18 : 15);
+            ACCENT_SOFT = blend(bg, ACCENT, light ? 22 : 28);
+            FOCUS = blend(bg, 0xFF548AF7, 30);
+            ERROR = light ? 0xFFD32F3F : 0xFFF75464;
+            WARNING = light ? 0xFFB7791F : 0xFFF2C55C;
+            SUCCESS = light ? 0xFF2E8B3E : 0xFF5FB865;
+            INFO = light ? 0xFF2F6FDE : 0xFF548AF7;
+            lowest = blend(bg, 0xFF000000, light ? 3 : 25);
+            accentPressed = blend(ACCENT, bg, 40);
+            tertiaryContainer = blend(bg, SUCCESS, 18);
+            errorContainer = blend(bg, ERROR, light ? 18 : 35);
+            onErrorContainer = light ? 0xFF5E1A22 : 0xFFFFD9DC;
+        }
+        roles = Map.ofEntries(
+                Map.entry(R.attr.colorSurface, EDITOR),
+                Map.entry(R.attr.colorSurfaceContainerLowest, lowest),
+                Map.entry(R.attr.colorSurfaceContainerLow, PANEL),
+                Map.entry(R.attr.colorSurfaceContainer, PANEL),
+                Map.entry(R.attr.colorSurfaceContainerHigh, RAISED),
+                Map.entry(R.attr.colorSurfaceContainerHighest, HOVER),
+                Map.entry(R.attr.colorSurfaceVariant, RAISED),
+                Map.entry(R.attr.colorOnSurface, TEXT),
+                Map.entry(R.attr.colorOnSurfaceVariant, TEXT_SECONDARY),
+                Map.entry(R.attr.colorPrimary, ACCENT),
+                Map.entry(R.attr.colorOnPrimary, 0xFFFFFFFF),
+                Map.entry(R.attr.colorPrimaryContainer, ACCENT_SOFT),
+                Map.entry(R.attr.colorOnPrimaryContainer, TEXT),
+                Map.entry(R.attr.colorSecondary, TEXT_SECONDARY),
+                Map.entry(R.attr.colorSecondaryContainer, SELECTED),
+                Map.entry(R.attr.colorOnSecondaryContainer, TEXT),
+                Map.entry(R.attr.colorTertiary, WARNING), // warnings in the problem list
+                Map.entry(R.attr.colorTertiaryContainer, tertiaryContainer),
+                Map.entry(R.attr.colorOnTertiaryContainer, TEXT),
+                Map.entry(R.attr.colorError, ERROR),
+                Map.entry(R.attr.colorOnError, 0xFFFFFFFF),
+                Map.entry(R.attr.colorErrorContainer, errorContainer),
+                Map.entry(R.attr.colorOnErrorContainer, onErrorContainer),
+                Map.entry(R.attr.colorOutline, BORDER),
+                Map.entry(R.attr.colorOutlineVariant, HOVER));
+    }
+
     /** The palette color of a Material role, or null when the palette has none. */
     static Integer role(String attr) {
-        return ROLES.get(attr);
+        return roles.get(attr);
     }
 
     /**
@@ -81,7 +130,7 @@ public final class IdeColors {
         boolean flat = R.attr.borderlessButtonStyle.equals(style);
         int border = flat || primary ? 0 : BORDER;
         if (primary) {
-            button.setBackground(fading(button, 5, border, ACCENT_HOVER, ACCENT_HOVER, ACCENT, ACCENT, 0xFF2A5C45));
+            button.setBackground(fading(button, 5, border, ACCENT_HOVER, ACCENT_HOVER, ACCENT, ACCENT, accentPressed));
         } else if (flat) {
             button.setBackground(fading(button, 5, border, SELECTED, HOVER, SELECTED, 0, 0));
         } else {
