@@ -70,6 +70,7 @@ public final class MachineState {
         configured = true;
         applied = def;
         // Stored contents survive definition removal/reduction; extraction remains possible, insertion is capped.
+        inventory.configure(def == null ? null : def.inventory);
         energy.configure(def == null ? null : def.energy);
         fluid.setCapacity(Math.max(fluid.getFluidAmount(), def == null || def.fluid == null ? 0 : def.fluid.get("capacity").getAsInt()));
         if (entity.getLevel() != null) entity.getLevel().invalidateCapabilities(entity.getBlockPos());
@@ -87,17 +88,42 @@ public final class MachineState {
      * The first item slot of a block with a Screen and a FluidTank takes a filled bucket or tank item: its fluid goes into the
      * tank (only what the tank accepts) and the emptied container comes out in the second slot.
      */
+    /** The output slot can take {@code stack} on top of what it holds (an output slot refuses hands, but not the machine). */
+    private boolean stowable(int slot, ItemStack stack) {
+        ItemStack held = inventory.getStackInSlot(slot);
+        return held.isEmpty() || ItemStack.isSameItemSameComponents(held, stack)
+                && held.getCount() + stack.getCount() <= Math.min(inventory.getSlotLimit(slot), stack.getMaxStackSize());
+    }
+
+    /** Python's world.machine_slot: replaces what a slot holds ({@code group.n}); an empty stack clears it. */
+    public String setSlot(String slotName, ItemStack stack) {
+        configure();
+        String[] parts = slotName.split("\\.", 2);
+        int n;
+        try { n = parts.length > 1 ? Integer.parseInt(parts[1]) : 0; } catch (NumberFormatException bad) { return "unknown slot " + slotName; }
+        int slot = inventory.slotOf(parts[0], n);
+        if (slot < 0) return "unknown slot " + slotName;
+        if (stack.getCount() > inventory.getSlotLimit(slot)) stack.setCount(inventory.getSlotLimit(slot));
+        inventory.setStackInSlot(slot, stack);
+        host.syncMachine();
+        return "";
+    }
+
     private void emptyContainerSlot() {
         var def = definition();
         if (def == null || def.screen == null || def.fluid == null) return;
-        ItemStack in = inventory.getStackInSlot(0);
+        int inSlot = inventory.inputSlot(), outSlot = inventory.outputSlot();
+        if (inSlot < 0 || outSlot < 0) return;
+        ItemStack in = inventory.getStackInSlot(inSlot);
         if (in.isEmpty()) return;
         var simulated = net.neoforged.neoforge.fluids.FluidUtil.tryEmptyContainer(in.copyWithCount(1), fluid, fluid.getSpace(), null, false);
-        if (!simulated.isSuccess() || !inventory.insertItem(1, simulated.getResult(), true).isEmpty()) return;
+        if (!simulated.isSuccess() || !stowable(outSlot, simulated.getResult())) return;
         var done = net.neoforged.neoforge.fluids.FluidUtil.tryEmptyContainer(in.copyWithCount(1), fluid, fluid.getSpace(), null, true);
         if (!done.isSuccess()) return;
-        inventory.insertItem(1, done.getResult(), false);
-        inventory.extractItem(0, 1, false);
+        ItemStack out = inventory.getStackInSlot(outSlot).copy();
+        if (out.isEmpty()) out = done.getResult().copy(); else out.grow(done.getResult().getCount());
+        inventory.setStackInSlot(outSlot, out);
+        inventory.extractItem(inSlot, 1, false);
     }
 
     public void tick() {
@@ -107,7 +133,8 @@ public final class MachineState {
         emptyContainerSlot();
         boolean before = running; running = false;
         if (processing()) {
-            var match = level.getRecipeManager().getRecipeFor(KineticRecipe.TYPE.get(), new SingleRecipeInput(inventory.getStackInSlot(0)), level);
+            var match = level.getRecipeManager().getRecipeFor(KineticRecipe.TYPE.get(),
+                    new SingleRecipeInput(inventory.inputSlot() < 0 ? ItemStack.EMPTY : inventory.getStackInSlot(inventory.inputSlot())), level);
             String next = match.map(r -> r.id().toString()).orElse("");
             duration = match.map(r -> r.value().duration()).orElse(0);
             if (!next.equals(recipe)) { recipe = next; progress = 0; changed(); }
@@ -143,6 +170,20 @@ public final class MachineState {
                 EventBridge.fire(event, level, context.deepCopy());
         reportedSpeed = speed; reportedState = state; reportedRevision = revision;
     }
+    private static JsonObject stackJson(ItemStack stack) {
+        JsonObject item = new JsonObject();
+        item.addProperty("item", BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+        item.addProperty("count", stack.getCount());
+        return item;
+    }
+
+    /** What hoppers, pipes and other mods get of the slots from {@code side} (null: any side); null when they get none. */
+    public net.neoforged.neoforge.items.IItemHandler automation(net.minecraft.core.Direction side) {
+        configure();
+        if (inventory.spec() != null) return new AutomationView(inventory, side);
+        return processing() ? inventory : null;
+    }
+
     public JsonObject snapshot() {
         configure();
         JsonObject out = new JsonObject(); out.addProperty("active", definition() != null);
@@ -150,11 +191,16 @@ public final class MachineState {
         out.addProperty("overstressed", host.rotationState().equals("overstressed")); out.addProperty("state", state());
         out.addProperty("processing", running); out.addProperty("progress", progress); out.addProperty("recipe", recipe);
         out.addProperty("backend", MachineBackend.selected().id());
-        for (int i = 0; i < 2; i++) {
-            var stack = inventory.getStackInSlot(i); JsonObject item = new JsonObject();
-            item.addProperty("item", BuiltInRegistries.ITEM.getKey(stack.getItem()).toString()); item.addProperty("count", stack.getCount());
-            out.add(i == 0 ? "input" : "output", item);
+        out.add("input", stackJson(inventory.inputSlot() < 0 ? ItemStack.EMPTY : inventory.getStackInSlot(inventory.inputSlot())));
+        out.add("output", stackJson(inventory.outputSlot() < 0 ? ItemStack.EMPTY : inventory.getStackInSlot(inventory.outputSlot())));
+        // every group with all its slots, in order: inventory["fuel"][0]["item"]
+        JsonObject groups = new JsonObject();
+        for (int i = 0; i < inventory.getSlots(); i++) {
+            String name = inventory.groupOf(i).isEmpty() ? "overflow" : inventory.groupOf(i);
+            if (!groups.has(name)) groups.add(name, new com.google.gson.JsonArray());
+            groups.getAsJsonArray(name).add(stackJson(inventory.getStackInSlot(i)));
         }
+        out.add("inventory", groups);
         out.addProperty("energy", energy.getEnergyStored()); out.addProperty("energy_capacity", energy.getMaxEnergyStored());
         out.addProperty("fluid", BuiltInRegistries.FLUID.getKey(fluid.getFluid().getFluid()).toString());
         out.addProperty("fluid_amount", fluid.getFluidAmount()); out.addProperty("fluid_capacity", fluid.getCapacity());

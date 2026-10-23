@@ -41,12 +41,12 @@ final class UiDesigner {
             "slider", "dropdown", "list", "progress", "image", "item_icon", "video", "audio", "canvas", "vbox", "hbox", "grid", "tabs",
             "scroll");
     /** The pieces of a Minecraft-style (legacy) window; the toolbox shows these instead when the window is legacy. */
-    private static final List<String> LEGACY_TYPES = List.of("lg_panel", "lg_slot", "lg_player", "lg_energy", "lg_fluid",
+    private static final List<String> LEGACY_TYPES = List.of("lg_panel", "lg_slot", "lg_slots", "lg_player", "lg_energy", "lg_fluid",
             "lg_arrow", "lg_flame", "lg_label", "lg_icon");
     private static final List<String> SLOTS = List.of("input", "output");
     private static final List<String> BINDS = List.of("energy", "fluid", "progress");
     private static final Set<String> NUMBERS = Set.of("size", "weight", "spacing", "padding", "columns", "min", "max",
-            "selected", "width", "height", "x", "y", "speed", "volume", "position", "opacity", "z");
+            "selected", "width", "height", "x", "y", "speed", "volume", "position", "opacity", "z", "rows");
     private static final Set<String> BOOLEANS = Set.of("checked", "visible", "enabled", "autoplay", "loop", "muted", "controls", "legacy");
     private static final List<String> FITS = List.of("contain", "cover", "stretch");
     /** Positions and sizes snap to this many dp. */
@@ -347,6 +347,7 @@ final class UiDesigner {
             case "scroll" -> "Scroll area";
             case "lg_panel" -> "Panel";
             case "lg_slot" -> "Item slot";
+            case "lg_slots" -> "Slot grid";
             case "lg_player" -> "Player inventory";
             case "lg_energy" -> "Energy bar";
             case "lg_fluid" -> "Liquid gauge";
@@ -1659,7 +1660,12 @@ final class UiDesigner {
                 node.addProperty("width", 176);
                 node.addProperty("height", 166);
             }
-            case "lg_slot" -> node.addProperty("slot", "input");
+            case "lg_slot" -> node.addProperty("slot", "input.0");
+            case "lg_slots" -> {
+                node.addProperty("slot", "storage");
+                node.addProperty("columns", 3);
+                node.addProperty("rows", 3);
+            }
             case "lg_energy" -> {
                 node.addProperty("width", 16);
                 node.addProperty("height", 54);
@@ -1717,6 +1723,7 @@ final class UiDesigner {
             switch (type) {
                 case "lg_panel" -> list.addAll(List.of("width", "height"));
                 case "lg_slot" -> list.add("slot");
+                case "lg_slots" -> list.addAll(List.of("slot", "columns", "rows"));
                 case "lg_energy", "lg_fluid", "lg_arrow" -> list.addAll(List.of("bind", "width", "height"));
                 case "lg_flame" -> list.add("bind");
                 case "lg_label" -> list.addAll(List.of("text", "color", "width"));
@@ -1849,7 +1856,7 @@ final class UiDesigner {
             case "volume" -> "0 to 1";
             case "controls" -> "Show a bar with play, seek, speed and volume";
             case "legacy" -> "Minecraft look, for the window of a machine block (Screen(layout=...)): fixed pieces at 176 x 166 units";
-            case "slot" -> "input (the machine's first item slot) or output (its second, take only)";
+            case "slot" -> "A slot of the machine as group.number, for example input.0, fuel.0, output.1, storage.4 (the groups of Inventory(...)); a grid takes the group only";
             case "bind" -> "What the piece shows: energy, fluid or progress of the machine";
             default -> key;
         };
@@ -1876,8 +1883,8 @@ final class UiDesigner {
         name.setTextColor(color(context, R.attr.colorOnSurfaceVariant));
         name.setTooltipText(key.startsWith("on_") ? "Python @action name for " + key : hint(key));
         column.addView(name, new LinearLayout.LayoutParams(name.dp(76), WRAP_CONTENT));
-        if (key.equals("fit") || key.equals("slot") || key.equals("bind")) {
-            List<String> choices = key.equals("fit") ? FITS : key.equals("slot") ? SLOTS : BINDS;
+        if (key.equals("fit") || key.equals("bind")) {
+            List<String> choices = key.equals("fit") ? FITS : BINDS;
             var cycle = button(context, value.isEmpty() ? choices.get(0) : value, R.attr.buttonTonalStyle, null);
             cycle.setContentDescription(key);
             cycle.setOnClickListener(view -> {

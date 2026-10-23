@@ -79,6 +79,86 @@ public final class Defs {
         return out;
     }
 
+    /**
+     * The item slots of a machine block, declared with {@code Inventory(input=1, fuel=1, output=2, storage=9, ...)}: named
+     * groups in order. A group's name is its role: input (hands and hoppers insert), fuel (insert, sides only), output
+     * (extract only) and anything else is storage (both ways). Checked here because it comes from Python.
+     */
+    public static final class InventorySpec {
+        public static final int MAX_SLOTS = 54;
+
+        public record Group(String name, int count, String role, List<String> accepts, int maxStack,
+                            java.util.Set<net.minecraft.core.Direction> sides) {
+        }
+
+        public final List<Group> groups;
+
+        private InventorySpec(List<Group> groups) {
+            this.groups = List.copyOf(groups);
+        }
+
+        public int total() {
+            int sum = 0;
+            for (Group group : groups) sum += group.count();
+            return sum;
+        }
+
+        static String roleOf(String name) {
+            return switch (name) {
+                case "input", "fuel", "output" -> name;
+                default -> "storage";
+            };
+        }
+
+        public static InventorySpec from(JsonObject ext) {
+            List<Group> out = new ArrayList<>();
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            int total = 0;
+            if (ext.get("groups") instanceof JsonArray list) {
+                for (JsonElement element : list) {
+                    if (!element.isJsonObject() || out.size() >= 16) {
+                        continue;
+                    }
+                    JsonObject g = element.getAsJsonObject();
+                    String name = s(g, "name", "");
+                    int count = i(g, "count", 0);
+                    if (!name.matches("[a-z][a-z0-9_]{0,24}") || !seen.add(name)) {
+                        throw new IllegalArgumentException("Inventory group names are lowercase words such as input, fuel, output, storage: " + name);
+                    }
+                    if (count < 1 || (total += count) > MAX_SLOTS) {
+                        throw new IllegalArgumentException("Inventory: each group needs at least 1 slot and the block at most " + MAX_SLOTS);
+                    }
+                    List<String> accepts = new ArrayList<>();
+                    if (g.get("accepts") instanceof JsonArray a) {
+                        for (JsonElement item : a) {
+                            String id = item.isJsonPrimitive() ? item.getAsString() : "";
+                            if (!id.matches("#?[a-z0-9_.-]+:[a-z0-9_./-]+") || accepts.size() >= 32) {
+                                throw new IllegalArgumentException("Inventory accepts needs item ids or #tags: " + id);
+                            }
+                            accepts.add(id);
+                        }
+                    }
+                    java.util.Set<net.minecraft.core.Direction> sides = java.util.EnumSet.noneOf(net.minecraft.core.Direction.class);
+                    if (g.get("sides") instanceof JsonArray a) {
+                        for (JsonElement side : a) {
+                            var direction = net.minecraft.core.Direction.byName(side.getAsString());
+                            if (direction == null) {
+                                throw new IllegalArgumentException("Inventory sides are up, down, north, south, east, west: " + side);
+                            }
+                            sides.add(direction);
+                        }
+                    }
+                    out.add(new Group(name, count, roleOf(name), List.copyOf(accepts), Math.max(1, Math.min(64, i(g, "max_stack", 64))),
+                            java.util.Collections.unmodifiableSet(sides)));
+                }
+            }
+            if (out.isEmpty()) {
+                throw new IllegalArgumentException("Inventory needs at least one group, for example Inventory(input=1, output=1)");
+            }
+            return new InventorySpec(out);
+        }
+    }
+
     public static final class BlockDef {
         public String name;
         public String texture;
@@ -104,12 +184,14 @@ public final class Defs {
         public JsonObject fluid;
         /** The Minecraft-style window of a machine block (Screen(...)); null = none. */
         public JsonObject screen;
+        /** The block's item slots; null = the two slots of a processing machine (input, output). */
+        public InventorySpec inventory;
         /** Own mesh: a model of the project's assets/models/block/ ("" = the generated cube). */
         public String model = "";
         /** Hitbox (outline and collision); null = a full cube. */
         public net.minecraft.world.phys.shapes.VoxelShape shape;
 
-        public boolean machine() { return kinetic != null || energy != null || fluid != null || screen != null; }
+        public boolean machine() { return kinetic != null || energy != null || fluid != null || screen != null || inventory != null; }
 
         /**
          * The hitbox of an imported model: the union of its {@code elements} boxes (a Blockbench "Java Block/Item" export),
@@ -187,6 +269,7 @@ public final class Defs {
                     case "energy_storage" -> def.energy = MachineState.validateEnergy(ext);
                     case "fluid_tank" -> def.fluid = MachineState.validateFluid(ext);
                     case "screen" -> def.screen = ext.deepCopy();
+                    case "inventory" -> def.inventory = InventorySpec.from(ext);
                     case "mineable" -> def.minLevel = Math.max(0, Math.min(4, i(ext, "level", 0)));
                     case "redstone" -> def.redstone = Math.max(0, Math.min(15, i(ext, "power", 0)));
                     case "flammable" -> {

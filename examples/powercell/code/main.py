@@ -40,6 +40,7 @@ generator = Block(
 ).extends(
     FluidTank(capacity=8000, allowed=[volt_sap]),                    # only Volt Sap goes in
     EnergyStorage(capacity=400_000, max_receive=0, max_extract=2000),  # gives energy out, takes none in
+    Inventory(input=1, output=1, accepts={"input": [volt_sap.bucket]}),  # the window's bucket slots: only Volt Sap buckets go in
     Screen(title="Sap Generator", layout="sap_generator"),            # the Minecraft-style window drawn in ui/sap_generator.json
 )
 

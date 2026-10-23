@@ -606,6 +606,7 @@ This page describes Python API **2.11** (`API_VERSION` in your code). `apiVersio
 - **Added:** `Block(model=, shape=)`: your own mesh from assets/models/block/ and a hitbox of boxes in sixteenths of a block; without `shape` the hitbox follows the model's boxes when the project runs from its folder.
 - **Added:** `Screen(title=)` extension: a Minecraft-style window for machine blocks (two item slots, liquid gauge, energy bar on the right). A bucket in the first slot is emptied into the block's `FluidTank`.
 - **Added:** `world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block.
+- **Added:** `Inventory(input=1, fuel=1, output=2, storage=9, accepts=, max_stack=, sides=)`: named item-slot groups for a machine block (up to 54 slots) with furnace-like automation by hoppers and pipes; `world.machine(...)["inventory"]` reads them and `world.machine_slot(...)` sets a slot. Legacy windows get *Item slot* (`group.number`) and *Slot grid* pieces.
 - **Added:** Minecraft-style windows: tick `legacy` in the UI maker's window properties, draw panels, item slots, the player inventory, energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout="my_window")`.
 
 ### 2.10 (2026-10-21)
@@ -1105,6 +1106,25 @@ Native NeoForge tank in mB; allowed is an optional list of fluid resource IDs.
 
 - `capacity`: Maximum mB (1..1000000).
 - `allowed` (default `None`): Optional list of up to 64 namespaced fluid IDs; None permits all.
+
+#### `Inventory(*, accepts=None, max_stack=None, sides=None, **groups)`
+
+The item slots of a machine block, in named groups: ``Inventory(input=1, fuel=1, output=2, storage=9)``.
+
+A group's name is its role. ``input``: hands and hoppers put items in (a processing machine reads its recipe from the
+first one). ``fuel``: items go in from the sides only. ``output``: items only come out (by hand, or by hoppers from the
+bottom and the sides). Any other name is ``storage``: both ways, from every side. At most 54 slots.
+
+``accepts={"fuel": ["minecraft:coal", "#minecraft:logs"]}`` limits what a group takes (item ids and ``#tags``).
+``max_stack={"input": 16}`` limits the stack size in a group. ``sides={"output": ["down", "north"]}`` replaces the
+sides hoppers and pipes may use for a group. The items are saved with the block and drop when it is broken. Python reads
+them in ``world.machine(...)["inventory"]`` and changes them with ``world.machine_slot``; the window
+(``Screen``) shows them, and shift-click moves items between your inventory and the first slots that take them.
+
+- `accepts` (default `None`): {group: [item ids or #tags]}: what a group takes.
+- `max_stack` (default `None`): {group: 1..64}: stack limit of a group.
+- `sides` (default `None`): {group: ["up", "down", "north", "south", "east", "west"]}: sides hoppers and pipes may use.
+- `**groups`: The slot groups as keyword arguments: input=1, fuel=1, output=2, storage=9 (names are roles; at most 54 slots).
 
 #### `Screen(title=None, *, energy=True, fluid=True, slots=True, layout=None)`
 
@@ -1835,6 +1855,20 @@ Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded mac
 - `z` (default `None`): Z coordinate.
 - `energy` (default `0`): FE to add (negative removes).
 - `fluid` (default `0`): mB to remove, 0 or negative.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
+
+Returns: dict
+
+#### `world.machine_slot(x, y=None, z=None, *, slot, item=None, count=1, dimension='minecraft:overworld') -> dict`
+
+Put a stack into a slot ('group.number') of a loaded machine block, replacing what is there; item=None empties it. Returns the new snapshot.
+
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `slot`: 'group.number' of the block's Inventory, such as 'input.0' or 'output.1'.
+- `item` (default `None`): Item or id, or None to empty the slot.
+- `count` (default `1`): Stack size, 0..64 (and the group's max_stack).
 - `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: dict

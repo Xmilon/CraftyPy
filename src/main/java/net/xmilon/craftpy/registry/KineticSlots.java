@@ -37,7 +37,7 @@ public final class KineticSlots {
         REGISTER.register(bus); TYPES.register(bus);
         bus.addListener((net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent event) -> {
             event.registerBlockEntity(net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK, TYPE.get(), (be, side) ->
-                    be instanceof net.xmilon.craftpy.content.MachineAccess m && m.machineState().processing() ? m.machineState().inventory : null);
+                    be instanceof net.xmilon.craftpy.content.MachineAccess m ? m.machineState().automation(side) : null);
             event.registerBlockEntity(net.neoforged.neoforge.capabilities.Capabilities.EnergyStorage.BLOCK, TYPE.get(), (be, side) -> {
                 if (!(be instanceof net.xmilon.craftpy.content.MachineAccess m)) return null;
                 var state = m.machineState(); state.configure(); var def = state.definition();

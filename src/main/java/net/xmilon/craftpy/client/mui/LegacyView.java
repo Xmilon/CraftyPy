@@ -29,7 +29,7 @@ final class LegacyView extends View {
 
     /** Slots and the player inventory have a one unit frame around their items. */
     static boolean framed(String type) {
-        return type.equals("lg_slot") || type.equals("lg_player");
+        return type.equals("lg_slot") || type.equals("lg_slots") || type.equals("lg_player");
     }
 
     private int frame() {
@@ -56,6 +56,13 @@ final class LegacyView extends View {
         switch (piece.type()) {
             case "lg_panel" -> LegacyShapes.panel(surface, 0, 0, piece.width(), piece.height());
             case "lg_slot" -> LegacyShapes.slotBox(surface, 0, 0);
+            case "lg_slots" -> {
+                for (int row = 0; row < piece.rows(); row++) {
+                    for (int column = 0; column < piece.columns(); column++) {
+                        LegacyShapes.slotBox(surface, column * 18, row * 18);
+                    }
+                }
+            }
             case "lg_player" -> LegacyShapes.playerSlots(surface, 0, 0);
             case "lg_energy" -> LegacyShapes.energy(surface, 0, 0, piece.width(), piece.height(), SAMPLE);
             case "lg_fluid" -> {

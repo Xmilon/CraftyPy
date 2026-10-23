@@ -83,6 +83,27 @@ public final class HostBridge {
                     machine.machineState().adjust(energy, fluid);
                     JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
                 });
+                case "world.machine_slot" -> onServer(server -> {
+                    ServerLevel level = level(server, params);
+                    if (level == null) return error("unknown dimension");
+                    BlockPos pos = pos(params);
+                    if (!level.hasChunkAt(pos)) return error("Machine chunk is not loaded");
+                    if (!(level.getBlockEntity(pos) instanceof net.xmilon.craftpy.content.MachineAccess machine)) return error("No CraftPy machine here");
+                    String slot = params.has("slot") ? params.get("slot").getAsString() : "";
+                    String itemId = params.has("item") && !params.get("item").isJsonNull() ? params.get("item").getAsString() : "";
+                    int count = params.has("count") ? params.get("count").getAsInt() : 1;
+                    net.minecraft.world.item.ItemStack stack = net.minecraft.world.item.ItemStack.EMPTY;
+                    if (!itemId.isEmpty() && count > 0) {
+                        var id = net.minecraft.resources.ResourceLocation.tryParse(SlotRegistry.resolve(itemId, SlotRegistry.Kind.ITEM, SlotRegistry.Kind.BLOCK));
+                        var item = id == null ? java.util.Optional.<net.minecraft.world.item.Item>empty()
+                                : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id);
+                        if (item.isEmpty() || item.get() == net.minecraft.world.item.Items.AIR) return error("unknown item " + itemId);
+                        stack = new net.minecraft.world.item.ItemStack(item.get(), Math.min(count, 64));
+                    }
+                    String problem = machine.machineState().setSlot(slot, stack);
+                    if (!problem.isEmpty()) return error(problem);
+                    JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
+                });
                 case "world.resources" -> onServer(server -> net.xmilon.craftpy.content.ResourceAccess.snapshot(level(server, params), params));
                 case "world.transfer" -> onServer(server -> net.xmilon.craftpy.content.ResourceAccess.transfer(level(server, params), params));
                 case "world.set_block" -> onServer(server -> setBlock(server, params));

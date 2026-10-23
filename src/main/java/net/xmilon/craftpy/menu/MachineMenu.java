@@ -48,20 +48,29 @@ public class MachineMenu extends AbstractContainerMenu {
         this.machine = machine;
         this.title = title;
         this.layout = layout;
-        IItemHandler items = machine != null ? machine.machineState().inventory : new ItemStackHandler(2);
-        boolean[] added = new boolean[2];
-        for (ScreenLayout.Piece piece : layout.pieces) {
-            if (piece.type().equals("lg_slot")) {
-                int index = piece.slot().equals("output") ? 1 : 0;
-                if (!added[index]) {
-                    added[index] = true;
-                    addSlot(index == 1 ? new SlotItemHandler(items, 1, piece.x(), piece.y()) {
-                        @Override
-                        public boolean mayPlace(ItemStack stack) {
-                            return false;
-                        }
-                    } : new SlotItemHandler(items, 0, piece.x(), piece.y()));
-                }
+        // the machine's slots in the order of the layout; the client counts the same way and keeps the contents the server sends
+        IItemHandler items = machine != null ? machine.machineState().inventory
+                : new ItemStackHandler(net.xmilon.craftpy.content.Defs.InventorySpec.MAX_SLOTS);
+        IItemHandler inert = new ItemStackHandler(1);
+        int counted = 0;
+        for (ScreenLayout.SlotRef ref : layout.slotRefs()) {
+            int index = machine != null ? machine.machineState().inventory.slotOf(ref.group(), ref.n()) : counted;
+            counted++;
+            if (index < 0) {
+                // the window names a slot the block does not have: a dead square, so both sides still count the same
+                addSlot(new SlotItemHandler(inert, 0, ref.x(), ref.y()) {
+                    @Override
+                    public boolean mayPlace(ItemStack stack) {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean mayPickup(Player player) {
+                        return false;
+                    }
+                });
+            } else {
+                addSlot(new SlotItemHandler(items, index, ref.x(), ref.y()));
             }
         }
         machineSlots = slots.size();
@@ -165,7 +174,11 @@ public class MachineMenu extends AbstractContainerMenu {
         if (index < machineSlots) {
             moved = moveItemStackTo(stack, machineSlots, slots.size(), true);
         } else {
-            moved = machineSlots > 0 && moveItemStackTo(stack, 0, 1, false);
+            // into the first machine slots that take it (inputs, fuel and storage; output slots refuse by themselves)
+            moved = false;
+            for (int i = 0; i < machineSlots && !stack.isEmpty(); i++) {
+                moved |= moveItemStackTo(stack, i, i + 1, false);
+            }
         }
         if (!moved) {
             return ItemStack.EMPTY;

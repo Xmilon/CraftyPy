@@ -40,6 +40,13 @@ public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
             switch (piece.type()) {
                 case "lg_panel" -> LegacyShapes.panel(surface, piece.x(), piece.y(), piece.width(), piece.height());
                 case "lg_slot" -> LegacyShapes.slotBox(surface, piece.x(), piece.y());
+                case "lg_slots" -> {
+                    for (int row = 0; row < piece.rows(); row++) {
+                        for (int column = 0; column < piece.columns(); column++) {
+                            LegacyShapes.slotBox(surface, piece.x() + column * 18, piece.y() + row * 18);
+                        }
+                    }
+                }
                 case "lg_player" -> LegacyShapes.playerSlots(surface, piece.x(), piece.y());
                 case "lg_energy" -> LegacyShapes.energy(surface, piece.x(), piece.y(), piece.width(), piece.height(),
                         menu.fraction(piece.bind()));

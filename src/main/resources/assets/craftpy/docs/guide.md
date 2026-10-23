@@ -406,7 +406,8 @@ screen. You draw it in the UI maker and the block names it:
 | Piece | What it is | Properties |
 | --- | --- | --- |
 | Panel | the grey container background | width, height |
-| Item slot | one of the machine's two item slots | slot: `input` (first) or `output` (second, take only) |
+| Item slot | one slot of the block's `Inventory` | slot: `group.number`, for example `input.0`, `fuel.0`, `output.1`, `storage.4` |
+| Slot grid | columns x rows of slots of one group, counted from 0 | slot: the group, columns, rows |
 | Player inventory | your 27 slots and the hotbar, 162 x 76 | x, y |
 | Energy bar | the stored energy, filled from the bottom | bind (`energy`), width, height |
 | Liquid gauge | the tank, drawn with the liquid's own texture | bind (`fluid`), width, height |
@@ -417,6 +418,34 @@ screen. You draw it in the UI maker and the block names it:
 The server decides everything: it makes the slots from the window, and the client only draws what it is sent. A window may
 have up to 64 pieces; unknown pieces are ignored. The Power Cell example (`examples/powercell/ui/sap_generator.json`) is a
 complete one.
+
+### Item slots: Inventory
+
+`Inventory(...)` gives a machine block named groups of item slots, up to 54 in all. The name of a group is its role:
+
+| Group name | Hands and shift-click | Hoppers and pipes |
+| --- | --- | --- |
+| `input` | put items in, take them out | insert from the top and the sides |
+| `fuel` | put items in, take them out | insert from the sides only |
+| `output` | take only | extract from the bottom and the sides |
+| any other name (`storage`, `ore`...) | both ways | both ways, from every side |
+
+```python
+Block("smelter", texture="minecraft:block/furnace_front").extends(
+    Inventory(input=2, fuel=1, output=2, storage=9,
+              accepts={"fuel": ["minecraft:coal", "#minecraft:logs"]},   # item ids and #tags
+              max_stack={"input": 16},
+              sides={"output": ["down"]}),                              # only this side for hoppers
+    Screen(title="Smelter"),
+)
+```
+
+Without `layout=` the window lists one grid per group; draw your own with *Item slot* and *Slot grid* pieces. The items are saved
+with the block, drop when it breaks, and are the game's standard item handler, so hoppers and other mods' pipes work with them.
+Python reads `world.machine(x, y, z)["inventory"]` (`["fuel"][0]["item"]`) and changes a slot with
+`world.machine_slot(x, y, z, slot="output.0", item="minecraft:iron_ingot", count=2)` (Python may fill an output slot).
+Shift-click moves a stack into the first slots that take it. A smaller declaration later never deletes items: the extra slots
+stay, take-out only, until they are empty.
 
 ## The Hub
 

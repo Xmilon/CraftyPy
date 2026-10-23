@@ -29,16 +29,19 @@ public final class MachineInteractions {
     }
     public static void drop(Level level, BlockPos pos) {
         if (!level.isClientSide && level.getBlockEntity(pos) instanceof MachineAccess machine)
-            for (int i = 0; i < 2; i++) Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), machine.machineState().inventory.getStackInSlot(i));
+            for (int i = 0; i < machine.machineState().inventory.getSlots(); i++) Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), machine.machineState().inventory.getStackInSlot(i));
     }
     public static ItemInteractionResult insert(ItemStack stack, Level level, BlockPos pos, Player player, InteractionHand hand) {
         if (!player.mayBuild() || !(level.getBlockEntity(pos) instanceof MachineAccess machine)) return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
         var state = machine.machineState(); state.configure();
         if (state.definition() != null && state.definition().fluid != null && net.neoforged.neoforge.fluids.FluidUtil.interactWithFluidHandler(player, hand, level, pos, null)) return ItemInteractionResult.sidedSuccess(level.isClientSide);
-        if (!state.processing() || stack.is(net.minecraft.tags.TagKey.create(net.minecraft.core.registries.Registries.ITEM, net.minecraft.resources.ResourceLocation.parse("c:tools/wrench")))) return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
+        // a block with a window takes items there; one with declared slots but no window takes them by hand
+        boolean slotsByHand = state.inventory.spec() != null && (state.definition() == null || state.definition().screen == null);
+        if ((!state.processing() && !slotsByHand) || stack.is(net.minecraft.tags.TagKey.create(net.minecraft.core.registries.Registries.ITEM, net.minecraft.resources.ResourceLocation.parse("c:tools/wrench")))) return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
         var inventory = state.inventory;
-        if (inventory.insertItem(0, stack, true).getCount() == stack.getCount()) return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
-        if (!level.isClientSide) { var rest = inventory.insertItem(0, stack, false); if (!player.isCreative()) player.setItemInHand(hand, rest); machine.syncMachine(); }
+        int in = inventory.inputSlot();
+        if (in < 0 || inventory.insertItem(in, stack, true).getCount() == stack.getCount()) return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
+        if (!level.isClientSide) { var rest = inventory.insertItem(in, stack, false); if (!player.isCreative()) player.setItemInHand(hand, rest); machine.syncMachine(); }
         return ItemInteractionResult.sidedSuccess(level.isClientSide);
     }
     /** Right click without a held item (or with one that did not act): the Screen(...) window, else take the output. */
@@ -51,7 +54,8 @@ public final class MachineInteractions {
                 boolean energy = (!screen.has("energy") || screen.get("energy").getAsBoolean()) && def.energy != null;
                 boolean fluid = (!screen.has("fluid") || screen.get("fluid").getAsBoolean()) && def.fluid != null;
                 boolean slots = !screen.has("slots") || screen.get("slots").getAsBoolean();
-                var standard = net.xmilon.craftpy.menu.ScreenLayout.defaults(slots, energy, fluid);
+                var standard = def.inventory != null ? net.xmilon.craftpy.menu.ScreenLayout.forInventory(def.inventory, energy, fluid)
+                        : net.xmilon.craftpy.menu.ScreenLayout.defaults(slots, energy, fluid);
                 // a window drawn in the UI maker (Screen(layout=...)) replaces the standard one
                 var layout = screen.has("layout") && screen.get("layout").isJsonObject()
                         ? net.xmilon.craftpy.menu.ScreenLayout.parse(screen.getAsJsonObject("layout"), standard) : standard;
@@ -79,7 +83,7 @@ public final class MachineInteractions {
 
     public static InteractionResult extract(Level level, BlockPos pos, Player player) {
         if (!player.mayBuild() || !(level.getBlockEntity(pos) instanceof MachineAccess machine)) return InteractionResult.PASS;
-        if (!level.isClientSide) { var stack = machine.machineState().inventory.extractItem(player.isShiftKeyDown() ? 0 : 1, 64, false); if (!player.addItem(stack)) player.drop(stack, false); machine.syncMachine(); }
+        if (!level.isClientSide) { var inv = machine.machineState().inventory; int slot = player.isShiftKeyDown() ? inv.inputSlot() : inv.outputSlot(); if (slot < 0) return InteractionResult.PASS; var stack = inv.extractItem(slot, 64, false); if (!player.addItem(stack)) player.drop(stack, false); machine.syncMachine(); }
         return InteractionResult.sidedSuccess(level.isClientSide);
     }
 }

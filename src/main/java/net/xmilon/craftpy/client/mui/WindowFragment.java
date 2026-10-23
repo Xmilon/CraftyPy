@@ -586,7 +586,7 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 track.addView(new View(context), new LinearLayout.LayoutParams(0, track.dp(8), (float) (1 - fraction)));
                 return track;
             }
-            case "lg_panel", "lg_slot", "lg_player", "lg_energy", "lg_fluid", "lg_arrow", "lg_flame" -> {
+            case "lg_panel", "lg_slot", "lg_slots", "lg_player", "lg_energy", "lg_fluid", "lg_arrow", "lg_flame" -> {
                 return new LegacyView(context, node);
             }
             case "lg_label" -> {

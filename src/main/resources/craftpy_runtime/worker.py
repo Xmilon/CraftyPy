@@ -1560,6 +1560,58 @@ class FluidTank(_Data):
         return dict(capacity=self.capacity, allowed=self.allowed)
 
 
+class Inventory(_Data):
+    """The item slots of a machine block, in named groups: ``Inventory(input=1, fuel=1, output=2, storage=9)``.
+
+    A group's name is its role. ``input``: hands and hoppers put items in (a processing machine reads its recipe from the
+    first one). ``fuel``: items go in from the sides only. ``output``: items only come out (by hand, or by hoppers from the
+    bottom and the sides). Any other name is ``storage``: both ways, from every side. At most 54 slots.
+
+    ``accepts={"fuel": ["minecraft:coal", "#minecraft:logs"]}`` limits what a group takes (item ids and ``#tags``).
+    ``max_stack={"input": 16}`` limits the stack size in a group. ``sides={"output": ["down", "north"]}`` replaces the
+    sides hoppers and pipes may use for a group. The items are saved with the block and drop when it is broken. Python reads
+    them in ``world.machine(...)["inventory"]`` and changes them with ``world.machine_slot``; the window
+    (``Screen``) shows them, and shift-click moves items between your inventory and the first slots that take them."""
+    applies_to = ("block",)
+    type = "inventory"
+    _OPTIONS = ("accepts", "max_stack", "sides")
+
+    def __init__(self, *, accepts=None, max_stack=None, sides=None, **groups):
+        import re
+        if not groups:
+            raise ValueError("Inventory needs at least one group, for example Inventory(input=1, output=1)")
+        total = 0
+        self.groups = []
+        for name, count in groups.items():
+            if not re.fullmatch(r"[a-z][a-z0-9_]{0,24}", name):
+                raise ValueError("Inventory group names are lowercase words such as input, fuel, output, storage: %r" % name)
+            count = _integer("Inventory %s" % name, count, 1, 54)
+            total += count
+            self.groups.append({"name": name, "count": count})
+        if total > 54:
+            raise ValueError("Inventory has %d slots; a block can have at most 54" % total)
+        by_name = {g["name"]: g for g in self.groups}
+        for option, values in (("accepts", accepts), ("max_stack", max_stack), ("sides", sides)):
+            for group_name, value in (values or {}).items():
+                if group_name not in by_name:
+                    raise ValueError("Inventory %s names the group %r, which Inventory(...) does not have (groups: %s)"
+                                     % (option, group_name, ", ".join(by_name)))
+                if option == "accepts":
+                    if isinstance(value, str):
+                        value = [value]
+                    by_name[group_name]["accepts"] = [str(_ref(v)) for v in value]
+                elif option == "max_stack":
+                    by_name[group_name]["max_stack"] = _integer("Inventory max_stack", value, 1, 64)
+                else:
+                    value = [value] if isinstance(value, str) else list(value)
+                    for face in value:
+                        _choice("Inventory side", face, ("up", "down", "north", "south", "east", "west"))
+                    by_name[group_name]["sides"] = value
+
+    def data(self):
+        return dict(groups=self.groups)
+
+
 class Screen(_Data):
     """A Minecraft-style window for a machine block: right click opens it (sneak-click places a block instead).
 
@@ -1615,7 +1667,7 @@ _EXTENSION_NAMES = {
     "Tool": Tool, "Sword": Sword, "Pickaxe": Pickaxe, "Axe": Axe, "Shovel": Shovel, "Hoe": Hoe,
     "Durability": Durability, "Weapon": Weapon, "Fuel": Fuel, "Armor": Armor, "Enchantable": Enchantable,
     "Cooldown": Cooldown, "Tooltip": Tooltip, "MineableBy": MineableBy, "Drops": Drops, "Redstone": Redstone,
-    "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes, "Kinetic": Kinetic, "EnergyStorage": EnergyStorage, "FluidTank": FluidTank, "Screen": Screen,
+    "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes, "Kinetic": Kinetic, "EnergyStorage": EnergyStorage, "FluidTank": FluidTank, "Screen": Screen, "Inventory": Inventory,
 }
 
 
@@ -2248,6 +2300,17 @@ class _World:
         """Snapshot of a loaded kinetic machine: speed, overstressed, progress, input/output. No chunk loading."""
         x, y, z = _xyz(x, y, z)
         return _ok(_host_call("world.machine", dict(x=x, y=y, z=z, dimension=dimension))).get("machine", {})
+
+    def machine_slot(self, x, y=None, z=None, *, slot, item=None, count=1, dimension=_OVERWORLD) -> dict:
+        """Puts a stack into a slot of a loaded machine block, replacing what is there; ``item=None`` empties it.
+
+        ``slot`` is ``"group.number"`` of the block's ``Inventory(...)`` (``"input.0"``, ``"output.1"``; ``"input"`` is
+        ``"input.0"``; a block without ``Inventory`` has ``input`` and ``output``). Python is not held to the roles (it may
+        fill an output slot), but a stack never goes over the group's ``max_stack`` or 64. Returns the new snapshot."""
+        x, y, z = _xyz(x, y, z)
+        _integer("count", count, 0, 64)
+        return _ok(_host_call("world.machine_slot", dict(x=x, y=y, z=z, slot=str(slot), item=None if item is None else _ref(item),
+                                                         count=count, dimension=dimension))).get("machine", {})
 
     def machine_update(self, x, y=None, z=None, *, energy=0, fluid=0, dimension=_OVERWORLD) -> dict:
         """Changes what a loaded machine block stores and returns its new snapshot.
@@ -3468,6 +3531,9 @@ API_CHANGES = [
                "`Screen(title=)` extension: a Minecraft-style window for machine blocks (two item slots, liquid gauge, energy bar on the right). "
                "A bucket in the first slot is emptied into the block's `FluidTank`.",
                "`world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block.",
+               "`Inventory(input=1, fuel=1, output=2, storage=9, accepts=, max_stack=, sides=)`: named item-slot groups for a machine block (up to 54 slots) with "
+               "furnace-like automation by hoppers and pipes; `world.machine(...)[\"inventory\"]` reads them and `world.machine_slot(...)` sets a slot. "
+               "Legacy windows get *Item slot* (`group.number`) and *Slot grid* pieces.",
                "Minecraft-style windows: tick `legacy` in the UI maker's window properties, draw panels, item slots, the player inventory, "
                "energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout=\"my_window\")`."]},
     {"version": "2.10", "date": "2026-10-21",
@@ -6975,6 +7041,7 @@ def _load_docs():
         # ---------------------------------------------------------------- world
         "world.get_block": ("The block id at a position.", dict(POS3, dimension=DIM), "str, for example 'minecraft:stone'"),
         "world.machine": ("Read a loaded kinetic machine without loading chunks. Snapshot includes speed, theoretical_speed, overstressed, processing, progress, recipe and input/output stacks.", dict(POS3, dimension=DIM), "dict"),
+        "world.machine_slot": ("Put a stack into a slot ('group.number') of a loaded machine block, replacing what is there; item=None empties it. Returns the new snapshot.", dict(POS3, slot="'group.number' of the block's Inventory, such as 'input.0' or 'output.1'.", item="Item or id, or None to empty the slot.", count="Stack size, 0..64 (and the group's max_stack).", dimension=DIM), "dict"),
         "world.machine_update": ("Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.", dict(POS3, energy="FE to add (negative removes).", fluid="mB to remove, 0 or negative.", dimension=DIM), "dict"),
         "world.set_block": ("Places a block: world.set_block(x, y, z, 'stone') or world.set_block(pos, 'stone').", dict(
             POS3, block="Block id or Block object.", dimension=DIM, replace="False only places into air.") , ""),
@@ -7191,6 +7258,7 @@ def _doc_text(summary, params, returns):
 _DOCS = _load_docs()
 _DOCS.update({
     'EnergyStorage': (EnergyStorage.__doc__, dict(capacity='Maximum stored FE (1..1000000000).', max_receive='Maximum FE per receive call; default capacity.', max_extract='Maximum FE per extraction call; default capacity.'), ''),
+    'Inventory': (Inventory.__doc__, dict(accepts='{group: [item ids or #tags]}: what a group takes.', max_stack='{group: 1..64}: stack limit of a group.', sides='{group: ["up", "down", "north", "south", "east", "west"]}: sides hoppers and pipes may use.', **{'groups': 'The slot groups as keyword arguments: input=1, fuel=1, output=2, storage=9 (names are roles; at most 54 slots).'}), ''),
     'Screen': (Screen.__doc__, dict(title='Text at the top of the window.', energy='Show the energy bar (needs EnergyStorage).', fluid='Show the fluid gauge (needs FluidTank).', slots='Show the two item slots.', layout='Name of a Legacy window drawn in the UI maker (ui/<name>.json); replaces the standard layout.'), ''),
     'FluidTank': (FluidTank.__doc__, dict(capacity='Maximum mB (1..1000000).', allowed='Optional list of up to 64 namespaced fluid IDs; None permits all.'), ''),
     'world.resources': (_World.resources.__doc__, dict(x='Block X, tuple or Pos.', y='Block Y.', z='Block Z.', dimension='Dimension resource ID.', side='Capability face or None for unsided access.'), 'dict'),
