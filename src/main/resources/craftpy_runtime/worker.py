@@ -664,7 +664,8 @@ def _shape(value):
 
 
 def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None,
-          needs_tool=False, sound=None, drops=None, extensions=(), tags=(), model=None, shape=None, **extra) -> "Content":
+          needs_tool=False, sound=None, drops=None, extensions=(), tags=(), item_tags=(), model=None, shape=None,
+          **extra) -> "Content":
     """Declares a block and returns it (usable anywhere an id is expected).
 
     ``model="pedestal"`` uses your own mesh: assets/models/block/pedestal.json (Blockbench "Java Block/Item" export).
@@ -672,7 +673,8 @@ def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, t
     it the hitbox follows the model's boxes (a full cube without a model).
 
     ``extensions=[...]`` or ``.extends(...)`` adds behaviour (MineableBy, Redstone, Flammable, your own...).
-    ``tags=["minecraft:mineable/pickaxe", "gems"]`` puts the block in block tags (a bare name is this project's tag)."""
+    ``tags=["minecraft:mineable/pickaxe", "gems"]`` puts the block in block tags (a bare name is this project's tag);
+    ``item_tags=["c:storage_blocks/ruby"]`` puts the block's item in item tags (what recipes and inventories read)."""
     _check_id(id)
     _reject_unknown("Block", id, extra, extensions)
     definition = {}
@@ -699,6 +701,7 @@ def Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, t
     _DECLS["blocks"].append({"id": id, "definition": definition})
     block = Content("%s:%s" % (_namespace(), id), "block", id, definition["name"], definition)
     _content_tags(tags, "block", str(block))
+    _content_tags(item_tags, "item", str(block))
     if drops is not None:
         _block_drops(id, drops)
     return block.extends(*extensions)
@@ -895,7 +898,7 @@ def Effect(id, name=None, icon=None, color="#8899ff", category="neutral", attrib
 
 
 def Fluid(id, name=None, color="#3fa7ff", density=1000, viscosity=1000, temperature=300, light=0, effects=(),
-          still=None, flowing=None, bucket_texture=None, **extra) -> "Content":
+          still=None, flowing=None, bucket_texture=None, tags=(), **extra) -> "Content":
     """Declares a liquid and returns it. ``Fluid("sap", ...).bucket`` is its bucket item.
 
     A real NeoForge fluid: it flows, you swim in it, buckets fill and empty it, tanks and pipes of other mods hold it.
@@ -904,11 +907,12 @@ def Fluid(id, name=None, color="#3fa7ff", density=1000, viscosity=1000, temperat
     ``light`` is the light it gives (0..15). ``color`` tints the water textures; ``still`` / ``flowing`` name your own
     textures (assets/textures/) instead, ``bucket_texture`` the bucket's.
     ``effects=[("poison", 5), (rage, 8, 2)]`` are applied while an entity is in it: (effect, seconds, level).
-    Use it in a FluidTank: ``FluidTank(16000, allowed=[sap])``."""
+    Use it in a FluidTank: ``FluidTank(16000, allowed=[sap])``. ``tags=["c:volt_sap"]`` puts it in fluid tags (its still and
+    flowing forms both), which pipes, tanks and recipes of other mods read."""
     _check_id(id)
     if extra:
         raise TypeError("Fluid(%r) has no attribute %s. Valid attributes: name, color, density, viscosity, temperature, "
-                        "light, effects, still, flowing, bucket_texture" % (id, ", ".join(repr(k) for k in sorted(extra))))
+                        "light, effects, still, flowing, bucket_texture, tags" % (id, ", ".join(repr(k) for k in sorted(extra))))
     listed = list(effects or ())
     if len(listed) > 8:
         raise ValueError("Fluid effects: at most 8")
@@ -935,6 +939,7 @@ def Fluid(id, name=None, color="#3fa7ff", density=1000, viscosity=1000, temperat
     _DECLS["fluids"].append({"id": id, "definition": definition})
     fluid = Content("%s:%s" % (_namespace(), id), "fluid", id, definition["name"], definition)
     fluid.bucket = Content("%s:%s_bucket" % (_namespace(), id), "item", id + "_bucket", definition["name"] + " Bucket", {})
+    _content_tags(tags, "fluid", str(fluid))
     return fluid
 
 
@@ -1010,15 +1015,25 @@ def Structure(id, start, biomes="#minecraft:is_overworld", size=7, max_distance=
     return Content(full, "structure", id, id, {})
 
 
+def _tag_id(name, label="tags"):
+    """A tag id as the game names it: 'c:dusts/diorite', 'minecraft:swords' or a bare 'gems' (this project's)."""
+    import re
+    text = str(name).strip().lstrip("#").lower()
+    if not re.fullmatch(r"(?:[a-z0-9_.-]+:)?[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*", text):
+        raise ValueError("%s: %r is not a tag id (like 'c:dusts/diorite', 'minecraft:swords' or 'gems')" % (label, name))
+    return text
+
+
+_TAG_TYPES = ("item", "block", "fluid", "entity_type", "game_event", "biome", "enchantment", "damage_type", "mob_effect",
+              "painting_variant", "instrument", "banner_pattern", "point_of_interest_type", "structure")
+
+
 def _content_tags(tags, kind, full_id):
     """Item(..., tags=[...]) / Block(..., tags=[...]): one tag entry per tag; the pack merges entries of the same tag."""
     for name in ([tags] if isinstance(tags, str) else list(tags or ())):
-        name = str(name).strip().lstrip("#")
-        if not name:
+        if not str(name).strip():
             continue
-        if not all(c.isalnum() or c in "_:./-" for c in name) or name.count(":") > 1:
-            raise ValueError("tags: %r is not a tag id (like 'minecraft:swords' or 'gems')" % name)
-        _DECLS["tags"].append({"id": name.lower(), "values": [full_id], "replace": False, "type": kind})
+        _DECLS["tags"].append({"id": _tag_id(name), "values": [full_id], "replace": False, "type": kind})
 
 
 def _effect_spec(effect):
@@ -1070,7 +1085,7 @@ _COLORS = ("black", "dark_blue", "dark_green", "dark_aqua", "dark_red", "dark_pu
            "blue", "green", "aqua", "red", "light_purple", "yellow", "white")
 _ITEM_ATTRS = ("name", "texture", "stack", "glow", "food", "fuel", "effect", "tags")
 _BLOCK_ATTRS = ("name", "texture", "hardness", "resistance", "light", "tool", "needs_tool", "sound", "drops", "tags",
-                "model", "shape")
+                "item_tags", "model", "shape")
 
 
 def _reject_unknown(what, ident, extra, extensions):
@@ -1765,13 +1780,35 @@ def raw_json(path, data, namespace=None):
 
 
 def tag(ident, values, replace=False, type="item"):
-    _DECLS["tags"].append({"id": ident, "values": [_ref(v) for v in values],
-                           "replace": replace, "type": type})
+    """tag("c:dusts/diorite", [dust]) puts items (or blocks, fluids... with ``type=``) in a tag; values may be '#other_tag'.
+
+    A bare name ('gems') is this project's tag. Tags of the same id from every project are merged unless ``replace=True``."""
+    type = str(type).lower()
+    if type.endswith("s") and type[:-1] in _TAG_TYPES:
+        type = type[:-1]
+    if type not in _TAG_TYPES and ":" not in type:
+        raise ValueError("tag(type=%r): one of %s (or a registry id such as 'mymod:spells')" % (type, ", ".join(_TAG_TYPES)))
+    if isinstance(values, (str, Content)):
+        values = [values]
+    refs = []
+    for value in values:
+        text = str(value)
+        refs.append("#" + _tag_id(text, "tag values") if text.startswith("#") else _ref(value))
+    _DECLS["tags"].append({"id": _tag_id(ident, "tag()"), "values": refs, "replace": bool(replace), "type": type})
 
 
 # -- recipes -----------------------------------------------------------------
 
 def _recipe(kind, **payload):
+    result = payload.get("result")
+    if isinstance(result, str) and result.startswith("#"):
+        raise ValueError("a recipe makes one item, not a tag (%s): name an item; tags are for ingredients" % result)
+    if "id" in payload:
+        used = {r.get("id") for r in _DECLS["recipes"]}
+        base, number = payload["id"], 2
+        while payload["id"] in used:   # shapeless(dust, a) and shapeless(dust, b) are two recipes, not one
+            payload["id"] = "%s_%d" % (base, number)
+            number += 1
     _DECLS["recipes"].append(dict(payload, type=kind))
 
 
@@ -3591,9 +3628,15 @@ def requires_restart(flag=True):
 # Every change goes in API_CHANGES (newest first); gen_api_doc.py turns it into the "API versions" part of api.md.
 # ---------------------------------------------------------------------------
 
-API_VERSION = "2.11"
+API_VERSION = "2.12"
 
 API_CHANGES = [
+    {"version": "2.12", "date": "2026-10-23",
+     "added": ["Tags everywhere: `Fluid(tags=[...])` (the still and flowing liquid both), `Block(item_tags=[...])` for the block's item, "
+               "`tag(...)` checks the tag id and type and takes `#other_tag` values; a liquid's bucket works in tags and recipes. "
+               "Use the shared `c:` tags (`c:dusts/diorite`, `c:ingots/tin`) so other mods use your items."],
+     "changed": ["A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.",
+                 "Several recipes for the same item each keep their own id (the second one used to replace the first)."]},
     {"version": "2.11", "date": "2026-10-23",
      "added": ["`Fluid(id, ...)`: custom liquids that are real NeoForge fluids (flowing, swimmable, buckets, tanks and pipes of any mod). "
                "`density`, `viscosity`, `temperature`, `light`, `color` or own `still` / `flowing` textures, `effects` while an entity is in it, "
@@ -6888,6 +6931,7 @@ def _load_docs():
             "drops": "What it drops: an item, a list, (item, count) / (item, count, weight), 'self' or [] for nothing. Default: the block itself.",
             "extensions": "List of extensions (MineableBy(...), Redstone(...), your own); same as .extends(...).",
             "tags": "Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag).",
+            "item_tags": "Item tags for the block's item: ['c:storage_blocks/ruby'] (recipes and inventories read item tags).",
             "model": "Your own mesh: the name of a file in assets/models/block/ (a Blockbench 'Java Block/Item' export), such as 'pedestal'.",
             "shape": "Hitbox (outline and collision): one box (x1, y1, z1, x2, y2, z2) or a list of up to 32, in sixteenths of a block (0..16). Default: the boxes of the model, or a full cube without one.",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
@@ -6966,6 +7010,7 @@ def _load_docs():
             "still": "Own texture of the still liquid (assets/textures/), instead of tinted water.",
             "flowing": "Own texture of the flowing liquid.",
             "bucket_texture": "Texture of the bucket item; default: the water bucket.",
+            "tags": "Fluid tags to join: ['c:volt_sap'] (the still and flowing forms both); pipes and recipes of other mods read them.",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The fluid; fluid.bucket is the bucket item."),
         "Food": ("Food values for Item(food=...).", {
@@ -6974,11 +7019,11 @@ def _load_docs():
             "always_eat": "True lets players eat it with a full hunger bar.",
             "fast": "True eats in half the time (like dried kelp).",
         }, "A dict to pass as food=."),
-        "tag": ("Declares a tag, a named group of items or blocks.", {
-            "ident": "Tag id without namespace ('ruby_gems' becomes <project>:ruby_gems).",
-            "values": "Items/blocks or '#other_tag' entries to include.",
+        "tag": ("Puts items, blocks, fluids... in a tag, a named group that recipes, machines and other mods read.", {
+            "ident": "Tag id: 'c:dusts/diorite' (shared with every mod), 'minecraft:logs', or a bare name ('gems' is <project>:gems).",
+            "values": "Items, blocks or fluids, or '#other_tag' entries to include.",
             "replace": "True drops the entries of a tag with the same id from other packs.",
-            "type": "'item' (default), 'block', 'entity_type', 'fluid' or 'game_event'.",
+            "type": "'item' (default), 'block', 'fluid', 'entity_type', 'game_event', 'biome'... or a registry id of a mod.",
         }, ""),
         "lang": ("Adds a translation: lang('itemGroup.mypack', 'My Pack').", {
             "key": "Translation key.", "value": "English text."}, ""),

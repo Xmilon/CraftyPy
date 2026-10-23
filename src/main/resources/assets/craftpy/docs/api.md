@@ -594,11 +594,17 @@ Also available: `item`, `recipe_shapeless`, `recipe_blasting`, `recipe_smoking`,
 
 ## API versions
 
-This page describes Python API **2.11** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
+This page describes Python API **2.12** (`API_VERSION` in your code). `apiVersion` in `project.json` says which version a project was written for.
 
 - A **minor** version (2.0 to 2.1) only adds things: everything written for 2.0 keeps working.
 - A **major** version (1 to 2) may rename things. The old names keep working; after a run the console says `[api] ... is the old API` and what to write instead.
 - A project written for a newer API than your CraftPy gets a note to update CraftPy.
+
+### 2.12 (2026-10-23)
+
+- **Added:** Tags everywhere: `Fluid(tags=[...])` (the still and flowing liquid both), `Block(item_tags=[...])` for the block's item, `tag(...)` checks the tag id and type and takes `#other_tag` values; a liquid's bucket works in tags and recipes. Use the shared `c:` tags (`c:dusts/diorite`, `c:ingots/tin`) so other mods use your items.
+- **Changed:** A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.
+- **Changed:** Several recipes for the same item each keep their own id (the second one used to replace the first).
 
 ### 2.11 (2026-10-23)
 
@@ -708,7 +714,7 @@ Declares an item and returns it; the result can be used anywhere an item id is e
 
 Returns: The item (a string 'project:id' with .extends(...)).
 
-#### `Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None, needs_tool=False, sound=None, drops=None, extensions=(), tags=(), model=None, shape=None, **extra) -> 'Content'`
+#### `Block(id, name=None, texture=None, hardness=2.0, resistance=None, light=0, tool=None, needs_tool=False, sound=None, drops=None, extensions=(), tags=(), item_tags=(), model=None, shape=None, **extra) -> 'Content'`
 
 Declares a block and returns it; usable anywhere a block or item id is expected.
 
@@ -724,6 +730,7 @@ Declares a block and returns it; usable anywhere a block or item id is expected.
 - `drops` (default `None`): What it drops: an item, a list, (item, count) / (item, count, weight), 'self' or [] for nothing. Default: the block itself.
 - `extensions` (default `()`): List of extensions (MineableBy(...), Redstone(...), your own); same as .extends(...).
 - `tags` (default `()`): Block tags to join: ['minecraft:mineable/pickaxe'] (a bare name is this project's tag).
+- `item_tags` (default `()`): Item tags for the block's item: ['c:storage_blocks/ruby'] (recipes and inventories read item tags).
 - `model` (default `None`): Your own mesh: the name of a file in assets/models/block/ (a Blockbench 'Java Block/Item' export), such as 'pedestal'.
 - `shape` (default `None`): Hitbox (outline and collision): one box (x1, y1, z1, x2, y2, z2) or a list of up to 32, in sixteenths of a block (0..16). Default: the boxes of the model, or a full cube without one.
 - `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
@@ -825,7 +832,7 @@ Declares a potion effect and returns it: player.effect(rage), Item(effect=rage),
 
 Returns: The effect (a string 'project:id').
 
-#### `Fluid(id, name=None, color='#3fa7ff', density=1000, viscosity=1000, temperature=300, light=0, effects=(), still=None, flowing=None, bucket_texture=None, **extra) -> 'Content'`
+#### `Fluid(id, name=None, color='#3fa7ff', density=1000, viscosity=1000, temperature=300, light=0, effects=(), still=None, flowing=None, bucket_texture=None, tags=(), **extra) -> 'Content'`
 
 Declares a liquid (a real NeoForge fluid with a bucket: Fluid(...).bucket). Flows, can be swum in, fills tanks and pipes.
 
@@ -840,6 +847,7 @@ Declares a liquid (a real NeoForge fluid with a bucket: Fluid(...).bucket). Flow
 - `still` (default `None`): Own texture of the still liquid (assets/textures/), instead of tinted water.
 - `flowing` (default `None`): Own texture of the flowing liquid.
 - `bucket_texture` (default `None`): Texture of the bucket item; default: the water bucket.
+- `tags` (default `()`): Fluid tags to join: ['c:volt_sap'] (the still and flowing forms both); pipes and recipes of other mods read them.
 - `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The fluid; fluid.bucket is the bucket item.
@@ -1284,12 +1292,12 @@ Smithing table recipe.
 
 #### `tag(ident, values, replace=False, type='item')`
 
-Declares a tag, a named group of items or blocks.
+Puts items, blocks, fluids... in a tag, a named group that recipes, machines and other mods read.
 
-- `ident`: Tag id without namespace ('ruby_gems' becomes <project>:ruby_gems).
-- `values`: Items/blocks or '#other_tag' entries to include.
+- `ident`: Tag id: 'c:dusts/diorite' (shared with every mod), 'minecraft:logs', or a bare name ('gems' is <project>:gems).
+- `values`: Items, blocks or fluids, or '#other_tag' entries to include.
 - `replace` (default `False`): True drops the entries of a tag with the same id from other packs.
-- `type` (default `'item'`): 'item' (default), 'block', 'entity_type', 'fluid' or 'game_event'.
+- `type` (default `'item'`): 'item' (default), 'block', 'fluid', 'entity_type', 'game_event', 'biome'... or a registry id of a mod.
 
 #### `lang(key, value)`
 

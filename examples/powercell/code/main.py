@@ -52,7 +52,7 @@ def burn(ctx):
     mb, fe = conversion.plan(machine.fluid_amount, machine.energy, machine.energy_capacity)
     if mb:
         world.machine_update(ctx.x, ctx.y, ctx.z, energy=fe, fluid=-mb, dimension=ctx.dimension)
-    if mb != (machine.values.rate or 0):
+    if mb != (getattr(machine.values, "rate", None) or 0):   # a new block has no values yet
         # the window's "Burn" label and bar read this value (bind: value:rate, max 100)
         world.machine_set(ctx.x, ctx.y, ctx.z, values={"rate": mb}, dimension=ctx.dimension)
 

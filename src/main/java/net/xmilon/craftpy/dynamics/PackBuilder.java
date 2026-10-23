@@ -944,6 +944,8 @@ public final class PackBuilder {
 
     static JsonObject resultObject(String itemRef, int count) {
         if (itemRef != null && itemRef.startsWith("#")) {
+            // Python refuses a tag as a result; an old project's raw recipe still says so in the log instead of failing quietly
+            CraftPyLog.LOGGER.warn("A recipe result names the tag {}: a recipe makes one item, so the game will skip it", itemRef);
             JsonObject result = new JsonObject();
             result.addProperty("id", itemRef.substring(1));
             result.addProperty("count", Math.max(1, count));
@@ -1143,6 +1145,7 @@ public final class PackBuilder {
         SlotRegistry.Kind kind = switch (type) {
             case "block", "blocks" -> SlotRegistry.Kind.BLOCK;
             case "item", "items" -> SlotRegistry.Kind.ITEM;
+            case "fluid", "fluids" -> SlotRegistry.Kind.FLUID;
             default -> null;
         };
         JsonArray values = new JsonArray();
@@ -1161,7 +1164,12 @@ public final class PackBuilder {
                 if (ref.startsWith("#") || kind == null) {
                     values.add(ref);
                 } else {
-                    values.add(mapRef(ref, projectId, kind));
+                    String mapped = mapRef(ref, projectId, kind);
+                    values.add(mapped);
+                    // a fluid tag names the still and the flowing fluid, like minecraft:water does
+                    if (kind == SlotRegistry.Kind.FLUID && mapped.startsWith("craftpy:pcfluid_")) {
+                        values.add("craftpy:pcfluid_flow_" + mapped.substring("craftpy:pcfluid_".length()));
+                    }
                 }
             }
         }
@@ -1294,6 +1302,14 @@ public final class PackBuilder {
             if (slot.kind() == SlotRegistry.Kind.ITEM) {
                 return "craftpy:pcitem_" + slot.index();
             }
+        }
+        // liquids and their buckets (sap.bucket in a recipe or a tag)
+        if (preferredKind == SlotRegistry.Kind.FLUID) {
+            String fluid = SlotRegistry.resolve(candidate, SlotRegistry.Kind.FLUID);
+            if (!fluid.equals(candidate)) return fluid;
+        } else if (candidate.endsWith("_bucket")) {
+            String bucket = SlotRegistry.resolve(candidate, SlotRegistry.Kind.ITEM);
+            if (!bucket.equals(candidate)) return bucket;
         }
         return ref;
     }
