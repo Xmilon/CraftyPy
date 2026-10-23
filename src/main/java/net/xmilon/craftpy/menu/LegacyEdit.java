@@ -15,7 +15,7 @@ import com.google.gson.JsonObject;
 public final class LegacyEdit {
     /** The pieces in toolbox order. */
     public static final List<String> TYPES = List.of("lg_panel", "lg_slot", "lg_slots", "lg_player", "lg_energy", "lg_fluid",
-            "lg_arrow", "lg_flame", "lg_bar", "lg_label", "lg_icon");
+            "lg_arrow", "lg_flame", "lg_bar", "lg_label", "lg_icon", "lg_image", "lg_button");
     /** Slots sit 18 units apart in every vanilla window. */
     public static final int SLOT_PITCH = 18;
     /** How close (in units) a slot must come to the 18-unit row or column of another slot to snap onto it. */
@@ -121,6 +121,17 @@ public final class LegacyEdit {
                 node.addProperty("color", "#404040");
             }
             case "lg_icon" -> node.addProperty("item", "minecraft:diamond");
+            case "lg_image" -> {
+                node.addProperty("image", "minecraft:container/furnace/lit_progress");
+                node.addProperty("width", 14);
+                node.addProperty("height", 14);
+            }
+            case "lg_button" -> {
+                node.addProperty("text", "Button");
+                node.addProperty("bind", "button");
+                node.addProperty("width", 60);
+                node.addProperty("height", 20);
+            }
             case "lg_player" -> {
                 // always 162 x 76: nine columns, three rows and the hotbar
             }
@@ -150,7 +161,7 @@ public final class LegacyEdit {
     /** True when the width and height of this type can be changed (the others have a fixed size or are sized by rows). */
     public static boolean resizable(String type) {
         return switch (type) {
-            case "lg_panel", "lg_energy", "lg_fluid", "lg_arrow", "lg_bar", "lg_label", "lg_slots" -> true;
+            case "lg_panel", "lg_energy", "lg_fluid", "lg_arrow", "lg_bar", "lg_label", "lg_slots", "lg_image", "lg_button" -> true;
             default -> false;
         };
     }
@@ -241,8 +252,8 @@ public final class LegacyEdit {
         int f = frame(type);
         int maxW = size[0] - piece.x() - f, maxH = size[1] - piece.y() - f;
         if (type.equals("lg_slots")) {
-            int columns = clamp((Math.min(width, maxW) + 2) / SLOT_PITCH, 1, 9);
-            int rows = clamp((Math.min(height, maxH) + 2) / SLOT_PITCH, 1, 6);
+            int columns = clamp((Math.min(width, maxW) + 2) / SLOT_PITCH, 1, 13);
+            int rows = clamp((Math.min(height, maxH) + 2) / SLOT_PITCH, 1, 9);
             while (columns * rows > net.xmilon.craftpy.content.Defs.InventorySpec.MAX_SLOTS) rows--;
             node.addProperty("columns", columns);
             node.addProperty("rows", rows);

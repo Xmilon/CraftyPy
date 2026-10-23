@@ -15,12 +15,13 @@ public final class MachineInteractions {
         var entity = context.getOptionalParameter(net.minecraft.world.level.storage.loot.parameters.LootContextParams.BLOCK_ENTITY);
         if (!(entity instanceof MachineAccess machine)) return drops;
         var state = machine.machineState();
-        if (state.energy.getEnergyStored() == 0 && state.fluid.isEmpty()) return drops;
+        boolean keep = state.inventory.spec() != null && state.inventory.spec().keep;
+        if (state.energy.getEnergyStored() == 0 && state.tanks.isEmpty() && !keep) return drops;
         for (ItemStack stack : drops) {
             if (!(stack.getItem() instanceof net.minecraft.world.item.BlockItem item) || item.getBlock() != entity.getBlockState().getBlock()) continue;
             var tag = new net.minecraft.nbt.CompoundTag(); state.save(tag, entity.getLevel().registryAccess());
-            // The two item slots already drop separately; copying them into the block would duplicate inventory.
-            tag.put("CraftPyInventory", new KineticInventory().serializeNBT(entity.getLevel().registryAccess()));
+            // Items dropped on their own must not also be in the block (duplication); keep=True keeps them in it instead.
+            if (!keep) tag.put("CraftPyInventory", new KineticInventory().serializeNBT(entity.getLevel().registryAccess()));
             tag.putString("id", "craftpy:kinetic_slot");
             stack.set(net.minecraft.core.component.DataComponents.BLOCK_ENTITY_DATA, net.minecraft.world.item.component.CustomData.of(tag));
             break;
@@ -28,8 +29,11 @@ public final class MachineInteractions {
         return drops;
     }
     public static void drop(Level level, BlockPos pos) {
-        if (!level.isClientSide && level.getBlockEntity(pos) instanceof MachineAccess machine)
+        if (!level.isClientSide && level.getBlockEntity(pos) instanceof MachineAccess machine) {
+            var spec = machine.machineState().inventory.spec();
+            if (spec != null && spec.keep) return; // the items travel in the block's item (preserveResources)
             for (int i = 0; i < machine.machineState().inventory.getSlots(); i++) Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), machine.machineState().inventory.getStackInSlot(i));
+        }
     }
     public static ItemInteractionResult insert(ItemStack stack, Level level, BlockPos pos, Player player, InteractionHand hand) {
         if (!player.mayBuild() || !(level.getBlockEntity(pos) instanceof MachineAccess machine)) return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
@@ -54,7 +58,8 @@ public final class MachineInteractions {
                 boolean energy = (!screen.has("energy") || screen.get("energy").getAsBoolean()) && def.energy != null;
                 boolean fluid = (!screen.has("fluid") || screen.get("fluid").getAsBoolean()) && def.fluid != null;
                 boolean slots = !screen.has("slots") || screen.get("slots").getAsBoolean();
-                var standard = def.inventory != null ? net.xmilon.craftpy.menu.ScreenLayout.forInventory(def.inventory, energy, fluid)
+                int tanks = fluid ? (def.fluid.has("tanks") ? def.fluid.get("tanks").getAsInt() : 1) : 0;
+                var standard = def.inventory != null ? net.xmilon.craftpy.menu.ScreenLayout.forInventory(def.inventory, energy, tanks)
                         : net.xmilon.craftpy.menu.ScreenLayout.defaults(slots, energy, fluid);
                 // a window drawn in the UI maker (Screen(layout=...)) replaces the standard one
                 var layout = screen.has("layout") && screen.get("layout").isJsonObject()

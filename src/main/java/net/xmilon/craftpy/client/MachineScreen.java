@@ -6,21 +6,22 @@ import java.util.List;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.client.extensions.common.IClientFluidTypeExtensions;
-import net.xmilon.craftpy.menu.LegacyShapes;
 import net.xmilon.craftpy.menu.MachineMenu;
 import net.xmilon.craftpy.menu.ScreenLayout;
 
 /**
- * The Minecraft-style window of a machine block ({@code Screen(...)}), drawn from its {@link ScreenLayout}: the grey panel,
- * slots, bars, arrows, flames, labels and item icons at the positions the project's window gives. The shapes are the shared
- * {@link LegacyShapes}, so this matches the UI maker's preview. The liquid uses its own texture, so a resource pack that
- * changes the liquid changes the gauge. The server decides the contents; this only draws what it was sent.
+ * The Minecraft-style window of a machine block ({@code Screen(...)}) or of a window Python opened ({@code ui.open_screen}),
+ * drawn from its {@link ScreenLayout} with the game's own art and Mekanism's when it is installed ({@link LegacySkin}). The
+ * liquid uses its own texture, so a resource pack that changes the liquid changes the gauge. A button sends its number to the
+ * server, which tells the project's Python. The server decides the contents; this only draws what it was sent.
  */
 public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
     public MachineScreen(MachineMenu menu, Inventory inventory, Component title) {
@@ -29,34 +30,46 @@ public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
         imageHeight = menu.layout.height;
     }
 
+    private boolean over(ScreenLayout.Piece piece, double mouseX, double mouseY) {
+        return mouseX >= leftPos + piece.x() && mouseX < leftPos + piece.x() + piece.width()
+                && mouseY >= topPos + piece.y() && mouseY < topPos + piece.y() + piece.height();
+    }
+
     @Override
     protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        LegacyShapes.Surface surface = (x1, y1, x2, y2, argb) -> graphics.fill(leftPos + x1, topPos + y1, leftPos + x2, topPos + y2, argb);
         var layout = menu.layout;
+        LegacySkin skin = new LegacySkin(LegacySkin.screen(graphics), leftPos, topPos, layout.style);
         if (!layout.has("lg_panel")) {
-            LegacyShapes.panel(surface, 0, 0, imageWidth, imageHeight);
+            skin.panel(0, 0, imageWidth, imageHeight);
         }
         for (ScreenLayout.Piece piece : layout.pieces) {
             switch (piece.type()) {
-                case "lg_panel" -> LegacyShapes.panel(surface, piece.x(), piece.y(), piece.width(), piece.height());
-                case "lg_slot" -> LegacyShapes.slotBox(surface, piece.x(), piece.y());
+                case "lg_panel" -> skin.panel(piece.x(), piece.y(), piece.width(), piece.height());
+                case "lg_slot" -> skin.slot(piece.x(), piece.y(), group(piece.slot()));
                 case "lg_slots" -> {
                     for (int row = 0; row < piece.rows(); row++) {
                         for (int column = 0; column < piece.columns(); column++) {
-                            LegacyShapes.slotBox(surface, piece.x() + column * 18, piece.y() + row * 18);
+                            skin.slot(piece.x() + column * 18, piece.y() + row * 18, piece.slot());
                         }
                     }
                 }
-                case "lg_player" -> LegacyShapes.playerSlots(surface, piece.x(), piece.y());
-                case "lg_energy" -> LegacyShapes.energy(surface, piece.x(), piece.y(), piece.width(), piece.height(),
-                        menu.fraction(piece.bind(), piece.max()));
-                case "lg_fluid" -> fluid(graphics, surface, piece);
-                case "lg_arrow" -> LegacyShapes.arrow(surface, piece.x(), piece.y(), piece.width(), piece.height(),
-                        menu.fraction(piece.bind(), piece.max()));
-                case "lg_flame" -> LegacyShapes.flame(surface, piece.x(), piece.y(), piece.width(), piece.height(),
-                        menu.fraction(piece.bind(), piece.max()));
-                case "lg_bar" -> LegacyShapes.bar(surface, piece.x(), piece.y(), piece.width(), piece.height(),
-                        menu.fraction(piece.bind(), piece.max()), piece.color());
+                case "lg_player" -> {
+                    for (int row = 0; row < 3; row++) {
+                        for (int column = 0; column < 9; column++) {
+                            skin.slot(piece.x() + column * 18, piece.y() + row * 18, "");
+                        }
+                    }
+                    for (int column = 0; column < 9; column++) {
+                        skin.slot(piece.x() + column * 18, piece.y() + 58, "");
+                    }
+                }
+                case "lg_energy" -> skin.energy(piece.x(), piece.y(), piece.width(), piece.height(), menu.fraction(piece.bind(), piece.max()));
+                case "lg_fluid" -> skin.gauge(piece.x(), piece.y(), piece.width(), piece.height(), () -> liquid(graphics, piece));
+                case "lg_arrow" -> skin.arrow(piece.x(), piece.y(), piece.width(), piece.height(), menu.fraction(piece.bind(), piece.max()));
+                case "lg_flame" -> skin.flame(piece.x(), piece.y(), piece.width(), piece.height(), menu.fraction(piece.bind(), piece.max()));
+                case "lg_bar" -> skin.bar(piece.x(), piece.y(), piece.width(), piece.height(), menu.fraction(piece.bind(), piece.max()), piece.color());
+                case "lg_image" -> skin.image(piece.x(), piece.y(), piece.width(), piece.height(), piece.text());
+                case "lg_button" -> skin.button(piece.x(), piece.y(), piece.width(), piece.height(), over(piece, mouseX, mouseY));
                 case "lg_icon" -> {
                     var item = BuiltInRegistries.ITEM.get(ResourceLocation.tryParse(piece.text()) == null
                             ? ResourceLocation.withDefaultNamespace("air") : ResourceLocation.tryParse(piece.text()));
@@ -68,9 +81,16 @@ public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
         }
     }
 
-    private void fluid(GuiGraphics graphics, LegacyShapes.Surface surface, ScreenLayout.Piece piece) {
-        LegacyShapes.well(surface, piece.x(), piece.y(), piece.width(), piece.height());
-        var fluid = menu.fluid();
+    /** The group of {@code input.0}: Mekanism colors input and output slots. */
+    private static String group(String slot) {
+        int dot = slot.indexOf('.');
+        return dot < 0 ? slot : slot.substring(0, dot);
+    }
+
+    /** The liquid of the tank a gauge is bound to, tiled with its own texture and tint, filling from the bottom. */
+    private void liquid(GuiGraphics graphics, ScreenLayout.Piece piece) {
+        int tank = MachineMenu.tankOf(piece.bind());
+        var fluid = menu.fluid(tank);
         int filled = (int) Math.round(piece.height() * menu.fraction(piece.bind(), piece.max()));
         if (filled <= 0 || fluid == net.minecraft.world.level.material.Fluids.EMPTY) {
             return;
@@ -96,8 +116,33 @@ public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
             if (piece.type().equals("lg_label")) {
                 String text = menu.label(piece.text(), playerInventoryTitle.getString());
                 graphics.drawString(font, text, piece.x(), piece.y(), 0xFF000000 | piece.color(), false);
+            } else if (piece.type().equals("lg_button")) {
+                String text = menu.label(piece.text(), playerInventoryTitle.getString());
+                int width = font.width(text);
+                // a caption that does not fit is cut, like vanilla buttons do
+                if (width > piece.width() - 4) {
+                    text = font.plainSubstrByWidth(text, piece.width() - 8) + "...";
+                    width = font.width(text);
+                }
+                graphics.drawString(font, text, piece.x() + (piece.width() - width) / 2, piece.y() + (piece.height() - 8) / 2,
+                        0xFFFFFFFF, true);
             }
         }
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0) {
+            List<ScreenLayout.Piece> buttons = menu.layout.buttons();
+            for (int i = 0; i < buttons.size(); i++) {
+                if (over(buttons.get(i), mouseX, mouseY) && minecraft != null && minecraft.gameMode != null) {
+                    minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1f));
+                    minecraft.gameMode.handleInventoryButtonClick(menu.containerId, i);
+                    return true;
+                }
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
@@ -106,19 +151,18 @@ public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
         renderTooltip(graphics, mouseX, mouseY);
         List<Component> lines = new ArrayList<>();
         for (ScreenLayout.Piece piece : menu.layout.pieces) {
-            boolean inside = mouseX >= leftPos + piece.x() && mouseX < leftPos + piece.x() + piece.width()
-                    && mouseY >= topPos + piece.y() && mouseY < topPos + piece.y() + piece.height();
-            if (!inside) {
+            if (!over(piece, mouseX, mouseY)) {
                 continue;
             }
             if (piece.type().equals("lg_energy")) {
                 lines.add(Component.literal("Energy"));
                 lines.add(Component.literal(format(menu.energy()) + " / " + format(menu.energyCapacity()) + " FE"));
             } else if (piece.type().equals("lg_fluid")) {
-                var fluid = menu.fluid();
+                int tank = MachineMenu.tankOf(piece.bind());
+                var fluid = menu.fluid(tank);
                 lines.add(fluid == net.minecraft.world.level.material.Fluids.EMPTY ? Component.literal("Empty")
                         : fluid.getFluidType().getDescription());
-                lines.add(Component.literal(format(menu.fluidAmount()) + " / " + format(menu.fluidCapacity()) + " mB"));
+                lines.add(Component.literal(format(menu.fluidAmount(tank)) + " / " + format(menu.fluidCapacity(tank)) + " mB"));
             }
             if (!lines.isEmpty()) {
                 break;

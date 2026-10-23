@@ -85,16 +85,19 @@ public final class Defs {
      * (extract only) and anything else is storage (both ways). Checked here because it comes from Python.
      */
     public static final class InventorySpec {
-        public static final int MAX_SLOTS = 54;
+        public static final int MAX_SLOTS = 117; // 13 x 9: the biggest slot grid of a window
 
         public record Group(String name, int count, String role, List<String> accepts, int maxStack,
                             java.util.Set<net.minecraft.core.Direction> sides) {
         }
 
         public final List<Group> groups;
+        /** {@code keep=True}: the items stay in the dropped block (like a shulker box) instead of falling out. */
+        public final boolean keep;
 
-        private InventorySpec(List<Group> groups) {
+        private InventorySpec(List<Group> groups, boolean keep) {
             this.groups = List.copyOf(groups);
+            this.keep = keep;
         }
 
         public int total() {
@@ -105,7 +108,7 @@ public final class Defs {
 
         static String roleOf(String name) {
             return switch (name) {
-                case "input", "fuel", "output" -> name;
+                case "input", "fuel", "output", "fluid_in", "fluid_out", "energy_in", "energy_out" -> name;
                 default -> "storage";
             };
         }
@@ -155,7 +158,7 @@ public final class Defs {
             if (out.isEmpty()) {
                 throw new IllegalArgumentException("Inventory needs at least one group, for example Inventory(input=1, output=1)");
             }
-            return new InventorySpec(out);
+            return new InventorySpec(out, ext.has("keep") && ext.get("keep").isJsonPrimitive() && ext.get("keep").getAsBoolean());
         }
     }
 

@@ -129,6 +129,8 @@ final class LegacyDesigner implements WindowDesign {
             case "lg_bar" -> "Value bar";
             case "lg_label" -> "Text";
             case "lg_icon" -> "Item icon";
+            case "lg_image" -> "Image";
+            case "lg_button" -> "Button";
             default -> type;
         };
     }
@@ -420,6 +422,19 @@ final class LegacyDesigner implements WindowDesign {
         if (piece.type().equals("lg_label") || piece.type().equals("lg_bar")) {
             textField("color", String.format("#%06X", piece.color() & 0xFFFFFF), "#RRGGBB", value -> selected.addProperty("color", value));
         }
+        if (piece.type().equals("lg_button")) {
+            textField("text", piece.text(), "The caption; {key} shows a value Python set", value -> selected.addProperty("text", value));
+            textField("action", piece.bind(), "The name @on.screen_button(button=\"name\") hears when it is clicked",
+                    value -> selected.addProperty("bind", value));
+        }
+        if (piece.type().equals("lg_image")) {
+            textField("image", piece.text(), "A GUI sprite (minecraft:container/slot) or a texture file with its part: "
+                    + "mekanism:gui/energy.png#0,0,18,18,18,18 (u, v, width, height, texture width, texture height)",
+                    value -> {
+                        selected.remove("text");
+                        selected.addProperty("image", value);
+                    });
+        }
         if (piece.type().equals("lg_icon")) {
             textField("item", piece.text(), "An item id, for example minecraft:diamond", value -> {
                 selected.remove("text");
@@ -436,6 +451,23 @@ final class LegacyDesigner implements WindowDesign {
         int[] size = LegacyEdit.size(window);
         numberField("width", size[0], value -> LegacyEdit.resizeWindow(window, value, LegacyEdit.size(window)[1]));
         numberField("height", size[1], value -> LegacyEdit.resizeWindow(window, LegacyEdit.size(window)[0], value));
+        props.addView(section("Look"));
+        String style = WindowFragment.str(window, "style", "auto");
+        var looks = new FlowLayout(context);
+        for (String[] look : new String[][]{{"auto", "Minecraft"}, {"mekanism", "Mekanism"}, {"plain", "Plain"}}) {
+            var choice = button(context, look[1], R.attr.borderlessButtonStyle, v -> {
+                if (look[0].equals("auto")) window.remove("style"); else window.addProperty("style", look[0]);
+                changed();
+            });
+            choice.setTooltipText(switch (look[0]) {
+                case "auto" -> "Minecraft's own slots, arrow, flame and panel; Mekanism's energy bar and tanks when it is installed";
+                case "mekanism" -> "Mekanism's look for everything it has, when it is installed (else Minecraft's)";
+                default -> "Plain drawn shapes, no textures";
+            });
+            styleChip(choice, look[0].equals(style));
+            looks.addView(choice);
+        }
+        props.addView(looks, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         props.addView(section("Size"));
         var presets = new FlowLayout(context);
         for (Object[] preset : PRESETS) {
@@ -613,18 +645,16 @@ final class LegacyDesigner implements WindowDesign {
         protected void onDraw(@NonNull Canvas canvas) {
             int u = unit(), m = margin();
             int[] size = LegacyEdit.size(window);
-            LegacyShapes.Surface surface = (x1, y1, x2, y2, argb) -> {
-                paint.setStroke(false);
-                paint.setColor(argb);
-                canvas.drawRect(m + x1 * u, m + y1 * u, m + x2 * u, m + y2 * u, paint);
-            };
+            // the same pieces and art as the game's screen (LegacySkin), drawn on this canvas
+            String style = WindowFragment.str(window, "style", "auto");
+            net.xmilon.craftpy.client.LegacySkin skin = new net.xmilon.craftpy.client.LegacySkin(PreviewSkin.target(canvas, paint, u, m), 0, 0, style);
             paint.setStroke(false);
             paint.setColor(0x33000000);
             canvas.drawRect(m + 2 * u, m + 2 * u, m + (size[0] + 2) * u, m + (size[1] + 2) * u, paint); // drop shadow
             paint.setColor(0x22FFFFFF);
             canvas.drawRect(m, m, m + size[0] * u, m + size[1] * u, paint); // the window area without a panel
             for (JsonElement element : LegacyEdit.pieces(window)) {
-                if (element.isJsonObject()) draw(canvas, surface, LegacyEdit.read(element.getAsJsonObject(), window));
+                if (element.isJsonObject()) draw(canvas, skin, LegacyEdit.read(element.getAsJsonObject(), window));
             }
             if (grid && u >= 3) {
                 paint.setColor(0x14000000);
@@ -647,28 +677,42 @@ final class LegacyDesigner implements WindowDesign {
             handle(canvas, m + size[0] * u, m + size[1] * u, 0xFFFFFFFF);
         }
 
-        private void draw(Canvas canvas, LegacyShapes.Surface surface, ScreenLayout.Piece piece) {
+        private void draw(Canvas canvas, net.xmilon.craftpy.client.LegacySkin skin, ScreenLayout.Piece piece) {
             int u = unit(), m = margin();
+            LegacyShapes.Surface surface = skin.surface();
             switch (piece.type()) {
-                case "lg_panel" -> LegacyShapes.panel(surface, piece.x(), piece.y(), piece.width(), piece.height());
-                case "lg_slot" -> LegacyShapes.slotBox(surface, piece.x(), piece.y());
+                case "lg_panel" -> skin.panel(piece.x(), piece.y(), piece.width(), piece.height());
+                case "lg_slot" -> skin.slot(piece.x(), piece.y(), piece.slot().contains(".") ? piece.slot().substring(0, piece.slot().indexOf('.')) : piece.slot());
                 case "lg_slots" -> {
                     for (int row = 0; row < piece.rows(); row++) {
                         for (int column = 0; column < piece.columns(); column++) {
-                            LegacyShapes.slotBox(surface, piece.x() + column * 18, piece.y() + row * 18);
+                            skin.slot(piece.x() + column * 18, piece.y() + row * 18, piece.slot());
                         }
                     }
                 }
-                case "lg_player" -> LegacyShapes.playerSlots(surface, piece.x(), piece.y());
-                case "lg_energy" -> LegacyShapes.energy(surface, piece.x(), piece.y(), piece.width(), piece.height(), SAMPLE);
-                case "lg_fluid" -> {
-                    LegacyShapes.well(surface, piece.x(), piece.y(), piece.width(), piece.height());
-                    int filled = (int) Math.round(piece.height() * SAMPLE);
-                    surface.fill(piece.x(), piece.y() + piece.height() - filled, piece.x() + piece.width(), piece.y() + piece.height(), 0xFF3F76E4);
+                case "lg_player" -> {
+                    for (int row = 0; row < 3; row++) {
+                        for (int column = 0; column < 9; column++) skin.slot(piece.x() + column * 18, piece.y() + row * 18, "");
+                    }
+                    for (int column = 0; column < 9; column++) skin.slot(piece.x() + column * 18, piece.y() + 58, "");
                 }
-                case "lg_bar" -> LegacyShapes.bar(surface, piece.x(), piece.y(), piece.width(), piece.height(), SAMPLE, piece.color());
-                case "lg_arrow" -> LegacyShapes.arrow(surface, piece.x(), piece.y(), piece.width(), piece.height(), SAMPLE);
-                case "lg_flame" -> LegacyShapes.flame(surface, piece.x(), piece.y(), piece.width(), piece.height(), SAMPLE);
+                case "lg_energy" -> skin.energy(piece.x(), piece.y(), piece.width(), piece.height(), SAMPLE);
+                case "lg_fluid" -> skin.gauge(piece.x(), piece.y(), piece.width(), piece.height(), () -> {
+                    int filled = (int) Math.round(piece.height() * SAMPLE);
+                    surface.fill(piece.x(), piece.y() + piece.height() - filled, piece.x() + piece.width(), piece.y() + piece.height(),
+                            piece.bind().equals("fluid:1") ? 0xFFE0602A : 0xFF3F76E4);
+                });
+                case "lg_bar" -> skin.bar(piece.x(), piece.y(), piece.width(), piece.height(), SAMPLE, piece.color());
+                case "lg_arrow" -> skin.arrow(piece.x(), piece.y(), piece.width(), piece.height(), SAMPLE);
+                case "lg_flame" -> skin.flame(piece.x(), piece.y(), piece.width(), piece.height(), SAMPLE);
+                case "lg_image" -> skin.image(piece.x(), piece.y(), piece.width(), piece.height(), piece.text());
+                case "lg_button" -> {
+                    skin.button(piece.x(), piece.y(), piece.width(), piece.height(), false);
+                    String caption = shownText(piece.text());
+                    float width = Math.min(piece.width() * u, caption.length() * 6f * u);
+                    label(canvas, caption, m + piece.x() * u + (piece.width() * u - width) / 2f, m + (piece.y() + (piece.height() - 8) / 2) * u,
+                            0xFFFFFFFF, piece.width() * u);
+                }
                 case "lg_icon" -> {
                     // the game draws the item itself; here a framed square with the item's name
                     surface.fill(piece.x(), piece.y(), piece.x() + 16, piece.y() + 16, 0xFF8B8B8B);

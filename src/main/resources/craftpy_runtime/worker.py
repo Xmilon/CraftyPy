@@ -1561,18 +1561,21 @@ class EnergyStorage(_Data):
 
 
 class FluidTank(_Data):
-    """Native NeoForge tank in mB; allowed is an optional list of fluid resource IDs."""
+    """Native NeoForge tanks in mB: ``FluidTank(8000)``, or ``FluidTank(8000, tanks=2)`` for two tanks of 8000 mB each (at most 4).
+    ``allowed`` is an optional list of fluid ids they take. Several tanks hold different liquids: a liquid goes into the tank that
+    already holds it, else into the first empty one. Window gauges bind ``fluid`` (the first tank), ``fluid:1``, ``fluid:2``..."""
     applies_to = ("block",)
     type = "fluid_tank"
 
-    def __init__(self, capacity, allowed=None):
+    def __init__(self, capacity, allowed=None, tanks=1):
         self.capacity = _integer("FluidTank capacity", capacity, 1, 1_000_000)
+        self.tanks = _integer("FluidTank tanks", tanks, 1, 4)
         if allowed is not None and (not isinstance(allowed, (list, tuple)) or len(allowed) > 64):
             raise ValueError("FluidTank allowed must be a list of at most 64 fluid IDs")
         self.allowed = None if allowed is None else [_resource_id("FluidTank allowed", value) for value in allowed]
 
     def data(self):
-        return dict(capacity=self.capacity, allowed=self.allowed)
+        return dict(capacity=self.capacity, allowed=self.allowed, tanks=self.tanks)
 
 
 class Inventory(_Data):
@@ -1580,7 +1583,12 @@ class Inventory(_Data):
 
     A group's name is its role. ``input``: hands and hoppers put items in (a processing machine reads its recipe from the
     first one). ``fuel``: items go in from the sides only. ``output``: items only come out (by hand, or by hoppers from the
-    bottom and the sides). Any other name is ``storage``: both ways, from every side. At most 54 slots.
+    bottom and the sides). Any other name is ``storage``: both ways, from every side. At most 117 slots (a 13 x 9 grid).
+
+    Four more names move liquid and energy, one item at a time, with buckets, tank items and batteries of every mod:
+    ``fluid_in`` pours a filled container into the tanks, ``fluid_out`` fills an empty one from them, ``energy_in`` drains a
+    charged item into the energy store, ``energy_out`` charges one. ``keep=True`` keeps the items inside the block when it is
+    broken (like a shulker box) instead of dropping them; energy and liquids always stay in it.
 
     ``accepts={"fuel": ["minecraft:coal", "#minecraft:logs"]}`` limits what a group takes (item ids and ``#tags``).
     ``max_stack={"input": 16}`` limits the stack size in a group. ``sides={"output": ["down", "north"]}`` replaces the
@@ -1591,8 +1599,9 @@ class Inventory(_Data):
     type = "inventory"
     _OPTIONS = ("accepts", "max_stack", "sides")
 
-    def __init__(self, *, accepts=None, max_stack=None, sides=None, **groups):
+    def __init__(self, *, accepts=None, max_stack=None, sides=None, keep=False, **groups):
         import re
+        self.keep = bool(keep)
         if not groups:
             raise ValueError("Inventory needs at least one group, for example Inventory(input=1, output=1)")
         total = 0
@@ -1600,11 +1609,11 @@ class Inventory(_Data):
         for name, count in groups.items():
             if not re.fullmatch(r"[a-z][a-z0-9_]{0,24}", name):
                 raise ValueError("Inventory group names are lowercase words such as input, fuel, output, storage: %r" % name)
-            count = _integer("Inventory %s" % name, count, 1, 54)
+            count = _integer("Inventory %s" % name, count, 1, 117)
             total += count
             self.groups.append({"name": name, "count": count})
-        if total > 54:
-            raise ValueError("Inventory has %d slots; a block can have at most 54" % total)
+        if total > 117:
+            raise ValueError("Inventory has %d slots; a block or window can have at most 117" % total)
         by_name = {g["name"]: g for g in self.groups}
         for option, values in (("accepts", accepts), ("max_stack", max_stack), ("sides", sides)):
             for group_name, value in (values or {}).items():
@@ -1624,7 +1633,7 @@ class Inventory(_Data):
                     by_name[group_name]["sides"] = value
 
     def data(self):
-        return dict(groups=self.groups)
+        return dict(groups=self.groups, keep=self.keep) if self.keep else dict(groups=self.groups)
 
 
 class Screen(_Data):
@@ -1653,7 +1662,7 @@ class Screen(_Data):
                 raise ValueError("Screen layout %r: there is no ui/%s.json in this project" % (layout, layout))
             if not tree.get("legacy"):
                 raise ValueError("Screen layout %r is not a Minecraft-style window: make one with Tools > New UI window > Minecraft-style" % layout)
-            self.layout = {"size": tree.get("size") or [176, 166], "root": tree["root"]}
+            self.layout = {"size": tree.get("size") or [176, 166], "root": tree["root"], "style": tree.get("style") or "auto"}
             if len(json.dumps(self.layout)) > 24000:
                 raise ValueError("Screen layout %r is too large (at most 64 pieces)" % layout)
 
@@ -1924,7 +1933,7 @@ _EVENT_LAST = {}      # (owner, event, function, entity/player UUID) -> last nat
 _EVENT_NAMES = ("block_break", "block_place", "block_interact", "block_tick", "item_use", "item_hit", "item_mine",
                 "item_hold_tick", "item_craft", "item_pickup", "player_join", "player_leave", "player_respawn",
                 "player_death", "entity_death", "entity_hurt", "entity_tick", "entity_interact", "chat", "effect_tick", "machine_speed",
-                "machine_state")
+                "machine_state", "screen_button")
 
 
 class _On:
@@ -1936,7 +1945,8 @@ class _On:
         if unknown:
             raise TypeError("@on(%r): unknown filter %s (use %s)"
                             % (event, ", ".join(sorted(unknown)), ", ".join(_FILTER_KEYS)))
-        wanted = {key: _ref(value) for key, value in filters.items()}
+        # block=, item=, entity= name content (ids); button=, window=, hand= are plain words of the event
+        wanted = {key: str(value) if key in _PLAIN_FILTERS else _ref(value) for key, value in filters.items()}
 
         def deco(fn):
             periods = dict(getattr(fn, "_craftpy_throttle_ticks", {}))
@@ -1965,10 +1975,13 @@ class _On:
 on = _On()
 
 
+_PLAIN_FILTERS = ("button", "window", "hand")
+
+
 def _matches(ctx, wanted):
     for key, value in wanted.items():
         actual = getattr(ctx, key, None)
-        actual_id = actual.get("id") if isinstance(actual, dict) else getattr(actual, "id", None)
+        actual_id = actual if isinstance(actual, str) else actual.get("id") if isinstance(actual, dict) else getattr(actual, "id", None)
         if key == "entity" and actual is not None:
             actual_id = getattr(actual, "type", None)
         if actual_id != value:
@@ -2384,17 +2397,19 @@ class _World:
         return _ok(_host_call("world.machine_slot", dict(x=x, y=y, z=z, slot=str(slot), item=None if item is None else _ref(item),
                                                          count=count, dimension=dimension))).get("machine", {})
 
-    def machine_update(self, x, y=None, z=None, *, energy=0, fluid=0, dimension=_OVERWORLD) -> dict:
+    def machine_update(self, x, y=None, z=None, *, energy=0, fluid=0, tank=0, dimension=_OVERWORLD) -> dict:
         """Changes what a loaded machine block stores and returns its new snapshot.
 
         ``energy`` is added in FE (negative removes), ``fluid`` is removed in mB (use a negative number to take fluid out;
         a positive number is not accepted: fluid goes in through buckets, pipes and ``world.transfer``). The block's own
         limits apply: energy stays between 0 and its capacity, and no more fluid leaves than it holds. This is how a
-        generator turns fuel into energy: read ``world.machine``, then call this with the conversion."""
+        generator turns fuel into energy: read ``world.machine``, then call this with the conversion. ``tank`` picks one of
+        the tanks of ``FluidTank(..., tanks=n)`` (0 is the first; ``world.machine(...)["tanks"]`` lists them)."""
         x, y, z = _xyz(x, y, z)
         _integer("energy", energy, -1_000_000_000, 1_000_000_000)
         _integer("fluid", fluid, -1_000_000, 0)
-        return _ok(_host_call("world.machine_update", dict(x=x, y=y, z=z, energy=energy, fluid=fluid,
+        _integer("tank", tank, 0, 3)
+        return _ok(_host_call("world.machine_update", dict(x=x, y=y, z=z, energy=energy, fluid=fluid, tank=tank,
                                                             dimension=dimension))).get("machine", {})
 
     def resources(self, x, y=None, z=None, dimension=_OVERWORLD, *, side=None) -> dict:
@@ -3307,7 +3322,8 @@ def _screen_values(values):
 
 
 class _Ui:
-    def open_screen(self, player, layout=None, *, title=None, entity=None, inventory=None, values=None):
+    def open_screen(self, player, layout=None, *, title=None, entity=None, hand=None, inventory=None, energy=0, tanks=0,
+                    tank_capacity=8000, values=None):
         """Opens a Minecraft-style window that belongs to an entity (or to the player) instead of a block.
 
         ``layout`` names a Minecraft-style window of the UI maker (ui/<layout>.json); without it the standard window of
@@ -3315,7 +3331,13 @@ class _Ui:
         ``entity`` (a mob, another player; default: the player, which makes a personal backpack) under this project's name and the
         layout's, so they stay with it. The entity must be within 8 blocks. ``values={"price": 5}`` sets free values for bars
         (``bind`` = ``value:price``) and labels (``{price}``); change them while it is open with ``ui.screen_set``.
-        Pair it with ``@on.entity_interact`` to open it when a player right clicks a mob."""
+        Pair it with ``@on.entity_interact`` to open it when a player right clicks a mob.
+
+        ``hand="main"`` (or ``"off"``) keeps everything in the item the player holds instead, like a backpack item: the item
+        carries its contents wherever it goes and cannot be moved while its window is open. ``energy=50000`` gives the window an
+        energy store of that many FE, ``tanks=2`` two liquid tanks of ``tank_capacity`` mB each; slots named ``fluid_in``,
+        ``fluid_out``, ``energy_in`` and ``energy_out`` fill and empty them with buckets and batteries. Buttons of the window call
+        ``@on.screen_button``."""
         import re
         found = None
         key = "screen"
@@ -3332,6 +3354,13 @@ class _Ui:
             holder = entity if isinstance(entity, str) else str(getattr(entity, "uuid", "") or "")
             if isinstance(entity, Player) and getattr(entity, "name", None) == name:
                 holder = ""
+        if hand is not None and hand not in ("main", "off"):
+            raise ValueError("hand is \"main\" or \"off\"")
+        if hand is not None and entity is not None:
+            raise ValueError("a window belongs to an entity or to a held item, not both")
+        _integer("energy", energy, 0, 1_000_000_000)
+        _integer("tanks", tanks, 0, 4)
+        _integer("tank_capacity", tank_capacity, 1, 1_000_000)
         if isinstance(inventory, Extension):
             inventory = inventory.data()
         if inventory is not None and not isinstance(inventory, dict):
@@ -3339,7 +3368,14 @@ class _Ui:
         params = dict(player=name, entity=holder, key=re.sub(r"[^A-Za-z0-9_-]", "_", _OWNER[0] + "_" + key),
                       title=str(title if title is not None else (found or {}).get("title") or ""))
         if found is not None:
-            params["layout"] = {"size": found.get("size") or [176, 166], "root": found["root"]}
+            params["layout"] = {"size": found.get("size") or [176, 166], "root": found["root"], "style": found.get("style") or "auto"}
+        if hand is not None:
+            params["hand"] = hand
+        if energy:
+            params["energy"] = energy
+        if tanks:
+            params["tanks"] = tanks
+            params["tank_capacity"] = tank_capacity
         if inventory is not None:
             params["inventory"] = inventory
         if values is not None:
@@ -7214,10 +7250,10 @@ def _load_docs():
         "world.get_block": ("The block id at a position.", dict(POS3, dimension=DIM), "str, for example 'minecraft:stone'"),
         "world.machine": ("Read a loaded kinetic machine without loading chunks. Snapshot includes speed, theoretical_speed, overstressed, processing, progress, recipe and input/output stacks.", dict(POS3, dimension=DIM), "dict"),
         "world.machine_set": ("Set free values (numbers or short texts, at most 32 keys) on a loaded machine block; a window bar bound to value:key and a label with {key} show them. Returns the new snapshot.", dict(POS3, values="{key: number or text}; keys are lowercase words.", dimension=DIM), "dict"),
-        "ui.open_screen": ("Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).", {"player": "Player or name.", "layout": "A Minecraft-style window of the UI maker; none shows the standard window of the inventory.", "title": "Text at the top.", "entity": "Entity or player that owns the slots (within 8 blocks); default the player.", "inventory": "Inventory(...) giving the window item slots.", "values": "{key: number or text} for bars and labels."}, ""),
+        "ui.open_screen": ("Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).", {"player": "Player or name.", "layout": "A Minecraft-style window of the UI maker; none shows the standard window of the inventory.", "title": "Text at the top.", "entity": "Entity or player that owns the slots (within 8 blocks); default the player.", "hand": "\"main\" or \"off\": the window belongs to the item in that hand instead (its data travels with the item).", "inventory": "Inventory(...) giving the window item slots.", "energy": "FE the window can store (0: none).", "tanks": "How many liquid tanks (0..4).", "tank_capacity": "mB of each tank.", "values": "{key: number or text} for bars and labels."}, ""),
         "ui.screen_set": ("Changes the free values of the window the player has open from ui.open_screen.", {"player": "Player or name.", "values": "{key: number or text}."}, ""),
         "world.machine_slot": ("Put a stack into a slot ('group.number') of a loaded machine block, replacing what is there; item=None empties it. Returns the new snapshot.", dict(POS3, slot="'group.number' of the block's Inventory, such as 'input.0' or 'output.1'.", item="Item or id, or None to empty the slot.", count="Stack size, 0..64 (and the group's max_stack).", dimension=DIM), "dict"),
-        "world.machine_update": ("Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.", dict(POS3, energy="FE to add (negative removes).", fluid="mB to remove, 0 or negative.", dimension=DIM), "dict"),
+        "world.machine_update": ("Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.", dict(POS3, energy="FE to add (negative removes).", fluid="mB to remove, 0 or negative.", tank="Which tank of FluidTank(..., tanks=n) the fluid comes from (0 the first).", dimension=DIM), "dict"),
         "world.set_block": ("Places a block: world.set_block(x, y, z, 'stone') or world.set_block(pos, 'stone').", dict(
             POS3, block="Block id or Block object.", dimension=DIM, replace="False only places into air.") , ""),
         "world.fill": ("Fills the box between two corners (at most 32768 blocks).", {
@@ -7433,9 +7469,9 @@ def _doc_text(summary, params, returns):
 _DOCS = _load_docs()
 _DOCS.update({
     'EnergyStorage': (EnergyStorage.__doc__, dict(capacity='Maximum stored FE (1..1000000000).', max_receive='Maximum FE per receive call; default capacity.', max_extract='Maximum FE per extraction call; default capacity.'), ''),
-    'Inventory': (Inventory.__doc__, dict(accepts='{group: [item ids or #tags]}: what a group takes.', max_stack='{group: 1..64}: stack limit of a group.', sides='{group: ["up", "down", "north", "south", "east", "west"]}: sides hoppers and pipes may use.', **{'groups': 'The slot groups as keyword arguments: input=1, fuel=1, output=2, storage=9 (names are roles; at most 54 slots).'}), ''),
+    'Inventory': (Inventory.__doc__, dict(accepts='{group: [item ids or #tags]}: what a group takes.', max_stack='{group: 1..64}: stack limit of a group.', sides='{group: ["up", "down", "north", "south", "east", "west"]}: sides hoppers and pipes may use.', keep='True: the items stay inside the block when it is broken (like a shulker box).', **{'groups': 'The slot groups as keyword arguments: input=1, fuel=1, output=2, storage=9 (names are roles; at most 117 slots).'}), ''),
     'Screen': (Screen.__doc__, dict(title='Text at the top of the window.', energy='Show the energy bar (needs EnergyStorage).', fluid='Show the fluid gauge (needs FluidTank).', slots='Show the two item slots.', layout='Name of a Legacy window drawn in the UI maker (ui/<name>.json); replaces the standard layout.'), ''),
-    'FluidTank': (FluidTank.__doc__, dict(capacity='Maximum mB (1..1000000).', allowed='Optional list of up to 64 namespaced fluid IDs; None permits all.'), ''),
+    'FluidTank': (FluidTank.__doc__, dict(capacity='Maximum mB of each tank (1..1000000).', allowed='Optional list of up to 64 namespaced fluid IDs; None permits all.', tanks='How many tanks (1..4); window gauges bind fluid, fluid:1, fluid:2...'), ''),
     'world.resources': (_World.resources.__doc__, dict(x='Block X, tuple or Pos.', y='Block Y.', z='Block Z.', dimension='Dimension resource ID.', side='Capability face or None for unsided access.'), 'dict'),
     'world.transfer': (_World.transfer.__doc__, dict(source='Three source block coordinates.', target='Three destination coordinates in the same dimension.', kind='item, fluid or energy.', amount='Requested count, mB or FE (1..1000000; items capped to 64).', source_side='Source capability face or None.', target_side='Destination capability face or None.', slot='Source item slot; default 0.', simulate='True checks without changing contents.', dimension='Dimension resource ID.'), 'int'),
     'server.features': (_Server.features.__doc__, {}, 'dict'),

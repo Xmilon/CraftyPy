@@ -482,7 +482,7 @@ public final class PyRuntime {
         return CraftPyExecutors.supplyAsync(() -> {
             List<Worker> targets = new ArrayList<>();
             if ("http_response".equals(eventName) || "key".equals(eventName) || "app_open".equals(eventName)
-                    || (eventName.startsWith("command_") && context.has("owner"))) {
+                    || ((eventName.startsWith("command_") || "screen_button".equals(eventName)) && context.has("owner"))) {
                 String owner = context.has("owner") ? context.get("owner").getAsString() : "";
                 Worker worker = existing(owner);
                 if (worker != null) {

@@ -1128,20 +1128,28 @@ Native NeoForge energy storage in FE. No implicit rotation-to-energy conversion.
 - `max_receive` (default `None`): Maximum FE per receive call; default capacity.
 - `max_extract` (default `None`): Maximum FE per extraction call; default capacity.
 
-#### `FluidTank(capacity, allowed=None)`
+#### `FluidTank(capacity, allowed=None, tanks=1)`
 
-Native NeoForge tank in mB; allowed is an optional list of fluid resource IDs.
+Native NeoForge tanks in mB: ``FluidTank(8000)``, or ``FluidTank(8000, tanks=2)`` for two tanks of 8000 mB each (at most 4).
+``allowed`` is an optional list of fluid ids they take. Several tanks hold different liquids: a liquid goes into the tank that
+already holds it, else into the first empty one. Window gauges bind ``fluid`` (the first tank), ``fluid:1``, ``fluid:2``...
 
-- `capacity`: Maximum mB (1..1000000).
+- `capacity`: Maximum mB of each tank (1..1000000).
 - `allowed` (default `None`): Optional list of up to 64 namespaced fluid IDs; None permits all.
+- `tanks` (default `1`): How many tanks (1..4); window gauges bind fluid, fluid:1, fluid:2...
 
-#### `Inventory(*, accepts=None, max_stack=None, sides=None, **groups)`
+#### `Inventory(*, accepts=None, max_stack=None, sides=None, keep=False, **groups)`
 
 The item slots of a machine block, in named groups: ``Inventory(input=1, fuel=1, output=2, storage=9)``.
 
 A group's name is its role. ``input``: hands and hoppers put items in (a processing machine reads its recipe from the
 first one). ``fuel``: items go in from the sides only. ``output``: items only come out (by hand, or by hoppers from the
-bottom and the sides). Any other name is ``storage``: both ways, from every side. At most 54 slots.
+bottom and the sides). Any other name is ``storage``: both ways, from every side. At most 117 slots (a 13 x 9 grid).
+
+Four more names move liquid and energy, one item at a time, with buckets, tank items and batteries of every mod:
+``fluid_in`` pours a filled container into the tanks, ``fluid_out`` fills an empty one from them, ``energy_in`` drains a
+charged item into the energy store, ``energy_out`` charges one. ``keep=True`` keeps the items inside the block when it is
+broken (like a shulker box) instead of dropping them; energy and liquids always stay in it.
 
 ``accepts={"fuel": ["minecraft:coal", "#minecraft:logs"]}`` limits what a group takes (item ids and ``#tags``).
 ``max_stack={"input": 16}`` limits the stack size in a group. ``sides={"output": ["down", "north"]}`` replaces the
@@ -1152,7 +1160,8 @@ them in ``world.machine(...)["inventory"]`` and changes them with ``world.machin
 - `accepts` (default `None`): {group: [item ids or #tags]}: what a group takes.
 - `max_stack` (default `None`): {group: 1..64}: stack limit of a group.
 - `sides` (default `None`): {group: ["up", "down", "north", "south", "east", "west"]}: sides hoppers and pipes may use.
-- `**groups`: The slot groups as keyword arguments: input=1, fuel=1, output=2, storage=9 (names are roles; at most 54 slots).
+- `keep` (default `False`): True: the items stay inside the block when it is broken (like a shulker box).
+- `**groups`: The slot groups as keyword arguments: input=1, fuel=1, output=2, storage=9 (names are roles; at most 117 slots).
 
 #### `Screen(title=None, *, energy=True, fluid=True, slots=True, layout=None)`
 
@@ -1875,7 +1884,7 @@ Read a loaded kinetic machine without loading chunks. Snapshot includes speed, t
 
 Returns: dict
 
-#### `world.machine_update(x, y=None, z=None, *, energy=0, fluid=0, dimension='minecraft:overworld') -> dict`
+#### `world.machine_update(x, y=None, z=None, *, energy=0, fluid=0, tank=0, dimension='minecraft:overworld') -> dict`
 
 Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.
 
@@ -1884,6 +1893,7 @@ Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded mac
 - `z` (default `None`): Z coordinate.
 - `energy` (default `0`): FE to add (negative removes).
 - `fluid` (default `0`): mB to remove, 0 or negative.
+- `tank` (default `0`): Which tank of FluidTank(..., tanks=n) the fluid comes from (0 the first).
 - `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
 
 Returns: dict
@@ -2249,7 +2259,7 @@ Opens a window for a player.
 - `player`: Player or name.
 - `window_id`: Id of a @window class or ui/<id>.json.
 
-#### `ui.open_screen(player, layout=None, *, title=None, entity=None, inventory=None, values=None)`
+#### `ui.open_screen(player, layout=None, *, title=None, entity=None, hand=None, inventory=None, energy=0, tanks=0, tank_capacity=8000, values=None)`
 
 Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).
 
@@ -2257,7 +2267,11 @@ Opens a Minecraft-style window that belongs to an entity or to the player (item 
 - `layout` (default `None`): A Minecraft-style window of the UI maker; none shows the standard window of the inventory.
 - `title` (default `None`): Text at the top.
 - `entity` (default `None`): Entity or player that owns the slots (within 8 blocks); default the player.
+- `hand` (default `None`): "main" or "off": the window belongs to the item in that hand instead (its data travels with the item).
 - `inventory` (default `None`): Inventory(...) giving the window item slots.
+- `energy` (default `0`): FE the window can store (0: none).
+- `tanks` (default `0`): How many liquid tanks (0..4).
+- `tank_capacity` (default `8000`): mB of each tank.
 - `values` (default `None`): {key: number or text} for bars and labels.
 
 #### `ui.screen_set(player, values)`

@@ -46,7 +46,7 @@ public final class KineticSlots {
             event.registerBlockEntity(net.neoforged.neoforge.capabilities.Capabilities.FluidHandler.BLOCK, TYPE.get(), (be, side) -> {
                 if (!(be instanceof net.xmilon.craftpy.content.MachineAccess m)) return null;
                 var state = m.machineState(); state.configure(); var def = state.definition();
-                return (def != null && def.fluid != null) || !state.fluid.isEmpty() ? state.fluid : null;
+                return (def != null && def.fluid != null) || !state.tanks.isEmpty() ? state.tanks : null;
             });
         });
     }

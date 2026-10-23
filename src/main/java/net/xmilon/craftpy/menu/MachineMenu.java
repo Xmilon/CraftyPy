@@ -42,7 +42,8 @@ public class MachineMenu extends AbstractContainerMenu {
     public final String title;
     public final ScreenLayout layout;
     private final int machineSlots;
-    private final int[] values = new int[6]; // energy, energy capacity, fluid amount, fluid capacity, fluid id, progress %
+    /** energy, energy capacity, progress %, then amount, capacity and fluid id of each tank */
+    private final int[] values = new int[3 + 3 * net.xmilon.craftpy.content.Tanks.MAX];
     /** Client: the values Python set, as last received. */
     private final Map<String, JsonPrimitive> free = new LinkedHashMap<>();
     private final Set<String> watched;
@@ -93,15 +94,16 @@ public class MachineMenu extends AbstractContainerMenu {
             }
         }
         machineSlots = slots.size();
+        int locked = source instanceof VirtualSource held ? held.lockedSlot() : -1;
         for (ScreenLayout.Piece piece : layout.pieces) {
             if (piece.type().equals("lg_player")) {
                 for (int row = 0; row < 3; row++) {
                     for (int column = 0; column < 9; column++) {
-                        addSlot(new Slot(inventory, column + row * 9 + 9, piece.x() + column * 18, piece.y() + row * 18));
+                        addSlot(playerSlot(inventory, column + row * 9 + 9, piece.x() + column * 18, piece.y() + row * 18, locked));
                     }
                 }
                 for (int column = 0; column < 9; column++) {
-                    addSlot(new Slot(inventory, column, piece.x() + column * 18, piece.y() + 58));
+                    addSlot(playerSlot(inventory, column, piece.x() + column * 18, piece.y() + 58, locked));
                 }
                 break; // one player inventory
             }
@@ -134,6 +136,36 @@ public class MachineMenu extends AbstractContainerMenu {
         }
     }
 
+    /** A slot of the player's inventory; the one that holds the item whose window this is cannot be taken (like a shulker box). */
+    private static Slot playerSlot(Inventory inventory, int index, int x, int y, int locked) {
+        if (index != locked) {
+            return new Slot(inventory, index, x, y);
+        }
+        return new Slot(inventory, index, x, y) {
+            @Override
+            public boolean mayPickup(Player player) {
+                return false;
+            }
+
+            @Override
+            public boolean mayPlace(ItemStack stack) {
+                return false;
+            }
+        };
+    }
+
+    /** The tank a gauge is bound to: {@code fluid} is 0, {@code fluid:2} is 2. */
+    public static int tankOf(String bind) {
+        if (bind.startsWith("fluid:")) {
+            try {
+                return Math.max(0, Math.min(net.xmilon.craftpy.content.Tanks.MAX - 1, Integer.parseInt(bind.substring(6))));
+            } catch (NumberFormatException bad) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
     /** The keys of free values the layout reads: {@code value:key} bindings and {@code {key}} in labels. */
     private static Set<String> watchedKeys(ScreenLayout layout) {
         Set<String> keys = new LinkedHashSet<>();
@@ -161,10 +193,15 @@ public class MachineMenu extends AbstractContainerMenu {
         return switch (index) {
             case 0 -> source.energy();
             case 1 -> source.energyCapacity();
-            case 2 -> source.fluidAmount();
-            case 3 -> source.fluidCapacity();
-            case 4 -> source.fluidId();
-            default -> source.progressPercent();
+            case 2 -> source.progressPercent();
+            default -> {
+                int tank = (index - 3) / 3;
+                yield switch ((index - 3) % 3) {
+                    case 0 -> source.fluidAmount(tank);
+                    case 1 -> source.fluidCapacity(tank);
+                    default -> source.fluidId(tank);
+                };
+            }
         };
     }
 
@@ -176,21 +213,21 @@ public class MachineMenu extends AbstractContainerMenu {
         return values[1];
     }
 
-    public int fluidAmount() {
-        return values[2];
+    public int fluidAmount(int tank) {
+        return values[3 + 3 * tank];
     }
 
-    public int fluidCapacity() {
-        return values[3];
+    public int fluidCapacity(int tank) {
+        return values[4 + 3 * tank];
     }
 
-    public net.minecraft.world.level.material.Fluid fluid() {
-        return BuiltInRegistries.FLUID.byId(values[4]);
+    public net.minecraft.world.level.material.Fluid fluid(int tank) {
+        return BuiltInRegistries.FLUID.byId(values[5 + 3 * tank]);
     }
 
     /** 0..100: how far the machine's current recipe is. */
     public int progress() {
-        return Math.max(0, Math.min(100, values[5]));
+        return Math.max(0, Math.min(100, values[2]));
     }
 
     /** How full the thing a piece is bound to is, 0..1; {@code max} is the full value of a {@code value:key} binding. */
@@ -198,9 +235,12 @@ public class MachineMenu extends AbstractContainerMenu {
         if (bind.startsWith("value:")) {
             return max <= 0 ? 0 : Math.max(0, Math.min(1, ScreenValues.number(free.get(bind.substring("value:".length()))) / max));
         }
+        if (bind.startsWith("fluid")) {
+            int tank = tankOf(bind);
+            return fluidCapacity(tank) <= 0 ? 0 : (double) fluidAmount(tank) / fluidCapacity(tank);
+        }
         return switch (bind) {
             case "energy" -> energyCapacity() <= 0 ? 0 : (double) energy() / energyCapacity();
-            case "fluid" -> fluidCapacity() <= 0 ? 0 : (double) fluidAmount() / fluidCapacity();
             case "progress" -> progress() / 100.0;
             default -> 0;
         };
@@ -234,6 +274,9 @@ public class MachineMenu extends AbstractContainerMenu {
 
     @Override
     public void broadcastChanges() {
+        if (source != null && viewer instanceof ServerPlayer) {
+            source.tick(); // called every tick for an open window: container slots move liquid and energy
+        }
         super.broadcastChanges();
         if (source != null && !watched.isEmpty() && viewer instanceof ServerPlayer player) {
             JsonObject now = new JsonObject();
@@ -246,6 +289,39 @@ public class MachineMenu extends AbstractContainerMenu {
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player, new ScreenValuesPayload(containerId, json));
             }
         }
+    }
+
+    /**
+     * A button piece was clicked (its number in the layout): the project's Python hears {@code screen_button} with the player,
+     * the button's action name and where the window belongs. Only the project that owns the window is asked.
+     */
+    @Override
+    public boolean clickMenuButton(Player player, int id) {
+        var buttons = layout.buttons();
+        if (source == null || id < 0 || id >= buttons.size() || !(player instanceof ServerPlayer server) || !source.stillValid(player)) {
+            return false;
+        }
+        String owner = source.owner();
+        if (owner.isEmpty()) {
+            return false;
+        }
+        JsonObject context = new JsonObject();
+        context.add("player", net.xmilon.craftpy.lifecycle.EventBridge.wrapPlayer(server));
+        context.addProperty("button", buttons.get(id).bind());
+        context.addProperty("owner", owner);
+        source.describe(context);
+        net.xmilon.craftpy.lifecycle.EventBridge.fire("screen_button", server.level(), context);
+        return true;
+    }
+
+    /** The number keys and the off-hand key must not move the item whose window this is either. */
+    @Override
+    public void clicked(int slotId, int button, net.minecraft.world.inventory.ClickType clickType, Player player) {
+        if (clickType == net.minecraft.world.inventory.ClickType.SWAP && source instanceof VirtualSource held
+                && (button == held.lockedSlot() || (button == 40 && held.lockedSlot() == 40))) {
+            return;
+        }
+        super.clicked(slotId, button, clickType, player);
     }
 
     @Override

@@ -80,7 +80,9 @@ public final class HostBridge {
                     int energy = params.has("energy") ? params.get("energy").getAsInt() : 0;
                     int fluid = params.has("fluid") ? params.get("fluid").getAsInt() : 0;
                     if (fluid > 0 || Math.abs((long) energy) > 1_000_000_000L || fluid < -1_000_000) return error("energy or fluid out of range");
-                    machine.machineState().adjust(energy, fluid);
+                    int tank = params.has("tank") ? params.get("tank").getAsInt() : 0;
+                    if (tank < 0 || tank >= net.xmilon.craftpy.content.Tanks.MAX) return error("tank is 0 to " + (net.xmilon.craftpy.content.Tanks.MAX - 1));
+                    machine.machineState().adjust(energy, fluid, tank);
                     JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
                 });
                 case "world.machine_set" -> onServer(server -> {
@@ -95,7 +97,7 @@ public final class HostBridge {
                     }
                     JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
                 });
-                case "ui.open_screen" -> onServer(server -> openScreen(server, params));
+                case "ui.open_screen" -> onServer(server -> openScreen(server, owner, params));
                 case "ui.screen_set" -> onServer(server -> {
                     ServerPlayer player = findPlayer(server, string(params, "player", ""));
                     if (player == null) return error("player not found");
@@ -507,14 +509,16 @@ public final class HostBridge {
 
     /** Sends a window tree (open / update) or a close request to one player. */
     /**
-     * Opens a Minecraft-style window for a player that belongs to an entity (or to the player): its item slots are kept in the
-     * entity's data under the layout's name. The entity must be near the player.
+     * Opens a Minecraft-style window for a player that belongs to an entity, to the player, or to the item in the player's
+     * hand ({@code hand}): its slots, tanks, energy and values are kept in that entity's or item's data under the layout's name.
+     * The entity must be near the player.
      */
-    private static JsonObject openScreen(MinecraftServer server, JsonObject p) {
+    private static JsonObject openScreen(MinecraftServer server, String owner, JsonObject p) {
         ServerPlayer player = findPlayer(server, string(p, "player", ""));
         if (player == null) {
             return error("player not found");
         }
+        String hand = string(p, "hand", "");
         String uuid = string(p, "entity", "");
         Entity holder = uuid.isEmpty() ? player : findEntity(server, uuid);
         if (holder == null) {
@@ -523,12 +527,15 @@ public final class HostBridge {
         if (holder != player && holder.distanceToSqr(player) > 64) {
             return error("the entity is too far from the player");
         }
+        int energy = (int) Math.max(0, Math.min(1_000_000_000L, p.has("energy") ? p.get("energy").getAsLong() : 0));
+        int tanks = (int) Math.max(0, Math.min(net.xmilon.craftpy.content.Tanks.MAX, p.has("tanks") ? p.get("tanks").getAsLong() : 0));
+        int tankCapacity = (int) Math.max(0, Math.min(1_000_000L, p.has("tank_capacity") ? p.get("tank_capacity").getAsLong() : 0));
         net.xmilon.craftpy.content.Defs.InventorySpec spec = null;
         if (p.has("inventory") && p.get("inventory").isJsonObject()) {
             spec = net.xmilon.craftpy.content.Defs.InventorySpec.from(p.getAsJsonObject("inventory"));
         }
-        var standard = spec != null ? net.xmilon.craftpy.menu.ScreenLayout.forInventory(spec, false, false)
-                : net.xmilon.craftpy.menu.ScreenLayout.defaults(false, false, false);
+        var standard = spec != null ? net.xmilon.craftpy.menu.ScreenLayout.forInventory(spec, energy > 0, tanks)
+                : net.xmilon.craftpy.menu.ScreenLayout.defaults(false, energy > 0, tanks > 0);
         var layout = p.has("layout") && p.get("layout").isJsonObject()
                 ? net.xmilon.craftpy.menu.ScreenLayout.parse(p.getAsJsonObject("layout"), standard) : standard;
         String layoutJson = layout.toJson().toString();
@@ -536,7 +543,16 @@ public final class HostBridge {
             layout = standard;
             layoutJson = standard.toJson().toString();
         }
-        var source = net.xmilon.craftpy.menu.VirtualSource.of(holder, string(p, "key", "screen"), spec);
+        net.xmilon.craftpy.menu.VirtualSource source;
+        if (hand.isEmpty()) {
+            source = net.xmilon.craftpy.menu.VirtualSource.of(holder, string(p, "key", "screen"), owner, spec, energy, tanks, tankCapacity);
+        } else {
+            source = net.xmilon.craftpy.menu.VirtualSource.ofHeld(player, hand.equals("off") ? net.minecraft.world.InteractionHand.OFF_HAND
+                    : net.minecraft.world.InteractionHand.MAIN_HAND, string(p, "key", "screen"), owner, spec, energy, tanks, tankCapacity);
+            if (source == null) {
+                return error("the player's hand is empty");
+            }
+        }
         if (p.has("values") && p.get("values").isJsonObject() && !source.setValues(p.getAsJsonObject("values"))) {
             return error("values: at most 32 keys (lowercase words), each a number or a text of up to 256 characters");
         }

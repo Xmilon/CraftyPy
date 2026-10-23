@@ -19,6 +19,8 @@ public final class MachineState {
     private final MachineAccess host;
     public final KineticInventory inventory;
     public final StoredEnergy energy = new StoredEnergy();
+    /** The tanks of FluidTank(..., tanks=n); {@link #fluid} is the first one, where a single tank always was. */
+    public final Tanks tanks;
     public final FluidTank fluid;
     private CompoundTag retained = new CompoundTag();
     private Defs.BlockDef applied;
@@ -52,24 +54,15 @@ public final class MachineState {
     public MachineState(BlockEntity entity) {
         this.entity = entity; host = (MachineAccess) entity;
         inventory = new KineticInventory() { @Override protected void onContentsChanged(int slot) { changed(); } };
-        fluid = new FluidTank(0, stack -> {
+        tanks = new Tanks(stack -> {
             var def = definition();
             if (def == null || def.fluid == null) return false;
             var allowed = def.fluid.get("allowed");
             return allowed == null || allowed.isJsonNull() || allowed.getAsJsonArray().asList().stream()
                     .anyMatch(id -> net.xmilon.craftpy.registry.SlotRegistry.resolve(id.getAsString(), net.xmilon.craftpy.registry.SlotRegistry.Kind.FLUID)
                             .equals(BuiltInRegistries.FLUID.getKey(stack.getFluid()).toString()));
-        }) {
-            @Override protected void onContentsChanged() {
-                var def = definition();
-                setCapacity(Math.max(getFluidAmount(), def == null || def.fluid == null ? 0 : def.fluid.get("capacity").getAsInt()));
-                changed();
-            }
-            @Override public int fill(net.neoforged.neoforge.fluids.FluidStack resource, net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction action) {
-                var def = definition(); int limit = def == null || def.fluid == null ? 0 : def.fluid.get("capacity").getAsInt();
-                return super.fill(resource.copyWithAmount(Math.min(resource.getAmount(), Math.max(0, limit - getFluidAmount()))), action);
-            }
-        };
+        }, this::changed);
+        fluid = tanks.tank(0);
     }
     /** 0..100: how far the current recipe is (0 when the machine has no recipe running). */
     public int progressPercent() { return duration <= 0 ? 0 : Math.min(100, progress * 100 / duration); }
@@ -86,7 +79,8 @@ public final class MachineState {
         // Stored contents survive definition removal/reduction; extraction remains possible, insertion is capped.
         inventory.configure(def == null ? null : def.inventory);
         energy.configure(def == null ? null : def.energy);
-        fluid.setCapacity(Math.max(fluid.getFluidAmount(), def == null || def.fluid == null ? 0 : def.fluid.get("capacity").getAsInt()));
+        tanks.configure(def == null || def.fluid == null ? 0 : def.fluid.has("tanks") ? def.fluid.get("tanks").getAsInt() : 1,
+                def == null || def.fluid == null ? 0 : def.fluid.get("capacity").getAsInt());
         if (entity.getLevel() != null) entity.getLevel().invalidateCapabilities(entity.getBlockPos());
         if (entity.getLevel() != null && !entity.getLevel().isClientSide) host.syncMachine();
     }
@@ -101,9 +95,14 @@ public final class MachineState {
 
     /** Python's world.machine_update: energy between 0 and the capacity, and at most what the tank holds. */
     public void adjust(int energyDelta, int fluidDelta) {
+        adjust(energyDelta, fluidDelta, 0);
+    }
+
+    /** As above for one of the tanks. */
+    public void adjust(int energyDelta, int fluidDelta, int tank) {
         configure();
         if (energyDelta != 0) energy.adjust(energyDelta);
-        if (fluidDelta < 0) fluid.drain(-fluidDelta, net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+        if (fluidDelta < 0) tanks.tank(tank).drain(-fluidDelta, net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
         host.syncMachine();
     }
 
@@ -139,9 +138,9 @@ public final class MachineState {
         if (inSlot < 0 || outSlot < 0) return;
         ItemStack in = inventory.getStackInSlot(inSlot);
         if (in.isEmpty()) return;
-        var simulated = net.neoforged.neoforge.fluids.FluidUtil.tryEmptyContainer(in.copyWithCount(1), fluid, fluid.getSpace(), null, false);
+        var simulated = net.neoforged.neoforge.fluids.FluidUtil.tryEmptyContainer(in.copyWithCount(1), tanks, Integer.MAX_VALUE, null, false);
         if (!simulated.isSuccess() || !stowable(outSlot, simulated.getResult())) return;
-        var done = net.neoforged.neoforge.fluids.FluidUtil.tryEmptyContainer(in.copyWithCount(1), fluid, fluid.getSpace(), null, true);
+        var done = net.neoforged.neoforge.fluids.FluidUtil.tryEmptyContainer(in.copyWithCount(1), tanks, Integer.MAX_VALUE, null, true);
         if (!done.isSuccess()) return;
         ItemStack out = inventory.getStackInSlot(outSlot).copy();
         if (out.isEmpty()) out = done.getResult().copy(); else out.grow(done.getResult().getCount());
@@ -154,7 +153,11 @@ public final class MachineState {
         var level = entity.getLevel();
         if (level == null || level.isClientSide) return;
         TICKING.add(entity);
-        emptyContainerSlot();
+        if (ContainerSlots.any(inventory.spec())) {
+            if (ContainerSlots.tick(inventory, tanks, energy)) host.syncMachine();
+        } else {
+            emptyContainerSlot();
+        }
         boolean before = running; running = false;
         if (processing()) {
             var match = level.getRecipeManager().getRecipeFor(KineticRecipe.TYPE.get(),
@@ -229,13 +232,23 @@ public final class MachineState {
         out.addProperty("energy", energy.getEnergyStored()); out.addProperty("energy_capacity", energy.getMaxEnergyStored());
         out.addProperty("fluid", BuiltInRegistries.FLUID.getKey(fluid.getFluid().getFluid()).toString());
         out.addProperty("fluid_amount", fluid.getFluidAmount()); out.addProperty("fluid_capacity", fluid.getCapacity());
+        // every tank: tanks[1]["fluid"], ["amount"], ["capacity"]
+        com.google.gson.JsonArray all = new com.google.gson.JsonArray();
+        for (int i = 0; i < tanks.count(); i++) {
+            JsonObject tank = new JsonObject();
+            tank.addProperty("fluid", BuiltInRegistries.FLUID.getKey(tanks.tank(i).getFluid().getFluid()).toString());
+            tank.addProperty("amount", tanks.tank(i).getFluidAmount());
+            tank.addProperty("capacity", tanks.tank(i).getCapacity());
+            all.add(tank);
+        }
+        out.add("tanks", all);
         return out;
     }
     public void save(CompoundTag tag, HolderLookup.Provider registries) {
         tag.merge(retained); tag.put("CraftPyInventory", inventory.serializeNBT(registries));
         tag.putString("CraftPyValues", net.xmilon.craftpy.menu.ScreenValues.toJson(values).toString());
         tag.putInt("CraftPyProgress", progress); tag.putString("CraftPyRecipe", recipe); tag.putBoolean("CraftPyRunning", running);
-        tag.putInt("CraftPyEnergy", energy.getEnergyStored()); tag.put("CraftPyFluid", fluid.writeToNBT(registries, new CompoundTag()));
+        tag.putInt("CraftPyEnergy", energy.getEnergyStored()); tanks.save(tag, "CraftPyFluid", "CraftPyFluids", registries);
         tag.putBoolean("CraftPyHasRotation", rotation() != null);
     }
     public void load(CompoundTag tag, HolderLookup.Provider registries) {
@@ -249,7 +262,7 @@ public final class MachineState {
         }
         progress = Math.clamp(tag.getInt("CraftPyProgress"), 0, 72000); recipe = tag.getString("CraftPyRecipe"); running = false;
         clientRotation = tag.getBoolean("CraftPyHasRotation");
-        energy.stored(Math.max(0, tag.getInt("CraftPyEnergy"))); fluid.readFromNBT(registries, tag.getCompound("CraftPyFluid"));
+        energy.stored(Math.max(0, tag.getInt("CraftPyEnergy"))); tanks.load(tag, "CraftPyFluid", "CraftPyFluids", registries);
         configured = false; applied = null; configure();
     }
     public static JsonObject validateEnergy(JsonObject json) {
@@ -257,6 +270,7 @@ public final class MachineState {
     }
     public static JsonObject validateFluid(JsonObject json) {
         positive(json, "capacity", 1, 1_000_000);
+        if (json.has("tanks")) positive(json, "tanks", 1, Tanks.MAX);
         if (json.has("allowed") && !json.get("allowed").isJsonNull()) {
             var values = json.getAsJsonArray("allowed");
             if (values.size() > 64) throw new IllegalArgumentException("FluidTank allows at most 64 fluid IDs");
