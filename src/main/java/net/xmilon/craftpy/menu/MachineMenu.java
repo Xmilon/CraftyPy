@@ -16,50 +16,67 @@ import net.xmilon.craftpy.content.MachineAccess;
 import net.xmilon.craftpy.registry.ModMenus;
 
 /**
- * The window of a machine block that declared {@code Screen(...)}: its two item slots (input, output), your inventory, and the
- * numbers the screen draws (energy, fluid). The server owns the contents; the numbers reach the client through data slots,
- * which carry 16 bits each, so every value is split in two.
+ * The window of a machine block that declared {@code Screen(...)}. The {@link ScreenLayout} says where the slots are (the
+ * machine's input and output, the player inventory); the server owns the contents. The numbers the screen draws (energy,
+ * liquid, progress) reach the client through data slots, which carry 16 bits each, so every value is split in two.
  */
 public class MachineMenu extends AbstractContainerMenu {
-    public static final int WIDTH = 176, HEIGHT = 166;
-    public static final int INPUT_X = 26, INPUT_Y = 20, OUTPUT_X = 26, OUTPUT_Y = 56;
-
     private final BlockPos pos;
     private final MachineAccess machine;
     public final String title;
-    public final boolean showEnergy, showFluid, showSlots;
-    private final int[] values = new int[6]; // energy, energy capacity, fluid amount, fluid capacity, fluid id, progress
+    public final ScreenLayout layout;
+    private final int machineSlots;
+    private final int[] values = new int[6]; // energy, energy capacity, fluid amount, fluid capacity, fluid id, progress %
 
-    /** Client side: the block position and the flags come in the open packet; the contents arrive in slot updates. */
+    /** Client side: the block position, the title and the layout come in the open packet; contents arrive in slot updates. */
     public MachineMenu(int containerId, Inventory inventory, FriendlyByteBuf data) {
-        this(containerId, inventory, data.readBlockPos(), null, data.readUtf(64), data.readBoolean(), data.readBoolean(),
-                data.readBoolean());
+        this(containerId, inventory, data.readBlockPos(), null, data.readUtf(64), parse(data.readUtf(ScreenLayout.MAX_JSON + 100)));
     }
 
-    public MachineMenu(int containerId, Inventory inventory, BlockPos pos, MachineAccess machine, String title,
-                       boolean energy, boolean fluid, boolean slots) {
+    private static ScreenLayout parse(String json) {
+        try {
+            return ScreenLayout.parse(com.google.gson.JsonParser.parseString(json).getAsJsonObject(),
+                    ScreenLayout.defaults(true, true, true));
+        } catch (RuntimeException bad) {
+            return ScreenLayout.defaults(true, true, true);
+        }
+    }
+
+    public MachineMenu(int containerId, Inventory inventory, BlockPos pos, MachineAccess machine, String title, ScreenLayout layout) {
         super(ModMenus.MACHINE.get(), containerId);
         this.pos = pos;
         this.machine = machine;
         this.title = title;
-        this.showEnergy = energy;
-        this.showFluid = fluid;
-        this.showSlots = slots;
+        this.layout = layout;
         IItemHandler items = machine != null ? machine.machineState().inventory : new ItemStackHandler(2);
-        addSlot(new SlotItemHandler(items, 0, INPUT_X, INPUT_Y));
-        addSlot(new SlotItemHandler(items, 1, OUTPUT_X, OUTPUT_Y) {
-            @Override
-            public boolean mayPlace(ItemStack stack) {
-                return false;
-            }
-        });
-        for (int row = 0; row < 3; row++) {
-            for (int column = 0; column < 9; column++) {
-                addSlot(new Slot(inventory, column + row * 9 + 9, 8 + column * 18, 84 + row * 18));
+        boolean[] added = new boolean[2];
+        for (ScreenLayout.Piece piece : layout.pieces) {
+            if (piece.type().equals("lg_slot")) {
+                int index = piece.slot().equals("output") ? 1 : 0;
+                if (!added[index]) {
+                    added[index] = true;
+                    addSlot(index == 1 ? new SlotItemHandler(items, 1, piece.x(), piece.y()) {
+                        @Override
+                        public boolean mayPlace(ItemStack stack) {
+                            return false;
+                        }
+                    } : new SlotItemHandler(items, 0, piece.x(), piece.y()));
+                }
             }
         }
-        for (int column = 0; column < 9; column++) {
-            addSlot(new Slot(inventory, column, 8 + column * 18, 142));
+        machineSlots = slots.size();
+        for (ScreenLayout.Piece piece : layout.pieces) {
+            if (piece.type().equals("lg_player")) {
+                for (int row = 0; row < 3; row++) {
+                    for (int column = 0; column < 9; column++) {
+                        addSlot(new Slot(inventory, column + row * 9 + 9, piece.x() + column * 18, piece.y() + row * 18));
+                    }
+                }
+                for (int column = 0; column < 9; column++) {
+                    addSlot(new Slot(inventory, column, piece.x() + column * 18, piece.y() + 58));
+                }
+                break; // one player inventory
+            }
         }
         for (int i = 0; i < values.length; i++) {
             final int index = i;
@@ -97,7 +114,7 @@ public class MachineMenu extends AbstractContainerMenu {
             case 2 -> state.fluid.getFluidAmount();
             case 3 -> state.fluid.getCapacity();
             case 4 -> BuiltInRegistries.FLUID.getId(state.fluid.getFluid().getFluid());
-            default -> 0;
+            default -> state.progressPercent();
         };
     }
 
@@ -121,6 +138,21 @@ public class MachineMenu extends AbstractContainerMenu {
         return BuiltInRegistries.FLUID.byId(values[4]);
     }
 
+    /** 0..100: how far the machine's current recipe is. */
+    public int progress() {
+        return Math.max(0, Math.min(100, values[5]));
+    }
+
+    /** How full the thing a piece is bound to is, 0..1. */
+    public double fraction(String bind) {
+        return switch (bind) {
+            case "energy" -> energyCapacity() <= 0 ? 0 : (double) energy() / energyCapacity();
+            case "fluid" -> fluidCapacity() <= 0 ? 0 : (double) fluidAmount() / fluidCapacity();
+            case "progress" -> progress() / 100.0;
+            default -> 0;
+        };
+    }
+
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
         Slot slot = slots.get(index);
@@ -130,10 +162,10 @@ public class MachineMenu extends AbstractContainerMenu {
         ItemStack stack = slot.getItem();
         ItemStack copy = stack.copy();
         boolean moved;
-        if (index < 2) {
-            moved = moveItemStackTo(stack, 2, slots.size(), true);
+        if (index < machineSlots) {
+            moved = moveItemStackTo(stack, machineSlots, slots.size(), true);
         } else {
-            moved = moveItemStackTo(stack, 0, 1, false);
+            moved = machineSlots > 0 && moveItemStackTo(stack, 0, 1, false);
         }
         if (!moved) {
             return ItemStack.EMPTY;

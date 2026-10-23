@@ -606,6 +606,7 @@ This page describes Python API **2.11** (`API_VERSION` in your code). `apiVersio
 - **Added:** `Block(model=, shape=)`: your own mesh from assets/models/block/ and a hitbox of boxes in sixteenths of a block; without `shape` the hitbox follows the model's boxes when the project runs from its folder.
 - **Added:** `Screen(title=)` extension: a Minecraft-style window for machine blocks (two item slots, liquid gauge, energy bar on the right). A bucket in the first slot is emptied into the block's `FluidTank`.
 - **Added:** `world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block.
+- **Added:** Minecraft-style windows: tick `legacy` in the UI maker's window properties, draw panels, item slots, the player inventory, energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout="my_window")`.
 
 ### 2.10 (2026-10-21)
 
@@ -1105,7 +1106,7 @@ Native NeoForge tank in mB; allowed is an optional list of fluid resource IDs.
 - `capacity`: Maximum mB (1..1000000).
 - `allowed` (default `None`): Optional list of up to 64 namespaced fluid IDs; None permits all.
 
-#### `Screen(title=None, *, energy=True, fluid=True, slots=True)`
+#### `Screen(title=None, *, energy=True, fluid=True, slots=True, layout=None)`
 
 A Minecraft-style window for a machine block: right click opens it (sneak-click places a block instead).
 
@@ -1113,10 +1114,14 @@ It shows the block's two item slots (the input takes a filled bucket or tank ite
 FluidTank, the empty container comes out in the second slot), a fluid gauge when the block has a FluidTank, an energy
 bar on the right when it has EnergyStorage, and your inventory. ``title`` is the text at the top.
 
+``layout="my_window"`` uses a window you drew in the UI maker (ui/my_window.json with "Legacy (Minecraft look)" ticked):
+panels, slots, the player inventory, bars, arrows, flames, labels and icons at the positions you gave them.
+
 - `title` (default `None`): Text at the top of the window.
 - `energy` (default `True`): Show the energy bar (needs EnergyStorage).
 - `fluid` (default `True`): Show the fluid gauge (needs FluidTank).
 - `slots` (default `True`): Show the two item slots.
+- `layout` (default `None`): Name of a Legacy window drawn in the UI maker (ui/<name>.json); replaces the standard layout.
 
 ### Recipes
 

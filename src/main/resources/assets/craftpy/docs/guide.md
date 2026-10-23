@@ -390,6 +390,34 @@ In the UI maker preview pictures, GIFs and video play (read straight from the pr
 stay silent and show a note. Media of a server window need the module's resource pack: after adding a file, run the project or
 RELOAD the module so the pack is rebuilt. A folder named `media` directly under `assets/` is this folder, not a namespace.
 
+## Minecraft-style windows for machine blocks
+
+A machine block (one with `EnergyStorage`, `FluidTank` or `Screen`) can open a window that looks like a furnace or a chest
+screen. You draw it in the UI maker and the block names it:
+
+1. **Tools > New UI window** and open it in the designer. In the window properties tick **legacy** (Minecraft look).
+   The window becomes 176 x 166 units with a panel; the toolbox now shows Minecraft pieces. **Fill with the standard
+   layout** starts from the usual machine window.
+2. Drag pieces in. Positions are fixed pixels like in a vanilla screen (the grid snaps them).
+3. In Python: `Block(...).extends(EnergyStorage(...), Screen(title="Name", layout="my_window"))`.
+4. Right click the block with an empty hand to open it (sneak to place a block instead). A bucket or tank item in the first
+   slot is poured into the block's `FluidTank`, the empty container comes out in the second slot.
+
+| Piece | What it is | Properties |
+| --- | --- | --- |
+| Panel | the grey container background | width, height |
+| Item slot | one of the machine's two item slots | slot: `input` (first) or `output` (second, take only) |
+| Player inventory | your 27 slots and the hotbar, 162 x 76 | x, y |
+| Energy bar | the stored energy, filled from the bottom | bind (`energy`), width, height |
+| Liquid gauge | the tank, drawn with the liquid's own texture | bind (`fluid`), width, height |
+| Progress arrow, Flame | follow a number of the machine | bind: `progress` (the running recipe), `energy` or `fluid` |
+| Text | a label; `{title}` and `{inventory}` become the window title and "Inventory" | text, color |
+| Item icon | a fixed item picture | item |
+
+The server decides everything: it makes the slots from the window, and the client only draws what it is sent. A window may
+have up to 64 pieces; unknown pieces are ignored. The Power Cell example (`examples/powercell/ui/sap_generator.json`) is a
+complete one.
+
 ## The Hub
 
 The Hub is the front door of CraftPy: press its key (**Open CraftPy Hub** in Controls, default `I`). It is marked **Beta**. Esc closes a popup first, then goes back one level (any tab goes back to **Apps**; a selected

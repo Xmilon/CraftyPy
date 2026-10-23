@@ -586,6 +586,27 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 track.addView(new View(context), new LinearLayout.LayoutParams(0, track.dp(8), (float) (1 - fraction)));
                 return track;
             }
+            case "lg_panel", "lg_slot", "lg_player", "lg_energy", "lg_fluid", "lg_arrow", "lg_flame" -> {
+                return new LegacyView(context, node);
+            }
+            case "lg_label" -> {
+                String text = str(node, "text", "");
+                var tv = label(context, text.equals("{title}") ? "Title" : text.equals("{inventory}") ? "Inventory" : text,
+                        R.attr.textAppearanceBodySmall);
+                tv.setTextSize(9);
+                Integer color = color(str(node, "color", ""));
+                tv.setTextColor(color != null ? color : 0xFF404040);
+                tv.setSingleLine();
+                tv.setPadding(0, 0, 0, 0);
+                return tv;
+            }
+            case "lg_icon" -> {
+                String ref = str(node, "text", str(node, "item", "minecraft:diamond"));
+                McCanvas canvas = new McCanvas(context, itemPainter(ref));
+                canvas.setFallback(ref);
+                canvas.setLayoutParams(new LinearLayout.LayoutParams(canvas.dp(16), canvas.dp(16)));
+                return canvas;
+            }
             case "image", "item_icon" -> {
                 // drawn by Minecraft itself (McCanvas): the real item model / texture
                 boolean icon = "item_icon".equals(type);
@@ -616,8 +637,9 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
                 for (JsonObject child : layered) {
                     var lp = new FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP | Gravity.START);
                     sized(canvas, child, lp);
-                    lp.leftMargin = canvas.dp((float) num(child, "x", 0));
-                    lp.topMargin = canvas.dp((float) num(child, "y", 0));
+                    boolean framed = LegacyView.framed(str(child, "type", ""));
+                    lp.leftMargin = canvas.dp((float) num(child, "x", 0) - (framed ? 1 : 0));
+                    lp.topMargin = canvas.dp((float) num(child, "y", 0) - (framed ? 1 : 0));
                     canvas.addView(build(context, child, nextServer), lp);
                 }
                 return canvas;

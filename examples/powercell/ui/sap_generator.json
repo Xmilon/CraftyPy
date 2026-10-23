@@ -1,0 +1,107 @@
+{
+  "id": "sap_generator",
+  "title": "Sap Generator",
+  "legacy": true,
+  "size": [
+    176,
+    166
+  ],
+  "root": {
+    "type": "canvas",
+    "children": [
+      {
+        "type": "lg_panel",
+        "x": 0,
+        "y": 0,
+        "width": 176,
+        "height": 166
+      },
+      {
+        "type": "lg_label",
+        "x": 8,
+        "y": 6,
+        "width": 70,
+        "height": 9,
+        "text": "{title}",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_label",
+        "x": 8,
+        "y": 72,
+        "width": 100,
+        "height": 9,
+        "text": "{inventory}",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_label",
+        "x": 22,
+        "y": 33,
+        "width": 40,
+        "height": 9,
+        "text": "Bucket",
+        "color": "#606060"
+      },
+      {
+        "type": "lg_slot",
+        "x": 26,
+        "y": 44,
+        "slot": "input"
+      },
+      {
+        "type": "lg_slot",
+        "x": 26,
+        "y": 62,
+        "slot": "output"
+      },
+      {
+        "type": "lg_flame",
+        "x": 56,
+        "y": 50,
+        "bind": "fluid"
+      },
+      {
+        "type": "lg_label",
+        "x": 82,
+        "y": 6,
+        "width": 40,
+        "height": 9,
+        "text": "Sap",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_fluid",
+        "x": 86,
+        "y": 16,
+        "width": 16,
+        "height": 54,
+        "bind": "fluid"
+      },
+      {
+        "type": "lg_label",
+        "x": 146,
+        "y": 6,
+        "width": 30,
+        "height": 9,
+        "text": "Power",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_energy",
+        "x": 152,
+        "y": 16,
+        "width": 16,
+        "height": 54,
+        "bind": "energy"
+      },
+      {
+        "type": "lg_player",
+        "x": 8,
+        "y": 84,
+        "width": 162,
+        "height": 76
+      }
+    ]
+  }
+}

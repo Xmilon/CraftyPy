@@ -26,7 +26,7 @@ public final class MachineState {
     private boolean clientRotation;
     private boolean dirty;
     private long revision, reportedRevision;
-    private int progress;
+    private int progress, duration;
     private String recipe = "";
     private boolean running;
     private float reportedSpeed = Float.NaN;
@@ -57,6 +57,8 @@ public final class MachineState {
             }
         };
     }
+    /** 0..100: how far the current recipe is (0 when the machine has no recipe running). */
+    public int progressPercent() { return duration <= 0 ? 0 : Math.min(100, progress * 100 / duration); }
     public Defs.BlockDef definition() { return SlotRegistry.kineticDef(KineticSlots.index(entity.getBlockState().getBlock())); }
     public KineticDef rotation() { var def = definition(); return def == null ? null : def.kinetic; }
     public boolean processing() { var def = rotation(); return def != null && def.role().equals("processor"); }
@@ -107,6 +109,7 @@ public final class MachineState {
         if (processing()) {
             var match = level.getRecipeManager().getRecipeFor(KineticRecipe.TYPE.get(), new SingleRecipeInput(inventory.getStackInSlot(0)), level);
             String next = match.map(r -> r.id().toString()).orElse("");
+            duration = match.map(r -> r.value().duration()).orElse(0);
             if (!next.equals(recipe)) { recipe = next; progress = 0; changed(); }
             if (match.isPresent()) {
                 var value = match.get().value();

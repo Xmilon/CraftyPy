@@ -1565,20 +1565,36 @@ class Screen(_Data):
 
     It shows the block's two item slots (the input takes a filled bucket or tank item and empties it into the block's
     FluidTank, the empty container comes out in the second slot), a fluid gauge when the block has a FluidTank, an energy
-    bar on the right when it has EnergyStorage, and your inventory. ``title`` is the text at the top."""
+    bar on the right when it has EnergyStorage, and your inventory. ``title`` is the text at the top.
+
+    ``layout="my_window"`` uses a window you drew in the UI maker (ui/my_window.json with "Legacy (Minecraft look)" ticked):
+    panels, slots, the player inventory, bars, arrows, flames, labels and icons at the positions you gave them."""
     applies_to = ("block",)
     type = "screen"
 
-    def __init__(self, title=None, *, energy=True, fluid=True, slots=True):
+    def __init__(self, title=None, *, energy=True, fluid=True, slots=True, layout=None):
         if title is not None and (not isinstance(title, str) or len(title) > 64):
             raise ValueError("Screen title must be text of at most 64 characters")
         self.title = title
         self.energy = bool(energy)
         self.fluid = bool(fluid)
         self.slots = bool(slots)
+        self.layout = None
+        if layout is not None:
+            tree = _UI_FILES.get((_OWNER[0], str(layout)))
+            if tree is None:
+                raise ValueError("Screen layout %r: there is no ui/%s.json in this project" % (layout, layout))
+            if not tree.get("legacy"):
+                raise ValueError("Screen layout %r is not a Legacy (Minecraft look) window: tick that box in the UI maker" % layout)
+            self.layout = {"size": tree.get("size") or [176, 166], "root": tree["root"]}
+            if len(json.dumps(self.layout)) > 24000:
+                raise ValueError("Screen layout %r is too large (at most 64 pieces)" % layout)
 
     def data(self):
-        return dict(title=self.title, energy=self.energy, fluid=self.fluid, slots=self.slots)
+        out = dict(title=self.title, energy=self.energy, fluid=self.fluid, slots=self.slots)
+        if self.layout is not None:
+            out["layout"] = self.layout
+        return out
 
 
 def _integer(label, value, low, high):
@@ -3451,7 +3467,9 @@ API_CHANGES = [
                "the hitbox follows the model's boxes when the project runs from its folder.",
                "`Screen(title=)` extension: a Minecraft-style window for machine blocks (two item slots, liquid gauge, energy bar on the right). "
                "A bucket in the first slot is emptied into the block's `FluidTank`.",
-               "`world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block."]},
+               "`world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block.",
+               "Minecraft-style windows: tick `legacy` in the UI maker's window properties, draw panels, item slots, the player inventory, "
+               "energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout=\"my_window\")`."]},
     {"version": "2.10", "date": "2026-10-21",
      "added": ["Hub apps: `\"apps\": [{\"id\", \"name\", \"description\", \"window\", \"icon\", \"category\", \"order\"}]` and `\"icon\"` in project.json / module.json put windows of the module into the Hub (Apps tab). "
                "Client modules open them on this computer, server modules on the server; only enabled and loaded modules are listed.",
@@ -7173,7 +7191,7 @@ def _doc_text(summary, params, returns):
 _DOCS = _load_docs()
 _DOCS.update({
     'EnergyStorage': (EnergyStorage.__doc__, dict(capacity='Maximum stored FE (1..1000000000).', max_receive='Maximum FE per receive call; default capacity.', max_extract='Maximum FE per extraction call; default capacity.'), ''),
-    'Screen': (Screen.__doc__, dict(title='Text at the top of the window.', energy='Show the energy bar (needs EnergyStorage).', fluid='Show the fluid gauge (needs FluidTank).', slots='Show the two item slots.'), ''),
+    'Screen': (Screen.__doc__, dict(title='Text at the top of the window.', energy='Show the energy bar (needs EnergyStorage).', fluid='Show the fluid gauge (needs FluidTank).', slots='Show the two item slots.', layout='Name of a Legacy window drawn in the UI maker (ui/<name>.json); replaces the standard layout.'), ''),
     'FluidTank': (FluidTank.__doc__, dict(capacity='Maximum mB (1..1000000).', allowed='Optional list of up to 64 namespaced fluid IDs; None permits all.'), ''),
     'world.resources': (_World.resources.__doc__, dict(x='Block X, tuple or Pos.', y='Block Y.', z='Block Z.', dimension='Dimension resource ID.', side='Capability face or None for unsided access.'), 'dict'),
     'world.transfer': (_World.transfer.__doc__, dict(source='Three source block coordinates.', target='Three destination coordinates in the same dimension.', kind='item, fluid or energy.', amount='Requested count, mB or FE (1..1000000; items capped to 64).', source_side='Source capability face or None.', target_side='Destination capability face or None.', slot='Source item slot; default 0.', simulate='True checks without changing contents.', dimension='Dimension resource ID.'), 'int'),

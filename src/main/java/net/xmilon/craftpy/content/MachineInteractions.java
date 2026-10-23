@@ -51,9 +51,20 @@ public final class MachineInteractions {
                 boolean energy = (!screen.has("energy") || screen.get("energy").getAsBoolean()) && def.energy != null;
                 boolean fluid = (!screen.has("fluid") || screen.get("fluid").getAsBoolean()) && def.fluid != null;
                 boolean slots = !screen.has("slots") || screen.get("slots").getAsBoolean();
+                var standard = net.xmilon.craftpy.menu.ScreenLayout.defaults(slots, energy, fluid);
+                // a window drawn in the UI maker (Screen(layout=...)) replaces the standard one
+                var layout = screen.has("layout") && screen.get("layout").isJsonObject()
+                        ? net.xmilon.craftpy.menu.ScreenLayout.parse(screen.getAsJsonObject("layout"), standard) : standard;
+                String layoutJson = layout.toJson().toString();
+                if (layoutJson.length() > net.xmilon.craftpy.menu.ScreenLayout.MAX_JSON) {
+                    layout = standard;
+                    layoutJson = standard.toJson().toString();
+                }
+                var finalLayout = layout;
+                String sent = layoutJson;
                 serverPlayer.openMenu(new net.minecraft.world.SimpleMenuProvider((id, inventory, p) -> new net.xmilon.craftpy.menu.MachineMenu(
-                        id, inventory, pos, machine, title, energy, fluid, slots), net.minecraft.network.chat.Component.literal(title)),
-                        buf -> { buf.writeBlockPos(pos); buf.writeUtf(title, 64); buf.writeBoolean(energy); buf.writeBoolean(fluid); buf.writeBoolean(slots); });
+                        id, inventory, pos, machine, title, finalLayout), net.minecraft.network.chat.Component.literal(title)),
+                        buf -> { buf.writeBlockPos(pos); buf.writeUtf(title, 64); buf.writeUtf(sent, net.xmilon.craftpy.menu.ScreenLayout.MAX_JSON + 100); });
             }
             return InteractionResult.sidedSuccess(level.isClientSide);
         }

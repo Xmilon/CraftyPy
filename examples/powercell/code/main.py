@@ -7,7 +7,8 @@ import conversion
 #     temperature and light are set below, and standing in it gives you effects.
 #   - The Sap Generator is a block with its own mesh (assets/models/block/generator.json), its own texture and a hitbox
 #     that matches the mesh. Right click it with a bucket of Volt Sap to fill it. Right click it with an empty hand to
-#     open its window: a bucket slot, the liquid gauge and, on the right, the energy bar.
+#     open its window (ui/sap_generator.json, drawn in the UI maker with the Minecraft look): a bucket slot, the liquid
+#     gauge and, on the right, the energy bar.
 #   - It stores energy (FE) as a normal NeoForge energy storage that only gives energy out, so any cable that pulls
 #     energy from a neighbour takes it: Mekanism's Universal Cables carry it to Mekanism's batteries. Nothing here
 #     mentions Mekanism; it works because the generator speaks the game's standard energy and liquid interfaces.
@@ -39,7 +40,7 @@ generator = Block(
 ).extends(
     FluidTank(capacity=8000, allowed=[volt_sap]),                    # only Volt Sap goes in
     EnergyStorage(capacity=400_000, max_receive=0, max_extract=2000),  # gives energy out, takes none in
-    Screen(title="Sap Generator"),                                   # the Minecraft-style window
+    Screen(title="Sap Generator", layout="sap_generator"),            # the Minecraft-style window drawn in ui/sap_generator.json
 )
 
 
