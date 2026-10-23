@@ -26,7 +26,9 @@ import static icyllis.modernui.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static icyllis.modernui.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 
 /**
- * The mod map tool window, read top to bottom:
+ * The mod map tool window. <b>Graph</b> (the default) draws every mod, module and project as a card with what each needs to
+ * its left, like the JSON Visualizer of VS Code; the card in focus and its links are listed under it. <b>List</b> reads top
+ * to bottom:
  * <ol>
  * <li><b>Problems</b> of the whole setup (a missing dependency, mods that don't work together, modules waiting for
  * approval or failing, events many modules handle); a click shows the one it is about.</li>
@@ -65,6 +67,19 @@ final class ModMapPanel {
     private boolean allProblems;
     private String kindFilter = "";
     private String selected;
+    private final GraphPane graph;
+    private final View graphPart;
+    private final View listPart;
+    private final LinearLayout graphFocus;
+    private final LinearLayout listContent;
+    private final View[] modes = new View[2];
+    private boolean graphMode = true;
+    /** The selection came from a click in the graph: the graph must not jump to it. */
+    private boolean pickedInGraph;
+    /** The keys the graph shows now; the graph is built again only when they change. */
+    private List<String> graphKeys = List.of();
+    /** The key of each card of the graph, by card id. */
+    private final List<String> graphIndex = new ArrayList<>();
 
     ModMapPanel(Context context, Host host) {
         this.host = host;
@@ -81,6 +96,7 @@ final class ModMapPanel {
         header.addView(EditorFragment.action(context, IdeIcon.Glyph.MINUS, "Hide", v -> host.hide()));
         view.addView(header, new LinearLayout.LayoutParams(MATCH_PARENT, header.dp(36)));
 
+        Runnable searchLater = this::render;
         search = CraftPyFragment.field(context);
         search.setSingleLine();
         search.setHint("Search mods, modules, projects");
@@ -95,7 +111,9 @@ final class ModMapPanel {
 
             @Override
             public void afterTextChanged(Editable s) {
-                render();
+                // a modpack has hundreds of mods: wait until typing stops
+                search.removeCallbacks(searchLater);
+                search.postDelayed(searchLater, 200);
             }
         });
         var searchLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
@@ -113,7 +131,21 @@ final class ModMapPanel {
             });
             filters.addView(chips[i]);
         }
-        view.addView(filters);
+        String[] modeNames = {"Graph", "List"};
+        for (int i = 0; i < 2; i++) {
+            boolean graphChoice = i == 0;
+            modes[i] = CraftPyFragment.button(context, modeNames[i], R.attr.borderlessButtonStyle, v -> {
+                graphMode = graphChoice;
+                render();
+            });
+            filters.addView(modes[i]);
+        }
+        var large = CraftPyFragment.button(context, "\u2922", R.attr.borderlessButtonStyle, v -> openLarge());
+        large.setTooltipText("Show the graph over the whole window");
+        filters.addView(large);
+        var filterScroll = new icyllis.modernui.widget.HorizontalScrollView(context);
+        filterScroll.addView(filters);
+        view.addView(filterScroll);
         status = CraftPyFragment.label(context, "", R.attr.textAppearanceBodySmall);
         status.setTextColor(IdeColors.TEXT_SECONDARY);
         status.setPadding(view.dp(10), 0, view.dp(10), view.dp(2));
@@ -128,6 +160,7 @@ final class ModMapPanel {
         all.setTextColor(IdeColors.TEXT);
         all.setPadding(view.dp(10), view.dp(8), view.dp(10), view.dp(2));
         var content = column(context);
+        listContent = content;
         content.addView(problems);
         content.addView(hint);
         content.addView(focus);
@@ -140,7 +173,104 @@ final class ModMapPanel {
         var scroll = new ScrollView(context);
         scroll.setBackground(new ColorDrawable(IdeColors.EDITOR));
         scroll.addView(content, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        listPart = scroll;
         view.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+
+        graph = new GraphPane(context);
+        graph.graphView().setAccentColor(ModMapPanel::accentColor);
+        graph.setOnSelect((node, row) -> {
+            if (node.id < graphIndex.size()) {
+                pickedInGraph = true;
+                select(graphIndex.get(node.id));
+            }
+        });
+        graphFocus = column(context);
+        graphFocus.setPadding(view.dp(10), view.dp(4), view.dp(10), view.dp(4));
+        var focusScroll = new ScrollView(context);
+        focusScroll.setBackground(new ColorDrawable(IdeColors.EDITOR));
+        focusScroll.addView(graphFocus, new ScrollView.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        var both = column(context);
+        both.addView(graph.view(), new LinearLayout.LayoutParams(MATCH_PARENT, 0, 3));
+        both.addView(focusScroll, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 2));
+        graphPart = both;
+        view.addView(both, new LinearLayout.LayoutParams(MATCH_PARENT, 0, 1));
+    }
+
+    private static int accentColor(int accent) {
+        return colorOf(switch (accent) {
+            case 0 -> "mod";
+            case 1 -> "module";
+            case 2 -> "project";
+            default -> "missing";
+        });
+    }
+
+    /** The graph of the shown keys: one card per mod, module or project, a line from each to what it needs or uses. */
+    private net.xmilon.craftpy.client.graph.Graph buildGraph(Set<String> shown, List<String> index) {
+        var out = new net.xmilon.craftpy.client.graph.Graph(false);
+        index.clear();
+        java.util.Map<String, Integer> ids = new java.util.HashMap<>();
+        for (Node node : nodes) {
+            if (!shown.contains(node.key())) continue;
+            var card = out.add(badge(node.kind()) + " " + node.name(), node.key(), switch (node.kind()) {
+                case "mod" -> 0;
+                case "module" -> 1;
+                case "project" -> 2;
+                default -> 3;
+            });
+            JsonObject data = node.data();
+            card.rows.add(new net.xmilon.craftpy.client.graph.Graph.Row("kind", node.kind() + (node.version().isEmpty() ? "" : " " + node.version()), net.xmilon.craftpy.client.graph.Graph.TEXT));
+            if (data.has("state")) {
+                String state = data.get("state").getAsString();
+                card.rows.add(new net.xmilon.craftpy.client.graph.Graph.Row("state", state, state.equals("loaded") ? net.xmilon.craftpy.client.graph.Graph.STRING : net.xmilon.craftpy.client.graph.Graph.BOOL));
+            }
+            if (data.has("side")) card.rows.add(new net.xmilon.craftpy.client.graph.Graph.Row("side", data.get("side").getAsString(), net.xmilon.craftpy.client.graph.Graph.TEXT));
+            if (data.has("adds") && data.getAsJsonObject("adds").size() > 0) card.rows.add(new net.xmilon.craftpy.client.graph.Graph.Row("adds", addsText(data), net.xmilon.craftpy.client.graph.Graph.NUMBER));
+            if (data.has("description")) card.rows.add(new net.xmilon.craftpy.client.graph.Graph.Row("", data.get("description").getAsString(), net.xmilon.craftpy.client.graph.Graph.NULL));
+            ids.put(node.key(), card.id);
+            index.add(node.key());
+        }
+        for (Edge edge : edges) {
+            Integer from = ids.get(edge.from());
+            if (from == null) continue;
+            Integer to = ids.get(edge.to());
+            if (to == null && nodes.stream().noneMatch(n -> n.key().equals(edge.to()))) {
+                // needed but not installed: a red card of its own
+                var missing = out.add("\u2716 " + edge.to().substring(edge.to().indexOf(':') + 1), edge.to(), 3);
+                missing.rows.add(new net.xmilon.craftpy.client.graph.Graph.Row("", "not installed", net.xmilon.craftpy.client.graph.Graph.NULL));
+                to = missing.id;
+                ids.put(edge.to(), to);
+                index.add(edge.to());
+            }
+            if (to != null) out.link(from, to, -1, edge.kind());
+        }
+        return out;
+    }
+
+    /** The graph over the whole window, for big setups; a click there puts that one in focus here. */
+    private void openLarge() {
+        var dialog = Overlays.dialog(view, "Mod map", 0, -1);
+        var large = new GraphPane(view.getContext());
+        large.graphView().setAccentColor(ModMapPanel::accentColor);
+        List<String> keys = new ArrayList<>();
+        var built = buildGraph(visibleKeys(true), keys);
+        large.setOnSelect((node, row) -> {
+            if (node.id < keys.size()) select(keys.get(node.id));
+        });
+        dialog.body.addView(large.view(), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        dialog.show();
+        large.show(built, true);
+    }
+
+    private void renderGraph() {
+        List<String> keys = new ArrayList<>(visibleKeys(true));
+        if (!keys.equals(graphKeys) || graph.graphView().graph() == null) {
+            graphKeys = keys;
+            graph.show(buildGraph(new LinkedHashSet<>(keys), graphIndex), true);
+        }
+        int index = graphIndex.indexOf(selected);
+        if (index >= 0 && graph.graphView().laidOut()) graph.graphView().select(index, !pickedInGraph);
+        pickedInGraph = false;
     }
 
     private static LinearLayout column(Context context) {
@@ -220,6 +350,26 @@ final class ModMapPanel {
         String[] kinds = {"", "mod", "module", "project"};
         for (int i = 0; i < chips.length; i++) {
             CraftPyFragment.styleChip(chips[i], kinds[i].equals(kindFilter));
+        }
+        CraftPyFragment.styleChip(modes[0], graphMode);
+        CraftPyFragment.styleChip(modes[1], !graphMode);
+        graphPart.setVisibility(graphMode ? View.VISIBLE : View.GONE);
+        listPart.setVisibility(graphMode ? View.GONE : View.VISIBLE);
+        // the card in focus and its links: under the graph, or in the list
+        LinearLayout home = graphMode ? graphFocus : listContent;
+        if (focus.getParent() != home) {
+            ((LinearLayout) focus.getParent()).removeView(focus);
+            ((LinearLayout) details.getParent()).removeView(details);
+            if (graphMode) {
+                home.addView(focus);
+                home.addView(details);
+            } else {
+                home.addView(focus, 2);
+                home.addView(details, 3);
+            }
+        }
+        if (graphMode) {
+            renderGraph();
         }
         Set<String> shown = visibleKeys(false);
         long mods = nodes.stream().filter(n -> n.kind().equals("mod")).count();

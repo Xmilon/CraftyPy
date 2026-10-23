@@ -96,6 +96,7 @@ public class EditorFragment extends Fragment {
     private LinearLayout windowDesignHost;
     private TextView windowDesignTab;
     private TextView windowSourceTab;
+    private TextView windowGraphTab;
     private WindowDesign windowDesigner;
     private String designedWindowKey;
     private String designedWindowText;
@@ -380,8 +381,11 @@ public class EditorFragment extends Fragment {
         windowModeBar.setPadding(center.dp(8), center.dp(3), center.dp(8), center.dp(3));
         windowDesignTab = button(context, "Design", R.attr.borderlessButtonStyle, v -> showWindowDesign(true));
         windowSourceTab = button(context, "Source", R.attr.borderlessButtonStyle, v -> showWindowDesign(false));
+        windowGraphTab = button(context, "Graph", R.attr.borderlessButtonStyle, v -> showJsonGraph());
+        windowGraphTab.setTooltipText("The objects and arrays of this JSON file as cards, like a JSON visualizer");
         windowModeBar.addView(windowDesignTab);
         windowModeBar.addView(windowSourceTab);
+        windowModeBar.addView(windowGraphTab);
         windowModeBar.addView(button(context, "Undo", R.attr.borderlessButtonStyle, v -> undoText(false)));
         windowModeBar.addView(button(context, "Redo", R.attr.borderlessButtonStyle, v -> undoText(true)));
         windowModeBar.addView(button(context, "Save", R.attr.buttonTonalStyle, v -> save()));
@@ -2645,9 +2649,16 @@ public class EditorFragment extends Fragment {
 
     private void showWindowDesign(boolean design) {
         if (!UiDesigner.isWindowFile(shownPath)) {
+            if (isJsonFile(shownPath) && !design) {
+                graphFiles.remove(fileKey(shownPath));
+                refreshWindowDesign();
+                code.requestFocus();
+                return;
+            }
             toast("Open a window in ui/ first (Tools > New UI window)");
             return;
         }
+        graphFiles.remove(fileKey(shownPath));
         if (design) {
             windowSourceFiles.remove(fileKey(shownPath));
             closeFind();
@@ -2659,25 +2670,65 @@ public class EditorFragment extends Fragment {
         if (!design) code.requestFocus();
     }
 
+    /** The Graph tab of a JSON file: its objects and arrays as cards, read from the open document. */
+    private void showJsonGraph() {
+        if (!isJsonFile(shownPath)) return;
+        graphFiles.add(fileKey(shownPath));
+        closeFind();
+        refreshWindowDesign();
+    }
+
+    private static boolean isJsonFile(@Nullable String path) {
+        return path != null && path.endsWith(".json");
+    }
+
+    /** JSON files shown as a graph (by file key); a window file not in it shows Design or Source. */
+    private final java.util.Set<String> graphFiles = new java.util.HashSet<>();
+    private GraphPane jsonGraph;
+    private String graphedKey;
+    private String graphedText;
+
     /** Both tabs use code's document. Own edits keep the live designer; external edits and undo rebuild it. */
     private void refreshWindowDesign() {
         if (windowDesignHost == null) return;
-        boolean window = UiDesigner.isWindowFile(shownPath) && (state == null || !state.activeVirtual());
-        windowModeBar.setVisibility(window ? View.VISIBLE : View.GONE);
-        boolean design = window && !windowSourceFiles.contains(fileKey(shownPath));
-        windowDesignHost.setVisibility(design ? View.VISIBLE : View.GONE);
-        sourceEditors.setVisibility(design ? View.GONE : View.VISIBLE);
+        boolean json = isJsonFile(shownPath) && (state == null || !state.activeVirtual());
+        boolean window = json && UiDesigner.isWindowFile(shownPath);
+        windowModeBar.setVisibility(json ? View.VISIBLE : View.GONE);
+        windowDesignTab.setVisibility(window ? View.VISIBLE : View.GONE);
+        boolean graph = json && graphFiles.contains(fileKey(shownPath));
+        boolean design = window && !graph && !windowSourceFiles.contains(fileKey(shownPath));
+        windowDesignHost.setVisibility(design || graph ? View.VISIBLE : View.GONE);
+        sourceEditors.setVisibility(design || graph ? View.GONE : View.VISIBLE);
         styleChip(windowDesignTab, design);
-        styleChip(windowSourceTab, !design);
-        if (!window) {
+        styleChip(windowSourceTab, !design && !graph);
+        styleChip(windowGraphTab, graph);
+        if (!json) {
             MediaView.releaseAll(windowDesignHost);
-        windowDesignHost.removeAllViews();
+            windowDesignHost.removeAllViews();
             windowDesigner = null;
             designedWindowKey = null;
             designedWindowText = null;
+            graphedKey = null;
             return;
         }
-        if (!design) return;
+        if (!design && !graph) {
+            // Source: a live designer stays for the way back; a graph is dropped (it is read again from the text)
+            if (graphedKey != null) {
+                windowDesignHost.removeAllViews();
+                graphedKey = null;
+                designedWindowKey = null;
+            }
+            return;
+        }
+        if (graph) {
+            showGraphOf(fileKey(shownPath), code.getText().toString());
+            return;
+        }
+        if (graphedKey != null) {
+            windowDesignHost.removeAllViews();
+            graphedKey = null;
+            designedWindowKey = null; // the designer's views were taken out for the graph
+        }
         if (findBar.getVisibility() == View.VISIBLE) closeFind();
         String key = fileKey(shownPath);
         if (!key.equals(designedWindowKey) && uiMaker != null && sidePanelShown(uiMaker.view())) {
@@ -2714,11 +2765,11 @@ public class EditorFragment extends Fragment {
             return;
         }
         String id = shownPath.substring(3, shownPath.length() - 5);
-        java.util.function.Consumer<String> apply = json -> {
+        java.util.function.Consumer<String> apply = edited -> {
             if (shownPath == null || !key.equals(fileKey(shownPath))) return;
-            designedWindowText = json;
+            designedWindowText = edited;
             history(shownPath).breakGroup();
-            applyEdit(new TextOps.Edit(0, code.getText().length(), json, 0, 0));
+            applyEdit(new TextOps.Edit(0, code.getText().length(), edited, 0, 0));
             history(shownPath).breakGroup();
         };
         var editorActions = new UiDesigner.EditorActions(() -> undoText(false), () -> undoText(true), this::save);
@@ -2727,6 +2778,38 @@ public class EditorFragment extends Fragment {
                 ? LegacyDesigner.create(requireContext(), id, text, apply, editorActions)
                 : UiDesigner.create(requireContext(), id, text, apply, windowSelection, selection -> windowSelection = selection, editorActions);
         windowDesignHost.addView(windowDesigner.view(), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+    }
+
+    /** Shows the JSON text as a graph; the same text again keeps the view (zoom, folds) as it is. */
+    private void showGraphOf(String key, String text) {
+        if (key.equals(graphedKey) && text.equals(graphedText)) return;
+        boolean sameFile = key.equals(graphedKey);
+        if (graphedKey == null) {
+            MediaView.releaseAll(windowDesignHost);
+            windowDesignHost.removeAllViews();
+            windowDesigner = null;
+            designedWindowKey = null;
+            if (jsonGraph == null) jsonGraph = new GraphPane(requireContext());
+            windowDesignHost.addView(jsonGraph.view(), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        }
+        graphedKey = key;
+        graphedText = text;
+        com.google.gson.JsonElement parsed;
+        try {
+            parsed = com.google.gson.JsonParser.parseString(text.isBlank() ? "{}" : text);
+        } catch (RuntimeException broken) {
+            windowDesignHost.removeAllViews();
+            graphedKey = null;
+            var message = label(requireContext(), "This file is not valid JSON, so it has no graph: " + broken.getMessage(),
+                    R.attr.textAppearanceBodyMedium);
+            message.setTextColor(IdeColors.ERROR);
+            message.setPadding(message.dp(24), message.dp(24), message.dp(24), message.dp(24));
+            windowDesignHost.addView(message);
+            windowDesignHost.addView(button(requireContext(), "Open Source", R.attr.buttonTonalStyle, v -> showWindowDesign(false)));
+            return;
+        }
+        String name = shownPath.substring(shownPath.lastIndexOf('/') + 1);
+        jsonGraph.show(net.xmilon.craftpy.client.graph.Graph.ofJson(parsed, name, 50, 2000), !sameFile);
     }
 
     private void updateBreadcrumb() {
