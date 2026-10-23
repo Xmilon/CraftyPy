@@ -1886,7 +1886,8 @@ _EVENT_LAST = {}      # (owner, event, function, entity/player UUID) -> last nat
 
 _EVENT_NAMES = ("block_break", "block_place", "block_interact", "block_tick", "item_use", "item_hit", "item_mine",
                 "item_hold_tick", "item_craft", "item_pickup", "player_join", "player_leave", "player_respawn",
-                "player_death", "entity_death", "entity_hurt", "entity_tick", "chat", "effect_tick", "machine_speed", "machine_state")
+                "player_death", "entity_death", "entity_hurt", "entity_tick", "entity_interact", "chat", "effect_tick", "machine_speed",
+                "machine_state")
 
 
 class _On:
@@ -2300,6 +2301,17 @@ class _World:
         """Snapshot of a loaded kinetic machine: speed, overstressed, progress, input/output. No chunk loading."""
         x, y, z = _xyz(x, y, z)
         return _ok(_host_call("world.machine", dict(x=x, y=y, z=z, dimension=dimension))).get("machine", {})
+
+    def machine_set(self, x, y=None, z=None, *, values, dimension=_OVERWORLD) -> dict:
+        """Sets free values on a loaded machine block for its window: ``world.machine_set(x, y, z, values={"heat": 70})``.
+
+        A key is a lowercase word, a value a finite number or a text of up to 256 characters, at most 32 keys per block. A
+        bar bound to ``value:heat`` (``max`` is the value that fills it) and a label with ``{heat}`` in its text show them in
+        the block's window of every player who has it open. The values are saved with the block and returned by
+        ``world.machine(...)["values"]``."""
+        x, y, z = _xyz(x, y, z)
+        return _ok(_host_call("world.machine_set", dict(x=x, y=y, z=z, values=_screen_values(values),
+                                                        dimension=dimension))).get("machine", {})
 
     def machine_slot(self, x, y=None, z=None, *, slot, item=None, count=1, dimension=_OVERWORLD) -> dict:
         """Puts a stack into a slot of a loaded machine block, replacing what is there; ``item=None`` empties it.
@@ -3217,7 +3229,67 @@ def _ui_render(entry):
     return tree
 
 
+def _screen_values(values):
+    """The free values of a window: {key: number | text}. The host checks them again."""
+    import re
+    if not isinstance(values, dict) or len(values) > 32:
+        raise ValueError("values must be a dict of at most 32 {key: number or text}")
+    clean = {}
+    for key, value in values.items():
+        if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,24}", key):
+            raise ValueError("a value key is a lowercase word such as heat or price_2, got %r" % (key,))
+        if isinstance(value, bool):
+            value = int(value)
+        if not isinstance(value, (int, float, str)) or (isinstance(value, float) and not math.isfinite(value)):
+            raise ValueError("value %r must be a number or a text" % key)
+        clean[key] = value[:256] if isinstance(value, str) else value
+    return clean
+
+
 class _Ui:
+    def open_screen(self, player, layout=None, *, title=None, entity=None, inventory=None, values=None):
+        """Opens a Minecraft-style window that belongs to an entity (or to the player) instead of a block.
+
+        ``layout`` names a window of the UI maker with *legacy* ticked (ui/<layout>.json); without it the standard window of
+        ``inventory`` is shown. ``inventory=Inventory(wares=6, pay=1)`` gives the window item slots; they are kept in the data of
+        ``entity`` (a mob, another player; default: the player, which makes a personal backpack) under this project's name and the
+        layout's, so they stay with it. The entity must be within 8 blocks. ``values={"price": 5}`` sets free values for bars
+        (``bind`` = ``value:price``) and labels (``{price}``); change them while it is open with ``ui.screen_set``.
+        Pair it with ``@on.entity_interact`` to open it when a player right clicks a mob."""
+        import re
+        found = None
+        key = "screen"
+        if layout is not None:
+            found = _UI_FILES.get((_OWNER[0], str(layout)))
+            if found is None:
+                raise KeyError("unknown window: %s (windows: %s)" % (layout, ", ".join(self.windows()) or "none"))
+            if not found.get("legacy"):
+                raise ValueError("window %r is not a Legacy (Minecraft look) window: tick that box in the UI maker" % layout)
+            key = str(layout)
+        name = _player_name(player)
+        holder = ""
+        if entity is not None:
+            holder = entity if isinstance(entity, str) else str(getattr(entity, "uuid", "") or "")
+            if isinstance(entity, Player) and getattr(entity, "name", None) == name:
+                holder = ""
+        if isinstance(inventory, Extension):
+            inventory = inventory.data()
+        if inventory is not None and not isinstance(inventory, dict):
+            raise TypeError("inventory is Inventory(...)")
+        params = dict(player=name, entity=holder, key=re.sub(r"[^A-Za-z0-9_-]", "_", _OWNER[0] + "_" + key),
+                      title=str(title if title is not None else (found or {}).get("title") or ""))
+        if found is not None:
+            params["layout"] = {"size": found.get("size") or [176, 166], "root": found["root"]}
+        if inventory is not None:
+            params["inventory"] = inventory
+        if values is not None:
+            params["values"] = _screen_values(values)
+        return _ok(_host_call("ui.open_screen", params))
+
+    def screen_set(self, player, values):
+        """Changes the free values of the window ``player`` has open from ``ui.open_screen`` (bars and labels follow)."""
+        return _ok(_host_call("ui.screen_set", dict(player=_player_name(player), values=_screen_values(values))))
+
     def data(self, window_id):
         if not isinstance(window_id, str) or not window_id or len(window_id) > 128:
             raise ValueError("ui.data needs a window ID (1-128 characters)")
@@ -3534,6 +3606,10 @@ API_CHANGES = [
                "`Inventory(input=1, fuel=1, output=2, storage=9, accepts=, max_stack=, sides=)`: named item-slot groups for a machine block (up to 54 slots) with "
                "furnace-like automation by hoppers and pipes; `world.machine(...)[\"inventory\"]` reads them and `world.machine_slot(...)` sets a slot. "
                "Legacy windows get *Item slot* (`group.number`) and *Slot grid* pieces.",
+               "Bars bound to Python values: `world.machine_set(x, y, z, values={...})` and a *Value bar* (or any bar, arrow or flame) with `bind` = `value:key` "
+               "and `max`; labels show `{key}`. `ui.open_screen(player, layout, entity=, inventory=, values=)` opens such a window for an entity or the player "
+               "(personal backpacks, a villager's wares) and `ui.screen_set` updates it. New event `entity_interact` (a player right clicks an entity; "
+               "`ctx.cancel()` stops the entity's own reaction).",
                "Minecraft-style windows: tick `legacy` in the UI maker's window properties, draw panels, item slots, the player inventory, "
                "energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout=\"my_window\")`."]},
     {"version": "2.10", "date": "2026-10-21",
@@ -7041,6 +7117,9 @@ def _load_docs():
         # ---------------------------------------------------------------- world
         "world.get_block": ("The block id at a position.", dict(POS3, dimension=DIM), "str, for example 'minecraft:stone'"),
         "world.machine": ("Read a loaded kinetic machine without loading chunks. Snapshot includes speed, theoretical_speed, overstressed, processing, progress, recipe and input/output stacks.", dict(POS3, dimension=DIM), "dict"),
+        "world.machine_set": ("Set free values (numbers or short texts, at most 32 keys) on a loaded machine block; a window bar bound to value:key and a label with {key} show them. Returns the new snapshot.", dict(POS3, values="{key: number or text}; keys are lowercase words.", dimension=DIM), "dict"),
+        "ui.open_screen": ("Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).", {"player": "Player or name.", "layout": "A window of the UI maker with legacy ticked; none shows the standard window of the inventory.", "title": "Text at the top.", "entity": "Entity or player that owns the slots (within 8 blocks); default the player.", "inventory": "Inventory(...) giving the window item slots.", "values": "{key: number or text} for bars and labels."}, ""),
+        "ui.screen_set": ("Changes the free values of the window the player has open from ui.open_screen.", {"player": "Player or name.", "values": "{key: number or text}."}, ""),
         "world.machine_slot": ("Put a stack into a slot ('group.number') of a loaded machine block, replacing what is there; item=None empties it. Returns the new snapshot.", dict(POS3, slot="'group.number' of the block's Inventory, such as 'input.0' or 'output.1'.", item="Item or id, or None to empty the slot.", count="Stack size, 0..64 (and the group's max_stack).", dimension=DIM), "dict"),
         "world.machine_update": ("Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.", dict(POS3, energy="FE to add (negative removes).", fluid="mB to remove, 0 or negative.", dimension=DIM), "dict"),
         "world.set_block": ("Places a block: world.set_block(x, y, z, 'stone') or world.set_block(pos, 'stone').", dict(

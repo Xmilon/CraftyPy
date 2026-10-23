@@ -412,12 +412,39 @@ screen. You draw it in the UI maker and the block names it:
 | Energy bar | the stored energy, filled from the bottom | bind (`energy`), width, height |
 | Liquid gauge | the tank, drawn with the liquid's own texture | bind (`fluid`), width, height |
 | Progress arrow, Flame | follow a number of the machine | bind: `progress` (the running recipe), `energy` or `fluid` |
+| Value bar | a plain bar in your color: left to right when wider than tall, else bottom to top | bind: `value:name`, max, color |
 | Text | a label; `{title}` and `{inventory}` become the window title and "Inventory" | text, color |
 | Item icon | a fixed item picture | item |
 
 The server decides everything: it makes the slots from the window, and the client only draws what it is sent. A window may
 have up to 64 pieces; unknown pieces are ignored. The Power Cell example (`examples/powercell/ui/sap_generator.json`) is a
 complete one.
+
+### Numbers from Python: value bars and labels
+
+Bars, arrows and flames follow `energy`, `fluid` or `progress` of the machine, or any number you set yourself: give the piece
+`bind` = `value:heat` and `max` = the value that fills it, then `world.machine_set(x, y, z, values={"heat": 70})`. A label shows
+the same value with `{heat}` in its text (`Heat {heat} C`). A value is a number or a text of up to 256 characters, a name is a
+lowercase word, and a block has at most 32. Only the values a window uses are sent, and only when they change. They are saved with
+the block.
+
+### Windows for entities and players
+
+A window does not need a block. `ui.open_screen(player, "my_window", entity=mob, inventory=Inventory(wares=6), values={...})`
+opens a legacy window whose item slots belong to the entity (default: the player, which makes a personal backpack). The items are
+kept in that entity's data under your project's name and the window's name, so they are saved with the world and no other
+project can reach them. The entity must be within 8 blocks. `ui.screen_set(player, {"price": 7})` changes the values while it
+is open. Open one when a player right clicks a mob:
+
+```python
+@on.entity_interact
+def pockets(ctx):
+    if ctx.sneaking and ctx.entity.native_type == "minecraft:villager":
+        ui.open_screen(ctx.player, "pockets", entity=ctx.entity, inventory=Inventory(pockets=6))
+        ctx.cancel()          # the villager does not also open its trades
+```
+
+The Backpack example (`examples/backpack`) has both a personal backpack and villager pockets.
 
 ### Item slots: Inventory
 

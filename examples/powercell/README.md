@@ -33,6 +33,7 @@ to Mekanism batteries, and no line of this project mentions Mekanism.
 | The storages | `.extends(FluidTank(...), EnergyStorage(...))` | a tank that only takes Volt Sap, and an energy store that only gives out |
 | The slots | `Inventory(input=1, output=1, accepts=...)` | the bucket slot takes only Volt Sap buckets (by hand, shift-click or a hopper from above and the sides); the empty bucket comes out below |
 | The window | `ui/sap_generator.json` and `Screen(layout="sap_generator")` | a window drawn in the UI maker with the Minecraft look: panel, slots, flame, liquid gauge, energy bar, labels, your inventory |
+| The burn bar | `world.machine_set(..., values={"rate": mb})` and a *Value bar* bound to `value:rate` | numbers set by Python reach the window: a label `{rate} mB/s` and a bar that fills at 100 mB |
 | The burning | `burn()` in `code/main.py` | listens to `machine_state`, asks `conversion.plan` and calls `world.machine_update` |
 | The rules | `code/conversion.py`, `code/test_conversion.py` | plain functions with tests (Ctrl+Shift+F10) |
 

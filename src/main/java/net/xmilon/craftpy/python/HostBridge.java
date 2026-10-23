@@ -83,6 +83,29 @@ public final class HostBridge {
                     machine.machineState().adjust(energy, fluid);
                     JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
                 });
+                case "world.machine_set" -> onServer(server -> {
+                    ServerLevel level = level(server, params);
+                    if (level == null) return error("unknown dimension");
+                    BlockPos pos = pos(params);
+                    if (!level.hasChunkAt(pos)) return error("Machine chunk is not loaded");
+                    if (!(level.getBlockEntity(pos) instanceof net.xmilon.craftpy.content.MachineAccess machine)) return error("No CraftPy machine here");
+                    if (!params.has("values") || !params.get("values").isJsonObject()
+                            || !machine.machineState().setValues(params.getAsJsonObject("values"))) {
+                        return error("values: at most 32 keys (lowercase words), each a number or a text of up to 256 characters");
+                    }
+                    JsonObject result = ok(); result.add("machine", machine.snapshot()); return result;
+                });
+                case "ui.open_screen" -> onServer(server -> openScreen(server, params));
+                case "ui.screen_set" -> onServer(server -> {
+                    ServerPlayer player = findPlayer(server, string(params, "player", ""));
+                    if (player == null) return error("player not found");
+                    if (player.containerMenu instanceof net.xmilon.craftpy.menu.MachineMenu menu
+                            && menu.source() instanceof net.xmilon.craftpy.menu.VirtualSource window) {
+                        return params.has("values") && params.get("values").isJsonObject() && window.setValues(params.getAsJsonObject("values"))
+                                ? ok(true) : error("values: at most 32 keys (lowercase words), each a number or a text of up to 256 characters");
+                    }
+                    return error("this player has no window opened with ui.open_screen");
+                });
                 case "world.machine_slot" -> onServer(server -> {
                     ServerLevel level = level(server, params);
                     if (level == null) return error("unknown dimension");
@@ -483,6 +506,50 @@ public final class HostBridge {
     }
 
     /** Sends a window tree (open / update) or a close request to one player. */
+    /**
+     * Opens a Minecraft-style window for a player that belongs to an entity (or to the player): its item slots are kept in the
+     * entity's data under the layout's name. The entity must be near the player.
+     */
+    private static JsonObject openScreen(MinecraftServer server, JsonObject p) {
+        ServerPlayer player = findPlayer(server, string(p, "player", ""));
+        if (player == null) {
+            return error("player not found");
+        }
+        String uuid = string(p, "entity", "");
+        Entity holder = uuid.isEmpty() ? player : findEntity(server, uuid);
+        if (holder == null) {
+            return error("entity not found");
+        }
+        if (holder != player && holder.distanceToSqr(player) > 64) {
+            return error("the entity is too far from the player");
+        }
+        net.xmilon.craftpy.content.Defs.InventorySpec spec = null;
+        if (p.has("inventory") && p.get("inventory").isJsonObject()) {
+            spec = net.xmilon.craftpy.content.Defs.InventorySpec.from(p.getAsJsonObject("inventory"));
+        }
+        var standard = spec != null ? net.xmilon.craftpy.menu.ScreenLayout.forInventory(spec, false, false)
+                : net.xmilon.craftpy.menu.ScreenLayout.defaults(false, false, false);
+        var layout = p.has("layout") && p.get("layout").isJsonObject()
+                ? net.xmilon.craftpy.menu.ScreenLayout.parse(p.getAsJsonObject("layout"), standard) : standard;
+        String layoutJson = layout.toJson().toString();
+        if (layoutJson.length() > net.xmilon.craftpy.menu.ScreenLayout.MAX_JSON) {
+            layout = standard;
+            layoutJson = standard.toJson().toString();
+        }
+        var source = net.xmilon.craftpy.menu.VirtualSource.of(holder, string(p, "key", "screen"), spec);
+        if (p.has("values") && p.get("values").isJsonObject() && !source.setValues(p.getAsJsonObject("values"))) {
+            return error("values: at most 32 keys (lowercase words), each a number or a text of up to 256 characters");
+        }
+        String title = string(p, "title", "");
+        String shown = title.length() > 64 ? title.substring(0, 64) : title;
+        var finalLayout = layout;
+        String sent = layoutJson;
+        player.openMenu(new net.minecraft.world.SimpleMenuProvider((id, inventory, who) -> new net.xmilon.craftpy.menu.MachineMenu(
+                id, inventory, source, shown, finalLayout), Component.literal(shown)),
+                buf -> { buf.writeUtf(shown, 64); buf.writeUtf(sent, net.xmilon.craftpy.menu.ScreenLayout.MAX_JSON + 100); });
+        return ok(true);
+    }
+
     private static JsonObject uiSend(MinecraftServer server, JsonObject p, String mode) {
         ServerPlayer player = findPlayer(server, string(p, "player", ""));
         if (player == null) {

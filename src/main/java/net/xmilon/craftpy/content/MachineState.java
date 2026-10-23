@@ -27,6 +27,8 @@ public final class MachineState {
     private boolean dirty;
     private long revision, reportedRevision;
     private int progress, duration;
+    /** Values Python set for the window (bars and labels bound with value:key). */
+    private final java.util.Map<String, com.google.gson.JsonPrimitive> values = new java.util.LinkedHashMap<>();
     private String recipe = "";
     private boolean running;
     private float reportedSpeed = Float.NaN;
@@ -76,6 +78,15 @@ public final class MachineState {
         if (entity.getLevel() != null) entity.getLevel().invalidateCapabilities(entity.getBlockPos());
         if (entity.getLevel() != null && !entity.getLevel().isClientSide) host.syncMachine();
     }
+    public java.util.Map<String, com.google.gson.JsonPrimitive> values() { return new java.util.LinkedHashMap<>(values); }
+
+    /** Python's world.machine_set: false (and nothing changed) when a key or value is not allowed. */
+    public boolean setValues(JsonObject changes) {
+        if (!net.xmilon.craftpy.menu.ScreenValues.merge(values, changes)) return false;
+        changed();
+        return true;
+    }
+
     /** Python's world.machine_update: energy between 0 and the capacity, and at most what the tank holds. */
     public void adjust(int energyDelta, int fluidDelta) {
         configure();
@@ -201,6 +212,7 @@ public final class MachineState {
             groups.getAsJsonArray(name).add(stackJson(inventory.getStackInSlot(i)));
         }
         out.add("inventory", groups);
+        out.add("values", net.xmilon.craftpy.menu.ScreenValues.toJson(values));
         out.addProperty("energy", energy.getEnergyStored()); out.addProperty("energy_capacity", energy.getMaxEnergyStored());
         out.addProperty("fluid", BuiltInRegistries.FLUID.getKey(fluid.getFluid().getFluid()).toString());
         out.addProperty("fluid_amount", fluid.getFluidAmount()); out.addProperty("fluid_capacity", fluid.getCapacity());
@@ -208,6 +220,7 @@ public final class MachineState {
     }
     public void save(CompoundTag tag, HolderLookup.Provider registries) {
         tag.merge(retained); tag.put("CraftPyInventory", inventory.serializeNBT(registries));
+        tag.putString("CraftPyValues", net.xmilon.craftpy.menu.ScreenValues.toJson(values).toString());
         tag.putInt("CraftPyProgress", progress); tag.putString("CraftPyRecipe", recipe); tag.putBoolean("CraftPyRunning", running);
         tag.putInt("CraftPyEnergy", energy.getEnergyStored()); tag.put("CraftPyFluid", fluid.writeToNBT(registries, new CompoundTag()));
         tag.putBoolean("CraftPyHasRotation", rotation() != null);
@@ -215,6 +228,12 @@ public final class MachineState {
     public void load(CompoundTag tag, HolderLookup.Provider registries) {
         retained = tag.copy(); for (String key : java.util.List.copyOf(retained.getAllKeys())) if (!key.startsWith("CraftPy")) retained.remove(key);
         inventory.deserializeNBT(registries, tag.getCompound("CraftPyInventory"));
+        values.clear();
+        String savedValues = tag.getString("CraftPyValues");
+        if (!savedValues.isEmpty() && savedValues.length() < 20_000) {
+            try { net.xmilon.craftpy.menu.ScreenValues.merge(values, com.google.gson.JsonParser.parseString(savedValues).getAsJsonObject()); }
+            catch (RuntimeException damaged) { values.clear(); }
+        }
         progress = Math.clamp(tag.getInt("CraftPyProgress"), 0, 72000); recipe = tag.getString("CraftPyRecipe"); running = false;
         clientRotation = tag.getBoolean("CraftPyHasRotation");
         energy.stored(Math.max(0, tag.getInt("CraftPyEnergy"))); fluid.readFromNBT(registries, tag.getCompound("CraftPyFluid"));

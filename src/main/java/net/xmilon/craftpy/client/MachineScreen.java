@@ -49,12 +49,14 @@ public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
                 }
                 case "lg_player" -> LegacyShapes.playerSlots(surface, piece.x(), piece.y());
                 case "lg_energy" -> LegacyShapes.energy(surface, piece.x(), piece.y(), piece.width(), piece.height(),
-                        menu.fraction(piece.bind()));
+                        menu.fraction(piece.bind(), piece.max()));
                 case "lg_fluid" -> fluid(graphics, surface, piece);
                 case "lg_arrow" -> LegacyShapes.arrow(surface, piece.x(), piece.y(), piece.width(), piece.height(),
-                        menu.fraction(piece.bind()));
+                        menu.fraction(piece.bind(), piece.max()));
                 case "lg_flame" -> LegacyShapes.flame(surface, piece.x(), piece.y(), piece.width(), piece.height(),
-                        menu.fraction(piece.bind()));
+                        menu.fraction(piece.bind(), piece.max()));
+                case "lg_bar" -> LegacyShapes.bar(surface, piece.x(), piece.y(), piece.width(), piece.height(),
+                        menu.fraction(piece.bind(), piece.max()), piece.color());
                 case "lg_icon" -> {
                     var item = BuiltInRegistries.ITEM.get(ResourceLocation.tryParse(piece.text()) == null
                             ? ResourceLocation.withDefaultNamespace("air") : ResourceLocation.tryParse(piece.text()));
@@ -69,7 +71,7 @@ public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
     private void fluid(GuiGraphics graphics, LegacyShapes.Surface surface, ScreenLayout.Piece piece) {
         LegacyShapes.well(surface, piece.x(), piece.y(), piece.width(), piece.height());
         var fluid = menu.fluid();
-        int filled = (int) Math.round(piece.height() * menu.fraction(piece.bind()));
+        int filled = (int) Math.round(piece.height() * menu.fraction(piece.bind(), piece.max()));
         if (filled <= 0 || fluid == net.minecraft.world.level.material.Fluids.EMPTY) {
             return;
         }
@@ -92,11 +94,7 @@ public class MachineScreen extends AbstractContainerScreen<MachineMenu> {
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
         for (ScreenLayout.Piece piece : menu.layout.pieces) {
             if (piece.type().equals("lg_label")) {
-                String text = switch (piece.text()) {
-                    case "{title}" -> menu.title;
-                    case "{inventory}" -> playerInventoryTitle.getString();
-                    default -> piece.text();
-                };
+                String text = menu.label(piece.text(), playerInventoryTitle.getString());
                 graphics.drawString(font, text, piece.x(), piece.y(), 0xFF000000 | piece.color(), false);
             }
         }

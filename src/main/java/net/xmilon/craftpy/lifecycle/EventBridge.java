@@ -59,6 +59,25 @@ public class EventBridge {
         fire("block_interact", event.getLevel(), context);
     }
 
+    /** A player right clicks an entity (main hand, on the server): the handler may cancel the entity's own reaction. */
+    @SubscribeEvent
+    public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
+        if (event.getLevel().isClientSide() || event.getHand() != net.minecraft.world.InteractionHand.MAIN_HAND
+                || !SlotRegistry.handlesEvent("entity_interact")) {
+            return;
+        }
+        JsonObject context = new JsonObject();
+        context.add("player", wrapPlayer(event.getEntity()));
+        context.add("entity", wrapEntity(event.getTarget()));
+        context.add("item", wrapItem(event.getItemStack()));
+        context.addProperty("sneaking", event.getEntity().isShiftKeyDown());
+        JsonObject answer = ask("entity_interact", event.getLevel(), context);
+        if (answer != null && answer.has("cancel")) {
+            event.setCanceled(true);
+            event.setCancellationResult(net.minecraft.world.InteractionResult.SUCCESS);
+        }
+    }
+
     @SubscribeEvent
     public static void onBlockBreak(BlockEvent.BreakEvent event) {
         if (!(event.getLevel() instanceof Level level)) {

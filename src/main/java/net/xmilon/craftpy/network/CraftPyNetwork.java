@@ -17,7 +17,7 @@ import net.xmilon.craftpy.server.ProjectRequestHandler;
 import net.xmilon.craftpy.util.Json;
 
 public final class CraftPyNetwork {
-    public static final String PROTOCOL_VERSION = "7"; // 7: staged module state and correlated selective reload results
+    public static final String PROTOCOL_VERSION = "8"; // 8: free values of machine windows; 7: staged module state and correlated selective reload results
 
     private CraftPyNetwork() {
     }
@@ -29,6 +29,13 @@ public final class CraftPyNetwork {
         registrar.playToClient(ResponsePayload.TYPE, ResponsePayload.STREAM_CODEC, CraftPyNetwork::handleResponse);
         registrar.playToClient(ModuleKeysPayload.TYPE, ModuleKeysPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> net.xmilon.craftpy.client.ModuleKeys.receive(payload.json())));
+        registrar.playToClient(ScreenValuesPayload.TYPE, ScreenValuesPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.player().containerMenu instanceof net.xmilon.craftpy.menu.MachineMenu menu
+                            && menu.containerId == payload.containerId()) {
+                        menu.receiveValues(payload.json());
+                    }
+                }));
         registrar.playToServer(ModuleKeysPayload.Press.TYPE, ModuleKeysPayload.Press.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
                     if (context.player() instanceof ServerPlayer player) net.xmilon.craftpy.keys.ServerKeyActions.press(player, payload);

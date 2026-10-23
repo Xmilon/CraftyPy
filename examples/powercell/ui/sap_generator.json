@@ -96,6 +96,34 @@
         "bind": "energy"
       },
       {
+        "type": "lg_label",
+        "x": 112,
+        "y": 20,
+        "width": 36,
+        "height": 9,
+        "text": "Burn",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_label",
+        "x": 112,
+        "y": 32,
+        "width": 38,
+        "height": 9,
+        "text": "{rate} mB/s",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_bar",
+        "x": 108,
+        "y": 46,
+        "width": 38,
+        "height": 8,
+        "bind": "value:rate",
+        "max": 100,
+        "color": "#5CE03C"
+      },
+      {
         "type": "lg_player",
         "x": 8,
         "y": 84,

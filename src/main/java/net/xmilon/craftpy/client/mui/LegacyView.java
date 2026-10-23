@@ -70,6 +70,7 @@ final class LegacyView extends View {
                 int filled = (int) Math.round(piece.height() * SAMPLE);
                 surface.fill(0, piece.height() - filled, piece.width(), piece.height(), 0xFF3F76E4);
             }
+            case "lg_bar" -> LegacyShapes.bar(surface, 0, 0, piece.width(), piece.height(), SAMPLE, piece.color());
             case "lg_arrow" -> LegacyShapes.arrow(surface, 0, 0, piece.width(), piece.height(), SAMPLE);
             case "lg_flame" -> LegacyShapes.flame(surface, 0, 0, piece.width(), piece.height(), SAMPLE);
             default -> {

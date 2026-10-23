@@ -62,6 +62,19 @@ public final class LegacyShapes {
         }
     }
 
+    /** A plain bar in {@code color}: fills left to right when wider than tall, else bottom to top. */
+    public static void bar(Surface s, int x, int y, int w, int h, double fraction, int rgb) {
+        well(s, x, y, w, h);
+        double f = Math.max(0, Math.min(1, fraction));
+        int color = 0xFF000000 | rgb;
+        if (w >= h) {
+            s.fill(x, y, x + (int) Math.round(w * f), y + h, color);
+        } else {
+            int filled = (int) Math.round(h * f);
+            s.fill(x, y + h - filled, x + w, y + h, color);
+        }
+    }
+
     /** The progress arrow, pointing right; the part up to {@code fraction} is green. */
     public static void arrow(Surface s, int x, int y, int w, int h, double fraction) {
         int head = Math.max(3, Math.min(h / 2 + 1, w / 2));

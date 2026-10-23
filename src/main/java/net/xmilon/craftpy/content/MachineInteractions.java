@@ -67,8 +67,8 @@ public final class MachineInteractions {
                 var finalLayout = layout;
                 String sent = layoutJson;
                 serverPlayer.openMenu(new net.minecraft.world.SimpleMenuProvider((id, inventory, p) -> new net.xmilon.craftpy.menu.MachineMenu(
-                        id, inventory, pos, machine, title, finalLayout), net.minecraft.network.chat.Component.literal(title)),
-                        buf -> { buf.writeBlockPos(pos); buf.writeUtf(title, 64); buf.writeUtf(sent, net.xmilon.craftpy.menu.ScreenLayout.MAX_JSON + 100); });
+                        id, inventory, new net.xmilon.craftpy.menu.MachineSource(machine, pos), title, finalLayout), net.minecraft.network.chat.Component.literal(title)),
+                        buf -> { buf.writeUtf(title, 64); buf.writeUtf(sent, net.xmilon.craftpy.menu.ScreenLayout.MAX_JSON + 100); });
             }
             return InteractionResult.sidedSuccess(level.isClientSide);
         }

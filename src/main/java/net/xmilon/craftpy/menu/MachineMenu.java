@@ -1,8 +1,19 @@
 package net.xmilon.craftpy.menu;
 
-import net.minecraft.core.BlockPos;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -12,49 +23,57 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.items.ItemStackHandler;
 import net.neoforged.neoforge.items.SlotItemHandler;
-import net.xmilon.craftpy.content.MachineAccess;
+import net.xmilon.craftpy.content.Defs;
+import net.xmilon.craftpy.network.ScreenValuesPayload;
 import net.xmilon.craftpy.registry.ModMenus;
 
 /**
- * The window of a machine block that declared {@code Screen(...)}. The {@link ScreenLayout} says where the slots are (the
- * machine's input and output, the player inventory); the server owns the contents. The numbers the screen draws (energy,
- * liquid, progress) reach the client through data slots, which carry 16 bits each, so every value is split in two.
+ * The window of a machine block that declared {@code Screen(...)}, or of a window Python opened for an entity or a player. The
+ * {@link ScreenLayout} says where the slots are (the source's slots, the player inventory); the {@link MenuSource} owns the
+ * contents. The numbers the screen draws (energy, liquid, progress) reach the client through data slots, which carry 16 bits
+ * each, so every value is split in two. The free values Python sets (bars and labels bound with {@code value:key}) travel in
+ * their own small packet, only for the keys the layout uses and only when they changed.
  */
 public class MachineMenu extends AbstractContainerMenu {
-    private final BlockPos pos;
-    private final MachineAccess machine;
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{([a-z][a-z0-9_]{0,24})}");
+
+    private final MenuSource source;
+    private final Player viewer;
     public final String title;
     public final ScreenLayout layout;
     private final int machineSlots;
     private final int[] values = new int[6]; // energy, energy capacity, fluid amount, fluid capacity, fluid id, progress %
+    /** Client: the values Python set, as last received. */
+    private final Map<String, JsonPrimitive> free = new LinkedHashMap<>();
+    private final Set<String> watched;
+    private String lastSent;
 
-    /** Client side: the block position, the title and the layout come in the open packet; contents arrive in slot updates. */
+    /** Client side: the title and the layout come in the open packet; contents arrive in slot updates. */
     public MachineMenu(int containerId, Inventory inventory, FriendlyByteBuf data) {
-        this(containerId, inventory, data.readBlockPos(), null, data.readUtf(64), parse(data.readUtf(ScreenLayout.MAX_JSON + 100)));
+        this(containerId, inventory, null, data.readUtf(64), parse(data.readUtf(ScreenLayout.MAX_JSON + 100)));
     }
 
     private static ScreenLayout parse(String json) {
         try {
-            return ScreenLayout.parse(com.google.gson.JsonParser.parseString(json).getAsJsonObject(),
-                    ScreenLayout.defaults(true, true, true));
+            return ScreenLayout.parse(JsonParser.parseString(json).getAsJsonObject(), ScreenLayout.defaults(true, true, true));
         } catch (RuntimeException bad) {
             return ScreenLayout.defaults(true, true, true);
         }
     }
 
-    public MachineMenu(int containerId, Inventory inventory, BlockPos pos, MachineAccess machine, String title, ScreenLayout layout) {
+    public MachineMenu(int containerId, Inventory inventory, MenuSource source, String title, ScreenLayout layout) {
         super(ModMenus.MACHINE.get(), containerId);
-        this.pos = pos;
-        this.machine = machine;
+        this.source = source;
+        this.viewer = inventory.player;
         this.title = title;
         this.layout = layout;
-        // the machine's slots in the order of the layout; the client counts the same way and keeps the contents the server sends
-        IItemHandler items = machine != null ? machine.machineState().inventory
-                : new ItemStackHandler(net.xmilon.craftpy.content.Defs.InventorySpec.MAX_SLOTS);
+        this.watched = watchedKeys(layout);
+        // the source's slots in the order of the layout; the client counts the same way and keeps the contents the server sends
+        IItemHandler items = source != null ? source.inventory() : new ItemStackHandler(Defs.InventorySpec.MAX_SLOTS);
         IItemHandler inert = new ItemStackHandler(1);
         int counted = 0;
         for (ScreenLayout.SlotRef ref : layout.slotRefs()) {
-            int index = machine != null ? machine.machineState().inventory.slotOf(ref.group(), ref.n()) : counted;
+            int index = source != null ? source.inventory().slotOf(ref.group(), ref.n()) : counted;
             counted++;
             if (index < 0) {
                 // the window names a slot the block does not have: a dead square, so both sides still count the same
@@ -93,7 +112,7 @@ public class MachineMenu extends AbstractContainerMenu {
             addDataSlot(new DataSlot() {
                 @Override
                 public int get() {
-                    return machine == null ? values[index] & 0xFFFF : fresh(index) & 0xFFFF;
+                    return MachineMenu.this.source == null ? values[index] & 0xFFFF : fresh(index) & 0xFFFF;
                 }
 
                 @Override
@@ -104,7 +123,7 @@ public class MachineMenu extends AbstractContainerMenu {
             addDataSlot(new DataSlot() {
                 @Override
                 public int get() {
-                    return machine == null ? values[index] >>> 16 : fresh(index) >>> 16;
+                    return MachineMenu.this.source == null ? values[index] >>> 16 : fresh(index) >>> 16;
                 }
 
                 @Override
@@ -115,15 +134,37 @@ public class MachineMenu extends AbstractContainerMenu {
         }
     }
 
+    /** The keys of free values the layout reads: {@code value:key} bindings and {@code {key}} in labels. */
+    private static Set<String> watchedKeys(ScreenLayout layout) {
+        Set<String> keys = new LinkedHashSet<>();
+        for (ScreenLayout.Piece piece : layout.pieces) {
+            if (piece.bind().startsWith("value:")) {
+                keys.add(piece.bind().substring("value:".length()));
+            }
+            if (piece.type().equals("lg_label")) {
+                Matcher m = PLACEHOLDER.matcher(piece.text());
+                while (m.find()) {
+                    keys.add(m.group(1));
+                }
+            }
+        }
+        keys.remove("title");
+        keys.remove("inventory");
+        return keys;
+    }
+
+    public MenuSource source() {
+        return source;
+    }
+
     private int fresh(int index) {
-        var state = machine.machineState();
         return switch (index) {
-            case 0 -> state.energy.getEnergyStored();
-            case 1 -> state.energy.getMaxEnergyStored();
-            case 2 -> state.fluid.getFluidAmount();
-            case 3 -> state.fluid.getCapacity();
-            case 4 -> BuiltInRegistries.FLUID.getId(state.fluid.getFluid().getFluid());
-            default -> state.progressPercent();
+            case 0 -> source.energy();
+            case 1 -> source.energyCapacity();
+            case 2 -> source.fluidAmount();
+            case 3 -> source.fluidCapacity();
+            case 4 -> source.fluidId();
+            default -> source.progressPercent();
         };
     }
 
@@ -152,14 +193,67 @@ public class MachineMenu extends AbstractContainerMenu {
         return Math.max(0, Math.min(100, values[5]));
     }
 
-    /** How full the thing a piece is bound to is, 0..1. */
-    public double fraction(String bind) {
+    /** How full the thing a piece is bound to is, 0..1; {@code max} is the full value of a {@code value:key} binding. */
+    public double fraction(String bind, double max) {
+        if (bind.startsWith("value:")) {
+            return max <= 0 ? 0 : Math.max(0, Math.min(1, ScreenValues.number(free.get(bind.substring("value:".length()))) / max));
+        }
         return switch (bind) {
             case "energy" -> energyCapacity() <= 0 ? 0 : (double) energy() / energyCapacity();
             case "fluid" -> fluidCapacity() <= 0 ? 0 : (double) fluidAmount() / fluidCapacity();
             case "progress" -> progress() / 100.0;
             default -> 0;
         };
+    }
+
+    /** What a label reads: its text with {@code {title}}, {@code {inventory}} and {@code {key}} of a free value filled in. */
+    public String label(String text, String inventoryTitle) {
+        Matcher m = PLACEHOLDER.matcher(text);
+        StringBuilder out = new StringBuilder();
+        while (m.find()) {
+            String key = m.group(1);
+            String replacement = key.equals("title") ? title : key.equals("inventory") ? inventoryTitle : ScreenValues.text(free.get(key));
+            m.appendReplacement(out, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(out);
+        return out.toString();
+    }
+
+    /** Client: the values Python set arrived. */
+    public void receiveValues(String json) {
+        try {
+            Map<String, JsonPrimitive> next = new LinkedHashMap<>();
+            if (ScreenValues.merge(next, JsonParser.parseString(json).getAsJsonObject())) {
+                free.clear();
+                free.putAll(next);
+            }
+        } catch (RuntimeException bad) {
+            // a malformed packet changes nothing
+        }
+    }
+
+    @Override
+    public void broadcastChanges() {
+        super.broadcastChanges();
+        if (source != null && !watched.isEmpty() && viewer instanceof ServerPlayer player) {
+            JsonObject now = new JsonObject();
+            source.values().forEach((key, value) -> {
+                if (watched.contains(key)) now.add(key, value);
+            });
+            String json = now.toString();
+            if (!json.equals(lastSent)) {
+                lastSent = json;
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player, new ScreenValuesPayload(containerId, json));
+            }
+        }
+    }
+
+    @Override
+    public void removed(Player player) {
+        super.removed(player);
+        if (source != null) {
+            source.closed();
+        }
     }
 
     @Override
@@ -193,9 +287,6 @@ public class MachineMenu extends AbstractContainerMenu {
 
     @Override
     public boolean stillValid(Player player) {
-        if (machine == null) {
-            return true;
-        }
-        return player.level().getBlockEntity(pos) == machine && player.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5) <= 64;
+        return source == null || source.stillValid(player);
     }
 }

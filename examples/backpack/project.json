@@ -1,0 +1,12 @@
+{
+  "id": "backpack",
+  "name": "Backpack",
+  "description": "A personal backpack and the pockets of villagers: Minecraft-style windows that belong to a player or to an entity.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.11",
+  "mcVersion": "1.21.1",
+  "side": "server",
+  "permissions": {},
+  "icon": "icon.png"
+}

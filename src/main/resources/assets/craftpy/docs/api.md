@@ -607,6 +607,7 @@ This page describes Python API **2.11** (`API_VERSION` in your code). `apiVersio
 - **Added:** `Screen(title=)` extension: a Minecraft-style window for machine blocks (two item slots, liquid gauge, energy bar on the right). A bucket in the first slot is emptied into the block's `FluidTank`.
 - **Added:** `world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block.
 - **Added:** `Inventory(input=1, fuel=1, output=2, storage=9, accepts=, max_stack=, sides=)`: named item-slot groups for a machine block (up to 54 slots) with furnace-like automation by hoppers and pipes; `world.machine(...)["inventory"]` reads them and `world.machine_slot(...)` sets a slot. Legacy windows get *Item slot* (`group.number`) and *Slot grid* pieces.
+- **Added:** Bars bound to Python values: `world.machine_set(x, y, z, values={...})` and a *Value bar* (or any bar, arrow or flame) with `bind` = `value:key` and `max`; labels show `{key}`. `ui.open_screen(player, layout, entity=, inventory=, values=)` opens such a window for an entity or the player (personal backpacks, a villager's wares) and `ui.screen_set` updates it. New event `entity_interact` (a player right clicks an entity; `ctx.cancel()` stops the entity's own reaction).
 - **Added:** Minecraft-style windows: tick `legacy` in the UI maker's window properties, draw panels, item slots, the player inventory, energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout="my_window")`.
 
 ### 2.10 (2026-10-21)
@@ -1873,6 +1874,18 @@ Put a stack into a slot ('group.number') of a loaded machine block, replacing wh
 
 Returns: dict
 
+#### `world.machine_set(x, y=None, z=None, *, values, dimension='minecraft:overworld') -> dict`
+
+Set free values (numbers or short texts, at most 32 keys) on a loaded machine block; a window bar bound to value:key and a label with {key} show them. Returns the new snapshot.
+
+- `x`: X coordinate (or a Pos / (x, y, z) tuple when y and z are left out).
+- `y` (default `None`): Y coordinate (height).
+- `z` (default `None`): Z coordinate.
+- `values`: {key: number or text}; keys are lowercase words.
+- `dimension` (default `'minecraft:overworld'`): Dimension id, default 'minecraft:overworld' (also 'minecraft:the_nether', 'minecraft:the_end').
+
+Returns: dict
+
 #### `world.resources(x, y=None, z=None, dimension='minecraft:overworld', *, side=None) -> dict`
 
 Bounded native NeoForge item/FE/fluid snapshot from a loaded block face.
@@ -2207,6 +2220,24 @@ Opens a window for a player.
 
 - `player`: Player or name.
 - `window_id`: Id of a @window class or ui/<id>.json.
+
+#### `ui.open_screen(player, layout=None, *, title=None, entity=None, inventory=None, values=None)`
+
+Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).
+
+- `player`: Player or name.
+- `layout` (default `None`): A window of the UI maker with legacy ticked; none shows the standard window of the inventory.
+- `title` (default `None`): Text at the top.
+- `entity` (default `None`): Entity or player that owns the slots (within 8 blocks); default the player.
+- `inventory` (default `None`): Inventory(...) giving the window item slots.
+- `values` (default `None`): {key: number or text} for bars and labels.
+
+#### `ui.screen_set(player, values)`
+
+Changes the free values of the window the player has open from ui.open_screen.
+
+- `player`: Player or name.
+- `values`: {key: number or text}.
 
 #### `ui.data(window_id)`
 

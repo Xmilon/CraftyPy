@@ -27,9 +27,10 @@ public final class ScreenLayout {
 
     /** The kinds of piece, as the UI maker names them. */
     public static final Set<String> TYPES = Set.of("lg_panel", "lg_slot", "lg_slots", "lg_player", "lg_energy", "lg_fluid",
-            "lg_arrow", "lg_flame", "lg_label", "lg_icon");
-    /** What a bar, arrow or flame can show. */
+            "lg_arrow", "lg_flame", "lg_bar", "lg_label", "lg_icon");
+    /** What a bar, arrow or flame can show: the machine's own numbers, or {@code value:key} set by Python. */
     public static final Set<String> BINDINGS = Set.of("energy", "fluid", "progress");
+    private static final Pattern VALUE_BIND = Pattern.compile("value:[a-z][a-z0-9_]{0,24}");
 
     /**
      * One piece. {@code slot} is "group.n" for {@code lg_slot} (just "group" is slot 0 of it) and the group for
@@ -37,9 +38,14 @@ public final class ScreenLayout {
      * arrow or flame shows; {@code text} is a label's text or an icon's item id; {@code color} is a label's color (RGB).
      */
     public record Piece(String type, int x, int y, int width, int height, String slot, String bind, String text, int color,
-                        int columns, int rows) {
+                        int columns, int rows, double max) {
         public Piece(String type, int x, int y, int width, int height, String slot, String bind, String text, int color) {
-            this(type, x, y, width, height, slot, bind, text, color, 1, 1);
+            this(type, x, y, width, height, slot, bind, text, color, 1, 1, 100);
+        }
+
+        public Piece(String type, int x, int y, int width, int height, String slot, String bind, String text, int color,
+                     int columns, int rows) {
+            this(type, x, y, width, height, slot, bind, text, color, columns, rows, 100);
         }
     }
 
@@ -194,6 +200,9 @@ public final class ScreenLayout {
                 node.addProperty("columns", piece.columns());
                 node.addProperty("rows", piece.rows());
             }
+            if (piece.bind().startsWith("value:") || piece.type().equals("lg_bar")) {
+                node.addProperty("max", piece.max());
+            }
             children.add(node);
         }
         JsonObject root = new JsonObject();
@@ -243,27 +252,37 @@ public final class ScreenLayout {
             slot = m.matches() ? (type.equals("lg_slots") ? m.group(1) : m.group(1) + (m.group(2) == null ? "" : "." + m.group(2))) : "input";
         }
         String bind = string(node, "bind");
-        if (!BINDINGS.contains(bind)) {
+        if (!BINDINGS.contains(bind) && !VALUE_BIND.matcher(bind).matches()) {
             bind = switch (type) {
                 case "lg_energy" -> "energy";
                 case "lg_fluid" -> "fluid";
                 case "lg_arrow", "lg_flame" -> "progress";
+                case "lg_bar" -> "value:level";
                 default -> "";
             };
         }
-        if (!(type.equals("lg_energy") || type.equals("lg_fluid") || type.equals("lg_arrow") || type.equals("lg_flame"))) {
+        if (!(type.equals("lg_energy") || type.equals("lg_fluid") || type.equals("lg_arrow") || type.equals("lg_flame") || type.equals("lg_bar"))) {
             bind = "";
         }
+        double max = 100;
+        try {
+            max = node.has("max") && node.get("max").isJsonPrimitive() ? node.get("max").getAsDouble() : 100;
+        } catch (NumberFormatException | UnsupportedOperationException bad) {
+            max = 100;
+        }
+        if (!Double.isFinite(max) || max <= 0) max = 100;
         String text = type.equals("lg_label") || type.equals("lg_icon") ? truncate(string(node, "text").isEmpty()
                 ? string(node, "item") : string(node, "text"), 120) : "";
-        int color = type.equals("lg_label") ? color(string(node, "color")) : 0;
-        return new Piece(type, x, y, width, height, slot, bind, text, color, columns, rows);
+        int color = type.equals("lg_label") ? color(string(node, "color"), 0x404040)
+                : type.equals("lg_bar") ? color(string(node, "color"), 0x3C9A3C) : 0;
+        return new Piece(type, x, y, width, height, slot, bind, text, color, columns, rows, max);
     }
 
     private static int defaultWidth(String type) {
         return switch (type) {
             case "lg_panel" -> 176;
             case "lg_arrow" -> 22;
+            case "lg_bar" -> 50;
             case "lg_label" -> 80;
             default -> 16;
         };
@@ -273,17 +292,18 @@ public final class ScreenLayout {
         return switch (type) {
             case "lg_panel" -> 166;
             case "lg_arrow" -> 15;
+            case "lg_bar" -> 8;
             case "lg_label" -> 9;
             default -> 54;
         };
     }
 
-    private static int color(String text) {
+    private static int color(String text, int fallback) {
         String hex = text.startsWith("#") ? text.substring(1) : text;
         try {
-            return hex.length() == 6 ? Integer.parseInt(hex, 16) : 0x404040;
+            return hex.length() == 6 ? Integer.parseInt(hex, 16) : fallback;
         } catch (NumberFormatException bad) {
-            return 0x404040;
+            return fallback;
         }
     }
 
