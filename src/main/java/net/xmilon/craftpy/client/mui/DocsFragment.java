@@ -16,6 +16,6 @@ public class DocsFragment extends Fragment {
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable DataSet savedInstanceState) {
-        return HelpPanel.create(requireContext(), 1);
+        return HelpPanel.create(requireContext(), HelpPanel.START);
     }
 }

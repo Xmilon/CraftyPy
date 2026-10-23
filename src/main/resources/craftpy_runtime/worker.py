@@ -3610,7 +3610,7 @@ API_CHANGES = [
                "and `max`; labels show `{key}`. `ui.open_screen(player, layout, entity=, inventory=, values=)` opens such a window for an entity or the player "
                "(personal backpacks, a villager's wares) and `ui.screen_set` updates it. New event `entity_interact` (a player right clicks an entity; "
                "`ctx.cancel()` stops the entity's own reaction).",
-               "Minecraft-style windows: tick `legacy` in the UI maker's window properties, draw panels, item slots, the player inventory, "
+               "Minecraft-style windows: Tools > New UI window > Minecraft-style window opens its own maker; draw panels, item slots, the player inventory, "
                "energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout=\"my_window\")`."]},
     {"version": "2.10", "date": "2026-10-21",
      "added": ["Hub apps: `\"apps\": [{\"id\", \"name\", \"description\", \"window\", \"icon\", \"category\", \"order\"}]` and `\"icon\"` in project.json / module.json put windows of the module into the Hub (Apps tab). "

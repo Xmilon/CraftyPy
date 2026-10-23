@@ -608,7 +608,7 @@ This page describes Python API **2.11** (`API_VERSION` in your code). `apiVersio
 - **Added:** `world.machine_update(x, y, z, energy=, fluid=)`: add or remove energy and remove liquid of a loaded machine block.
 - **Added:** `Inventory(input=1, fuel=1, output=2, storage=9, accepts=, max_stack=, sides=)`: named item-slot groups for a machine block (up to 54 slots) with furnace-like automation by hoppers and pipes; `world.machine(...)["inventory"]` reads them and `world.machine_slot(...)` sets a slot. Legacy windows get *Item slot* (`group.number`) and *Slot grid* pieces.
 - **Added:** Bars bound to Python values: `world.machine_set(x, y, z, values={...})` and a *Value bar* (or any bar, arrow or flame) with `bind` = `value:key` and `max`; labels show `{key}`. `ui.open_screen(player, layout, entity=, inventory=, values=)` opens such a window for an entity or the player (personal backpacks, a villager's wares) and `ui.screen_set` updates it. New event `entity_interact` (a player right clicks an entity; `ctx.cancel()` stops the entity's own reaction).
-- **Added:** Minecraft-style windows: tick `legacy` in the UI maker's window properties, draw panels, item slots, the player inventory, energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout="my_window")`.
+- **Added:** Minecraft-style windows: Tools > New UI window > Minecraft-style window opens its own maker; draw panels, item slots, the player inventory, energy bars, liquid gauges, arrows, flames, labels and icons, and name the window with `Screen(layout="my_window")`.
 
 ### 2.10 (2026-10-21)
 
