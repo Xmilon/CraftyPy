@@ -152,15 +152,13 @@ public final class NetService {
     static String checkSite(String owner, String host) {
         NetPolicy.Zone zone = NetPolicy.zone(host, AccessConfig.strings(AccessConfig.ALLOWED_DOMAINS),
                 AccessConfig.strings(AccessConfig.DANGER_DOMAINS));
-        if (zone == NetPolicy.Zone.NONE) {
-            return host + " is not on the list of sites the server allows (craftpy-access.toml)";
-        }
         if (PermissionStore.netEntry(owner, host) != null) {
             return null;
         }
         if (PermissionStore.declared(owner).covering(host) != null) {
             return owner + " asked for " + host + " but it is not approved yet: open the Modules page (or the project's"
-                    + " Permissions) and approve it" + (zone == NetPolicy.Zone.DANGER ? " - this site is in the danger zone" : "");
+                    + " Permissions) and approve it" + (zone == NetPolicy.Zone.DANGER ? " - this site is in the danger zone"
+                    : zone == NetPolicy.Zone.NONE ? " - this site is not on the trusted list (flagged)" : "");
         }
         return owner + " did not declare " + host + ": add it to \"permissions\": {\"net\": [...]} in its project.json / module.json";
     }

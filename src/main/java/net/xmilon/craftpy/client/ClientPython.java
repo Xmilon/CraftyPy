@@ -385,8 +385,32 @@ public final class ClientPython {
             } catch (IOException | RuntimeException e) { failures.put(id, String.valueOf(e.getMessage())); }
         }
         int restarted = 0, loaded = 0;
+        // Applied before and kept across worlds (see shutdown), but with no worker yet: start the worker only.
+        // The unpacked code, the assets and the resource pack are already in place, so no extraction and no reload.
+        Set<String> idle = new HashSet<>();
+        for (String id : before.keySet()) {
+            if (candidates.containsKey(id) && !workers.containsKey("module:" + id) && !plan.restart().contains(id)
+                    && !plan.removed().contains(id) && !failures.containsKey(id)) idle.add(id);
+        }
         for (String id : net.xmilon.craftpy.analysis.ModuleGraph.loadOrder(graph)) {
             checkSession(session);
+            if (idle.contains(id) && !changed.contains(id)) {
+                try {
+                    for (String dep : candidates.get(id).dependencies) {
+                        String dependency = ModuleChanges.dependencyId(dep);
+                        if (failures.containsKey(dependency) || !next.containsKey(dependency))
+                            throw new IOException("Dependency " + dependency + " did not load");
+                    }
+                    loadModule(candidates.get(id), session);
+                    checkSession(session);
+                    loaded++;
+                } catch (IOException | RuntimeException e) {
+                    checkSession(session);
+                    stopWorker("module:" + id);
+                    failures.put(id, String.valueOf(e.getMessage()));
+                }
+                continue;
+            }
             if (!changed.contains(id) || failures.containsKey(id)) continue;
             try {
                 for (String dep : candidates.get(id).dependencies) {
@@ -407,7 +431,7 @@ public final class ClientPython {
                 failures.put(id, String.valueOf(e.getMessage()));
             }
         }
-        assert next.keySet().stream().allMatch(id -> workers.containsKey("module:" + id)) : "Applied module has no worker";
+        assert next.keySet().stream().allMatch(id -> workers.containsKey("module:" + id) || failures.containsKey(id)) : "Applied module has no worker";
         assert next.values().stream().allMatch(module -> module.snapshot().dependencies().stream()
                 .map(ModuleChanges::dependencyId).allMatch(next::containsKey)) : "Applied dependency is missing";
         boolean packChanged = resourceReloadPending;
@@ -683,29 +707,22 @@ public final class ClientPython {
     /** Leaving the world: stop the worker and take everything it drew off the screen. */
     public void shutdown() {
         synchronized (sessionGeneration) {
-            long session = sessionGeneration.incrementAndGet();
+            sessionGeneration.incrementAndGet();
             active = false;
             submit(() -> {
-                applied = Map.of();
+                // The applied modules (unpacked code, assets, resource pack) stay: the next world with the same modules
+                // only starts their workers, with no resource reload. A different set is applied as a normal change.
                 moduleFailures = Map.of();
-                clientModules.clear();
                 projectSnapshots = Map.of();
                 projectFailures = Map.of();
                 windowOwners.clear();
                 for (String owner : List.copyOf(workers.keySet())) {
                     stopWorker(owner);
                 }
-                try {
-                    checkSession(session);
-                    if (net.xmilon.craftpy.dynamics.ClientModulePack.refreshChecked()) reloadResources(session);
-                } finally {
-                    cleanupAssetCaches();
-                    packDirty = false;
-                    resourceReloadPending = false;
-                    active = false;
-                    tickQueued.set(false);
-                    tickCounter.set(0);
-                }
+                cleanupAssetCaches();
+                active = false;
+                tickQueued.set(false);
+                tickCounter.set(0);
             });
         }
         ClientHost.reset();

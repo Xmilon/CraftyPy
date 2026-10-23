@@ -17,11 +17,11 @@ public final class PermissionLabels {
             return "";
         }
         List<String> dangerous = new ArrayList<>();
-        List<String> blocked = new ArrayList<>();
+        List<String> flagged = new ArrayList<>();
         for (String site : asked.net) {
             switch (NetPolicy.zone(site, general, danger)) {
                 case DANGER -> dangerous.add(site);
-                case NONE -> blocked.add(site);
+                case NONE -> flagged.add(site);
                 default -> {
                 }
             }
@@ -39,8 +39,8 @@ public final class PermissionLabels {
             if (!dangerous.isEmpty()) {
                 sites.append(" (DANGER ZONE: ").append(String.join(", ", dangerous)).append(")");
             }
-            if (!blocked.isEmpty()) {
-                sites.append(" (the server does not allow: ").append(String.join(", ", blocked)).append(")");
+            if (!flagged.isEmpty()) {
+                sites.append(" (FLAGGED, not on the trusted list: ").append(String.join(", ", flagged)).append(")");
             }
             parts.add(sites.toString());
         }

@@ -19,8 +19,10 @@ public final class AccessConfig {
             .define("net.enabled", true);
 
     public static final ModConfigSpec.ConfigValue<List<? extends String>> ALLOWED_DOMAINS = BUILDER
-            .comment("General sites a module may ask to use (after it is approved). An entry also covers its subdomains:",
-                    "'wikipedia.org' allows en.wikipedia.org. HTTPS only. Remove a line to forbid a site.")
+            .comment("The TRUSTED list: general sites known to be fine for a module to read. It does not limit anything: a module",
+                    "may declare and use any site (HTTPS, after the player approves it), but a site that is not here (or is in the",
+                    "danger zone) is FLAGGED on the Modules page and in the README. An entry also covers its subdomains:",
+                    "'wikipedia.org' covers en.wikipedia.org.")
             .defineListAllowEmpty("net.allowedDomains", List.of(
                     // reference and knowledge
                     "wikipedia.org", "wikimedia.org", "wiktionary.org", "wikidata.org", "minecraft.wiki", "fandom.com",

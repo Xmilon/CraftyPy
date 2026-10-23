@@ -93,6 +93,7 @@ public final class ClientHud {
 
     /** The GUI layer registered by CraftPyClient: draws every element above the rest of the HUD. */
     public static void render(GuiGraphics graphics, DeltaTracker delta) {
+        JoinOverview.render(graphics);
         Minecraft minecraft = Minecraft.getInstance();
         if (ELEMENTS.isEmpty() || minecraft.options.hideGui || minecraft.level == null) {
             return;

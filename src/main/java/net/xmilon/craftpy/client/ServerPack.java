@@ -77,6 +77,7 @@ public final class ServerPack {
 
     private static void onInfo(JsonObject info, boolean joining) {
         lastInfo = info;
+        JoinOverview.show(info);
         if (remembered(serverKey(), listHash(info))) {
             for (JsonObject module : modules(info)) rememberModule(module, true);
             var legacy = known(); legacy.remove(serverKey());
@@ -211,9 +212,16 @@ public final class ServerPack {
 
     /** Leaving the server: its pack goes away, so the next world or server starts clean. */
     public static void forget() {
+        JoinOverview.clear();
         lastInfo = null;
         lastContext = null;
         incoming = null;
+        if (Files.exists(root()) && !Files.isDirectory(root().resolve("assets").resolve("minecraft"))) {
+            // Only the server's own namespaces: leaving them loaded changes nothing for other worlds, and joining the
+            // same server again needs no resource reload (the long loading screen). A pack that replaces vanilla assets
+            // is taken out as before.
+            return;
+        }
         installedSha = null;
         if (Files.exists(root())) {
             quietDelete(root());

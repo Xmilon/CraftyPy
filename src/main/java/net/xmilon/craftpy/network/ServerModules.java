@@ -84,6 +84,22 @@ public final class ServerModules {
             modules.add(entry);
         }
         out.add("modules", modules);
+        // every module the server runs, for the panel shown when joining
+        JsonArray overview = new JsonArray();
+        for (ModuleInfo module : ModuleLoader.list()) {
+            if (!module.loaded || !module.primary) {
+                continue;
+            }
+            JsonObject entry = new JsonObject();
+            entry.addProperty("id", module.id);
+            entry.addProperty("name", module.name.isBlank() ? module.id : module.name);
+            entry.addProperty("version", module.version);
+            String description = module.description == null ? "" : module.description.strip();
+            entry.addProperty("description", description.length() > 70 ? description.substring(0, 70) + "..." : description);
+            entry.addProperty("flagged", !module.permissions.isEmpty());
+            overview.add(entry);
+        }
+        out.add("overview", overview);
         ServerPackZip.Snapshot pack = ServerPackZip.current();
         if (pack != null) {
             JsonObject packInfo = new JsonObject();
