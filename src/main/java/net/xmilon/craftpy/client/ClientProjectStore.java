@@ -299,6 +299,16 @@ public final class ClientProjectStore {
         request(ProjectAction.CREATE_ENTRY, activeProjectId, Json.COMPACT.toJson(new EntryOp(path, type)));
     }
 
+    /** Creates a file and opens it once the server made it (the file list that follows names it). */
+    public void createAndOpen(String path) {
+        if (activeProjectId == null) {
+            append("Open a project first");
+            return;
+        }
+        pendingOpenFile = path;
+        createEntry(path, "file");
+    }
+
     public void deleteEntry(String path) {
         if (activeProjectId == null) {
             return;
@@ -860,6 +870,8 @@ public final class ClientProjectStore {
                 }
                 if (payload.success() && activeProjectId != null) {
                     request(ProjectAction.LIST_FILES, activeProjectId, "");
+                } else if (!payload.success()) {
+                    pendingOpenFile = null; // the file to open after createAndOpen was not made
                 }
             }
             case FIND_DEFINITION -> {

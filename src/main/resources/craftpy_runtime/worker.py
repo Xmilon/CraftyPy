@@ -1619,7 +1619,7 @@ class Screen(_Data):
     FluidTank, the empty container comes out in the second slot), a fluid gauge when the block has a FluidTank, an energy
     bar on the right when it has EnergyStorage, and your inventory. ``title`` is the text at the top.
 
-    ``layout="my_window"`` uses a window you drew in the UI maker (ui/my_window.json with "Legacy (Minecraft look)" ticked):
+    ``layout="my_window"`` uses a window you drew in the UI maker (ui/my_window.json made as a Minecraft-style window in Tools > New UI window):
     panels, slots, the player inventory, bars, arrows, flames, labels and icons at the positions you gave them."""
     applies_to = ("block",)
     type = "screen"
@@ -1637,7 +1637,7 @@ class Screen(_Data):
             if tree is None:
                 raise ValueError("Screen layout %r: there is no ui/%s.json in this project" % (layout, layout))
             if not tree.get("legacy"):
-                raise ValueError("Screen layout %r is not a Legacy (Minecraft look) window: tick that box in the UI maker" % layout)
+                raise ValueError("Screen layout %r is not a Minecraft-style window: make one with Tools > New UI window > Minecraft-style" % layout)
             self.layout = {"size": tree.get("size") or [176, 166], "root": tree["root"]}
             if len(json.dumps(self.layout)) > 24000:
                 raise ValueError("Screen layout %r is too large (at most 64 pieces)" % layout)
@@ -3250,7 +3250,7 @@ class _Ui:
     def open_screen(self, player, layout=None, *, title=None, entity=None, inventory=None, values=None):
         """Opens a Minecraft-style window that belongs to an entity (or to the player) instead of a block.
 
-        ``layout`` names a window of the UI maker with *legacy* ticked (ui/<layout>.json); without it the standard window of
+        ``layout`` names a Minecraft-style window of the UI maker (ui/<layout>.json); without it the standard window of
         ``inventory`` is shown. ``inventory=Inventory(wares=6, pay=1)`` gives the window item slots; they are kept in the data of
         ``entity`` (a mob, another player; default: the player, which makes a personal backpack) under this project's name and the
         layout's, so they stay with it. The entity must be within 8 blocks. ``values={"price": 5}`` sets free values for bars
@@ -3264,7 +3264,7 @@ class _Ui:
             if found is None:
                 raise KeyError("unknown window: %s (windows: %s)" % (layout, ", ".join(self.windows()) or "none"))
             if not found.get("legacy"):
-                raise ValueError("window %r is not a Legacy (Minecraft look) window: tick that box in the UI maker" % layout)
+                raise ValueError("window %r is not a Minecraft-style window: make one with Tools > New UI window > Minecraft-style" % layout)
             key = str(layout)
         name = _player_name(player)
         holder = ""
@@ -7118,7 +7118,7 @@ def _load_docs():
         "world.get_block": ("The block id at a position.", dict(POS3, dimension=DIM), "str, for example 'minecraft:stone'"),
         "world.machine": ("Read a loaded kinetic machine without loading chunks. Snapshot includes speed, theoretical_speed, overstressed, processing, progress, recipe and input/output stacks.", dict(POS3, dimension=DIM), "dict"),
         "world.machine_set": ("Set free values (numbers or short texts, at most 32 keys) on a loaded machine block; a window bar bound to value:key and a label with {key} show them. Returns the new snapshot.", dict(POS3, values="{key: number or text}; keys are lowercase words.", dimension=DIM), "dict"),
-        "ui.open_screen": ("Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).", {"player": "Player or name.", "layout": "A window of the UI maker with legacy ticked; none shows the standard window of the inventory.", "title": "Text at the top.", "entity": "Entity or player that owns the slots (within 8 blocks); default the player.", "inventory": "Inventory(...) giving the window item slots.", "values": "{key: number or text} for bars and labels."}, ""),
+        "ui.open_screen": ("Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).", {"player": "Player or name.", "layout": "A Minecraft-style window of the UI maker; none shows the standard window of the inventory.", "title": "Text at the top.", "entity": "Entity or player that owns the slots (within 8 blocks); default the player.", "inventory": "Inventory(...) giving the window item slots.", "values": "{key: number or text} for bars and labels."}, ""),
         "ui.screen_set": ("Changes the free values of the window the player has open from ui.open_screen.", {"player": "Player or name.", "values": "{key: number or text}."}, ""),
         "world.machine_slot": ("Put a stack into a slot ('group.number') of a loaded machine block, replacing what is there; item=None empties it. Returns the new snapshot.", dict(POS3, slot="'group.number' of the block's Inventory, such as 'input.0' or 'output.1'.", item="Item or id, or None to empty the slot.", count="Stack size, 0..64 (and the group's max_stack).", dimension=DIM), "dict"),
         "world.machine_update": ("Add or remove energy (FE) and remove fluid (mB, negative number) of a loaded machine block; returns its new snapshot. The block's capacity and contents limit it.", dict(POS3, energy="FE to add (negative removes).", fluid="mB to remove, 0 or negative.", dimension=DIM), "dict"),

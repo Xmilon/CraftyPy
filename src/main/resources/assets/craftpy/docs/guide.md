@@ -395,10 +395,13 @@ RELOAD the module so the pack is rebuilt. A folder named `media` directly under 
 A machine block (one with `EnergyStorage`, `FluidTank` or `Screen`) can open a window that looks like a furnace or a chest
 screen. You draw it in the UI maker and the block names it:
 
-1. **Tools > New UI window** and open it in the designer. In the window properties tick **legacy** (Minecraft look).
-   The window becomes 176 x 166 units with a panel; the toolbox now shows Minecraft pieces. **Fill with the standard
-   layout** starts from the usual machine window.
-2. Drag pieces in. Positions are fixed pixels like in a vanilla screen (the grid snaps them).
+1. **Tools > New UI window > Minecraft-style window** and pick a size (furnace 176 x 166, chest 176 x 222, wide, small or
+   your own). It opens in the Minecraft window maker: a plain panel at its exact size, drawn pixel for pixel like the game
+   draws it. The kind stays: Modern UI windows have their own maker. **The standard machine window** (window properties)
+   starts from the usual layout.
+2. Drag pieces in, or click one and click the window. Positions are GUI units like in a vanilla screen; slots snap to the
+   18-unit rows of other slots (hold Shift to place freely). The corner handle resizes the window: the panel follows and every
+   piece stays inside. Layers lists the pieces top first; Forward and Back change the drawing order.
 3. In Python: `Block(...).extends(EnergyStorage(...), Screen(title="Name", layout="my_window"))`.
 4. Right click the block with an empty hand to open it (sneak to place a block instead). A bucket or tank item in the first
    slot is poured into the block's `FluidTank`, the empty container comes out in the second slot.

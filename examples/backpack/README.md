@@ -18,7 +18,7 @@ Minecraft-style windows that belong to a player or to an entity instead of a blo
 
 | Part | Where | What it shows |
 | --- | --- | --- |
-| The windows | `ui/backpack.json`, `ui/pockets.json` | drawn in the UI maker with *legacy* ticked: panel, slot grid, labels, a value bar, your inventory |
+| The windows | `ui/backpack.json`, `ui/pockets.json` | Minecraft-style windows drawn in the UI maker: panel, slot grid, labels, a value bar, your inventory |
 | Opening one | `ui.open_screen(player, "backpack", inventory=Inventory(storage=9), values={...})` in `code/main.py` | the slots belong to the entity named with `entity=` (default: the player) |
 | Values | `{opened}` label and the `value:opened` bar (`max` 50) | numbers Python sets; `ui.screen_set` changes them while the window is open |
 | The villager | `@on.entity_interact` | the event fires when a player right clicks an entity; `ctx.cancel()` stops its own reaction |

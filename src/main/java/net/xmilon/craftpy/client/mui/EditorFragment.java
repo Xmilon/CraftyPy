@@ -96,7 +96,7 @@ public class EditorFragment extends Fragment {
     private LinearLayout windowDesignHost;
     private TextView windowDesignTab;
     private TextView windowSourceTab;
-    private UiDesigner windowDesigner;
+    private WindowDesign windowDesigner;
     private String designedWindowKey;
     private String designedWindowText;
     private List<Integer> windowSelection = List.of();
@@ -189,12 +189,6 @@ public class EditorFragment extends Fragment {
         @Override
         public void designWindow() {
             showWindowDesign(true);
-        }
-
-        @Override
-        public void openWindow(String path) {
-            windowSourceFiles.remove(fileKey(path));
-            openEntry(path, false);
         }
 
         @Override
@@ -2690,6 +2684,17 @@ public class EditorFragment extends Fragment {
             setSidePanel(uiMaker.view(), uiMakerSplitter, false);
         }
         String text = code.getText().toString();
+        String starter = text.isBlank() ? UiDesigner.STARTERS.remove(shownPath) : null;
+        if (starter != null) {
+            // a window just made by Tools > New UI window: its first contents, saved right away so the file is never empty
+            designedWindowKey = key;
+            designedWindowText = starter;
+            applyEdit(new TextOps.Edit(0, code.getText().length(), starter, 0, 0));
+            history(shownPath).breakGroup();
+            save();
+            text = starter;
+            designedWindowKey = null;
+        }
         if (key.equals(designedWindowKey) && text.equals(designedWindowText)) return;
         if (!key.equals(designedWindowKey)) windowSelection = List.of();
         designedWindowKey = key;
@@ -2709,14 +2714,18 @@ public class EditorFragment extends Fragment {
             return;
         }
         String id = shownPath.substring(3, shownPath.length() - 5);
-        windowDesigner = UiDesigner.create(requireContext(), id, text, json -> {
+        java.util.function.Consumer<String> apply = json -> {
             if (shownPath == null || !key.equals(fileKey(shownPath))) return;
             designedWindowText = json;
             history(shownPath).breakGroup();
             applyEdit(new TextOps.Edit(0, code.getText().length(), json, 0, 0));
             history(shownPath).breakGroup();
-        }, windowSelection, selection -> windowSelection = selection,
-                new UiDesigner.EditorActions(() -> undoText(false), () -> undoText(true), this::save));
+        };
+        var editorActions = new UiDesigner.EditorActions(() -> undoText(false), () -> undoText(true), this::save);
+        // a Minecraft-style window (chosen when it was made) has its own maker with the pieces of vanilla container screens
+        windowDesigner = LegacyDesigner.isLegacy(text)
+                ? LegacyDesigner.create(requireContext(), id, text, apply, editorActions)
+                : UiDesigner.create(requireContext(), id, text, apply, windowSelection, selection -> windowSelection = selection, editorActions);
         windowDesignHost.addView(windowDesigner.view(), new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
     }
 

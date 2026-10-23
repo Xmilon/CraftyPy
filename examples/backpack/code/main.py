@@ -5,7 +5,7 @@ from craftpy import *
 #   /backpack:open            your own backpack: 9 slots that stay with you (ui/backpack.json)
 #   shift + right click a villager   its pockets: 6 slots that stay with that villager (ui/pockets.json)
 #
-# ui.open_screen opens a window drawn in the UI maker (legacy ticked) for an entity or for the player. The item slots are
+# ui.open_screen opens a Minecraft-style window drawn in the UI maker for an entity or for the player. The item slots are
 # kept in that entity's data, under this project's name and the window's name, so they are saved with the world and no other
 # project can reach them. The windows themselves are made of the same pieces as a machine's window.
 

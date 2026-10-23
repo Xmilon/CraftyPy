@@ -62,8 +62,6 @@ final class EditorTools {
 
         void designWindow();
 
-        void openWindow(String path);
-
         int caret();
 
         int selectionStart();
@@ -445,8 +443,52 @@ final class EditorTools {
         dialog.setRows(rows);
     }
 
-    /** Creates {@code ui/<name>.json}; open it and start the designer from the Tools menu. */
+    /**
+     * Creates {@code ui/<name>.json}. The kind is chosen first and stays: a Modern UI window (ui.open, any widgets) or a
+     * Minecraft-style window (machine blocks and ui.open_screen, the pieces of vanilla container screens) in one of the
+     * usual sizes. The file opens in its maker as soon as the server made it.
+     */
     void newWindow() {
+        var dialog = ListDialog.open(host.anchor(), "New UI window", false, 560, 300);
+        dialog.setMessage("Choose the kind of window. It cannot be switched later: each kind has its own maker and pieces.");
+        List<ListDialog.Row> rows = new ArrayList<>();
+        rows.add(ListDialog.Row.link("Modern UI window", "buttons, fields, lists, media; opened with ui.open(player, id)", () -> {
+            dialog.dismiss();
+            askWindowId(id -> {
+                JsonObject fresh = UiDesigner.parse(id, "");
+                return new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(fresh) + "\n";
+            });
+        }));
+        for (Object[] preset : LegacyDesigner.PRESETS) {
+            rows.add(ListDialog.Row.link("Minecraft-style window, " + preset[0].toString().toLowerCase(java.util.Locale.ROOT)
+                    + " size " + preset[1] + " x " + preset[2], "slots, gauges, bars; a machine's Screen(layout=id) or ui.open_screen", () -> {
+                dialog.dismiss();
+                askWindowId(id -> starter(id, (int) preset[1], (int) preset[2]));
+            }));
+        }
+        rows.add(ListDialog.Row.link("Minecraft-style window, other size", "width x height in GUI units, "
+                + net.xmilon.craftpy.menu.ScreenLayout.MIN_SIZE + " to " + net.xmilon.craftpy.menu.ScreenLayout.MAX_SIZE, () -> {
+            dialog.dismiss();
+            prompt(host.anchor(), "Size in GUI units (width x height)", "176 x 166", "Next", size -> {
+                var m = java.util.regex.Pattern.compile("\\s*(\\d{1,3})\\s*[xX*, ]\\s*(\\d{1,3})\\s*").matcher(size);
+                if (!m.matches()) {
+                    host.toast("Write the size as width x height, for example 176 x 166");
+                    return;
+                }
+                int width = Integer.parseInt(m.group(1)), height = Integer.parseInt(m.group(2));
+                askWindowId(id -> starter(id, width, height));
+            });
+        }));
+        dialog.setRows(rows);
+    }
+
+    private static String starter(String id, int width, int height) {
+        JsonObject window = net.xmilon.craftpy.menu.LegacyEdit.create(id, id, width, height);
+        return new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(window) + "\n";
+    }
+
+    /** Asks for the window id, then creates the file with the contents {@code first} gives for that id and opens it. */
+    private void askWindowId(java.util.function.Function<String, String> first) {
         prompt(host.anchor(), "New window id (letters, digits, _)", "main", "Create", name -> {
             String clean = name.trim().toLowerCase(java.util.Locale.ROOT);
             if (!clean.matches("[a-z0-9_]+")) {
@@ -454,10 +496,13 @@ final class EditorTools {
                 return;
             }
             String path = "ui/" + clean + ".json";
-            store(s -> s.createEntry(path, "file"));
-            // open it once the server made it: the UI maker then designs it (an empty file starts a new window)
-            host.anchor().postDelayed(() -> host.openWindow(path), 700);
-            host.toast("Created " + path + " - open Design to add components");
+            if (net.xmilon.craftpy.client.ClientProjectStore.getInstance().files().contains(path)) {
+                host.toast(path + " already exists");
+                return;
+            }
+            UiDesigner.STARTERS.put(path, first.apply(clean));
+            store(s -> s.createAndOpen(path));
+            host.toast("Created " + path);
         });
     }
 

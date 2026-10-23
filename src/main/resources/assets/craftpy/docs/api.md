@@ -1135,7 +1135,7 @@ It shows the block's two item slots (the input takes a filled bucket or tank ite
 FluidTank, the empty container comes out in the second slot), a fluid gauge when the block has a FluidTank, an energy
 bar on the right when it has EnergyStorage, and your inventory. ``title`` is the text at the top.
 
-``layout="my_window"`` uses a window you drew in the UI maker (ui/my_window.json with "Legacy (Minecraft look)" ticked):
+``layout="my_window"`` uses a window you drew in the UI maker (ui/my_window.json made as a Minecraft-style window in Tools > New UI window):
 panels, slots, the player inventory, bars, arrows, flames, labels and icons at the positions you gave them.
 
 - `title` (default `None`): Text at the top of the window.
@@ -2226,7 +2226,7 @@ Opens a window for a player.
 Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).
 
 - `player`: Player or name.
-- `layout` (default `None`): A window of the UI maker with legacy ticked; none shows the standard window of the inventory.
+- `layout` (default `None`): A Minecraft-style window of the UI maker; none shows the standard window of the inventory.
 - `title` (default `None`): Text at the top.
 - `entity` (default `None`): Entity or player that owns the slots (within 8 blocks); default the player.
 - `inventory` (default `None`): Inventory(...) giving the window item slots.

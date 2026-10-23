@@ -35,19 +35,19 @@ import static net.xmilon.craftpy.client.mui.CraftPyFragment.*;
  * selected widget on the right. It edits the JSON text of the open editor tab; nothing is written to disk until
  * the user saves that tab. UI thread only.
  */
-final class UiDesigner {
+final class UiDesigner implements WindowDesign {
     private static final Set<String> CONTAINERS = Set.of("vbox", "hbox", "grid", "tabs", "scroll", "canvas");
     private static final List<String> TYPES = List.of("label", "button", "text_input", "text_area", "checkbox",
             "slider", "dropdown", "list", "progress", "image", "item_icon", "video", "audio", "canvas", "vbox", "hbox", "grid", "tabs",
             "scroll");
-    /** The pieces of a Minecraft-style (legacy) window; the toolbox shows these instead when the window is legacy. */
-    private static final List<String> LEGACY_TYPES = List.of("lg_panel", "lg_slot", "lg_slots", "lg_player", "lg_energy", "lg_fluid",
-            "lg_arrow", "lg_flame", "lg_bar", "lg_label", "lg_icon");
-    private static final List<String> SLOTS = List.of("input", "output");
-    private static final List<String> BINDS = List.of("energy", "fluid", "progress");
+    /**
+     * The first contents of windows just made by Tools > New UI window, by path: the editor writes one into the empty new file
+     * when it opens (Modern UI or Minecraft-style, chosen when the window was made). UI thread only.
+     */
+    static final java.util.Map<String, String> STARTERS = new java.util.HashMap<>();
     private static final Set<String> NUMBERS = Set.of("size", "weight", "spacing", "padding", "columns", "min", "max",
             "selected", "width", "height", "x", "y", "speed", "volume", "position", "opacity", "z", "rows");
-    private static final Set<String> BOOLEANS = Set.of("checked", "visible", "enabled", "autoplay", "loop", "muted", "controls", "legacy");
+    private static final Set<String> BOOLEANS = Set.of("checked", "visible", "enabled", "autoplay", "loop", "muted", "controls");
     private static final List<String> FITS = List.of("contain", "cover", "stretch");
     /** Positions and sizes snap to this many dp. */
     static final int GRID = 4;
@@ -106,7 +106,8 @@ final class UiDesigner {
         return designer;
     }
 
-    View view() {
+    @Override
+    public View view() {
         return workspace;
     }
 
@@ -345,33 +346,12 @@ final class UiDesigner {
             case "grid" -> "Grid layout";
             case "tabs" -> "Tab layout";
             case "scroll" -> "Scroll area";
-            case "lg_panel" -> "Panel";
-            case "lg_slot" -> "Item slot";
-            case "lg_slots" -> "Slot grid";
-            case "lg_player" -> "Player inventory";
-            case "lg_energy" -> "Energy bar";
-            case "lg_fluid" -> "Liquid gauge";
-            case "lg_arrow" -> "Progress arrow";
-            case "lg_flame" -> "Flame";
-            case "lg_bar" -> "Value bar";
-            case "lg_label" -> "Text";
-            case "lg_icon" -> "Item icon (fixed)";
             case "text_input" -> "Text field";
             case "text_area" -> "Text area";
             case "item_icon" -> "Item icon";
             case "progress" -> "Progress bar";
             default -> Character.toUpperCase(type.charAt(0)) + type.substring(1);
         };
-    }
-
-    static List<String> legacyTypes(String query) {
-        String needle = query.trim().toLowerCase(java.util.Locale.ROOT);
-        return LEGACY_TYPES.stream().filter(type -> displayName(type).toLowerCase(java.util.Locale.ROOT).contains(needle)).toList();
-    }
-
-    /** True for a window of the Minecraft look (Screen(layout=...) of a machine block). */
-    private boolean legacy() {
-        return window.has("legacy") && window.get("legacy").isJsonPrimitive() && window.get("legacy").getAsBoolean();
     }
 
     static List<String> toolboxTypes(String query) {
@@ -383,11 +363,11 @@ final class UiDesigner {
     private void refreshToolbox(String query) {
         toolbox.removeAllViews();
         toolButtons.clear();
-        List<String> matching = legacy() ? legacyTypes(query) : toolboxTypes(query);
+        List<String> matching = toolboxTypes(query);
         for (boolean layouts : new boolean[] {false, true}) {
             List<String> group = matching.stream().filter(type -> isContainer(type) == layouts).toList();
             if (group.isEmpty()) continue;
-            toolbox.addView(section(legacy() ? "Minecraft pieces" : layouts ? "Containers" : "Controls"));
+            toolbox.addView(section(layouts ? "Containers" : "Controls"));
             var tiles = new FlowLayout(context);
             tiles.setPadding(tiles.dp(6), tiles.dp(2), tiles.dp(6), tiles.dp(6));
             toolbox.addView(tiles, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
@@ -428,7 +408,8 @@ final class UiDesigner {
     }
 
     /** Esc is routed here before the editor leaves the page. */
-    boolean back() {
+    @Override
+    public boolean back() {
         if (preview != null && preview.mode != PreviewOverlay.Mode.NONE && preview.beforeGesture != null) {
             restore(window, preview.beforeGesture);
             select(nodeAt(window.getAsJsonObject("root"), preview.beforeSelection));
@@ -875,13 +856,11 @@ final class UiDesigner {
         MediaView.releaseAll(previewHolder); // the clips of the old preview stop and give their memory back
         previewHolder.removeAllViews();
         int[] size = windowSize();
-        var frame = legacy() ? new LinearLayout(context) : card(context);
+        var frame = card(context);
         frame.setOrientation(LinearLayout.VERTICAL);
-        int pad = legacy() ? 0 : frame.dp(10);
+        int pad = frame.dp(10);
         frame.setPadding(pad, pad, pad, pad);
-        if (!legacy()) {
-            frame.addView(label(context, WindowFragment.str(window, "title", ""), R.attr.textAppearanceTitleMedium));
-        }
+        frame.addView(label(context, WindowFragment.str(window, "title", ""), R.attr.textAppearanceTitleMedium));
         java.util.Map<View, JsonObject> shown = new java.util.HashMap<>();
         try {
             JsonObject root = window.getAsJsonObject("root");
@@ -928,12 +907,21 @@ final class UiDesigner {
     }
 
     private int[] windowSize() {
-        int[] size = legacy() ? new int[]{176, 166} : new int[]{320, 220};
+        int[] size = {320, 220};
         if (window.has("size") && window.get("size").isJsonArray() && window.getAsJsonArray("size").size() >= 2) {
-            size[0] = Math.max(legacy() ? 64 : 120, Math.min(900, window.getAsJsonArray("size").get(0).getAsInt()));
-            size[1] = Math.max(legacy() ? 64 : 80, Math.min(600, window.getAsJsonArray("size").get(1).getAsInt()));
+            // a size typed by hand in Source may not be a number: the default stays then
+            size[0] = Math.max(120, Math.min(900, sizeOf(window.getAsJsonArray("size").get(0), size[0])));
+            size[1] = Math.max(80, Math.min(600, sizeOf(window.getAsJsonArray("size").get(1), size[1])));
         }
         return size;
+    }
+
+    private static int sizeOf(JsonElement value, int fallback) {
+        try {
+            return value.isJsonPrimitive() ? (int) Math.round(value.getAsDouble()) : fallback;
+        } catch (NumberFormatException | UnsupportedOperationException bad) {
+            return fallback;
+        }
     }
 
     /**
@@ -1657,46 +1645,6 @@ final class UiDesigner {
                 node.addProperty("controls", true);
             }
             case "item_icon" -> node.addProperty("item", "minecraft:diamond");
-            case "lg_panel" -> {
-                node.addProperty("width", 176);
-                node.addProperty("height", 166);
-            }
-            case "lg_slot" -> node.addProperty("slot", "input.0");
-            case "lg_slots" -> {
-                node.addProperty("slot", "storage");
-                node.addProperty("columns", 3);
-                node.addProperty("rows", 3);
-            }
-            case "lg_energy" -> {
-                node.addProperty("width", 16);
-                node.addProperty("height", 54);
-                node.addProperty("bind", "energy");
-            }
-            case "lg_fluid" -> {
-                node.addProperty("width", 16);
-                node.addProperty("height", 54);
-                node.addProperty("bind", "fluid");
-            }
-            case "lg_arrow" -> {
-                node.addProperty("width", 22);
-                node.addProperty("height", 15);
-                node.addProperty("bind", "progress");
-            }
-            case "lg_flame" -> node.addProperty("bind", "progress");
-            case "lg_bar" -> {
-                node.addProperty("width", 50);
-                node.addProperty("height", 8);
-                node.addProperty("bind", "value:level");
-                node.addProperty("max", 100);
-                node.addProperty("color", "#3C9A3C");
-            }
-            case "lg_label" -> {
-                node.addProperty("text", "Text");
-                node.addProperty("width", 80);
-                node.addProperty("height", 9);
-                node.addProperty("color", "#404040");
-            }
-            case "lg_icon" -> node.addProperty("item", "minecraft:diamond");
             case "grid" -> node.addProperty("columns", 2);
             default -> {
             }
@@ -1726,22 +1674,6 @@ final class UiDesigner {
 
     private static List<String> propsOf(String type, JsonObject node) {
         List<String> list = new ArrayList<>();
-        if (type.startsWith("lg_")) {
-            // pieces sit at fixed positions: x, y and the few things each piece has
-            switch (type) {
-                case "lg_panel" -> list.addAll(List.of("width", "height"));
-                case "lg_slot" -> list.add("slot");
-                case "lg_slots" -> list.addAll(List.of("slot", "columns", "rows"));
-                case "lg_energy", "lg_fluid", "lg_arrow" -> list.addAll(List.of("bind", "max", "width", "height"));
-                case "lg_bar" -> list.addAll(List.of("bind", "max", "color", "width", "height"));
-                case "lg_flame" -> list.addAll(List.of("bind", "max"));
-                case "lg_label" -> list.addAll(List.of("text", "color", "width"));
-                case "lg_icon" -> list.add("item");
-                default -> {
-                }
-            }
-            return list;
-        }
         switch (type) {
             case "label" -> list.addAll(List.of("text", "size", "color", "style"));
             case "button" -> list.addAll(List.of("text", "on_click", "style"));
@@ -1787,18 +1719,8 @@ final class UiDesigner {
         boolean isRoot = selected == window.getAsJsonObject("root");
         if (isRoot) {
             props.addView(label(context, "Window", R.attr.textAppearanceTitleSmall));
-            for (String key : new String[]{"id", "title", "width", "height", "legacy"}) {
+            for (String key : new String[]{"id", "title", "width", "height"}) {
                 props.addView(field(context, key, windowValue(key), value -> setWindow(key, value)));
-            }
-            if (legacy()) {
-                props.addView(button(context, "Fill with the standard layout", R.attr.borderlessButtonStyle, view -> {
-                    JsonObject standard = net.xmilon.craftpy.menu.ScreenLayout.defaults(true, true, true).toJson();
-                    window.getAsJsonObject("root").add("children", standard.getAsJsonObject("root").getAsJsonArray("children"));
-                    window.add("size", standard.get("size"));
-                    selected = window.getAsJsonObject("root");
-                    refreshAll();
-                    changed();
-                }));
             }
             props.addView(spacer(context));
         }
@@ -1864,9 +1786,6 @@ final class UiDesigner {
             case "position" -> "Seconds from the start";
             case "volume" -> "0 to 1";
             case "controls" -> "Show a bar with play, seek, speed and volume";
-            case "legacy" -> "Minecraft look, for the window of a machine block (Screen(layout=...)): fixed pieces at 176 x 166 units";
-            case "slot" -> "A slot of the machine as group.number, for example input.0, fuel.0, output.1, storage.4 (the groups of Inventory(...)); a grid takes the group only";
-            case "bind" -> "What the piece shows: energy, fluid or progress of the machine, or value:name for a number Python sets (world.machine_set / ui.screen_set); max is the value that fills it";
             default -> key;
         };
     }
@@ -1948,59 +1867,7 @@ final class UiDesigner {
         };
     }
 
-    /**
-     * Switches the Minecraft look on or off. A legacy window is a free layout of fixed pieces at 176 x 166 units like a
-     * vanilla container screen, so it can only be switched on for an empty free layout (a new window); the panel is added.
-     */
-    private void setLegacy(boolean on) {
-        JsonObject root = window.getAsJsonObject("root");
-        if (on) {
-            boolean empty = !root.has("children") || root.getAsJsonArray("children").isEmpty();
-            if (!"canvas".equals(WindowFragment.str(root, "type", "")) && !empty) {
-                bindingProblems.clear();
-                bindingProblems.add("The Minecraft look needs an empty window: make a new window (Tools > New UI window) and tick it there.");
-                if (bindingStatus != null) bindingStatus.setText(String.join("\n", bindingProblems));
-                refreshProps();
-                return;
-            }
-            if (!"canvas".equals(WindowFragment.str(root, "type", ""))) {
-                root = newNode("canvas");
-                window.add("root", root);
-            }
-            window.addProperty("legacy", true);
-            JsonArray size = new JsonArray();
-            size.add(176);
-            size.add(166);
-            window.add("size", size);
-            JsonArray children = root.has("children") ? root.getAsJsonArray("children") : new JsonArray();
-            root.add("children", children);
-            boolean hasPanel = false;
-            for (JsonElement child : children) {
-                hasPanel |= child.isJsonObject() && "lg_panel".equals(WindowFragment.str(child.getAsJsonObject(), "type", ""));
-            }
-            if (!hasPanel) {
-                JsonArray withPanel = new JsonArray();
-                JsonObject panel = newNode("lg_panel");
-                panel.addProperty("x", 0);
-                panel.addProperty("y", 0);
-                withPanel.add(panel);
-                children.forEach(withPanel::add);
-                root.add("children", withPanel);
-            }
-        } else {
-            window.remove("legacy");
-        }
-        selected = window.getAsJsonObject("root");
-        refreshToolbox("");
-        refreshAll();
-        changed();
-    }
-
     private void setWindow(String key, String value) {
-        if (key.equals("legacy")) {
-            setLegacy(Boolean.parseBoolean(value));
-            return;
-        }
         if (key.equals("width") || key.equals("height")) {
             JsonArray size = new JsonArray();
             int w = parseInt(windowValue("width"), 320);
