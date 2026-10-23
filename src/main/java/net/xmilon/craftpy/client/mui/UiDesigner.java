@@ -46,7 +46,7 @@ final class UiDesigner {
     private static final List<String> SLOTS = List.of("input", "output");
     private static final List<String> BINDS = List.of("energy", "fluid", "progress");
     private static final Set<String> NUMBERS = Set.of("size", "weight", "spacing", "padding", "columns", "min", "max",
-            "selected", "width", "height", "x", "y", "speed", "volume", "position", "opacity", "z", "rows", "max");
+            "selected", "width", "height", "x", "y", "speed", "volume", "position", "opacity", "z", "rows");
     private static final Set<String> BOOLEANS = Set.of("checked", "visible", "enabled", "autoplay", "loop", "muted", "controls", "legacy");
     private static final List<String> FITS = List.of("contain", "cover", "stretch");
     /** Positions and sizes snap to this many dp. */
