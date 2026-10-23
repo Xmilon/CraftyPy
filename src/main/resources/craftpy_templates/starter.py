@@ -2,7 +2,7 @@
 # Full reference: the Docs page. Textures go in assets/textures/ (16x16 PNG).
 from craftpy import *
 
-# A block that uses a vanilla texture. Get it with: /craftpy give @s {{id}}:shiny_stone block
+# A block that uses a vanilla texture. Get it with: /craftpy give @s {{id}}:shiny_stone
 shiny_stone = Block("shiny_stone", texture="minecraft:amethyst_block", hardness=1.5, light=8)
 
 # An item, and a recipe for it: 4 amethyst shards in a square.

@@ -28,7 +28,7 @@ class {{name}}_window(Window):
         storage[key] = dict(saved, on=not saved["on"])
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def open_{{name}}(ctx):
     """/{{id}}:{{name}} - open the settings."""
     ui.open(ctx.player, "{{name}}")

@@ -57,7 +57,7 @@ def burn(ctx):
         world.machine_set(ctx.x, ctx.y, ctx.z, values={"rate": mb}, dimension=ctx.dimension)
 
 
-@command("sapbucket")
+@command("sapbucket", level=2)
 def sapbucket(ctx):
     """/powercell:sapbucket - gives you a bucket of Volt Sap and a Sap Generator to try it with."""
     ctx.player.give(volt_sap.bucket, 3)

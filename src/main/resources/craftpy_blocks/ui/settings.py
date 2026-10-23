@@ -32,7 +32,7 @@ class SettingsWindow(Window):
         ctx.player.actionbar("Settings saved")
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def open_{{name}}(ctx):
     """/{{id}}:{{name}} - open the settings."""
     ui.open(ctx.player, "{{name}}")

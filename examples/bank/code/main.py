@@ -104,28 +104,28 @@ def do_send(player, name, amount):
 
 # ---- commands: the same actions without the window ----
 
-@command("balance")
+@command("balance", level=0)
 def balance(ctx):
     """/bank:balance - how many emeralds are in your account."""
     remember(ctx.player)
     ctx.player.say("Bank balance:", load(ctx.player.uuid)["balance"], "emerald(s)")
 
 
-@command("deposit")
+@command("deposit", level=0)
 def deposit_command(ctx, amount: int):
     """/bank:deposit <amount> - put emeralds from your inventory into your account."""
     value = ledger.parse_amount(amount)
     do_deposit(ctx.player, value) if value else ctx.player.say("Choose an amount from 1 to", ledger.MAX_AMOUNT)
 
 
-@command("withdraw")
+@command("withdraw", level=0)
 def withdraw_command(ctx, amount: int):
     """/bank:withdraw <amount> - take emeralds out of your account."""
     value = ledger.parse_amount(amount)
     do_withdraw(ctx.player, value) if value else ctx.player.say("Choose an amount from 1 to", ledger.MAX_AMOUNT)
 
 
-@command("send")
+@command("send", level=0)
 def send_command(ctx, name: str, amount: int):
     """/bank:send <player> <amount> - send emeralds from your account to another player."""
     value = ledger.parse_amount(amount)
@@ -183,7 +183,7 @@ def bank_send(ctx):
     do_send(ctx.player, ctx.values.get("recipient"), amount)
 
 
-@command("open")
+@command("open", level=0)
 def open_bank(ctx):
     """/bank:open - open the bank window."""
     ui.open(ctx.player, "bank")

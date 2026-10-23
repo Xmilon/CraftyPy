@@ -30,7 +30,7 @@ class CounterWindow(Window):
         self.count = max(0, self.count - 1)
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def open_{{name}}(ctx):
     """/{{id}}:{{name}} - open the window."""
     ui.open(ctx.player, "{{name}}")

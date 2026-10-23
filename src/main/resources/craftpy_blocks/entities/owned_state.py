@@ -8,7 +8,7 @@
 from craftpy import *
 
 {{name}} = Mob('{{name}}', behavior='follow')
-@command('{{name}}')
+@command('{{name}}', level=2)
 def spawn_{{name}}(ctx):
     entity = world.spawn({{name}}, ctx.player.pos, dimension=ctx.player.dimension, owner=ctx.player)
     entity.set_state('visits', 0)

@@ -27,7 +27,6 @@ public final class CraftPyPermissions {
     public static final PermissionNode<Boolean> MODULE = node("module", 2);
     public static final PermissionNode<Boolean> GIVE = node("give", 2);
     public static final PermissionNode<Boolean> PY = node("py", 3);
-    public static final PermissionNode<Boolean> WINDOW = node("window", 2);
     public static final PermissionNode<Boolean> DEBUG = node("debug", 3);
 
     private static PermissionNode<Boolean> node(String path, int fallbackLevel) {
@@ -45,7 +44,7 @@ public final class CraftPyPermissions {
 
     /** Every registered node, exposed for tests and for the /craftpy help tree. */
     public static List<PermissionNode<Boolean>> all() {
-        return List.of(IDE, PROJECT, MODULE, GIVE, PY, WINDOW, DEBUG);
+        return List.of(IDE, PROJECT, MODULE, GIVE, PY, DEBUG);
     }
 
     @SubscribeEvent

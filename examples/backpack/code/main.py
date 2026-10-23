@@ -10,7 +10,7 @@ from craftpy import *
 # project can reach them. The windows themselves are made of the same pieces as a machine's window.
 
 
-@command("open")
+@command("open", level=0)
 def open_backpack(ctx):
     """/backpack:open - your own backpack"""
     opened = storage.get("opened:" + ctx.player.uuid, 0) + 1

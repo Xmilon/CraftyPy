@@ -6,7 +6,7 @@
 from craftpy import *
 
 
-@command("sethome")
+@command("sethome", level=0)
 def sethome_{{name}}(ctx):
     """/{{id}}:sethome - remember this place."""
     p = ctx.player
@@ -14,7 +14,7 @@ def sethome_{{name}}(ctx):
     p.actionbar("Home set")
 
 
-@command("home")
+@command("home", level=0)
 def home_{{name}}(ctx):
     """/{{id}}:home - go back home."""
     p = ctx.player

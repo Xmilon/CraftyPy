@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def cooldown_{{name}}(ctx):
     p = ctx.player
     now = server.info().get('game_time', 0)

@@ -7,11 +7,11 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}_save')
+@command('{{name}}_save', level=0)
 def save_{{name}}(ctx):
     p = ctx.player
     storage.set('{{name}}:' + p.uuid, dict(x=p.x, y=p.y, z=p.z, dimension=p.dimension))
-@command('{{name}}_return')
+@command('{{name}}_return', level=0)
 def return_{{name}}(ctx):
     spot = storage.get('{{name}}:' + ctx.player.uuid)
     if spot:

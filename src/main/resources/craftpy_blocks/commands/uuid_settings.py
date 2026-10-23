@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def settings_{{name}}(ctx, enabled: bool):
     storage.set('{{name}}:' + ctx.player.uuid, enabled)
     ctx.player.say('Preference saved:', enabled)

@@ -6,7 +6,7 @@
 from craftpy import *
 
 
-@command("{{name}}")
+@command("{{name}}", level=2)
 def {{name}}(ctx):
     """/{{id}}:{{name}} - call a guard."""
     golem = world.spawn("minecraft:iron_golem", ctx.player.pos.up(1))

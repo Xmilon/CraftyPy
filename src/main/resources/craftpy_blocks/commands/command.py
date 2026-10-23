@@ -6,7 +6,7 @@
 from craftpy import *
 
 
-@command("{{name}}")
+@command("{{name}}", level=2)
 def {{name}}(ctx, target: Player, amount: int):
     """/{{id}}:{{name}} <player> <amount> - give diamonds."""
     target.give("diamond", amount)

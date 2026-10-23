@@ -3,32 +3,32 @@ from craftpy import *
 from items import gem
 
 
-@command("gift")
+@command("gift", level=2)
 def gift(ctx, target: Player, amount: int):
     """/{{id}}:gift <player> <amount> - give gems."""
     target.give(gem, amount)
     target.say(f"You received {amount} gem(s).")
 
 
-@command("stats")
+@command("stats", level=0)
 def stats(ctx):
     """/{{id}}:stats - how many gem ores were mined."""
     ctx.player.say("Gem ores mined so far:", storage.get("ores_mined", 0))
 
 
-@command("menu")
+@command("menu", level=0)
 def menu(ctx):
     """/{{id}}:menu - open the counter window."""
     ui.open(ctx.player, "counter")
 
 
-@command("settings")
+@command("settings", level=0)
 def settings(ctx):
     """/{{id}}:settings - open the window that was drawn in the UI designer (ui/settings.json)."""
     ui.open(ctx.player, "settings")
 
 
-@command("selftest")
+@command("selftest", level=2)
 def selftest(ctx):
     """/{{id}}:selftest - checks a few API calls and tells you what passed."""
     player = ctx.player

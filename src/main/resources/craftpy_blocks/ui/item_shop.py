@@ -32,7 +32,7 @@ class ItemShop(Window):
             ctx.player.actionbar(f"You need {price} emerald(s)")
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def open_{{name}}(ctx):
     """/{{id}}:{{name}} - open the shop."""
     ui.open(ctx.player, "{{name}}")

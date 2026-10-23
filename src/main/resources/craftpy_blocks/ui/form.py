@@ -27,7 +27,7 @@ class NameForm(Window):
         ctx.close()
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def open_{{name}}(ctx):
     """/{{id}}:{{name}} - open the form."""
     ui.open(ctx.player, "{{name}}")

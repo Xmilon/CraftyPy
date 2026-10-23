@@ -6,7 +6,7 @@
 from craftpy import *
 
 
-@command("{{name}}")
+@command("{{name}}", level=2)
 def {{name}}(ctx):
     """/{{id}}:{{name}} - day and clear weather."""
     world.set_time(1000)

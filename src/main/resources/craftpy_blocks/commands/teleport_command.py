@@ -6,7 +6,7 @@
 from craftpy import *
 
 
-@command("{{name}}")
+@command("{{name}}", level=2)
 def {{name}}(ctx, target: Player, blocks: int):
     """/{{id}}:{{name}} <player> <blocks> - lift a player."""
     target.teleport(target.x, target.y + max(1, min(blocks, 100)), target.z)

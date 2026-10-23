@@ -24,7 +24,7 @@ class PlayerList(Window):
         pass  # the window is rebuilt after every callback
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def open_{{name}}(ctx):
     """/{{id}}:{{name}} - show who is online."""
     ui.open(ctx.player, "{{name}}")

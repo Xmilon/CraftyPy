@@ -8,7 +8,7 @@
 from craftpy import *
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def {{name}}(ctx):
     """/{{id}}:{{name}} - the temperature in Rome right now."""
     name = ctx.player.name

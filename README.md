@@ -34,20 +34,28 @@ The first start unpacks Python to `pyforge/system/python/` and checks it against
 1. Craft a **CraftPy Computer** and right-click it. Once you have crafted one, ops can also press `I`.
 2. Make a project on the Home page and edit `code/main.py`.
 3. Press **Run** (`Ctrl+R`). Output goes to the console at the bottom.
-4. `/craftpy give <you> <project>:<id> block` gives you what you made.
+4. `/craftpy give <you> <project>:<id>` gives you what you made.
 
 The **Docs** page in game has the guide and the full API reference ([api.md](src/main/resources/assets/craftpy/docs/api.md)).
-**Welcome tour** is a template: choose it in **New project** (Home) and the whole tour is written into a project of your name, with every file commented (items, blocks, recipes, events, timers, commands, two windows, a test). It needs no other mod and nothing exists until you create it. The only other example is `examples/bank`, a plain project (a Hub app: deposit, withdraw and send emeralds); copy it into `pyforge/projects` or build a `.cpm` from it.
+**Welcome tour** is a template: choose it in **New project** (Home) and the whole tour is written into a project of your name, with every file commented (items, blocks, recipes, events, timers, commands, two windows, a test). It needs no other mod and nothing exists until you create it. The `examples/` folder has whole projects to copy into `pyforge/projects` (or build a `.cpm` from): **Bank** (a Hub app: deposit, withdraw and send emeralds), **Power Cell** (a liquid, a generator, energy for any mod's cables), **Backpack** (windows for players and villagers) and **Dust Works** (tagged dusts, a grinder machine, statistics).
 
 ## Commands
 
-- `/craftpy give <player> <project>:<id> <block|item|egg> [count]`: Content of a project (vanilla `/give` can't)
-- `/craftpy summon <project>:<mob> [pos]`: Spawns a project mob
-- `/craftpy place <template> [pos] [rotation]`: Places a structure template
-- `/craftpy module list|enable|disable|info|reload <module>`: Manages modules (also from the server console)
-- `/craftpy project trust <project>`: Lets a project that came from elsewhere use what it declares
+`/craftpy` alone lists the commands you may use. Operators (level 2) have:
 
-A project's own `@command("name")` becomes `/<project>:<name>`. All of these need op (level 2).
+- `/craftpy give <player> <project>:<id> [amount]`: a project's block or item (vanilla `/give` can't); `... egg [amount]` for a mob's spawn egg
+- `/craftpy summon <project>:<mob> [pos]` and `/craftpy place <template> [pos] [rotation]`: spawn a project mob, place a structure
+- `/craftpy structure import <saved> <project>`: copy what a structure block saved into a project
+- `/craftpy ide open|close [player]`, `/craftpy ide project <id> [player]`: the IDE screen
+- `/craftpy project list|new|run|stop|delete|trust`: projects you are developing (run starts its code now)
+- `/craftpy module [list]`, `enable|disable|info <module>`, `build <project> [version]`, `reload`: installed modules (enable and disable apply on reload; also from the server console)
+
+Server admins (level 3) also have `/craftpy backup create [project]`, `list` and `restore <file> [project]` (every
+project's storage, files and loaded machines as JSON in `<world>/craftpy_backups/`), `/craftpy py <code>`, `/craftpy debug
+list|slots` and `/craftpy game restart [seconds]|cancel`.
+
+A project's own `@command("name", level=0)` becomes `/<project>:<name>`; `level` says who may run it (0 every player,
+2 operators, 3 server admins, 4 the server owner).
 
 ## Projects and modules
 

@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def reminder_{{name}}(ctx, text: str):
     name, message = ctx.player.name, text[:100]
     def deliver():

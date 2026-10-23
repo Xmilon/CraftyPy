@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=2)
 def transfer_{{name}}(ctx, x: int, y: int, z: int):
     moved = world.transfer((x,y,z), (x+1,y,z), 'fluid', 1000, source_side='east', target_side='west', dimension=ctx.player.dimension)
     ctx.player.say('Moved', moved)

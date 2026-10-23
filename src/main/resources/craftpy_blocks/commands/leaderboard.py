@@ -13,7 +13,7 @@ def {{name}}_count(event):
     storage["{{name}}"] = scores
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def {{name}}(ctx):
     """/{{id}}:{{name}} - the top 5 block breakers."""
     scores = storage.get("{{name}}", {})

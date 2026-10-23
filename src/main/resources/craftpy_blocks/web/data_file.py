@@ -7,7 +7,7 @@
 from craftpy import *
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def {{name}}(ctx, text: str):
     """/{{id}}:{{name}} <text> - save a note."""
     notes = files.read_json("notes.json", default=[])

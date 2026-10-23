@@ -24,6 +24,6 @@ def apply_{{name}}(ctx):
         return
     storage.set(key, dict(value=old.get('value', 0) + 1, draft=str(ctx.values.get('draft') or '')[:120]))
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def open_{{name}}(ctx):
     ui.open(ctx.player, '{{name}}')

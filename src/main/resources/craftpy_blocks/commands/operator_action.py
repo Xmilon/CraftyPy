@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=2)
 def operator_{{name}}(ctx):
     if ctx.player and ctx.player.operator:
         world.weather('clear', dimension=ctx.player.dimension)

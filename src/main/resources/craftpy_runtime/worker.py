@@ -1976,17 +1976,38 @@ def _matches(ctx, wanted):
     return True
 
 
-def command(name, **params):
-    """Registers ``/<project>:<name>``. Arguments come from the function signature:
+_COMMAND_LEVELS = {0: "every player", 1: "players allowed to bypass spawn protection", 2: "operators (like /give)",
+                   3: "server admins (like /kick)", 4: "the server owner (like /stop)"}
+_TARGET_API = [(0, 0)]   # the apiVersion of the project or module being run (project.json / module.json)
+_COMMANDS_WITHOUT_LEVEL = []
 
-        @command("heal")
-        def heal(ctx, target: Player, amount: int): ...
 
-    Supported annotations: int, float, bool, str, Player. Explicit ``**params`` also work.
+def command(name, level=None, **params):
+    """Registers ``/<project>:<name>``; ``level`` says who may run it. Arguments come from the function signature:
+
+        @command("heal", level=0)               # every player
+        def heal(ctx, target: Player, amount: int = 4): ...
+
+    ``level``: 0 every player, 2 operators (like /give), 3 server admins, 4 the server owner. Since API 2.12 it must be
+    given; a project written for an older API gets 2 and a note. Supported annotations: int, float, bool, str, Player; a
+    parameter with a default value may be left out when the command is typed. Explicit ``**params`` also work.
     """
+    if level is None:
+        if _TARGET_API[0] >= (2, 12):
+            raise ValueError("@command(%r) needs level=: who may run it. 0 every player, 2 operators (like /give), "
+                             "3 server admins, 4 the server owner. For example @command(%r, level=0)" % (name, name))
+        level = 2
+        _COMMANDS_WITHOUT_LEVEL.append(name)
+    if isinstance(level, bool) or not isinstance(level, int) or level not in _COMMAND_LEVELS:
+        raise ValueError("@command(%r, level=%r): level is 0 (every player), 1, 2 (operators), 3 or 4" % (name, level))
+    import re
+    if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9_.-]{1,40}", name):
+        raise ValueError("@command(%r): a command name is lowercase letters, digits, _ . - (at most 40)" % (name,))
+
     def deco(fn):
         declared = dict(params)
         converters = {}
+        optional = []
         if not declared:
             signature = inspect.signature(fn)
             for index, (pname, parameter) in enumerate(signature.parameters.items()):
@@ -1996,7 +2017,9 @@ def command(name, **params):
                 declared[pname] = {int: "int", float: "float", bool: "bool", Player: "player"}.get(annotation, "str")
                 if annotation is Player:
                     converters[pname] = Player.named
-        _DECLS["commands"].append({"name": name, "params": declared})
+                if parameter.default is not inspect.Parameter.empty:
+                    optional.append(pname)
+        _DECLS["commands"].append({"name": name, "params": declared, "level": level, "optional": optional})
         uses_signature = not params and len(inspect.signature(fn).parameters) > 1
 
         def handler(ctx):
@@ -3636,11 +3659,18 @@ API_CHANGES = [
                "`tag(...)` checks the tag id and type and takes `#other_tag` values; a liquid's bucket works in tags and recipes. "
                "Use the shared `c:` tags (`c:dusts/diorite`, `c:ingots/tin`) so other mods use your items.",
                "`/craftpy backup create [project]`, `list` and `restore <file> [project]`: the `storage` values, `files.*` folders and loaded machines "
-               "of every module and project as one JSON file in `<world>/craftpy_backups/`; a restore first backs up what it replaces."],
+               "of every module and project as one JSON file in `<world>/craftpy_backups/`; a restore first backs up what it replaces.",
+               "`@command(name, level=...)`: who may run the command (0 every player, 2 operators, 3 server admins, 4 the server owner); "
+               "an argument with a default value may be left out when typing it."],
      "changed": ["A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.",
                  "Several recipes for the same item each keep their own id (the second one used to replace the first).",
                  "`files.*` and client `storage` are written to a temporary file and moved over the old one, so a crash keeps the old file whole; "
-                 "a world `storage` file that cannot be read is copied aside (`craftpy_storage.dat.unreadable-<time>`) before anything is saved over it."]},
+                 "a world `storage` file that cannot be read is copied aside (`craftpy_storage.dat.unreadable-<time>`) before anything is saved over it.",
+                 "`@command` needs `level=` in projects written for API 2.12 (older ones get 2, operators, and a console note). A command now runs "
+                 "only in the project that declared it (two projects with a `heal` command no longer both run), disappears when its project stops, "
+                 "keeps working after `/reload`, and a changed declaration replaces the old command. Player arguments arrive as the player.",
+                 "`/craftpy` lists the commands you may use; `/craftpy window` (it never worked), `give ... block|item` (the kind is found from the id) "
+                 "and `module reload <module>` (every module reloads together) are gone; `/craftpy module` lists the modules everywhere."]},
     {"version": "2.11", "date": "2026-10-23",
      "added": ["`Fluid(id, ...)`: custom liquids that are real NeoForge fluids (flowing, swimmable, buckets, tanks and pipes of any mod). "
                "`density`, `viscosity`, `temperature`, `light`, `color` or own `still` / `flowing` textures, `effects` while an entity is in it, "
@@ -3770,16 +3800,23 @@ def _deprecated(name, fn):
     return call
 
 
-def _api_notes(folder, meta_file):
-    """Console notes after a run: a project written for a newer API than this one, old names that were used."""
+def _declared_api(folder, meta_file):
+    """The apiVersion of project.json / module.json, or None."""
     import os
-    notes = []
-    declared = None
     try:
         with open(os.path.join(folder or "", meta_file), encoding="utf-8") as handle:
-            declared = json.load(handle).get("apiVersion")
+            return json.load(handle).get("apiVersion")
     except (OSError, ValueError, AttributeError):
-        pass
+        return None
+
+
+def _api_notes(folder, meta_file):
+    """Console notes after a run: a project written for a newer API than this one, old names that were used."""
+    notes = []
+    declared = _declared_api(folder, meta_file)
+    for name in _COMMANDS_WITHOUT_LEVEL:
+        notes.append("[api] @command(%r) has no level=, so only operators (level 2) can run it. Write level=0 to let every "
+                     "player use it, or level=2 to keep it for operators; API 2.12 projects must say it." % name)
     if declared and _api_tuple(declared) > _api_tuple(API_VERSION):
         notes.append("[api] This project was written for Python API %s, this CraftPy has %s: names added after %s "
                      "are missing. Update CraftPy." % (declared, API_VERSION, API_VERSION))
@@ -4551,6 +4588,8 @@ def _load_module(params):
     try:
         _drop_owner(owner, host=not library)
         _read_ui_dir(base_dir, owner)
+        _TARGET_API[0] = _api_tuple(_declared_api(base_dir, "module.json"))
+        del _COMMANDS_WITHOUT_LEVEL[:]
         result = _run_code(code, main_file, "module_%s" % module_id, persistent=True, owner=owner,
                            sources=_read_sources(base_dir))
     except BaseException:
@@ -5184,6 +5223,8 @@ def _handle(method, params):
         try:
             _drop_owner(owner)
             _read_ui_dir(params.get("dir"), owner)
+            _TARGET_API[0] = _api_tuple(_declared_api(params.get("dir"), "project.json"))
+            del _COMMANDS_WITHOUT_LEVEL[:]
             result = _run_code(code, name, "__craftpy_main__", debug=debug, owner=owner, sources=sources)
             result["log"].extend(_api_notes(params.get("dir"), "project.json"))
             _PREVIOUS[owner] = snapshot  # kept until the host confirms it could apply this run (revert_owner)
@@ -7101,8 +7142,10 @@ def _load_docs():
         "run_every": ("Runs a function every N ticks until cancelled.", {"ticks": "Interval in ticks.",
                                                                          "fn": "Function; receives the tick count."}, "A Task (task.cancel() stops it)."),
         "run_next_tick": ("Runs a function on the next game tick.", {"fn": "Function to run."}, "A Task."),
-        "command": ("Registers /<project>:<name>. Arguments come from the function signature (int, float, bool, str, Player).", {
-            "name": "Command name.", "params": "Explicit argument types instead of annotations (optional)."}, ""),
+        "command": ("Registers /<project>:<name>. Arguments come from the function signature (int, float, bool, str, Player); one with a default may be left out.", {
+            "name": "Command name: lowercase letters, digits, _ . -.",
+            "level": "Who may run it: 0 every player, 2 operators (like /give), 3 server admins, 4 the server owner. Required since API 2.12.",
+            "params": "Explicit argument types instead of annotations (optional)."}, ""),
         "on_load": ("Runs the decorated function when the project or module is loaded.", {"fn": "The function."}, ""),
         "on_unload": ("Runs the decorated function when the project or module is unloaded.", {"fn": "The function."}, ""),
         "action": ("Names a function that buttons of ui/*.json windows can call: @action('save').", {"name": "Action name used in on_click."}, ""),

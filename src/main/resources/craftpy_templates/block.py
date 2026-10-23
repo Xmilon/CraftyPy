@@ -1,5 +1,5 @@
 # {{id}} - a custom ore block with drops, a tool requirement and a smelting recipe.
-# Press Run, then: /craftpy give @s {{id}}:gem_ore block 16
+# Press Run, then: /craftpy give @s {{id}}:gem_ore 16
 from craftpy import *
 
 gem = Item("gem", texture="minecraft:amethyst_shard")

@@ -7,6 +7,6 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def status_{{name}}(ctx):
     ctx.player.say(str(server.info()))

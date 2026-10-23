@@ -7,6 +7,6 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def inspect_{{name}}(ctx, x: int, y: int, z: int):
     ctx.player.say(str(world.resources((x,y,z), dimension=ctx.player.dimension, side='up')))

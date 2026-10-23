@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def entities_{{name}}(ctx):
     p = ctx.player
     for entity in world.entities(p.pos, radius=8, dimension=p.dimension)[:20]:

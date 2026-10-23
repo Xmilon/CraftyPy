@@ -246,7 +246,7 @@ public final class LineEdits {
         t.put("onu", "@on.item_use\ndef used(event):\n    $0");
         t.put("onc", "@on.chat\ndef chat(event):\n    if event.message == \"$0\":\n        pass");
         t.put("ond", "@on.entity_death\ndef died(event):\n    $0");
-        t.put("cmd", "@command(\"name\")\ndef name(ctx):\n    \"\"\"/project:name - what it does.\"\"\"\n    $0");
+        t.put("cmd", "@command(\"name\", level=0)\ndef name(ctx):\n    \"\"\"/project:name - what it does.\"\"\"\n    $0");
         t.put("every", "@every(seconds=10)\ndef tick():\n    $0");
         t.put("after", "after(5, lambda: $0)");
         t.put("win", "@window(\"id\", title=\"Title\", size=(260, 160))\nclass MyWindow(Window):\n    def build(self, ctx):\n"

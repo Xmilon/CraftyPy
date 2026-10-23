@@ -6,7 +6,7 @@ GUARD_NAME = "Ruby Guard"
 token = Item("guard_token", name="Guard Token", texture="minecraft:gold_nugget", glow=True)
 
 
-@command("guard")
+@command("guard", level=2)
 def spawn_guard(ctx, target: Player):
     """/{{id}}:guard <player> - spawns a zombie guard next to the player."""
     guard = world.spawn("zombie", target.pos.up(1))

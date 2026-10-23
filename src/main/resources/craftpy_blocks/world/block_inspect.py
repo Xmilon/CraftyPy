@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def block_{{name}}(ctx):
     p = ctx.player
     p.say(str(world.get_block(int(p.x), int(p.y)-1, int(p.z), dimension=p.dimension)))

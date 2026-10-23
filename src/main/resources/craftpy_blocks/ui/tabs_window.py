@@ -16,7 +16,7 @@ class {{name}}_window(Window):
         )
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def open_{{name}}(ctx):
     """/{{id}}:{{name}} - open the guide."""
     ui.open(ctx.player, "{{name}}")

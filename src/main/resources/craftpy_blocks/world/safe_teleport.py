@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def teleport_{{name}}(ctx):
     p = ctx.player
     p.teleport(p.x + 3, p.y, p.z, dimension=p.dimension, safe=True)

@@ -6,7 +6,7 @@
 from craftpy import *
 
 
-@command("{{name}}")
+@command("{{name}}", level=2)
 def {{name}}(ctx):
     """/{{id}}:{{name}} - a 5x4x5 hut next to you."""
     x, y, z = int(ctx.player.x) + 2, int(ctx.player.y), int(ctx.player.z) + 2

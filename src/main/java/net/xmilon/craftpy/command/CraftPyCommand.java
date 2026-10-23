@@ -55,8 +55,10 @@ public final class CraftPyCommand {
     private CraftPyCommand() {
     }
 
+    private static CommandDispatcher<CommandSourceStack> tree;
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext context) {
-        ProjectCommandRegistry.init(dispatcher, context);
+        tree = dispatcher;
         dispatcher.register(Commands.literal("craftpy")
                 .executes(CraftPyCommand::rootHelp)
                 .then(give())
@@ -67,26 +69,34 @@ public final class CraftPyCommand {
                 .then(project())
                 .then(moduleGroup())
                 .then(py())
-                .then(window())
                 .then(debug())
                 .then(BackupCommand.node())
                 .then(game()));
+        // after /craftpy: the commands of the running projects go into this new tree too
+        ProjectCommandRegistry.init(dispatcher, context);
     }
 
     // ------------------------------------------------------------------
     // Root help / command tree
     // ------------------------------------------------------------------
 
+    /** The commands this source may use, read from the real tree, so the help never lists one that is not there. */
     private static int rootHelp(CommandContext<CommandSourceStack> ctx) {
-        ctx.getSource().sendSuccess(() -> Component.literal(
-                "CraftPy commands: give, ide open|close|project <id>, project list|new|delete|run|stop, "
-                        + "module list|info|build|reload, py <code>, window open|close, debug list|slots."),
-                false);
+        var root = tree == null ? null : tree.getRoot().getChild("craftpy");
+        if (root == null) {
+            return 0;
+        }
+        StringBuilder text = new StringBuilder("CraftPy commands you can use:");
+        for (var usage : tree.getSmartUsage(root, ctx.getSource()).values()) {
+            text.append("\n  /craftpy ").append(usage);
+        }
+        text.append("\nProjects add their own: /<project>:<command>.");
+        ctx.getSource().sendSuccess(() -> Component.literal(text.toString()), false);
         return 1;
     }
 
     // ------------------------------------------------------------------
-    // /craftpy give <player> <project:content> [count]   (block/item is detected; "block" / "item" still force a kind)
+    // /craftpy give <player> <project:content> [amount]   (block or item is found from the id), or ... egg [amount]
     // ------------------------------------------------------------------
 
     private static LiteralArgumentBuilder<CommandSourceStack> give() {
@@ -98,20 +108,10 @@ public final class CraftPyCommand {
                                 .executes(ctx -> give(ctx, null, 1))
                                 .then(Commands.argument("amount", IntegerArgumentType.integer(1, 64))
                                         .executes(ctx -> give(ctx, null, IntegerArgumentType.getInteger(ctx, "amount"))))
-                                .then(Commands.literal("block")
-                                        .executes(ctx -> give(ctx, SlotRegistry.Kind.BLOCK, 1))
-                                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
-                                                .executes(ctx -> give(ctx, SlotRegistry.Kind.BLOCK,
-                                                        IntegerArgumentType.getInteger(ctx, "count")))))
-                                .then(Commands.literal("item")
-                                        .executes(ctx -> give(ctx, SlotRegistry.Kind.ITEM, 1))
-                                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
-                                                .executes(ctx -> give(ctx, SlotRegistry.Kind.ITEM,
-                                                        IntegerArgumentType.getInteger(ctx, "count")))))
                                 .then(Commands.literal("egg")
                                         .executes(ctx -> giveEgg(ctx, 1))
-                                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
-                                                .executes(ctx -> giveEgg(ctx, IntegerArgumentType.getInteger(ctx, "count")))))));
+                                        .then(Commands.argument("amount", IntegerArgumentType.integer(1, 64))
+                                                .executes(ctx -> giveEgg(ctx, IntegerArgumentType.getInteger(ctx, "amount")))))));
     }
 
     // /craftpy summon <project:mob> [pos]
@@ -293,15 +293,19 @@ public final class CraftPyCommand {
             ctx.getSource().sendSuccess(() -> Component.literal("Gave native block " + id + " to " + target.getName().getString()), true); return 1;
         }
         String resolution;
+        String alsoItem = null;
         if (kind == null) {
             kind = SlotRegistry.Kind.BLOCK;
             resolution = resolve(id, kind);
+            String asItem = resolve(id, SlotRegistry.Kind.ITEM);
             if (resolution.startsWith("ERROR:")) {
-                String asItem = resolve(id, SlotRegistry.Kind.ITEM);
                 if (!asItem.startsWith("ERROR:")) {
                     kind = SlotRegistry.Kind.ITEM;
                     resolution = asItem;
                 }
+            } else if (asItem.startsWith("ITEM#")) {
+                // a block and an item of the same name: the block is given, and the item's own id is named
+                alsoItem = "craftpy:pcitem_" + asItem.substring(asItem.indexOf('#') + 1);
             }
         } else {
             resolution = resolve(id, kind);
@@ -329,8 +333,9 @@ public final class CraftPyCommand {
                 .map(java.util.Map.Entry::getKey)
                 .findFirst()
                 .orElse(id.toString());
+        final String note = alsoItem == null ? "" : " (an item has the same name: /give " + target.getName().getString() + " " + alsoItem + ")";
         ctx.getSource().sendSuccess(() -> Component.literal("Gave " + giveCount + " [" + holder + " ("
-                + given.name().toLowerCase(java.util.Locale.ROOT) + ")] to " + target.getName().getString()), true);
+                + given.name().toLowerCase(java.util.Locale.ROOT) + ")] to " + target.getName().getString() + note), true);
         return 1;
     }
 
@@ -602,21 +607,13 @@ public final class CraftPyCommand {
     }
 
     // ------------------------------------------------------------------
-    // /craftpy module list|info|build|reload
+    // /craftpy module [list] | enable|disable|info <module> | build <project> [version] | reload
     // ------------------------------------------------------------------
 
     private static LiteralArgumentBuilder<CommandSourceStack> moduleGroup() {
         return Commands.literal("module")
                 .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
-                .executes(ctx -> {
-                    ServerPlayer player = ctx.getSource().getPlayer();
-                    if (player == null) { // the server console: no IDE to open
-                        return moduleList(ctx);
-                    }
-                    openIdeScreen(player, null);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Opened CraftPy - see the Modules page."), false);
-                    return 1;
-                })
+                .executes(CraftPyCommand::moduleList)
                 .then(Commands.literal("list").executes(CraftPyCommand::moduleList))
                 .then(Commands.literal("enable")
                         .then(Commands.argument("module", StringArgumentType.word())
@@ -629,8 +626,7 @@ public final class CraftPyCommand {
                 .then(Commands.literal("info")
                         .then(Commands.argument("module", StringArgumentType.word())
                                 .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(moduleIds(), builder))
-                                .executes(ctx -> moduleInfo(ctx, StringArgumentType.getString(ctx, "module"))))
-                        .executes(CraftPyCommand::moduleList))
+                                .executes(ctx -> moduleInfo(ctx, StringArgumentType.getString(ctx, "module")))))
                 .then(Commands.literal("build")
                         .then(Commands.argument("project", StringArgumentType.word())
                                 .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(projectIds(), builder))
@@ -638,12 +634,8 @@ public final class CraftPyCommand {
                                 .then(Commands.argument("version", StringArgumentType.string())
                                         .executes(ctx -> moduleBuild(ctx, StringArgumentType.getString(ctx, "project"),
                                                 StringArgumentType.getString(ctx, "version"))))))
-                .then(Commands.literal("reload")
-                        .executes(ctx -> moduleReloadAll(ctx))
-                        .then(Commands.argument("module", StringArgumentType.word())
-                                .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(moduleIds(), builder))
-                                .executes(ctx -> moduleReload(ctx,
-                                        StringArgumentType.getString(ctx, "module")))));
+                // every module is reloaded together: they import each other, one alone could see an old dependency
+                .then(Commands.literal("reload").executes(ctx -> moduleReloadAll(ctx)));
     }
 
     private static int moduleList(CommandContext<CommandSourceStack> ctx) {
@@ -752,18 +744,6 @@ public final class CraftPyCommand {
         return 1;
     }
 
-    private static int moduleReload(CommandContext<CommandSourceStack> ctx, String id) {
-        if (!allowed(ctx, CraftPyPermissions.MODULE)) {
-            fail(ctx, "Missing permission " + CraftPyPermissions.MODULE.getNodeName() + ".");
-            return 0;
-        }
-        if (ModuleLoader.findFileById(id) == null) {
-            fail(ctx, "Unknown module '" + id + "'.");
-            return 0;
-        }
-        return moduleReloadAll(ctx);
-    }
-
     private static int moduleReloadAll(CommandContext<CommandSourceStack> ctx) {
         if (!allowed(ctx, CraftPyPermissions.MODULE)) {
             fail(ctx, "Missing permission " + CraftPyPermissions.MODULE.getNodeName() + ".");
@@ -832,37 +812,6 @@ public final class CraftPyCommand {
             }
         }));
         return 1;
-    }
-
-    // ------------------------------------------------------------------
-    // /craftpy window open|close <module:window> [player]   (M13 pending)
-    // ------------------------------------------------------------------
-
-    private static LiteralArgumentBuilder<CommandSourceStack> window() {
-        return Commands.literal("window")
-                .requires(source -> source.hasPermission(Math.max(2, net.xmilon.craftpy.Config.get(net.xmilon.craftpy.Config.PERMISSION_LEVEL))))
-                .then(Commands.literal("open")
-                        .then(Commands.argument("module_window", StringArgumentType.string())
-                                .executes(ctx -> windowNotAvailable(ctx))
-                                .then(Commands.argument("player", EntityArgument.player())
-                                        .executes(ctx -> windowNotAvailable(ctx))))
-                        .executes(ctx -> windowNotAvailable(ctx)))
-                .then(Commands.literal("close")
-                        .then(Commands.argument("module_window", StringArgumentType.string())
-                                .executes(ctx -> windowNotAvailable(ctx))
-                                .then(Commands.argument("player", EntityArgument.player())
-                                        .executes(ctx -> windowNotAvailable(ctx))))
-                        .executes(ctx -> windowNotAvailable(ctx)));
-    }
-
-    /** Honest stub: the Python window toolkit is milestone M13, not this build. */
-    private static int windowNotAvailable(CommandContext<CommandSourceStack> ctx) {
-        if (!allowed(ctx, CraftPyPermissions.WINDOW)) {
-            fail(ctx, "Missing permission " + CraftPyPermissions.WINDOW.getNodeName() + ".");
-            return 0;
-        }
-        fail(ctx, "Python windows are not available in this build yet (planned for milestone M13).");
-        return 0;
     }
 
     // ------------------------------------------------------------------

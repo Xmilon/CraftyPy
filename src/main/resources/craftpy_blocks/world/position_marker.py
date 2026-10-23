@@ -7,7 +7,7 @@
 #: keywords: 
 from craftpy import *
 
-@command('{{name}}')
+@command('{{name}}', level=0)
 def marker_{{name}}(ctx):
     world.particle('minecraft:happy_villager', ctx.player.pos, count=12, dimension=ctx.player.dimension)
     ctx.player.play_sound('minecraft:block.note_block.bell')

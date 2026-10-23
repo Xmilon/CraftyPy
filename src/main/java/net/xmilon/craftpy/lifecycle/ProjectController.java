@@ -231,7 +231,7 @@ public final class ProjectController {
                             "[" + projectId + "] Changes that affect registries cannot be hot-reloaded; run /craftpy game restart when ready.");
                 }
                 try {
-                    net.xmilon.craftpy.command.ProjectCommandRegistry.register(projectId, declarations);
+                    net.xmilon.craftpy.command.ProjectCommandRegistry.register(projectId, net.xmilon.craftpy.python.PyRuntime.owner(projectId, false), declarations);
                 } catch (Exception e) {
                     CraftPyLog.LOGGER.warn("Failed to register project commands for {}", projectId, e);
                 }

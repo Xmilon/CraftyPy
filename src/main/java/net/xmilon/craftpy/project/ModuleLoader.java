@@ -709,7 +709,7 @@ public final class ModuleLoader {
         try {
             SlotRegistry.applyAll(moduleId, declarations);
             try {
-                net.xmilon.craftpy.command.ProjectCommandRegistry.register(moduleId, declarations);
+                net.xmilon.craftpy.command.ProjectCommandRegistry.register(moduleId, net.xmilon.craftpy.python.PyRuntime.owner(moduleId, true), declarations);
             } catch (Exception e) {
                 CraftPyLog.LOGGER.warn("Failed to register module commands for {}", moduleId, e);
             }

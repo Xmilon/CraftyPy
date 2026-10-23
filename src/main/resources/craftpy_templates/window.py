@@ -23,7 +23,7 @@ class HelloWindow(Window):
         ctx.player.actionbar(f"Clicked {self.clicks}")
 
 
-@command("open")
+@command("open", level=2)
 def open_window(ctx, target: Player):
     """/{{id}}:open <player> - open the window."""
     ui.open(target, "hello")

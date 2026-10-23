@@ -6,7 +6,7 @@
 from craftpy import *
 
 
-@command("{{name}}")
+@command("{{name}}", level=0)
 def {{name}}(ctx):
     """/{{id}}:{{name}} - sparkles for 3 seconds."""
     player = ctx.player

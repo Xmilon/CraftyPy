@@ -307,14 +307,23 @@ def mined(event):
 **What it is:** a `/command` for your project, with tab completion.
 
 ```python
-@command("gift")
-def gift(ctx, target: Player, amount: int):
-    """/<project>:gift <target> <amount> - give rubies."""
+@command("gift", level=2)                        # operators only
+def gift(ctx, target: Player, amount: int = 1):
+    """/<project>:gift <target> [amount] - give rubies."""
     target.give(ruby, amount)
+
+
+@command("rubies", level=0)                      # every player
+def rubies(ctx):
+    ctx.player.say("You have", ctx.player.count(ruby), "rubies")
 ```
 
-- Argument types come from the annotations: `int`, `float`, `bool`, `str`, `Player`.
-- `ctx.player` is who ran it. Commands need operator permission (level 2).
+- `level` says who may run it: `0` every player, `2` operators (what `/give` needs), `3` server admins, `4` the server
+  owner. Since API 2.12 every command says it; a project written for an older API gets `2` and a note in the console.
+- Argument types come from the annotations: `int`, `float`, `bool`, `str`, `Player`. An argument with a default value
+  may be left out when the command is typed.
+- `ctx.player` is who ran it (`None` from the server console). The command runs only in your project, and it disappears
+  when the project stops.
 
 ## Timers
 
@@ -609,9 +618,12 @@ This page describes Python API **2.12** (`API_VERSION` in your code). `apiVersio
 
 - **Added:** Tags everywhere: `Fluid(tags=[...])` (the still and flowing liquid both), `Block(item_tags=[...])` for the block's item, `tag(...)` checks the tag id and type and takes `#other_tag` values; a liquid's bucket works in tags and recipes. Use the shared `c:` tags (`c:dusts/diorite`, `c:ingots/tin`) so other mods use your items.
 - **Added:** `/craftpy backup create [project]`, `list` and `restore <file> [project]`: the `storage` values, `files.*` folders and loaded machines of every module and project as one JSON file in `<world>/craftpy_backups/`; a restore first backs up what it replaces.
+- **Added:** `@command(name, level=...)`: who may run the command (0 every player, 2 operators, 3 server admins, 4 the server owner); an argument with a default value may be left out when typing it.
 - **Changed:** A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.
 - **Changed:** Several recipes for the same item each keep their own id (the second one used to replace the first).
 - **Changed:** `files.*` and client `storage` are written to a temporary file and moved over the old one, so a crash keeps the old file whole; a world `storage` file that cannot be read is copied aside (`craftpy_storage.dat.unreadable-<time>`) before anything is saved over it.
+- **Changed:** `@command` needs `level=` in projects written for API 2.12 (older ones get 2, operators, and a console note). A command now runs only in the project that declared it (two projects with a `heal` command no longer both run), disappears when its project stops, keeps working after `/reload`, and a changed declaration replaces the old command. Player arguments arrive as the player.
+- **Changed:** `/craftpy` lists the commands you may use; `/craftpy window` (it never worked), `give ... block|item` (the kind is found from the id) and `module reload <module>` (every module reloads together) are gone; `/craftpy module` lists the modules everywhere.
 
 ### 2.11 (2026-10-23)
 
@@ -1450,11 +1462,12 @@ Runs a function on the next game tick.
 
 Returns: A Task.
 
-#### `command(name, **params)`
+#### `command(name, level=None, **params)`
 
-Registers /<project>:<name>. Arguments come from the function signature (int, float, bool, str, Player).
+Registers /<project>:<name>. Arguments come from the function signature (int, float, bool, str, Player); one with a default may be left out.
 
-- `name`: Command name.
+- `name`: Command name: lowercase letters, digits, _ . -.
+- `level` (default `None`): Who may run it: 0 every player, 2 operators (like /give), 3 server admins, 4 the server owner. Required since API 2.12.
 - `**params`: Explicit argument types instead of annotations (optional).
 
 #### `on_load(fn)`
