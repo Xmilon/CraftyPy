@@ -88,7 +88,8 @@ public final class CraftPyCommand {
         }
         StringBuilder text = new StringBuilder("CraftPy commands you can use:");
         for (var usage : tree.getSmartUsage(root, ctx.getSource()).values()) {
-            text.append("\n  /craftpy ").append(usage);
+            // "/craftpy" runs alone too, so Brigadier writes each first word as optional: [give] ...
+            text.append("\n  /craftpy ").append(usage.replaceFirst("^\\[([a-z_]+)]", "$1"));
         }
         text.append("\nProjects add their own: /<project>:<command>.");
         ctx.getSource().sendSuccess(() -> Component.literal(text.toString()), false);
@@ -907,7 +908,8 @@ public final class CraftPyCommand {
     private static boolean allowed(CommandContext<CommandSourceStack> ctx, PermissionNode<Boolean> node) {
         ServerPlayer player = ctx.getSource().getPlayer();
         if (player == null) {
-            return node.getDefaultResolver().resolve(null, null);
+            // the console, RCON or a command block: requires(...) of the subtree already checked its level (the console is 4)
+            return true;
         }
         try {
             return PermissionAPI.getPermission(player, node);

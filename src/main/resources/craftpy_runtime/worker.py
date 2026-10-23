@@ -5199,6 +5199,10 @@ def _handle(method, params):
             return {"value": _jenc(fn(*[_jdec(a) for a in params.get("args", [])]))}
         except Exception as exc:  # noqa: BLE001
             return {"error": "%s: %s" % (type(exc).__name__, exc)}
+    if method == "storage_forget":
+        # the values were changed under this worker (a backup was restored): read them from the game again
+        _STORAGE.clear()
+        return {"ok": True}
     if method == "revert_owner":
         owner = params.get("owner", "")
         snapshot = _PREVIOUS.pop(owner, None)

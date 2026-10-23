@@ -295,6 +295,19 @@ public final class PyRuntime {
      * Stops a project's or module's worker: its handlers, timers and windows end with the process. {@code module}
      * selects the module owner namespace.
      */
+    /** Every running worker drops the storage values it keeps, so the next read sees what a restore put back. */
+    public CompletableFuture<Void> forgetStorage() {
+        return CraftPyExecutors.runAsync(() -> {
+            for (Worker worker : running()) {
+                try {
+                    worker.rpc.call("storage_forget", new JsonObject(), 2000);
+                } catch (Exception e) {
+                    CraftPyLog.LOGGER.warn("storage_forget of {} failed: {}", worker.owner, e.getMessage());
+                }
+            }
+        }, CraftPyExecutors.rpc());
+    }
+
     public CompletableFuture<Void> unloadOwner(String id, boolean module) {
         return CraftPyExecutors.runAsync(() -> stopWorker(owner(id, module)), CraftPyExecutors.io());
     }

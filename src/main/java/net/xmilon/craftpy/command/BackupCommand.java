@@ -194,12 +194,12 @@ final class BackupCommand {
                 var done = Backups.restore((JsonObject) read[0], StorageData.VALUES, dataRoot(), machine -> putBack(server, machine), project);
                 StorageData.changed();
                 StringBuilder message = new StringBuilder("Restored " + done.values() + " storage values, " + done.files() + " files, "
-                        + done.machines() + " machines from " + file.getFileName() + ". What it replaced is in " + read[1]
-                        + ". Run or reload the projects so their code sees it.");
+                        + done.machines() + " machines from " + file.getFileName() + ". What it replaced is in " + read[1] + ".");
                 for (String skipped : done.skipped().subList(0, Math.min(8, done.skipped().size()))) {
                     message.append("\n  not restored: ").append(skipped);
                 }
-                reply(ctx, message.toString());
+                // the workers keep the values they read: they forget them before the restore is reported done
+                net.xmilon.craftpy.python.PyRuntime.get().forgetStorage().whenComplete((ok, error) -> server.execute(() -> reply(ctx, message.toString())));
             } catch (java.io.IOException | RuntimeException e) {
                 reply(ctx, "!Restore failed: " + e.getMessage());
             }

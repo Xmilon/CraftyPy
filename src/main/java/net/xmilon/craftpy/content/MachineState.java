@@ -196,7 +196,7 @@ public final class MachineState {
     }
     private static JsonObject stackJson(ItemStack stack) {
         JsonObject item = new JsonObject();
-        item.addProperty("item", BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+        item.addProperty("item", EventBridge.itemId(stack)); // project:id for CraftPy content, like events name it
         item.addProperty("count", stack.getCount());
         return item;
     }

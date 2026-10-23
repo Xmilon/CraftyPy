@@ -429,7 +429,7 @@ public class EventBridge {
     }
 
     /** {@code project:id} for CraftPy content, the registry id otherwise. */
-    static String itemId(ItemStack stack) {
+    public static String itemId(ItemStack stack) {
         if (stack.getItem() instanceof SlottedItem slotted) {
             return projectId(SlotRegistry.holderForItem(slotted.slotIndex()));
         }
