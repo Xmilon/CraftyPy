@@ -538,7 +538,14 @@ public class ModulesFragment extends Fragment {
                 applyPanes();
             }));
         }
-        details.addView(label(context, displayName(module), R.attr.textAppearanceTitleLarge));
+        var heading = row(context);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.addView(HubIcons.icon(context, module.id, displayName(module), module.icon, 48));
+        var headingText = label(context, displayName(module), R.attr.textAppearanceTitleLarge);
+        var headingLp = new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1);
+        headingLp.setMarginStart(details.dp(10));
+        heading.addView(headingText, headingLp);
+        details.addView(heading);
         if (!module.description.isBlank()) {
             details.addView(label(context, module.description, R.attr.textAppearanceBodyMedium));
         }
@@ -626,7 +633,7 @@ public class ModulesFragment extends Fragment {
         }
         details.addView(readme, new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         if (hub && selected.readme != null && !selected.readme.isBlank()) {
-            markflow.setMarkdown(readme, selected.readme); // bundled in the archive: no request needed
+            markflow.setMarkdown(readme, net.xmilon.craftpy.client.docs.MarkdownTables.flatten(selected.readme)); // bundled in the archive: no request needed
             return;
         }
         String path = selected.path;
@@ -636,7 +643,7 @@ public class ModulesFragment extends Fragment {
                 if (text == null || text.isBlank()) {
                     target.setText("This module has no README.");
                 } else {
-                    markflow.setMarkdown(target, text);
+                    markflow.setMarkdown(target, net.xmilon.craftpy.client.docs.MarkdownTables.flatten(text));
                 }
             }
         })));

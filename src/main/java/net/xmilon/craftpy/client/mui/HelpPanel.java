@@ -199,7 +199,7 @@ final class HelpPanel {
         dialog.body.addView(scroll, new LinearLayout.LayoutParams(MATCH_PARENT, height));
         var markflow = markflow(anchor.getContext());
         IdeHost.get().execute(() -> {
-            String markdown = net.xmilon.craftpy.project.BuildingBlocks.section(load(file), heading);
+            String markdown = net.xmilon.craftpy.client.docs.MarkdownTables.flatten(net.xmilon.craftpy.project.BuildingBlocks.section(load(file), heading));
             text.post(() -> {
                 markflow.setMarkdown(text, markdown);
                 if (text.getText() instanceof Spannable spannable) highlightCode(spannable, markdown);
@@ -322,6 +322,7 @@ final class HelpPanel {
 
     /** Markdown to styled text with the syntax colors of the code blocks; safe off the UI thread. */
     static Spanned render(Markflow markflow, String markdown) {
+        markdown = net.xmilon.craftpy.client.docs.MarkdownTables.flatten(markdown); // Markflow draws no tables
         Spanned converted = markflow.convert(markdown);
         Spannable spannable = converted instanceof Spannable own ? own : new SpannableStringBuilder(converted);
         highlightCode(spannable, markdown);

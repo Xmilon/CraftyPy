@@ -18,7 +18,13 @@ Stone dusts that every mod understands, and a Grinder that makes them.
    instead: it takes up to 400 FE a tick from any side.
 3. With JEI or EMI installed, look the Grinder up: its page lists what it grinds, with the energy and time.
 4. Four dusts in a square craft the stone back. The recipe takes **any** dust of that stone, from this project or another mod.
-5. `/dustworks:stats` (every player) tells how much your grinders ground and the whole world. `/dustworks:reset`
+5. Craft an **Adventurer's Pack** (string, leather, a chest and wool). Right click with it: 54 slots, two liquid tanks of
+   8000 mB and an energy store of 40 000 FE, all kept inside the item. **Shift + right click a block** sets it down as
+   itself (right click it there for the same contents; hit it, or shift + right click with an empty hand, to take it back
+   with everything in it). **Starbrine** (a bucket, prismarine crystals, an amethyst shard and glowstone dust) is a glowing
+   liquid: Night Vision and Slow Falling while you swim in it. Pour it into the pack, press **Distill**: 100 mB becomes 4000 FE
+   for the batteries and tools of any mod in the lower right slots.
+6. `/dustworks:stats` (every player) tells how much your grinders ground and the whole world. `/dustworks:reset`
    (operators) starts the statistics again.
 
 ## How it is made
@@ -33,6 +39,10 @@ Stone dusts that every mod understands, and a Grinder that makes them.
 | The logic | `@every(ticks=4)` in `code/main.py`, rules in `code/grinding.py` | Python decides when a machine works; `world.machine_recipe` and `machine_finish` move the items, `machine_update` burns, `machine_set` moves the arrow |
 | Tests | `code/test_grinding.py` | the rules are tested apart from the game (**Run tests**, `Ctrl+Shift+F10`) |
 | Statistics | `storage` scope `stats`, places in `grinders` | values saved with the world, kept apart per project; `/craftpy backup create dustworks` copies them |
+| The pack | `Item(..., model="backpack").extends(Placeable(...))`, `assets/models/item/backpack.json` | an own 3D model (Blockbench "Java Block/Item"), set down as an entity that is its stack |
+| Its window | `ui/adventure_pack.json` (248 x 222) | a 9 x 6 grid, two tank gauges bound to `fluid:0` / `fluid:1`, the energy bar, `fluid_in` / `fluid_out` / `energy_in` / `energy_out` slots and a button |
+| Opening it | `@on.item_use(item=pack)` with `ui.open_screen(..., hand=)`, `@on.entity_interact(entity=pack)` with `entity=ctx.entity`; Distill is `@on.screen_button` with `ui.screen_update` | the same contents in the hand and on the floor |
+| Starbrine | `Fluid("starbrine", light=12, effects=[...], still=, flowing=, bucket_texture=, tags=["c:starbrine"])` | a liquid of its own: textures, glow, effects, a tag other mods read |
 | Commands | `@command("stats", level=0)`, `@command("reset", level=2)`, `@command("kit", level=2)` | every command says who may run it |
 
 The grinders' places are kept in `storage` when they are placed and broken, so after a restart the timer finds them again.

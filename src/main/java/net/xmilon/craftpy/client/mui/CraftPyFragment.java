@@ -131,9 +131,6 @@ public class CraftPyFragment extends Fragment implements ScreenCallback {
         nav.setGravity(Gravity.CENTER_HORIZONTAL);
         nav.setBackground(new icyllis.modernui.graphics.drawable.ColorDrawable(IdeColors.PANEL));
         nav.setPadding(0, base.dp(6), 0, base.dp(6));
-        if (fromHub) {
-            nav.addView(navItem(context, PAGE_HUB, IdeIcon.Glyph.BACK, "Back to the Hub (Esc)"));
-        }
         nav.addView(navItem(context, PAGE_HOME, IdeIcon.Glyph.HOME, "Home: projects and templates"));
         nav.addView(navItem(context, PAGE_EDITOR, IdeIcon.Glyph.CODE, "Editor"));
         nav.addView(navItem(context, PAGE_MODULES, IdeIcon.Glyph.MODULES, "Modules: installed .cpm files"));

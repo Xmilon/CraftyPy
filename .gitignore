@@ -54,7 +54,7 @@ __pycache__/
 release/*.jar
 
 # Local only (asked 2026-10-17): notes, logs, release files and tool folders stay on this machine
-docs/
+/docs/
 logs/
 release/
 AUDIT.md

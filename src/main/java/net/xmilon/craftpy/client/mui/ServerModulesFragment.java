@@ -178,7 +178,7 @@ public final class ServerModulesFragment extends Fragment implements ScreenCallb
         String warning = text(module, "warning");
         String markdown = (warning.isBlank() ? "" : "> **" + warning + "**\n\n")
                 + (text.isBlank() ? "*This module has no README.*" : text);
-        markflow.setMarkdown(readme, markdown);
+        markflow.setMarkdown(readme, net.xmilon.craftpy.client.docs.MarkdownTables.flatten(markdown));
     }
 
     private static String text(JsonObject object, String key) {

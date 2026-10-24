@@ -560,7 +560,7 @@ public final class HostBridge {
             }
             if (state.energy.getEnergyStored() < recipe.energy()) return done(false);
             if (!recipe.finish(state.inventory, state.tanks, level.random)) return done(false);
-            if (recipe.energy() > 0) state.energy.extractEnergy(recipe.energy(), false);
+            if (recipe.energy() > 0) state.adjust(-recipe.energy(), 0); // not extractEnergy: a machine that gives no energy out still spends it
             return done(true);
         }
         return finish ? done(false) : ok();

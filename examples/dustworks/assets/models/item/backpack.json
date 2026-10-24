@@ -5,8 +5,8 @@
     64
   ],
   "textures": {
-    "0": "backpack:backpack",
-    "particle": "backpack:backpack"
+    "0": "dustworks:backpack",
+    "particle": "dustworks:backpack"
   },
   "elements": [
     {

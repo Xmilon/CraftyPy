@@ -1,12 +1,12 @@
 {
   "id": "backpack",
   "name": "Backpack",
-  "description": "The Adventurer's Pack (a 3D backpack you can set down, with 54 slots, two tanks and energy), the glowing Starbrine liquid, a personal backpack and the pockets of villagers.",
+  "description": "A personal backpack and the pockets of villagers: Minecraft-style windows that belong to a player or to an entity.",
   "author": "CraftPy",
-  "version": "2.0.0",
-  "apiVersion": "2.12",
+  "version": "1.0.0",
+  "apiVersion": "2.11",
   "mcVersion": "1.21.1",
-  "side": "both",
+  "side": "server",
   "permissions": {},
   "icon": "icon.png"
 }

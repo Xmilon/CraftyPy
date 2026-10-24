@@ -331,7 +331,8 @@ public class SlottedItem extends Item {
     @Override
     public int getBurnTime(ItemStack stack, RecipeType<?> recipeType) {
         Defs.ItemDef def = definition();
-        return def != null && def.burnTime > 0 ? def.burnTime * 20 : -1;
+        // negative is an error in NeoForge 21.1 (JEI and furnaces threw for every CraftPy item): ask the default instead
+        return def != null && def.burnTime > 0 ? def.burnTime * 20 : super.getBurnTime(stack, recipeType);
     }
 
     @Override

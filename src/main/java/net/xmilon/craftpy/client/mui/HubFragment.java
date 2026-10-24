@@ -52,7 +52,6 @@ public final class HubFragment extends Fragment implements ScreenCallback {
 
     private final int initialTab;
     private int tab;
-    private Button back;
     private final java.util.Map<Integer, Button> tabButtons = new java.util.HashMap<>();
     private Runnable removeBack = () -> { };
 
@@ -121,9 +120,6 @@ public final class HubFragment extends Fragment implements ScreenCallback {
 
         var header = row(context);
         header.setPadding(card.dp(10), card.dp(8), card.dp(8), card.dp(8));
-        back = button(context, "‹ Back", R.attr.borderlessButtonStyle, v -> goBack());
-        back.setTooltipText("Back (Esc)");
-        header.addView(back);
         var title = label(context, "CraftPy Hub", R.attr.textAppearanceTitleMedium);
         var titleLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
         titleLp.setMarginStart(card.dp(6));
@@ -177,7 +173,6 @@ public final class HubFragment extends Fragment implements ScreenCallback {
         removeBack.run();
         removeBack = () -> { };
         tabButtons.clear();
-        back = null;
         super.onDestroyView();
     }
 
@@ -209,15 +204,12 @@ public final class HubFragment extends Fragment implements ScreenCallback {
     }
 
     private void updateChrome() {
-        if (back != null) {
-            back.setVisibility(tab == TAB_APPS ? View.GONE : View.VISIBLE);
-        }
         tabButtons.forEach((id, button) -> styleChip(button, id == tab));
     }
 
     /** Opens another tab; leaving Modules first asks about pending changes. */
     void switchTab(int target) {
-        if (target == tab || back == null) {
+        if (target == tab || tabButtons.isEmpty()) { // empty: the view is gone
             return;
         }
         Runnable go = () -> showTab(target);
@@ -229,7 +221,7 @@ public final class HubFragment extends Fragment implements ScreenCallback {
     }
 
     private void showTab(int target) {
-        if (back == null || target == tab) {
+        if (tabButtons.isEmpty() || target == tab) {
             return;
         }
         tab = target;

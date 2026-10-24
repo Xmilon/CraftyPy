@@ -33,6 +33,7 @@ public final class CraftPyJeiPlugin implements IModPlugin {
     public void registerCategories(IRecipeCategoryRegistration registration) {
         // JEI starts once the client has the server's recipes, so the machines are known here
         machines = MachineRecipeLayout.byMachine();
+        CraftPyLog.LOGGER.info("JEI: {} page(s) for machine blocks of projects: {}", machines.size(), machines.keySet());
         var gui = registration.getJeiHelpers().getGuiHelper();
         machines.keySet().forEach(machine -> registration.addRecipeCategories(new MachineCategory(machine, gui)));
     }

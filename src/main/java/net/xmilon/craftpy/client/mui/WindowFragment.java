@@ -221,11 +221,6 @@ public final class WindowFragment extends Fragment implements ScreenCallback {
         card.setPadding(pad, pad, pad, pad);
 
         var header = row(context);
-        if (fromHub) {
-            var back = button(context, "‹ Hub", R.attr.borderlessButtonStyle, v -> backToHub());
-            back.setTooltipText("Back to the Hub (Esc)");
-            header.addView(back);
-        }
         title = label(context, "", R.attr.textAppearanceTitleMedium);
         header.addView(title, new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1));
         header.addView(button(context, "X", R.attr.borderlessButtonStyle, v -> Minecraft.getInstance().execute(
