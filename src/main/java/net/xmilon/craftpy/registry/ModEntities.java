@@ -57,6 +57,11 @@ public final class ModEntities {
             () -> EntityType.Builder.<net.xmilon.craftpy.entity.PropEntity>of(net.xmilon.craftpy.entity.PropEntity::new, MobCategory.MISC)
                     .sized(0.6f, 0.6f).clientTrackingRange(10).updateInterval(20).build(CraftPyLog.MODID + ":prop"));
 
+    /** A weapon in flight (Throwable): one type for every project. */
+    public static final DeferredHolder<EntityType<?>, EntityType<net.xmilon.craftpy.entity.ThrownWeapon>> THROWN = ENTITY_TYPES.register("thrown",
+            () -> EntityType.Builder.<net.xmilon.craftpy.entity.ThrownWeapon>of(net.xmilon.craftpy.entity.ThrownWeapon::new, MobCategory.MISC)
+                    .sized(0.5f, 0.5f).clientTrackingRange(4).updateInterval(20).build(CraftPyLog.MODID + ":thrown"));
+
     private ModEntities() {
     }
 

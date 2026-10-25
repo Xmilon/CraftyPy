@@ -1,0 +1,127 @@
+{
+ "format_version": "1.8.0",
+ "animations": {
+  "animation.gungnir.idle": {
+   "loop": true,
+   "animation_length": 3.0,
+   "bones": {
+    "head": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "1.500": {
+       "post": [
+        0,
+        180,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "3.000": {
+       "post": [
+        0,
+        360,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    },
+    "weapon": {
+     "position": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "1.500": {
+       "post": [
+        0,
+        0.5,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "3.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  },
+  "animation.gungnir.use": {
+   "loop": false,
+   "animation_length": 0.5,
+   "bones": {
+    "head": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.500": {
+       "post": [
+        0,
+        720,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  },
+  "animation.gungnir.attack": {
+   "loop": false,
+   "animation_length": 0.4,
+   "bones": {
+    "weapon": {
+     "position": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.150": {
+       "post": [
+        0,
+        3,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.400": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  }
+ }
+}

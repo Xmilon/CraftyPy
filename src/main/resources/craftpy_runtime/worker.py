@@ -757,12 +757,21 @@ def _native_base(base):
 
 
 def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(),
-         components=None, model=None, **extra) -> "Content":
+         components=None, model=None, geo=None, geo_texture=None, display=None, **extra) -> "Content":
     """Declares an item and returns it.
 
     ``model="backpack"`` draws it with your own 3D mesh instead of a flat sprite: assets/models/item/backpack.json
     (Blockbench "Java Block/Item" export; its ``display`` part says how it sits in the hand, the inventory and on the
-    floor). Its textures are named like ``"myproject:backpack"`` (assets/textures/backpack.png).
+    floor). Its textures are named like ``"myproject:backpack"`` (assets/textures/backpack.png). Give it a ``texture`` too and
+    inventories and the hotbar show that flat picture instead (animated when a .png.mcmeta lies beside it), while hands, item
+    frames and the ground show the model.
+
+    ``geo="damocles"`` draws it with GeckoLib instead (needs the GeckoLib mod; without it the flat ``texture`` is shown):
+    the model is assets/models/damocles.geo.json (or geo/), its texture ``damocles_geo.png`` (or ``geo_texture=``) and its
+    animations assets/animations/damocles.animation.json: the clip ending in ``idle`` loops, ``use`` plays on a right click
+    and ``attack`` on a hit. ``display={"thirdperson_righthand": {"rotation": [..], "translation": [..], "scale": [..]}}``
+    sets how a ``model=`` or ``geo=`` item sits in the hand, the inventory and on the ground (contexts: thirdperson_righthand,
+    thirdperson_lefthand, firstperson_righthand, firstperson_lefthand, gui, ground, fixed, head).
 
     ``tags=["minecraft:swords", "gems"]`` puts the item in item tags (a bare name is this project's tag).
 
@@ -793,6 +802,26 @@ def Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, e
         if not isinstance(model, str) or not re.fullmatch(r"[a-z0-9_./:-]{1,120}", model):
             raise ValueError("model must be the name of a file in assets/models/item/, such as \"backpack\"")
         definition["model"] = model[:-5] if model.endswith(".json") else model
+    if geo:
+        import re
+        if not isinstance(geo, str) or not re.fullmatch(r"[a-z0-9_.-]{1,80}", geo):
+            raise ValueError("geo must be the name of a GeckoLib model, such as \"damocles\" (assets/models/damocles.geo.json)")
+        definition["geo"] = geo[:-9] if geo.endswith(".geo.json") else geo
+        if geo_texture is not None:
+            definition["geo_texture"] = _texture(geo_texture)
+    if display is not None:
+        contexts = ("thirdperson_righthand", "thirdperson_lefthand", "firstperson_righthand", "firstperson_lefthand",
+                    "gui", "ground", "fixed", "head")
+        if not isinstance(display, dict) or not set(display) <= set(contexts):
+            raise ValueError("display is a dict of %s" % ", ".join(contexts))
+        for context, spec in display.items():
+            if not isinstance(spec, dict) or not set(spec) <= {"rotation", "translation", "scale"}:
+                raise ValueError("display[%r] is {rotation: [x, y, z], translation: [x, y, z], scale: [x, y, z]}" % context)
+            for key, vector in spec.items():
+                if (not isinstance(vector, (list, tuple)) or len(vector) != 3
+                        or not all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in vector)):
+                    raise ValueError("display[%r][%r] is three numbers" % (context, key))
+        definition["display"] = display
     _DECLS["items"].append({"id": id, "definition": definition})
     item = Content("%s:%s" % (_namespace(), id), "item", id, definition["name"], definition)
     _content_tags(tags, "item", str(item))
@@ -907,21 +936,22 @@ def Effect(id, name=None, icon=None, color="#8899ff", category="neutral", attrib
 
 
 def Fluid(id, name=None, color="#3fa7ff", density=1000, viscosity=1000, temperature=300, light=0, effects=(),
-          still=None, flowing=None, bucket_texture=None, tags=(), **extra) -> "Content":
+          still=None, flowing=None, bucket_texture=None, tags=(), bucket_glint=False, **extra) -> "Content":
     """Declares a liquid and returns it. ``Fluid("sap", ...).bucket`` is its bucket item.
 
     A real NeoForge fluid: it flows, you swim in it, buckets fill and empty it, tanks and pipes of other mods hold it.
     ``density`` (kg/m3; water 1000, lava 3000, negative floats up like gas) and ``viscosity`` (water 1000, lava 6000:
     higher flows and moves you slower) change how it behaves; ``temperature`` is in kelvin (water 300, lava 1300) and
     ``light`` is the light it gives (0..15). ``color`` tints the water textures; ``still`` / ``flowing`` name your own
-    textures (assets/textures/) instead, ``bucket_texture`` the bucket's.
+    textures (assets/textures/) instead, ``bucket_texture`` the bucket's; ``bucket_glint=True`` makes the bucket shimmer
+    like an enchanted item.
     ``effects=[("poison", 5), (rage, 8, 2)]`` are applied while an entity is in it: (effect, seconds, level).
     Use it in a FluidTank: ``FluidTank(16000, allowed=[sap])``. ``tags=["c:volt_sap"]`` puts it in fluid tags (its still and
     flowing forms both), which pipes, tanks and recipes of other mods read."""
     _check_id(id)
     if extra:
         raise TypeError("Fluid(%r) has no attribute %s. Valid attributes: name, color, density, viscosity, temperature, "
-                        "light, effects, still, flowing, bucket_texture, tags" % (id, ", ".join(repr(k) for k in sorted(extra))))
+                        "light, effects, still, flowing, bucket_texture, bucket_glint, tags" % (id, ", ".join(repr(k) for k in sorted(extra))))
     listed = list(effects or ())
     if len(listed) > 8:
         raise ValueError("Fluid effects: at most 8")
@@ -945,6 +975,8 @@ def Fluid(id, name=None, color="#3fa7ff", density=1000, viscosity=1000, temperat
         definition["flowing"] = _texture(flowing)
     if bucket_texture is not None:
         definition["bucket"] = _texture(bucket_texture)
+    if bucket_glint:
+        definition["bucket_glint"] = True
     _DECLS["fluids"].append({"id": id, "definition": definition})
     fluid = Content("%s:%s" % (_namespace(), id), "fluid", id, definition["name"], definition)
     fluid.bucket = Content("%s:%s_bucket" % (_namespace(), id), "item", id + "_bucket", definition["name"] + " Bucket", {})
@@ -1366,6 +1398,89 @@ class Placeable(_Data):
             target.set("max_stack", 1)      # each one carries its own data
 
 
+def _sound_ref(label, value):
+    """A sound id for Bow / Throwable: ``None`` keeps the game's own, ``"armory:bow_draw"`` is a sound of sounds.json."""
+    if value is None:
+        return ""
+    import re
+    if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9_.-]+:[a-z0-9_./-]+", value):
+        raise ValueError("%s: a sound id such as 'myproject:bow_draw' (see sounds.json), got %r" % (label, value))
+    return value
+
+
+class Bow(_Data):
+    """Makes the item a bow: hold right click to draw it, let go to shoot. Arrows of the ammo fly with the draw's speed.
+
+    draw_seconds: time to a full draw. power: arrow speed at a full draw (vanilla 3.0). damage: damage of a full-draw hit
+    (vanilla bow 6). arrows: shot at once (2 to 9 fan out). spread: inaccuracy (1.0 like vanilla, 0 exact). infinite: no
+    ammo is used. ammo: an item id or ``"#tag"`` taken from the inventory (default ``#minecraft:arrows``, so tipped and
+    spectral arrows work). draw_sound, full_sound (the moment it is fully drawn) and shoot_sound: sounds of your
+    sounds.json (None keeps the game's).
+
+    The model changes while it is drawn: make the textures ``<texture>_pulling_0.png``, ``_pulling_1.png`` and
+    ``_pulling_2.png`` next to the item's texture. Combine it with ``Durability`` for wear and with ``Attributes``. A
+    client-side module can show the draw (``client.player().use_ticks`` over ``use_full``)."""
+    applies_to = ("item",)
+    type = "bow"
+
+    def __init__(self, draw_seconds=1.0, power=3.0, damage=6.0, arrows=1, spread=1.0, infinite=False,
+                 ammo="#minecraft:arrows", draw_sound=None, full_sound=None, shoot_sound=None):
+        import re
+        self.draw_ticks = max(1, int(round(_num("Bow draw_seconds", draw_seconds, 0.05, 30.0) * 20)))
+        self.power = _num("Bow power", power, 0.1, 10.0)
+        self.damage = _num("Bow damage", damage, 0.0, 1000.0)
+        self.arrows = _num("Bow arrows", arrows, 1, 9, whole=True)
+        self.spread = _num("Bow spread", spread, 0.0, 20.0)
+        self.infinite = bool(infinite)
+        ammo = str(ammo)
+        if not re.fullmatch(r"#?[a-z0-9_.-]+:[a-z0-9_./-]+", ammo):
+            raise ValueError("Bow ammo: an item id or a #tag with its namespace ('minecraft:arrow', '#minecraft:arrows'), got %r" % ammo)
+        self.ammo = ammo
+        self.draw_sound = _sound_ref("Bow draw_sound", draw_sound)
+        self.full_sound = _sound_ref("Bow full_sound", full_sound)
+        self.shoot_sound = _sound_ref("Bow shoot_sound", shoot_sound)
+
+    def data(self):
+        return {"draw_ticks": self.draw_ticks, "power": self.power, "damage": self.damage, "arrows": self.arrows,
+                "spread": self.spread, "infinite": self.infinite, "ammo": self.ammo, "draw_sound": self.draw_sound,
+                "full_sound": self.full_sound, "shoot_sound": self.shoot_sound}
+
+    def configure(self, target):
+        super().configure(target)
+        if target._definition.get("max_stack") == 64:
+            target.set("max_stack", 1)
+
+
+class Throwable(_Data):
+    """The item can be thrown: hold right click to wind up, let go to throw. It flies as itself (the item's model, turned
+    along the flight), hurts like an arrow, sticks into the ground and is picked up again with everything the stack
+    carries (its name, enchantments, wear).
+
+    speed: speed of a full throw (a trident is 2.5). damage: damage of a full-speed hit. charge_seconds: wind-up for a full
+    throw (a tap under a quarter second does nothing). pierce: mobs it goes through (0 to 5). gravity: False makes it fly
+    straight. throw_sound and hit_sound: sounds of your sounds.json (None keeps the game's throw, no hit sound)."""
+    applies_to = ("item",)
+    type = "throwable"
+
+    def __init__(self, speed=2.5, damage=6.0, charge_seconds=0.5, pierce=0, gravity=True, throw_sound=None, hit_sound=None):
+        self.speed = _num("Throwable speed", speed, 0.1, 6.0)
+        self.damage = _num("Throwable damage", damage, 0.0, 1000.0)
+        self.charge_ticks = max(1, int(round(_num("Throwable charge_seconds", charge_seconds, 0.05, 10.0) * 20)))
+        self.pierce = _num("Throwable pierce", pierce, 0, 5, whole=True)
+        self.gravity = bool(gravity)
+        self.throw_sound = _sound_ref("Throwable throw_sound", throw_sound)
+        self.hit_sound = _sound_ref("Throwable hit_sound", hit_sound)
+
+    def data(self):
+        return {"charge_ticks": self.charge_ticks, "speed": self.speed, "damage": self.damage, "pierce": self.pierce,
+                "gravity": self.gravity, "throw_sound": self.throw_sound, "hit_sound": self.hit_sound}
+
+    def configure(self, target):
+        super().configure(target)
+        if target._definition.get("max_stack") == 64:
+            target.set("max_stack", 1)
+
+
 class Tooltip(_Data):
     """Extra lines in the item tooltip. lines: up to 10 texts of at most 120 characters.
     color: one of the 16 Minecraft colors ("gray", "gold", "aqua", "red"...)."""
@@ -1721,7 +1836,7 @@ _EXTENSION_NAMES = {
     "Extension": Extension, "extension": extension, "ItemType": ItemType, "BlockType": BlockType,
     "Tool": Tool, "Sword": Sword, "Pickaxe": Pickaxe, "Axe": Axe, "Shovel": Shovel, "Hoe": Hoe,
     "Durability": Durability, "Weapon": Weapon, "Fuel": Fuel, "Armor": Armor, "Enchantable": Enchantable,
-    "Cooldown": Cooldown, "Placeable": Placeable, "Tooltip": Tooltip, "MineableBy": MineableBy, "Drops": Drops, "Redstone": Redstone,
+    "Cooldown": Cooldown, "Placeable": Placeable, "Bow": Bow, "Throwable": Throwable, "Tooltip": Tooltip, "MineableBy": MineableBy, "Drops": Drops, "Redstone": Redstone,
     "Flammable": Flammable, "Friction": Friction, "Piston": Piston, "Attributes": Attributes, "Kinetic": Kinetic, "EnergyStorage": EnergyStorage, "FluidTank": FluidTank, "Screen": Screen, "Inventory": Inventory,
 }
 
@@ -2803,6 +2918,19 @@ class Entity(_Thing):
     def kill(self):
         return _ok(_host_call("entity.kill", {"uuid": self.uuid}))
 
+    def effect(self, name, seconds=10, level=1, particles=True):
+        """A potion effect on this living entity: ``event.entity.effect("slowness", 3, level=2)``."""
+        return _ok(_host_call("entity.effect", {"uuid": self.uuid, "effect": _ref_effect(name), "seconds": seconds,
+                                                "level": level, "particles": particles}))
+
+    def damage(self, amount):
+        """Hurts this living entity by ``amount`` (half hearts) like a harming potion: armor does not help."""
+        return _ok(_host_call("entity.damage", {"uuid": self.uuid, "amount": amount}))
+
+    def heal(self, amount):
+        """Heals this living entity by ``amount`` (half hearts)."""
+        return _ok(_host_call("entity.heal", {"uuid": self.uuid, "amount": amount}))
+
     def teleport(self, x, y=None, z=None):
         x, y, z = _xyz(x, y, z)
         return _ok(_host_call("entity.teleport", {"uuid": self.uuid, "x": x, "y": y, "z": z}))
@@ -3501,6 +3629,24 @@ class _Ui:
         return _ok(_host_call("ui.screen_update", dict(player=_player_name(player), energy=energy, fluid=fluid,
                                                         tank=tank))).get("window", {})
 
+    def screen_slots(self, player, group="storage") -> list:
+        """The slots of ``group`` in the window ``player`` has open from ``ui.open_screen``, in order, each
+        ``{"item", "count", "name"}`` (plus ``"food"`` and ``"saturation"`` for food)."""
+        return _ok(_host_call("ui.screen_slots", dict(player=_player_name(player), group=str(group)))).get("slots", [])
+
+    def screen_take(self, player, group, index, count=1) -> int:
+        """Takes up to ``count`` items out of slot ``index`` of ``group`` in the player's open window and returns how many
+        came out (they are gone: give them, use them or drop them yourself)."""
+        _integer("index", index, 0, 255)
+        _integer("count", count, 1, 64)
+        return _ok(_host_call("ui.screen_take", dict(player=_player_name(player), group=str(group), index=index,
+                                                      count=count))).get("taken", 0)
+
+    def screen_sort(self, player, group="storage") -> list:
+        """Merges equal stacks of ``group`` in the player's open window and puts them in order (by item, then name, fullest
+        first). Returns the new slots like ``screen_slots``."""
+        return _ok(_host_call("ui.screen_sort", dict(player=_player_name(player), group=str(group)))).get("slots", [])
+
     def screen_set(self, player, values):
         """Changes the free values of the window ``player`` has open from ``ui.open_screen`` (bars and labels follow)."""
         return _ok(_host_call("ui.screen_set", dict(player=_player_name(player), values=_screen_values(values))))
@@ -3831,6 +3977,20 @@ API_CHANGES = [
                "`FluidTank(..., tanks=1..4)` with gauges bound to `fluid:N`; `Inventory` groups `fluid_in`, `fluid_out`, `energy_in` and "
                "`energy_out` fill and empty tanks and the energy store with buckets and batteries of any mod; `Inventory(keep=True)` keeps "
                "the items in the dropped block.",
+               "`Bow(draw_seconds=, power=, damage=, arrows=, spread=, infinite=, ammo=)` makes an item a bow: draw it with right click, let go "
+               "to shoot; its model swaps to `<texture>_pulling_0/1/2.png` while drawn, and `draw_sound`, `full_sound` and `shoot_sound` name "
+               "sounds of your sounds.json. `Throwable(speed=, damage=, charge_seconds=, pierce=, gravity=)`: hold and let go to throw an item "
+               "that flies as itself, hurts like an arrow and is picked up again with everything the stack carries.",
+               "`Item(geo=\"name\", geo_texture=, display=)`: a GeckoLib model for an item (`models/name.geo.json`, `animations/name.animation.json`, "
+               "an animated texture and a `_glowmask` that shines in the dark); the clip ending in `idle` loops, `use` and `attack` play on a "
+               "right click and a hit. `display` sets how a `model=` or `geo=` item sits in hands, inventory and on the ground; with a "
+               "`texture` as well, inventories show that flat picture (animated with a .png.mcmeta) and everything else the model.",
+               "`Entity.effect(name, seconds, level)`, `Entity.damage(amount)` and `Entity.heal(amount)` work on any living entity, "
+               "so an item hook can slow, poison or hurt what it hits without a command.",
+               "`hud.bar(..., vertical=True, frame=)` fills from the bottom up and can have an outline; bars may be up to 200 pixels high. "
+               "`client.player()` tells what is being drawn: `using`, `use_ticks`, `use_full` (ticks to a full draw) and `use_hand`.",
+               "`ui.screen_slots(player, group)`, `ui.screen_take(player, group, index, count)` and `ui.screen_sort(player, group)` read, empty "
+               "and sort the slots of the window a player has open from `ui.open_screen`.",
                "`ui.open_screen(..., hand=\"main\")` keeps a window's slots, `energy=` and `tanks=` in the held item; `ui.screen_update(player, "
                "energy=, fluid=, tank=)` changes and reads them while it is open."],
      "changed": ["A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.",
@@ -3843,6 +4003,8 @@ API_CHANGES = [
                  "`/craftpy` lists the commands you may use; `/craftpy window` (it never worked), `give ... block|item` (the kind is found from the id) "
                  "and `module reload <module>` (every module reloads together) are gone; `/craftpy module` lists the modules everywhere.",
                  "Machine snapshots (`world.machine`) name a project's liquids by their project id, like its items.",
+                 "`Fluid(bucket_glint=True)`: the liquid's bucket shimmers like an enchanted item.",
+                 "`player.play_sound` and `client.sound` play sounds that a project names in its sounds.json (they used to find only the game's own).",
                  "`ctx.window` of `@on.screen_button` is the layout's name (`\"pack\"`), without the project in front."]},
     {"version": "2.11", "date": "2026-10-23",
      "added": ["`Fluid(id, ...)`: custom liquids that are real NeoForge fluids (flowing, swimmable, buckets, tanks and pipes of any mod). "
@@ -4248,9 +4410,9 @@ class _Hud:
                                "scale": scale, "shadow": bool(shadow)})
 
     def bar(self, id, value, max=100, anchor="top_left", x=0, y=0, width=80, height=6, color="green",
-            background="dark_gray", label=None):
-        self._put(id, "bar", {"value": _hud_number("value", value, -1e9, 1e9), "max": _hud_number("max", max, 1e-9, 1e9),
-                              "width": _hud_number("width", width, 1, 600), "height": _hud_number("height", height, 1, 60),
+            background="dark_gray", label=None, vertical=False, frame=None):
+        self._put(id, "bar", {"vertical": bool(vertical), "frame": None if frame is None else _hud_color(frame), "value": _hud_number("value", value, -1e9, 1e9), "max": _hud_number("max", max, 1e-9, 1e9),
+                              "width": _hud_number("width", width, 1, 600), "height": _hud_number("height", height, 1, 200),
                               "anchor": anchor, "x": x, "y": y, "color": _hud_color(color),
                               "background": _hud_color(background), "scale": 1.0,
                               "label": None if label is None else str(label)[:64]})
@@ -4346,7 +4508,8 @@ def _key_event(data):
 
 
 class _ClientPlayer:
-    """The local player as the client knows it (read only): name, health, pos, held_item..."""
+    """The local player as the client knows it (read only): name, health, pos, held_item, and what is being drawn:
+    using (item id), use_ticks, use_full (ticks until fully drawn) and use_hand."""
 
     def __init__(self, data):
         self.name = data.get("name", "")
@@ -4361,6 +4524,11 @@ class _ClientPlayer:
         self.held_item = data.get("held_item", "minecraft:air")
         self.held_count = data.get("held_count", 0)
         self.on_ground = data.get("on_ground", True)
+        # what the player is drawing or charging (a bow, a crossbow, a throwable); "" when nothing is in use
+        self.using = data.get("using", "")
+        self.use_ticks = data.get("use_ticks", 0)
+        self.use_full = data.get("use_full", 0)     # ticks to a full draw, 0 when the item has no such moment
+        self.use_hand = data.get("use_hand", "")
 
     @property
     def pos(self):
@@ -7135,6 +7303,9 @@ def _load_docs():
             "stack": "Largest stack, 1 to 64 (default 64; tools and armor set 1 themselves).",
             "glow": "True draws the enchantment shimmer.",
             "model": "Your own 3D mesh in assets/models/item/ ('backpack'), drawn instead of the flat texture.",
+            "geo": "A GeckoLib model ('damocles': models/damocles.geo.json, animations/damocles.animation.json); the flat texture shows without GeckoLib.",
+            "geo_texture": "Texture file of the GeckoLib model (default '<geo>_geo.png').",
+            "display": "How a model= or geo= item sits in hands, inventory, ground: {context: {rotation, translation, scale}}.",
             "food": "A number (hunger points) or Food(...). Makes the item edible.",
             "fuel": "Furnace burn time in seconds (0 = not a fuel). Same as .extends(Fuel(seconds)).",
             "effect": "Right click applies an effect: 'speed' or (name, level, seconds), level 1 = normal.",
@@ -7233,6 +7404,7 @@ def _load_docs():
             "still": "Own texture of the still liquid (assets/textures/), instead of tinted water.",
             "flowing": "Own texture of the flowing liquid.",
             "bucket_texture": "Texture of the bucket item; default: the water bucket.",
+            "bucket_glint": "True makes the bucket shimmer like an enchanted item.",
             "tags": "Fluid tags to join: ['c:volt_sap'] (the still and flowing forms both); pipes and recipes of other mods read them.",
             "extra": "Not accepted: any other attribute raises an error that lists the valid ones.",
         }, "The fluid; fluid.bucket is the bucket item."),
@@ -7376,6 +7548,9 @@ def _load_docs():
         "Player.named": ("The online player with this name, or None.", {"name": "Player name."}, "A Player or None."),
         # ---------------------------------------------------------------- Entity
         "Entity.kill": ("Kills the entity.", {}, ""),
+        "Entity.effect": ("Puts a potion effect on this living entity (a mob or a player).", {"name": "Effect id.", "seconds": "Duration in seconds.", "level": "Level, 1 and up.", "particles": "False hides the particles."}, ""),
+        "Entity.damage": ("Hurts this living entity like a harming potion: armor does not help.", {"amount": "Half hearts."}, ""),
+        "Entity.heal": ("Heals this living entity.", {"amount": "Half hearts."}, ""),
         "Entity.teleport": ("Moves the entity.", {"x": "X (or a Pos).", "y": "Y.", "z": "Z."}, ""),
         "Entity.set_name": ("Sets its custom name.", {"name": "The name."}, ""),
         "Entity.refresh": ("A fresh snapshot (None if it is gone).", {}, "An Entity or None."),
@@ -7396,6 +7571,9 @@ def _load_docs():
         "world.machine_set": ("Set free values (numbers or short texts, at most 32 keys) on a loaded machine block; a window bar bound to value:key and a label with {key} show them. Returns the new snapshot.", dict(POS3, values="{key: number or text}; keys are lowercase words.", dimension=DIM), "dict"),
         "ui.open_screen": ("Opens a Minecraft-style window that belongs to an entity or to the player (item slots kept in the entity's data).", {"player": "Player or name.", "layout": "A Minecraft-style window of the UI maker; none shows the standard window of the inventory.", "title": "Text at the top.", "entity": "Entity or player that owns the slots (within 8 blocks); default the player.", "hand": "\"main\" or \"off\": the window belongs to the item in that hand instead (its data travels with the item).", "inventory": "Inventory(...) giving the window item slots.", "energy": "FE the window can store (0: none).", "tanks": "How many liquid tanks (0..4).", "tank_capacity": "mB of each tank.", "values": "{key: number or text} for bars and labels."}, ""),
         "ui.screen_update": ("Adds energy (negative takes it) or removes liquid (mB, negative) from the window the player has open from ui.open_screen; returns its energy, tanks and values.", {"player": "Player or name.", "energy": "FE to add.", "fluid": "mB to remove, 0 or negative.", "tank": "0 to 3."}, "dict"),
+        "ui.screen_slots": ("The slots of one group in the window the player has open from ui.open_screen: item, count, name (and food, saturation).", {"player": "Player or name.", "group": "The slot group, default 'storage'."}, "list"),
+        "ui.screen_take": ("Takes up to count items out of one slot of the player's open window; returns how many came out.", {"player": "Player or name.", "group": "The slot group.", "index": "Slot number in the group, from 0.", "count": "How many, 1 to 64."}, "int"),
+        "ui.screen_sort": ("Merges equal stacks of a group in the player's open window and orders them; returns the new slots.", {"player": "Player or name.", "group": "The slot group, default 'storage'."}, "list"),
         "ui.screen_set": ("Changes the free values of the window the player has open from ui.open_screen.", {"player": "Player or name.", "values": "{key: number or text}."}, ""),
         "world.machine_slot": ("Put a stack into a slot ('group.number') of a loaded machine block, replacing what is there; item=None empties it. Returns the new snapshot.", dict(POS3, slot="'group.number' of the block's Inventory, such as 'input.0' or 'output.1'.", item="Item or id, or None to empty the slot.", count="Stack size, 0..64 (and the group's max_stack).", dimension=DIM), "dict"),
         "world.machine_recipe": ("The first machine_recipe of this block its input slots and tanks can make now, as {id, energy, ticks, seconds}, or None. Changes nothing.", dict(POS3, dimension=DIM), "dict"),
@@ -7484,8 +7662,9 @@ def _load_docs():
         "hud.bar": ("Shows a bar (health, mana, progress) on your screen.", {
             "id": "Name of this element.", "value": "Current value.", "max": "Value when the bar is full.",
             "anchor": "Where on the screen (see hud.text).", "x": "Pixels right of the anchor.", "y": "Pixels below the anchor.",
-            "width": "Width in pixels, 1 to 600.", "height": "Height in pixels, 1 to 60.", "color": "Color of the filled part.",
-            "background": "Color of the empty part.", "label": "Text drawn on the bar (at most 64 characters), or None."}, ""),
+            "width": "Width in pixels, 1 to 600.", "height": "Height in pixels, 1 to 200.", "color": "Color of the filled part.",
+            "background": "Color of the empty part.", "label": "Text drawn on the bar (at most 64 characters; beside a horizontal bar, under a vertical one), or None.",
+            "vertical": "True fills the bar from the bottom up.", "frame": "A color for a one pixel outline, or None."}, ""),
         "hud.item": ("Shows an item icon on your screen.", {
             "id": "Name of this element.", "item": "Item id such as 'minecraft:diamond' or 'welcome:gem'.",
             "anchor": "Where on the screen (see hud.text).", "x": "Pixels right of the anchor.", "y": "Pixels below the anchor.",
@@ -7570,6 +7749,18 @@ def _load_docs():
             "toughness": "Armor toughness, 0 to 20.", "knockback_resistance": "0 to 1."}, ""),
         "Enchantable": ("How good enchantments from an enchanting table are.", {"value": "0 (none) to 50; gold armor is 25."}, ""),
         "Cooldown": ("The item can only be used again after a pause, shown as a bar.", {"seconds": "0.05 to 3600."}, ""),
+        "Bow": ("The item is a bow: draw it with right click, let go to shoot. Its model changes while drawn (texture_pulling_0/1/2.png).", {
+            "draw_seconds": "Time to a full draw, 0.05 to 30.", "power": "Arrow speed at a full draw (vanilla 3.0).",
+            "damage": "Damage of a full-draw hit (vanilla bow 6).", "arrows": "Arrows shot at once, 1 to 9 (they fan out).",
+            "spread": "Inaccuracy, 1.0 like vanilla, 0 exact.", "infinite": "True uses no ammo.",
+            "ammo": "An item id or '#tag' taken from the inventory (default '#minecraft:arrows').",
+            "draw_sound": "Sound id of your sounds.json when the draw starts, or None.",
+            "full_sound": "Sound id when the bow is fully drawn, or None.", "shoot_sound": "Sound id of the shot, or None for the game's."}, ""),
+        "Throwable": ("The item is thrown (hold, let go) and flies as itself, hurting like an arrow; it can be picked up again.", {
+            "speed": "Speed of a full throw (a trident is 2.5).", "damage": "Damage of a full-speed hit.",
+            "charge_seconds": "Wind-up for a full throw.", "pierce": "Mobs it goes through, 0 to 5.",
+            "gravity": "False flies straight.", "throw_sound": "Sound id when thrown, or None for the game's.",
+            "hit_sound": "Sound id when it hits a mob, or None."}, ""),
         "Placeable": ("Shift + right click on a block sets the item down as itself, data and all; hit it to pick it up.", {"width": "Blocks wide, 0.125 to 4.", "height": "Blocks high, 0.125 to 4."}, ""),
         "Tooltip": ("Extra lines in the item tooltip.", {"lines": "1 to 10 texts of at most 120 characters.", "color": "One of the 16 chat colors ('gray', 'gold', 'aqua'...)."}, ""),
         "MineableBy": ("Which tool mines a block.", {

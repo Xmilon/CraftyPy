@@ -1,0 +1,152 @@
+{
+  "id": "enderweave",
+  "title": "Enderweave Pack",
+  "legacy": true,
+  "size": [
+    264,
+    282
+  ],
+  "root": {
+    "type": "canvas",
+    "children": [
+      {
+        "type": "lg_panel",
+        "x": 0,
+        "y": 0,
+        "width": 264,
+        "height": 282
+      },
+      {
+        "type": "lg_label",
+        "x": 8,
+        "y": 6,
+        "width": 150,
+        "height": 9,
+        "text": "{title}",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_fluid",
+        "x": 6,
+        "y": 18,
+        "width": 12,
+        "height": 60,
+        "bind": "fluid:0"
+      },
+      {
+        "type": "lg_fluid",
+        "x": 20,
+        "y": 18,
+        "width": 12,
+        "height": 60,
+        "bind": "fluid:1"
+      },
+      {
+        "type": "lg_fluid",
+        "x": 34,
+        "y": 18,
+        "width": 12,
+        "height": 60,
+        "bind": "fluid:2"
+      },
+      {
+        "type": "lg_fluid",
+        "x": 48,
+        "y": 18,
+        "width": 12,
+        "height": 60,
+        "bind": "fluid:3"
+      },
+      {
+        "type": "lg_slot",
+        "x": 6,
+        "y": 82,
+        "slot": "fluid_in.0"
+      },
+      {
+        "type": "lg_slot",
+        "x": 26,
+        "y": 82,
+        "slot": "fluid_out.0"
+      },
+      {
+        "type": "lg_slot",
+        "x": 6,
+        "y": 102,
+        "slot": "energy_in.0"
+      },
+      {
+        "type": "lg_slot",
+        "x": 26,
+        "y": 102,
+        "slot": "energy_out.0"
+      },
+      {
+        "type": "lg_button",
+        "x": 6,
+        "y": 126,
+        "width": 56,
+        "height": 16,
+        "text": "Distill",
+        "bind": "distill"
+      },
+      {
+        "type": "lg_button",
+        "x": 6,
+        "y": 146,
+        "width": 56,
+        "height": 16,
+        "text": "Sort",
+        "bind": "sort"
+      },
+      {
+        "type": "lg_button",
+        "x": 6,
+        "y": 166,
+        "width": 56,
+        "height": 16,
+        "text": "Eat",
+        "bind": "eat"
+      },
+      {
+        "type": "lg_label",
+        "x": 6,
+        "y": 186,
+        "width": 60,
+        "height": 9,
+        "text": "{status}",
+        "color": "#606060"
+      },
+      {
+        "type": "lg_slots",
+        "x": 72,
+        "y": 18,
+        "slot": "storage",
+        "columns": 9,
+        "rows": 9
+      },
+      {
+        "type": "lg_energy",
+        "x": 244,
+        "y": 18,
+        "width": 12,
+        "height": 100,
+        "bind": "energy"
+      },
+      {
+        "type": "lg_label",
+        "x": 51,
+        "y": 186,
+        "width": 120,
+        "height": 9,
+        "text": "{inventory}",
+        "color": "#404040"
+      },
+      {
+        "type": "lg_player",
+        "x": 51,
+        "y": 196
+      }
+    ]
+  }
+}

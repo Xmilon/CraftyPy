@@ -1,0 +1,161 @@
+{
+ "format_version": "1.8.0",
+ "animations": {
+  "animation.damocles.idle": {
+   "loop": true,
+   "animation_length": 4.0,
+   "bones": {
+    "weapon": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        -3
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "2.000": {
+       "post": [
+        0,
+        0,
+        3
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "4.000": {
+       "post": [
+        0,
+        0,
+        -3
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     },
+     "position": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "2.000": {
+       "post": [
+        0,
+        0.6,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "4.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    },
+    "thread": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        -1.5
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "2.000": {
+       "post": [
+        0,
+        0,
+        1.5
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "4.000": {
+       "post": [
+        0,
+        0,
+        -1.5
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  },
+  "animation.damocles.attack": {
+   "loop": false,
+   "animation_length": 0.5,
+   "bones": {
+    "weapon": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.150": {
+       "post": [
+        0,
+        0,
+        28
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.500": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  },
+  "animation.damocles.use": {
+   "loop": false,
+   "animation_length": 0.8,
+   "bones": {
+    "weapon": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.400": {
+       "post": [
+        0,
+        360,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.800": {
+       "post": [
+        0,
+        720,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  }
+ }
+}

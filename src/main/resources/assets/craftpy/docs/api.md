@@ -623,6 +623,11 @@ This page describes Python API **2.12** (`API_VERSION` in your code). `apiVersio
 - **Added:** `Item(model="backpack")`: your own 3D item model (assets/models/item/). `Placeable(width, height)`: shift + right click on a block sets the item down as itself, with everything its stack carries; hitting it picks it up again. `@on.entity_interact(entity=item)` hears a right click on it and `ui.open_screen(..., entity=ctx.entity)` opens the same window as in the hand.
 - **Added:** Minecraft-style windows: Minecraft's own slots, arrow, flame, panel and buttons, Mekanism's energy bar and gauges when it is installed (`style` auto, mekanism or plain); grids up to 13 x 9 and windows up to 320 units; image pieces of any texture; button pieces heard by `@on.screen_button(button=, window=)`.
 - **Added:** `FluidTank(..., tanks=1..4)` with gauges bound to `fluid:N`; `Inventory` groups `fluid_in`, `fluid_out`, `energy_in` and `energy_out` fill and empty tanks and the energy store with buckets and batteries of any mod; `Inventory(keep=True)` keeps the items in the dropped block.
+- **Added:** `Bow(draw_seconds=, power=, damage=, arrows=, spread=, infinite=, ammo=)` makes an item a bow: draw it with right click, let go to shoot; its model swaps to `<texture>_pulling_0/1/2.png` while drawn, and `draw_sound`, `full_sound` and `shoot_sound` name sounds of your sounds.json. `Throwable(speed=, damage=, charge_seconds=, pierce=, gravity=)`: hold and let go to throw an item that flies as itself, hurts like an arrow and is picked up again with everything the stack carries.
+- **Added:** `Item(geo="name", geo_texture=, display=)`: a GeckoLib model for an item (`models/name.geo.json`, `animations/name.animation.json`, an animated texture and a `_glowmask` that shines in the dark); the clip ending in `idle` loops, `use` and `attack` play on a right click and a hit. `display` sets how a `model=` or `geo=` item sits in hands, inventory and on the ground; with a `texture` as well, inventories show that flat picture (animated with a .png.mcmeta) and everything else the model.
+- **Added:** `Entity.effect(name, seconds, level)`, `Entity.damage(amount)` and `Entity.heal(amount)` work on any living entity, so an item hook can slow, poison or hurt what it hits without a command.
+- **Added:** `hud.bar(..., vertical=True, frame=)` fills from the bottom up and can have an outline; bars may be up to 200 pixels high. `client.player()` tells what is being drawn: `using`, `use_ticks`, `use_full` (ticks to a full draw) and `use_hand`.
+- **Added:** `ui.screen_slots(player, group)`, `ui.screen_take(player, group, index, count)` and `ui.screen_sort(player, group)` read, empty and sort the slots of the window a player has open from `ui.open_screen`.
 - **Added:** `ui.open_screen(..., hand="main")` keeps a window's slots, `energy=` and `tanks=` in the held item; `ui.screen_update(player, energy=, fluid=, tank=)` changes and reads them while it is open.
 - **Changed:** A recipe's result must be an item: a `#tag` result is an error instead of a recipe the game skips.
 - **Changed:** Several recipes for the same item each keep their own id (the second one used to replace the first).
@@ -630,6 +635,8 @@ This page describes Python API **2.12** (`API_VERSION` in your code). `apiVersio
 - **Changed:** `@command` needs `level=` in projects written for API 2.12 (older ones get 2, operators, and a console note). A command now runs only in the project that declared it (two projects with a `heal` command no longer both run), disappears when its project stops, keeps working after `/reload`, and a changed declaration replaces the old command. Player arguments arrive as the player.
 - **Changed:** `/craftpy` lists the commands you may use; `/craftpy window` (it never worked), `give ... block|item` (the kind is found from the id) and `module reload <module>` (every module reloads together) are gone; `/craftpy module` lists the modules everywhere.
 - **Changed:** Machine snapshots (`world.machine`) name a project's liquids by their project id, like its items.
+- **Changed:** `Fluid(bucket_glint=True)`: the liquid's bucket shimmers like an enchanted item.
+- **Changed:** `player.play_sound` and `client.sound` play sounds that a project names in its sounds.json (they used to find only the game's own).
 - **Changed:** `ctx.window` of `@on.screen_button` is the layout's name (`"pack"`), without the project in front.
 
 ### 2.11 (2026-10-23)
@@ -721,7 +728,7 @@ Every function, class and method with all its parameters, by topic. Use the sear
 
 ### Items and blocks
 
-#### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(), components=None, model=None, **extra) -> 'Content'`
+#### `Item(id, name=None, texture=None, stack=64, glow=False, food=None, fuel=0, effect=None, extensions=(), tags=(), components=None, model=None, geo=None, geo_texture=None, display=None, **extra) -> 'Content'`
 
 Declares an item and returns it; the result can be used anywhere an item id is expected.
 
@@ -737,6 +744,9 @@ Declares an item and returns it; the result can be used anywhere an item id is e
 - `tags` (default `()`): Item tags to join: ['minecraft:swords', 'gems'] (a bare name is this project's tag).
 - `components` (default `None`): Data components every stack gets, from any mod: {'apotheosis:affixes': {...}}. A listed component is filled in when a stack does not have it yet; later changes (a reforge) are kept.
 - `model` (default `None`): Your own 3D mesh in assets/models/item/ ('backpack'), drawn instead of the flat texture.
+- `geo` (default `None`): A GeckoLib model ('damocles': models/damocles.geo.json, animations/damocles.animation.json); the flat texture shows without GeckoLib.
+- `geo_texture` (default `None`): Texture file of the GeckoLib model (default '<geo>_geo.png').
+- `display` (default `None`): How a model= or geo= item sits in hands, inventory, ground: {context: {rotation, translation, scale}}.
 - `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The item (a string 'project:id' with .extends(...)).
@@ -859,7 +869,7 @@ Declares a potion effect and returns it: player.effect(rage), Item(effect=rage),
 
 Returns: The effect (a string 'project:id').
 
-#### `Fluid(id, name=None, color='#3fa7ff', density=1000, viscosity=1000, temperature=300, light=0, effects=(), still=None, flowing=None, bucket_texture=None, tags=(), **extra) -> 'Content'`
+#### `Fluid(id, name=None, color='#3fa7ff', density=1000, viscosity=1000, temperature=300, light=0, effects=(), still=None, flowing=None, bucket_texture=None, tags=(), bucket_glint=False, **extra) -> 'Content'`
 
 Declares a liquid (a real NeoForge fluid with a bucket: Fluid(...).bucket). Flows, can be swum in, fills tanks and pipes.
 
@@ -875,6 +885,7 @@ Declares a liquid (a real NeoForge fluid with a bucket: Fluid(...).bucket). Flow
 - `flowing` (default `None`): Own texture of the flowing liquid.
 - `bucket_texture` (default `None`): Texture of the bucket item; default: the water bucket.
 - `tags` (default `()`): Fluid tags to join: ['c:volt_sap'] (the still and flowing forms both); pipes and recipes of other mods read them.
+- `bucket_glint` (default `False`): True makes the bucket shimmer like an enchanted item.
 - `**extra`: Not accepted: any other attribute raises an error that lists the valid ones.
 
 Returns: The fluid; fluid.bucket is the bucket item.
@@ -1062,6 +1073,33 @@ Shift + right click on a block sets the item down as itself, data and all; hit i
 
 - `width` (default `0.6`): Blocks wide, 0.125 to 4.
 - `height` (default `0.6`): Blocks high, 0.125 to 4.
+
+#### `Bow(draw_seconds=1.0, power=3.0, damage=6.0, arrows=1, spread=1.0, infinite=False, ammo='#minecraft:arrows', draw_sound=None, full_sound=None, shoot_sound=None)`
+
+The item is a bow: draw it with right click, let go to shoot. Its model changes while drawn (texture_pulling_0/1/2.png).
+
+- `draw_seconds` (default `1.0`): Time to a full draw, 0.05 to 30.
+- `power` (default `3.0`): Arrow speed at a full draw (vanilla 3.0).
+- `damage` (default `6.0`): Damage of a full-draw hit (vanilla bow 6).
+- `arrows` (default `1`): Arrows shot at once, 1 to 9 (they fan out).
+- `spread` (default `1.0`): Inaccuracy, 1.0 like vanilla, 0 exact.
+- `infinite` (default `False`): True uses no ammo.
+- `ammo` (default `'#minecraft:arrows'`): An item id or '#tag' taken from the inventory (default '#minecraft:arrows').
+- `draw_sound` (default `None`): Sound id of your sounds.json when the draw starts, or None.
+- `full_sound` (default `None`): Sound id when the bow is fully drawn, or None.
+- `shoot_sound` (default `None`): Sound id of the shot, or None for the game's.
+
+#### `Throwable(speed=2.5, damage=6.0, charge_seconds=0.5, pierce=0, gravity=True, throw_sound=None, hit_sound=None)`
+
+The item is thrown (hold, let go) and flies as itself, hurting like an arrow; it can be picked up again.
+
+- `speed` (default `2.5`): Speed of a full throw (a trident is 2.5).
+- `damage` (default `6.0`): Damage of a full-speed hit.
+- `charge_seconds` (default `0.5`): Wind-up for a full throw.
+- `pierce` (default `0`): Mobs it goes through, 0 to 5.
+- `gravity` (default `True`): False flies straight.
+- `throw_sound` (default `None`): Sound id when thrown, or None for the game's.
+- `hit_sound` (default `None`): Sound id when it hits a mob, or None.
 
 #### `Tooltip(*lines, color='gray')`
 
@@ -1845,6 +1883,27 @@ Triggers a configured GeckoLib animation from the server. Only the content owner
 
 - `name`: attack, cast, hurt or death.
 
+#### `Entity.effect(name, seconds=10, level=1, particles=True)`
+
+Puts a potion effect on this living entity (a mob or a player).
+
+- `name`: Effect id.
+- `seconds` (default `10`): Duration in seconds.
+- `level` (default `1`): Level, 1 and up.
+- `particles` (default `True`): False hides the particles.
+
+#### `Entity.damage(amount)`
+
+Hurts this living entity like a harming potion: armor does not help.
+
+- `amount`: Half hearts.
+
+#### `Entity.heal(amount)`
+
+Heals this living entity.
+
+- `amount`: Half hearts.
+
 ### Position
 
 #### `Pos(x, y, z)`
@@ -2336,6 +2395,35 @@ Adds energy (negative takes it) or removes liquid (mB, negative) from the window
 
 Returns: dict
 
+#### `ui.screen_slots(player, group='storage') -> list`
+
+The slots of one group in the window the player has open from ui.open_screen: item, count, name (and food, saturation).
+
+- `player`: Player or name.
+- `group` (default `'storage'`): The slot group, default 'storage'.
+
+Returns: list
+
+#### `ui.screen_take(player, group, index, count=1) -> int`
+
+Takes up to count items out of one slot of the player's open window; returns how many came out.
+
+- `player`: Player or name.
+- `group`: The slot group.
+- `index`: Slot number in the group, from 0.
+- `count` (default `1`): How many, 1 to 64.
+
+Returns: int
+
+#### `ui.screen_sort(player, group='storage') -> list`
+
+Merges equal stacks of a group in the player's open window and orders them; returns the new slots.
+
+- `player`: Player or name.
+- `group` (default `'storage'`): The slot group, default 'storage'.
+
+Returns: list
+
 #### `ui.screen_set(player, values)`
 
 Changes the free values of the window the player has open from ui.open_screen.
@@ -2564,7 +2652,7 @@ Shows text on your screen (client-side code only). Calling it again with the sam
 - `scale` (default `1.0`): Size, 0.25 to 8.
 - `shadow` (default `True`): Draw a shadow behind the text.
 
-#### `hud.bar(id, value, max=100, anchor='top_left', x=0, y=0, width=80, height=6, color='green', background='dark_gray', label=None)`
+#### `hud.bar(id, value, max=100, anchor='top_left', x=0, y=0, width=80, height=6, color='green', background='dark_gray', label=None, vertical=False, frame=None)`
 
 Shows a bar (health, mana, progress) on your screen.
 
@@ -2575,10 +2663,12 @@ Shows a bar (health, mana, progress) on your screen.
 - `x` (default `0`): Pixels right of the anchor.
 - `y` (default `0`): Pixels below the anchor.
 - `width` (default `80`): Width in pixels, 1 to 600.
-- `height` (default `6`): Height in pixels, 1 to 60.
+- `height` (default `6`): Height in pixels, 1 to 200.
 - `color` (default `'green'`): Color of the filled part.
 - `background` (default `'dark_gray'`): Color of the empty part.
-- `label` (default `None`): Text drawn on the bar (at most 64 characters), or None.
+- `label` (default `None`): Text drawn on the bar (at most 64 characters; beside a horizontal bar, under a vertical one), or None.
+- `vertical` (default `False`): True fills the bar from the bottom up.
+- `frame` (default `None`): A color for a one pixel outline, or None.
 
 #### `hud.item(id, item, anchor='top_left', x=0, y=0, count=None, scale=1.0)`
 

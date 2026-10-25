@@ -52,6 +52,18 @@ public class CraftPyClient {
 
     @SubscribeEvent
     static void onClientSetup(FMLClientSetupEvent event) {
+        // bow models change while they are drawn: vanilla's "pull" and "pulling" for every project item that is a bow
+        event.enqueueWork(() -> net.xmilon.craftpy.registry.ModItems.ITEMS.getEntries().forEach(entry -> {
+            if (!(entry.get() instanceof net.xmilon.craftpy.block.SlottedItem item)) return;
+            net.minecraft.client.renderer.item.ItemProperties.register(item, net.minecraft.resources.ResourceLocation.withDefaultNamespace("pull"),
+                    (stack, level, entity, seed) -> {
+                        var def = item.definition();
+                        if (def == null || def.bow == null || entity == null || entity.getUseItem() != stack) return 0f;
+                        return net.xmilon.craftpy.block.SlottedItem.drawn(entity.getTicksUsingItem(), def.bow.drawTicks());
+                    });
+            net.minecraft.client.renderer.item.ItemProperties.register(item, net.minecraft.resources.ResourceLocation.withDefaultNamespace("pulling"),
+                    (stack, level, entity, seed) -> entity != null && entity.isUsingItem() && entity.getUseItem() == stack ? 1f : 0f);
+        }));
         CraftPyLog.LOGGER.info("CraftPy client setup for {}", Minecraft.getInstance().getUser().getName());
         net.xmilon.craftpy.client.IdeHost.install(new net.xmilon.craftpy.client.McHost());
         event.enqueueWork(() -> {
@@ -86,6 +98,7 @@ public class CraftPyClient {
         net.xmilon.craftpy.registry.ModEntities.MONSTERS.forEach(type ->
                 event.registerEntityRenderer(type.get(), net.xmilon.craftpy.client.SlottedEntityRenderer::new));
         event.registerEntityRenderer(net.xmilon.craftpy.registry.ModEntities.PROP.get(), net.xmilon.craftpy.client.PropRenderer::new);
+        event.registerEntityRenderer(net.xmilon.craftpy.registry.ModEntities.THROWN.get(), net.xmilon.craftpy.client.ThrownWeaponRenderer::new);
     }
 
     /** The spawn egg takes the colors of the mob it names (stored on the stack by /craftpy give ... egg). */
@@ -149,6 +162,7 @@ public class CraftPyClient {
     @SubscribeEvent
     static void onRegisterFluidExtensions(net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent event) {
         net.xmilon.craftpy.client.FluidClientExtensions.register(event);
+        if (net.neoforged.fml.ModList.get().isLoaded("geckolib")) net.xmilon.craftpy.compat.geckolib.GeoClient.register(event);
     }
 
     @SubscribeEvent

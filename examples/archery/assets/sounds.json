@@ -1,0 +1,26 @@
+{
+  "notch": {
+    "sounds": [
+      {
+        "name": "archery:notch",
+        "stream": false
+      }
+    ]
+  },
+  "notch_high": {
+    "sounds": [
+      {
+        "name": "archery:notch_high",
+        "stream": false
+      }
+    ]
+  },
+  "ready": {
+    "sounds": [
+      {
+        "name": "archery:ready",
+        "stream": false
+      }
+    ]
+  }
+}

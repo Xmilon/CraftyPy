@@ -1,0 +1,126 @@
+{
+ "format_version": "1.8.0",
+ "animations": {
+  "animation.excalibur.idle": {
+   "loop": true,
+   "animation_length": 3.0,
+   "bones": {
+    "weapon": {
+     "position": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "1.500": {
+       "post": [
+        0,
+        0.4,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "3.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    },
+    "gem": {
+     "scale": {
+      "0.000": [
+       1,
+       1,
+       1
+      ],
+      "1.500": [
+       1.35,
+       1.35,
+       1.35
+      ],
+      "3.000": [
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   }
+  },
+  "animation.excalibur.use": {
+   "loop": false,
+   "animation_length": 0.6,
+   "bones": {
+    "weapon": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.300": {
+       "post": [
+        0,
+        180,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.600": {
+       "post": [
+        0,
+        360,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  },
+  "animation.excalibur.attack": {
+   "loop": false,
+   "animation_length": 0.4,
+   "bones": {
+    "weapon": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.150": {
+       "post": [
+        0,
+        0,
+        -22
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.400": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  }
+ }
+}

@@ -3,7 +3,7 @@
   "name": "Dust Works",
   "description": "Stone dusts in the shared c: tags, recipes that take any mod's dust, and a Grinder machine that burns coal or takes any mod's energy, with a Minecraft-style window and statistics per player.",
   "author": "CraftPy",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "apiVersion": "2.12",
   "mcVersion": "1.21.1",
   "side": "both",

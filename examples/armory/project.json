@@ -1,0 +1,12 @@
+{
+  "id": "armory",
+  "name": "Armory",
+  "description": "Weapons with a character: greatswords, daggers, spears and bows with 3D models, and five legends (Damocles' Sword, Scipio's Spear, Gungnir, Excalibur, Tyrfing) with GeckoLib animations, animated icons and abilities of their own, with custom sounds.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.12",
+  "mcVersion": "1.21.1",
+  "side": "both",
+  "permissions": {},
+  "icon": "icon.png"
+}

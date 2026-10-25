@@ -39,7 +39,10 @@ public final class ModItems {
         for (int i = 0; i < SlotRegistry.itemSlotCount(); i++) {
             final int index = i;
             SLOT_ITEMS.add(ITEMS.register("pcitem_" + i, () -> {
-                SlottedItem item = new SlottedItem(index, new Item.Properties());
+                // with GeckoLib installed every item can carry a GeckoLib model; the class is only loaded then
+                boolean gecko = net.neoforged.fml.ModList.get() != null && net.neoforged.fml.ModList.get().isLoaded("geckolib");
+                SlottedItem item = gecko ? net.xmilon.craftpy.compat.geckolib.GeoSlottedItem.create(index, new Item.Properties())
+                        : new SlottedItem(index, new Item.Properties());
                 SlotRegistry.registerItem(index, item);
                 return item;
             }));

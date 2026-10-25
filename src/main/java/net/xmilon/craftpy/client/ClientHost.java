@@ -237,8 +237,29 @@ public final class ClientHost {
         data.addProperty("held_item", BuiltInRegistries.ITEM.getKey(held.getItem()).toString());
         data.addProperty("held_count", held.getCount());
         data.addProperty("on_ground", player.onGround());
+        if (player.isUsingItem()) {
+            // what is being drawn or charged: a bow's charge bar reads these
+            var using = player.getUseItem();
+            data.addProperty("using", BuiltInRegistries.ITEM.getKey(using.getItem()).toString());
+            data.addProperty("use_ticks", player.getTicksUsingItem());
+            data.addProperty("use_full", fullChargeTicks(player, using));
+            data.addProperty("use_hand", player.getUsedItemHand() == net.minecraft.world.InteractionHand.MAIN_HAND ? "main" : "off");
+        }
         out.add("player", data);
         return out;
+    }
+
+    /** Ticks until the item being used is fully drawn (0 when it has no such moment). */
+    private static int fullChargeTicks(net.minecraft.world.entity.player.Player player, net.minecraft.world.item.ItemStack stack) {
+        var item = stack.getItem();
+        if (item instanceof net.xmilon.craftpy.block.SlottedItem slotted && slotted.definition() != null) {
+            var def = slotted.definition();
+            return def.bow != null ? def.bow.drawTicks() : def.thrown != null ? def.thrown.chargeTicks() : 0;
+        }
+        if (item == net.minecraft.world.item.Items.BOW) return 20;
+        if (item == net.minecraft.world.item.Items.TRIDENT) return 10;
+        if (item instanceof net.minecraft.world.item.CrossbowItem) return net.minecraft.world.item.CrossbowItem.getChargeDuration(stack, player);
+        return 0;
     }
 
     private static JsonObject lookingAt() {
@@ -289,7 +310,7 @@ public final class ClientHost {
     private static JsonObject sound(JsonObject p) {
         ResourceLocation id = ResourceLocation.tryParse(string(p, "sound"));
         var event = id == null ? java.util.Optional.<net.minecraft.sounds.SoundEvent>empty()
-                : BuiltInRegistries.SOUND_EVENT.getOptional(id);
+                : java.util.Optional.of(net.xmilon.craftpy.content.SoundIds.of(id));
         if (event.isEmpty()) {
             return fail("Unknown sound: " + string(p, "sound"));
         }

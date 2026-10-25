@@ -1,0 +1,154 @@
+{
+  "swing": {
+    "sounds": [
+      {
+        "name": "armory:swing",
+        "stream": false
+      }
+    ]
+  },
+  "swing_heavy": {
+    "sounds": [
+      {
+        "name": "armory:swing_heavy",
+        "stream": false
+      }
+    ]
+  },
+  "clang": {
+    "sounds": [
+      {
+        "name": "armory:clang",
+        "stream": false
+      }
+    ]
+  },
+  "stab": {
+    "sounds": [
+      {
+        "name": "armory:stab",
+        "stream": false
+      }
+    ]
+  },
+  "thunk": {
+    "sounds": [
+      {
+        "name": "armory:thunk",
+        "stream": false
+      }
+    ]
+  },
+  "throw": {
+    "sounds": [
+      {
+        "name": "armory:throw",
+        "stream": false
+      }
+    ]
+  },
+  "snap": {
+    "sounds": [
+      {
+        "name": "armory:snap",
+        "stream": false
+      }
+    ]
+  },
+  "dread": {
+    "sounds": [
+      {
+        "name": "armory:dread",
+        "stream": false
+      }
+    ]
+  },
+  "crackle": {
+    "sounds": [
+      {
+        "name": "armory:crackle",
+        "stream": false
+      }
+    ]
+  },
+  "holy": {
+    "sounds": [
+      {
+        "name": "armory:holy",
+        "stream": false
+      }
+    ]
+  },
+  "horn": {
+    "sounds": [
+      {
+        "name": "armory:horn",
+        "stream": false
+      }
+    ]
+  },
+  "frost": {
+    "sounds": [
+      {
+        "name": "armory:frost",
+        "stream": false
+      }
+    ]
+  },
+  "hiss": {
+    "sounds": [
+      {
+        "name": "armory:hiss",
+        "stream": false
+      }
+    ]
+  },
+  "cursed": {
+    "sounds": [
+      {
+        "name": "armory:cursed",
+        "stream": false
+      }
+    ]
+  },
+  "bow_draw": {
+    "sounds": [
+      {
+        "name": "armory:draw",
+        "stream": false
+      }
+    ]
+  },
+  "bow_shoot": {
+    "sounds": [
+      {
+        "name": "armory:twang",
+        "stream": false
+      }
+    ]
+  },
+  "bow_shoot_light": {
+    "sounds": [
+      {
+        "name": "armory:twang_light",
+        "stream": false
+      }
+    ]
+  },
+  "bow_ready": {
+    "sounds": [
+      {
+        "name": "armory:ready",
+        "stream": false
+      }
+    ]
+  },
+  "silver": {
+    "sounds": [
+      {
+        "name": "armory:silver",
+        "stream": false
+      }
+    ]
+  }
+}

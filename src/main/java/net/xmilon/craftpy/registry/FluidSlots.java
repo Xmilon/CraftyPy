@@ -187,5 +187,11 @@ public final class FluidSlots {
             var def = def(index);
             return Component.literal(def == null ? "Unloaded bucket" : def.name + " Bucket");
         }
+
+        @Override
+        public boolean isFoil(ItemStack stack) {
+            var def = def(index);
+            return def != null && def.bucketGlint || super.isFoil(stack);
+        }
     }
 }

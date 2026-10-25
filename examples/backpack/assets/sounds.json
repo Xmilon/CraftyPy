@@ -1,0 +1,50 @@
+{
+  "pack_open": {
+    "sounds": [
+      {
+        "name": "backpack:open",
+        "stream": false
+      }
+    ]
+  },
+  "pack_close": {
+    "sounds": [
+      {
+        "name": "backpack:close",
+        "stream": false
+      }
+    ]
+  },
+  "pack_sort": {
+    "sounds": [
+      {
+        "name": "backpack:sort",
+        "stream": false
+      }
+    ]
+  },
+  "pack_distill": {
+    "sounds": [
+      {
+        "name": "backpack:distill",
+        "stream": false
+      }
+    ]
+  },
+  "pack_pour": {
+    "sounds": [
+      {
+        "name": "backpack:pour",
+        "stream": false
+      }
+    ]
+  },
+  "pack_full": {
+    "sounds": [
+      {
+        "name": "backpack:full",
+        "stream": false
+      }
+    ]
+  }
+}

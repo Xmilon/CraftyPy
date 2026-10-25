@@ -155,6 +155,18 @@ public class SlottedItem extends Item {
             Equipable worn = () -> slot; // not implemented by the class: only armor items may answer to Equipable
             return worn.swapWithEquipmentSlot(this, level, player, usedHand);
         }
+        if (def != null && def.bow != null) {
+            if (!player.getAbilities().instabuild && !def.bow.infinite() && findAmmo(player, def.bow).isEmpty()) {
+                return InteractionResultHolder.fail(stack);
+            }
+            player.startUsingItem(usedHand);
+            playSound(level, player, def.bow.drawSound(), 0.7f, 1f);
+            return InteractionResultHolder.consume(stack);
+        }
+        if (def != null && def.thrown != null) {
+            player.startUsingItem(usedHand);
+            return InteractionResultHolder.consume(stack);
+        }
         if (def != null && def.cooldownSeconds > 0 && !level.isClientSide) {
             player.getCooldowns().addCooldown(this, Math.round(def.cooldownSeconds * 20f));
         }
@@ -178,13 +190,122 @@ public class SlottedItem extends Item {
     @Override
     public int getUseDuration(ItemStack stack, LivingEntity entity) {
         Defs.ItemDef def = definition();
+        if (def != null && (def.bow != null || def.thrown != null)) return 72000;
         return def != null && def.food != null ? def.food.eatDurationTicks() : super.getUseDuration(stack, entity);
     }
 
     @Override
     public UseAnim getUseAnimation(ItemStack stack) {
         Defs.ItemDef def = definition();
+        if (def != null && def.bow != null) return UseAnim.BOW;
+        if (def != null && def.thrown != null) return UseAnim.SPEAR;
         return def != null && def.food != null ? UseAnim.EAT : super.getUseAnimation(stack);
+    }
+
+    // ------------------------------------------------------------------
+    // Bow(...) and Throwable(...): drawn while used, let go when the button is released
+    // ------------------------------------------------------------------
+
+    private static void playSound(Level level, LivingEntity at, String id, float volume, float pitch) {
+        var sound = net.xmilon.craftpy.content.SoundIds.of(id);
+        if (sound != null && !level.isClientSide) {
+            level.playSound(null, at.getX(), at.getY(), at.getZ(), sound, net.minecraft.sounds.SoundSource.PLAYERS, volume, pitch);
+        }
+    }
+
+    /** The first stack of the ammo (an item id or a #tag) in the offhand, then the inventory; empty when there is none. */
+    private static ItemStack findAmmo(Player player, Defs.ItemDef.BowSpec bow) {
+        java.util.function.Predicate<ItemStack> wanted;
+        if (bow.ammo().startsWith("#")) {
+            var tag = ResourceLocation.tryParse(bow.ammo().substring(1));
+            wanted = tag == null ? stack -> false : stack -> stack.is(net.minecraft.tags.TagKey.create(net.minecraft.core.registries.Registries.ITEM, tag));
+        } else {
+            var id = ResourceLocation.tryParse(bow.ammo());
+            wanted = id == null ? stack -> false : stack -> BuiltInRegistries.ITEM.getKey(stack.getItem()).equals(id);
+        }
+        if (wanted.test(player.getOffhandItem())) return player.getOffhandItem();
+        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+            ItemStack candidate = player.getInventory().getItem(slot);
+            if (wanted.test(candidate)) return candidate;
+        }
+        return ItemStack.EMPTY;
+    }
+
+    /** How far a bow is drawn, 0 to 1, with vanilla's curve: the first half of the draw does little. */
+    public static float drawn(int ticks, int full) {
+        float f = ticks / (float) full;
+        return Math.min(1f, (f * f + f * 2f) / 3f);
+    }
+
+    @Override
+    public void onUseTick(Level level, LivingEntity entity, ItemStack stack, int remaining) {
+        Defs.ItemDef def = definition();
+        if (def == null || level.isClientSide) return;
+        int used = getUseDuration(stack, entity) - remaining;
+        if (def.bow != null && used == def.bow.drawTicks()) playSound(level, entity, def.bow.fullSound(), 0.8f, 1f);
+    }
+
+    @Override
+    public void releaseUsing(ItemStack stack, Level level, LivingEntity entity, int remaining) {
+        Defs.ItemDef def = definition();
+        if (def == null || !(entity instanceof Player player) || level.isClientSide) return;
+        int used = getUseDuration(stack, entity) - remaining;
+        if (def.bow != null) {
+            shoot(stack, level, player, def.bow, used);
+        } else if (def.thrown != null) {
+            hurl(stack, level, player, def.thrown, used);
+        }
+    }
+
+    private void shoot(ItemStack stack, Level level, Player player, Defs.ItemDef.BowSpec bow, int used) {
+        float pull = drawn(used, bow.drawTicks());
+        if (pull < 0.1f) return; // a tap is not a shot
+        boolean free = player.getAbilities().instabuild || bow.infinite();
+        ItemStack ammo = findAmmo(player, bow);
+        if (ammo.isEmpty() && !free) return;
+        ItemStack arrowStack = ammo.isEmpty() ? new ItemStack(net.minecraft.world.item.Items.ARROW) : ammo.copyWithCount(1);
+        net.minecraft.world.item.ArrowItem arrowItem = arrowStack.getItem() instanceof net.minecraft.world.item.ArrowItem a ? a
+                : (net.minecraft.world.item.ArrowItem) net.minecraft.world.item.Items.ARROW;
+        for (int n = 0; n < bow.arrows(); n++) {
+            net.minecraft.world.entity.projectile.AbstractArrow arrow = arrowItem.createArrow(level, arrowStack, player, stack);
+            float turn = (n - (bow.arrows() - 1) / 2f) * 7f;
+            arrow.shootFromRotation(player, player.getXRot(), player.getYRot() + turn, 0f, pull * bow.power(), bow.spread() * (pull < 1f ? 1.5f : 1f));
+            arrow.setBaseDamage(bow.damage() / bow.power());
+            if (pull >= 1f) arrow.setCritArrow(true);
+            if (free) arrow.pickup = net.minecraft.world.entity.projectile.AbstractArrow.Pickup.CREATIVE_ONLY;
+            level.addFreshEntity(arrow);
+        }
+        String shot = bow.shootSound();
+        if (shot.isEmpty()) {
+            level.playSound(null, player.getX(), player.getY(), player.getZ(), net.minecraft.sounds.SoundEvents.ARROW_SHOOT,
+                    net.minecraft.sounds.SoundSource.PLAYERS, 1f, 1f / (level.getRandom().nextFloat() * 0.4f + 1.2f) + pull * 0.5f);
+        } else {
+            playSound(level, player, shot, 1f, 0.9f + pull * 0.2f);
+        }
+        if (!free) {
+            ammo.shrink(1);
+            if (ammo.isEmpty()) player.getInventory().removeItem(ammo);
+        }
+        stack.hurtAndBreak(1, player, net.minecraft.world.entity.LivingEntity.getSlotForHand(player.getUsedItemHand()));
+        player.awardStat(net.minecraft.stats.Stats.ITEM_USED.get(this));
+    }
+
+    private void hurl(ItemStack stack, Level level, Player player, Defs.ItemDef.ThrowSpec spec, int used) {
+        if (used < 5) return;
+        float charge = Math.min(1f, used / (float) spec.chargeTicks());
+        var thrown = new net.xmilon.craftpy.entity.ThrownWeapon(level, player, stack, spec);
+        thrown.shootFromRotation(player, player.getXRot(), player.getYRot(), 0f, spec.speed() * Math.max(0.4f, charge), 1f);
+        if (player.getAbilities().instabuild) thrown.pickup = net.minecraft.world.entity.projectile.AbstractArrow.Pickup.CREATIVE_ONLY;
+        level.addFreshEntity(thrown);
+        String sound = spec.throwSound();
+        if (sound.isEmpty()) {
+            level.playSound(null, player.getX(), player.getY(), player.getZ(), net.minecraft.sounds.SoundEvents.TRIDENT_THROW.value(),
+                    net.minecraft.sounds.SoundSource.PLAYERS, 1f, 1f);
+        } else {
+            playSound(level, player, sound, 1f, 0.95f + charge * 0.1f);
+        }
+        if (!player.getAbilities().instabuild) player.getInventory().removeItem(stack);
+        player.awardStat(net.minecraft.stats.Stats.ITEM_USED.get(this));
     }
 
     @Override

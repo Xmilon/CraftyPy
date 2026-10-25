@@ -1,0 +1,139 @@
+{
+ "format_version": "1.8.0",
+ "animations": {
+  "animation.tyrfing.idle": {
+   "loop": true,
+   "animation_length": 2.0,
+   "bones": {
+    "weapon": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.100": {
+       "post": [
+        0,
+        0,
+        1.2
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.200": {
+       "post": [
+        0,
+        0,
+        -1.2
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.300": {
+       "post": [
+        0,
+        0,
+        0.8
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.400": {
+       "post": [
+        0,
+        0,
+        -0.8
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.500": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "2.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  },
+  "animation.tyrfing.use": {
+   "loop": false,
+   "animation_length": 0.5,
+   "bones": {
+    "weapon": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.250": {
+       "post": [
+        0,
+        0,
+        30
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.500": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  },
+  "animation.tyrfing.attack": {
+   "loop": false,
+   "animation_length": 0.4,
+   "bones": {
+    "weapon": {
+     "rotation": {
+      "0.000": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.150": {
+       "post": [
+        0,
+        0,
+        25
+       ],
+       "lerp_mode": "catmullrom"
+      },
+      "0.400": {
+       "post": [
+        0,
+        0,
+        0
+       ],
+       "lerp_mode": "catmullrom"
+      }
+     }
+    }
+   }
+  }
+ }
+}

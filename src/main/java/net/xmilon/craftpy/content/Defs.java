@@ -316,6 +316,13 @@ public final class Defs {
         public String model;
         /** Placeable(width, height): shift + right click on a block sets it down as a prop entity of that size; null = not. */
         public float[] prop;
+        public BowSpec bow;
+        /** Item(geo="name"): a GeckoLib model (geo/name.geo.json, animations/name.animation.json); null = none. */
+        public String geo;
+        public String geoTexture;
+        /** Item(display=...): display transforms by context (thirdperson_righthand, gui, ...) written into the item model. */
+        public com.google.gson.JsonObject display;
+        public ThrowSpec thrown;
         public final List<String> tooltip = new ArrayList<>();
         public String tooltipColor = "gray";
         /** Attribute modifiers while held or worn (Attributes extension): any attribute of the game or of a mod. */
@@ -331,6 +338,9 @@ public final class Defs {
             def.burnTime = Math.max(0, i(json, "burn_time", 0));
             def.useEffect = effectFrom(json);
             def.model = json.has("model") && json.get("model").isJsonPrimitive() ? json.get("model").getAsString() : null;
+            def.geo = json.has("geo") && json.get("geo").isJsonPrimitive() ? json.get("geo").getAsString() : null;
+            def.geoTexture = json.has("geo_texture") && json.get("geo_texture").isJsonPrimitive() ? json.get("geo_texture").getAsString() : null;
+            def.display = json.has("display") && json.get("display").isJsonObject() ? json.getAsJsonObject("display") : null;
             def.components = json.has("components") && json.get("components").isJsonObject() ? json.getAsJsonObject("components") : null;
             for (JsonObject ext : extensions(json)) {
                 switch (s(ext, "type", "")) {
@@ -352,6 +362,13 @@ public final class Defs {
                     }
                     case "enchantable" -> def.enchantValue = Math.max(0, Math.min(50, i(ext, "value", 0)));
                     case "cooldown" -> def.cooldownSeconds = Math.max(0f, f(ext, "seconds", 0f));
+                    case "bow" -> def.bow = new BowSpec(Math.max(1, i(ext, "draw_ticks", 20)), Math.max(0.1f, f(ext, "power", 3f)),
+                            Math.max(0f, f(ext, "damage", 6f)), Math.max(1, Math.min(9, i(ext, "arrows", 1))),
+                            Math.max(0f, f(ext, "spread", 1f)), b(ext, "infinite", false), s(ext, "ammo", "#minecraft:arrows"),
+                            s(ext, "draw_sound", ""), s(ext, "full_sound", ""), s(ext, "shoot_sound", ""), b(ext, "cross", false));
+                    case "throwable" -> def.thrown = new ThrowSpec(Math.max(1, i(ext, "charge_ticks", 10)), Math.max(0.1f, f(ext, "speed", 2.5f)),
+                            Math.max(0f, f(ext, "damage", 6f)), Math.max(0, Math.min(5, i(ext, "pierce", 0))), b(ext, "gravity", true),
+                            s(ext, "throw_sound", ""), s(ext, "hit_sound", ""));
                     case "placeable" -> def.prop = new float[] { Math.max(0.125f, Math.min(4f, f(ext, "width", 0.6f))),
                             Math.max(0.125f, Math.min(4f, f(ext, "height", 0.6f))) };
                     case "tooltip" -> {
@@ -374,6 +391,16 @@ public final class Defs {
 
         /** Mining and fighting values of a tool; level 0-4 (wood/gold, stone, iron, diamond, netherite). */
         public record ToolSpec(String kind, int level, float speed, float damage, float attackSpeed) {
+        }
+
+        /** Bow(...): drawn while the item is used, shoots arrows of its ammo; sounds are ids ("" = the game's own). */
+        public record BowSpec(int drawTicks, float power, float damage, int arrows, float spread, boolean infinite, String ammo,
+                              String drawSound, String fullSound, String shootSound, boolean crossShape) {
+        }
+
+        /** Throwable(...): thrown when released, it flies as an entity that is the item and can be picked up again. */
+        public record ThrowSpec(int chargeTicks, float speed, float damage, int pierce, boolean gravity, String throwSound,
+                                String hitSound) {
         }
 
         public record WeaponSpec(float damage, float attackSpeed, float knockback) {
@@ -429,6 +456,8 @@ public final class Defs {
         public final List<Touch> effects = new ArrayList<>();
         /** Texture of the bucket (project assets or a vanilla one); "" = the water bucket. */
         public String bucket = "";
+        /** Fluid(bucket_glint=True): the bucket shimmers like an enchanted item. */
+        public boolean bucketGlint;
 
         /** "name.png" of the project's assets/textures/ as the atlas location {@code project:name}; null when empty. */
         private static net.minecraft.resources.ResourceLocation textureOf(String text, String projectId) {
@@ -448,6 +477,7 @@ public final class Defs {
             def.temperature = Math.max(0, Math.min(5000, i(json, "temperature", 300)));
             def.light = Math.max(0, Math.min(15, i(json, "light", 0)));
             def.bucket = s(json, "bucket", "");
+            def.bucketGlint = b(json, "bucket_glint", false);
             def.still = textureOf(s(json, "still", ""), projectId);
             def.flowing = textureOf(s(json, "flowing", ""), projectId);
             if (json.get("effects") instanceof JsonArray list) {

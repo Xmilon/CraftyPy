@@ -362,6 +362,64 @@ How it works:
 - Without a layout the standard window is shown; draw your own with **Tools > New UI window > Minecraft-style window** and
   name it as the second argument of `ui.open_screen`.
 
+## A bow, and something to throw
+
+You get a bow that is drawn with right click and shoots two arrows, its picture changing while it is drawn, and a spear that
+is thrown and picked up again.
+
+```python
+from craftpy import *
+
+fangbow = Item("fangbow", name="Fang Bow", texture="fangbow.png").extends(
+    Bow(draw_seconds=0.9, power=3.0, damage=5.5, arrows=2, spread=1.5,
+        draw_sound="mymod:bow_draw", full_sound="mymod:bow_ready", shoot_sound="mymod:bow_shoot"),
+    Durability(uses=500))
+shaped(fangbow, " BS", "B S", " BS", B="bone", S="string")
+
+javelin = Item("javelin", name="Javelin", model="javelin").extends(
+    Weapon(damage=5, attack_speed=1.2),
+    Throwable(speed=2.6, damage=9, charge_seconds=0.5, pierce=1, hit_sound="mymod:thunk"))
+shaped(javelin, " I", " S", "S ", I="iron_ingot", S="stick")
+```
+
+How it works:
+
+- `Bow` makes the item drawn while the button is held and shoots when it is let go; the arrows come from the inventory (`ammo=`
+  takes an item or a `#tag`) unless `infinite=True`. Make three more pictures next to the texture, `fangbow_pulling_0.png`,
+  `fangbow_pulling_1.png` and `fangbow_pulling_2.png`: they are shown while it is drawn, like the vanilla bow's.
+- `Throwable` makes the item fly as itself when it is let go, hurt like an arrow, go through `pierce` mobs and stick in the
+  ground; walking over it picks the very same stack up again.
+- The sounds are the ones of your `assets/sounds.json`. A client-side module can draw a charge bar: `client.player()` has
+  `using`, `use_ticks` and `use_full`, and `hud.bar(..., vertical=True)` fills from the bottom.
+
+## A GeckoLib item with animations
+
+You get a sword that is a real 3D model with a bone that sways, a glowing part and a texture that moves, shown in the hand, the
+inventory and on the ground; without GeckoLib the flat icon is shown instead.
+
+```python
+from craftpy import *
+
+lantern_blade = Item("lantern_blade", name="Lantern Blade", texture="lantern_blade.png", geo="lantern_blade",
+                     display={"thirdperson_righthand": {"rotation": [90, -45, -35], "translation": [0, 4, 0.5], "scale": [0.85, 0.85, 0.85]}}).extends(
+    Weapon(damage=8, attack_speed=1.6), Durability(uses=800))
+
+
+@extension
+class Flare(Extension):
+    def on_hit(self, event):
+        event.entity.effect("glowing", 5)
+```
+
+How it works:
+
+- `geo="lantern_blade"` reads `assets/models/lantern_blade.geo.json` (a Blockbench "GeckoLib" model, authored upright),
+  `assets/animations/lantern_blade.animation.json` and `assets/textures/lantern_blade_geo.png`.
+- The clip whose name ends in `idle` loops while the item is shown; `use` and `attack` play on a right click and a hit.
+- A texture with a `.png.mcmeta` next to it animates (eight frames stacked downwards); a file named `<texture>_glowmask.png`
+  shines in the dark where it is not transparent.
+- `display` says how the model sits in a hand; an upright model needs the tilt of a tool sprite folded into it.
+
 ## Commands players type
 
 You get a command every player may use, one for operators with an optional argument, and a check that the player typed it

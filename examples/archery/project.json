@@ -1,0 +1,12 @@
+{
+  "id": "archery",
+  "name": "Archery",
+  "description": "A charge bar for every bow, like Minecraft Dungeons: three segments beside the crosshair that fill as you draw, tick at every third and chime when the draw is full. Works with vanilla bows, crossbows and the Armory's bows, on any server.",
+  "author": "CraftPy",
+  "version": "1.0.0",
+  "apiVersion": "2.12",
+  "mcVersion": "1.21.1",
+  "side": "client",
+  "permissions": {},
+  "icon": "icon.png"
+}

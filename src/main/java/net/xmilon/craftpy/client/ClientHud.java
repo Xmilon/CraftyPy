@@ -27,7 +27,8 @@ public final class ClientHud {
 
     /** One thing on the screen; the fields a kind does not use stay at their defaults. */
     record Element(String kind, String anchor, double x, double y, double scale, String text, int color, boolean shadow,
-                   double value, double max, int width, int height, int background, String label, String item, Integer count) {
+                   double value, double max, int width, int height, int background, String label, String item, Integer count,
+                   boolean vertical, int frame) {
     }
 
     private static final ConcurrentSkipListMap<String, Element> ELEMENTS = new ConcurrentSkipListMap<>();
@@ -70,8 +71,10 @@ public final class ClientHud {
         return new Element(kind, anchor, x, y, scale, cut(string(p, "text", ""), 256),
                 HudLayout.color(string(p, "color", "white"), 0xFFFFFF), !p.has("shadow") || p.get("shadow").getAsBoolean(),
                 number(p, "value", 0), Math.max(1e-9, number(p, "max", 100)),
-                (int) clamp(number(p, "width", 80), 1, 600), (int) clamp(number(p, "height", 6), 1, 60),
-                HudLayout.color(string(p, "background", "dark_gray"), 0x555555), label, cut(string(p, "item", ""), 100), count);
+                (int) clamp(number(p, "width", 80), 1, 600), (int) clamp(number(p, "height", 6), 1, 200),
+                HudLayout.color(string(p, "background", "dark_gray"), 0x555555), label, cut(string(p, "item", ""), 100), count,
+                p.has("vertical") && p.get("vertical").getAsBoolean(), p.has("frame") && !p.get("frame").isJsonNull()
+                ? HudLayout.color(string(p, "frame", "black"), 0x000000) : -1);
     }
 
     public static void remove(String owner, String id) {
@@ -123,10 +126,23 @@ public final class ClientHud {
                 int h = (int) Math.ceil(e.height() * s);
                 int[] at = HudLayout.position(e.anchor(), e.x(), e.y(), w, h, screenW, screenH);
                 double fraction = Math.max(0, Math.min(1, e.value() / e.max()));
+                if (e.frame() >= 0) {
+                    graphics.fill(at[0] - 1, at[1] - 1, at[0] + w + 1, at[1] + h + 1, 0xFF000000 | e.frame());
+                }
                 graphics.fill(at[0], at[1], at[0] + w, at[1] + h, 0xFF000000 | e.background());
-                graphics.fill(at[0], at[1], at[0] + (int) Math.round(w * fraction), at[1] + h, 0xFF000000 | e.color());
+                if (e.vertical()) {
+                    // fills from the bottom up
+                    int filled = (int) Math.round(h * fraction);
+                    graphics.fill(at[0], at[1] + h - filled, at[0] + w, at[1] + h, 0xFF000000 | e.color());
+                } else {
+                    graphics.fill(at[0], at[1], at[0] + (int) Math.round(w * fraction), at[1] + h, 0xFF000000 | e.color());
+                }
                 if (e.label() != null && !e.label().isEmpty()) {
-                    graphics.drawString(font, e.label(), at[0] + w + 4, at[1] + (h - font.lineHeight) / 2, 0xFFFFFFFF, true);
+                    if (e.vertical()) {
+                        graphics.drawString(font, e.label(), at[0] + (w - font.width(e.label())) / 2, at[1] + h + 3, 0xFFFFFFFF, true);
+                    } else {
+                        graphics.drawString(font, e.label(), at[0] + w + 4, at[1] + (h - font.lineHeight) / 2, 0xFFFFFFFF, true);
+                    }
                 }
             }
             case "item" -> {

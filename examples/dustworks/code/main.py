@@ -12,7 +12,6 @@ import grinding
 #     world.machine_recipe / world.machine_finish find and make them with the slots' real items.
 #   - Python runs it: five times a second it burns coal or lava into energy and grinds (the rules are in grinding.py,
 #     with tests).
-#   - The Adventurer's Pack (a placeable 3D backpack with tanks and energy) and Starbrine, a glowing liquid, further down.
 #   - Each player's ground stone is counted in storage (scope "stats"), saved with the world: /dustworks:stats shows it,
 #     /craftpy backup create dustworks keeps a copy of it.
 
@@ -104,65 +103,6 @@ def count_for(owner):
     storage.set("all", storage.get("all", 0, scope="stats") + 1, scope="stats")
 
 
-# --- The Adventurer's Pack: a backpack that is an item, and sets down as one --------------------------------------------
-#   Right click with it: 54 slots, two liquid tanks and an energy store, all kept inside the item (ui/adventure_pack.json).
-#   Shift + right click a block: it stands there as itself and opens with a right click; hit it, or shift + right click it
-#   with an empty hand, and it comes back with everything in it. Its own 3D model is assets/models/item/backpack.json.
-#   Starbrine is a glowing liquid of the night sky; the Distill button turns 100 mB of it into 4000 FE, which charges the
-#   batteries and tools of any mod in the pack's energy slots (and the Grinder takes the same energy from a cable).
-
-starbrine = Fluid("starbrine", name="Starbrine", color="#7C5CFF",
-                  density=1100, viscosity=1400, temperature=260,   # a little heavier and thicker than water, and cold
-                  light=12,                                        # it glows like a lantern
-                  effects=[("night_vision", 15), ("slow_falling", 3)],
-                  still="starbrine_still.png", flowing="starbrine_flow.png", bucket_texture="starbrine_bucket.png",
-                  tags=["c:starbrine"])
-shapeless(starbrine.bucket, "bucket", "prismarine_crystals", "amethyst_shard", "glowstone_dust")
-
-pack = Item("adventure_pack", name="Adventurer's Pack", model="backpack", stack=1).extends(
-    Placeable(width=0.7, height=0.8),
-    Tooltip("54 slots, two tanks, 40 000 FE", "Right click: open; shift + right click a block: set it down"),
-)
-shaped(pack, "SLS", "LCL", "LWL", S="string", L="leather", C="chest", W="#minecraft:wool")
-
-DISTILL_MB = 100           # Starbrine one press of Distill uses
-DISTILL_FE = 4000          # energy it gives: a bucket is 40 000 FE, a full store
-
-PACK = dict(inventory=Inventory(storage=54, fluid_in=1, fluid_out=1, energy_in=1, energy_out=1),
-            energy=40_000, tanks=2, tank_capacity=8000)
-
-
-@on.item_use(item=pack)
-def open_held(ctx):
-    """Right click with the pack: its window, kept in the item itself."""
-    ui.open_screen(ctx.player, "adventure_pack", hand="off" if ctx.hand == "OFF_HAND" else "main", **PACK)
-
-
-@on.entity_interact(entity=pack)
-def open_placed(ctx):
-    """Right click a pack on the floor: the very same window (shift + right click with an empty hand picks it up)."""
-    if ctx.sneaking:
-        return
-    ui.open_screen(ctx.player, "adventure_pack", entity=ctx.entity, **PACK)
-    ctx.cancel()
-
-
-@on.screen_button(button="distill", window="adventure_pack")
-def distill(ctx):
-    """Distill: 100 mB of Starbrine from either tank becomes 4000 FE, if the store has room."""
-    window = ui.screen_update(ctx.player)
-    room = window["energy_capacity"] - window["energy"]
-    for index, tank in enumerate(window["tanks"]):
-        if tank["fluid"] == str(starbrine) and tank["amount"] >= DISTILL_MB:
-            if room < DISTILL_FE:
-                ui.screen_set(ctx.player, {"status": "The store is full"})
-                return
-            window = ui.screen_update(ctx.player, energy=DISTILL_FE, fluid=-DISTILL_MB, tank=index)
-            ui.screen_set(ctx.player, {"status": "+%d FE" % DISTILL_FE})
-            return
-    ui.screen_set(ctx.player, {"status": "Needs %d mB of Starbrine" % DISTILL_MB})
-
-
 @command("stats", level=0)
 def stats(ctx):
     """/dustworks:stats - how much stone your grinders and everyone's have ground."""
@@ -183,11 +123,9 @@ def reset(ctx):
 
 @command("kit", level=2)
 def kit(ctx, target: Player):
-    """/dustworks:kit <player> - operators: a grinder, coal, lava, stone, the pack and Starbrine to try them."""
+    """/dustworks:kit <player> - operators: a grinder, coal, lava and stone to try it."""
     target.give(grinder)
     target.give("coal", 8)
     target.give("lava_bucket")
-    target.give(pack)
-    target.give(starbrine.bucket)
     for stone in STONES:
         target.give(stone, 16)

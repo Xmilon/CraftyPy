@@ -1,12 +1,12 @@
 {
   "id": "backpack",
   "name": "Backpack",
-  "description": "A personal backpack and the pockets of villagers: Minecraft-style windows that belong to a player or to an entity.",
+  "description": "Packs that carry their contents: the Traveler's Satchel, the Adventurer's Pack and the Enderweave Pack (GeckoLib) with tanks, energy, Distill, Sort and Eat buttons, set down as 3D items, with Starbrine and custom sounds; plus a pocket backpack and the pockets of villagers.",
   "author": "CraftPy",
-  "version": "1.0.0",
-  "apiVersion": "2.11",
+  "version": "3.0.0",
+  "apiVersion": "2.12",
   "mcVersion": "1.21.1",
-  "side": "server",
+  "side": "both",
   "permissions": {},
   "icon": "icon.png"
 }

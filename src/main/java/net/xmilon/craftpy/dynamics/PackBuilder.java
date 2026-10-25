@@ -148,17 +148,68 @@ public final class PackBuilder {
             String id = "pcitem_" + i;
 
             JsonObject itemModel = new JsonObject();
-            if (def != null && def.model != null && !def.model.isBlank()) {
+            boolean geckoItem = def != null && def.geo != null && !def.geo.isBlank() && net.neoforged.fml.ModList.get() != null
+                    && net.neoforged.fml.ModList.get().isLoaded("geckolib");
+            if (geckoItem) {
+                // drawn by GeckoLib's item renderer; the display transforms still say where it sits in a hand
+                itemModel.addProperty("parent", "builtin/entity");
+                if (def.display != null) itemModel.add("display", def.display);
+            } else if (def != null && def.model != null && !def.model.isBlank()) {
                 // Item(model="backpack"): the project's own mesh, assets/<project>/models/item/backpack.json
                 itemModel.addProperty("parent", def.model.contains(":") ? def.model
                         : projectId + ":item/" + def.model.replaceFirst("^(models/)?(item/)?", ""));
+                if (def.display != null) itemModel.add("display", def.display);
+            } else if (def != null && def.bow != null) {
+                // a bow: held like the vanilla one, and it swaps to its drawn pictures (texture_pulling_0, _1, _2) while it is
+                // drawn: the same stages and predicates as vanilla's bow
+                itemModel.addProperty("parent", "minecraft:item/bow");
+                JsonObject textures = new JsonObject();
+                textures.addProperty("layer0", texture);
+                itemModel.add("textures", textures);
+                JsonArray overrides = new JsonArray();
+                double[] pulls = { 0, 0.65, 0.9 };
+                for (int stage = 0; stage < 3; stage++) {
+                    String drawn = texture + "_pulling_" + stage;
+                    usedTextures.add(drawn);
+                    JsonObject stageModel = new JsonObject();
+                    stageModel.addProperty("parent", "minecraft:item/bow");
+                    JsonObject stageTextures = new JsonObject();
+                    stageTextures.addProperty("layer0", drawn);
+                    stageModel.add("textures", stageTextures);
+                    writeJson(stageModel, assets.resolve("models/item/" + id + "_pulling_" + stage + ".json"));
+                    JsonObject override = new JsonObject();
+                    JsonObject predicate = new JsonObject();
+                    predicate.addProperty("pulling", 1);
+                    if (stage > 0) predicate.addProperty("pull", pulls[stage]);
+                    override.add("predicate", predicate);
+                    override.addProperty("model", "craftpy:item/" + id + "_pulling_" + stage);
+                    overrides.add(override);
+                }
+                itemModel.add("overrides", overrides);
             } else {
                 // tools and weapons are held like vanilla ones (handheld); everything else is a flat sprite
-                itemModel.addProperty("parent", def != null && (def.tool != null || def.weapon != null)
+                itemModel.addProperty("parent", def != null && (def.tool != null || def.weapon != null || def.thrown != null)
                         ? "minecraft:item/handheld" : "minecraft:item/generated");
                 JsonObject textures = new JsonObject();
                 textures.addProperty("layer0", texture);
                 itemModel.add("textures", textures);
+            }
+            boolean threeD = geckoItem || def != null && def.model != null && !def.model.isBlank();
+            if (threeD && def.texture != null && !def.texture.isBlank()) {
+                // a 3D item keeps a flat picture in inventories and on the hotbar (an animated .png.mcmeta animates there):
+                // NeoForge's separate transforms model draws the texture for the GUI and the model everywhere else
+                JsonObject icon = new JsonObject();
+                icon.addProperty("parent", "minecraft:item/generated");
+                JsonObject iconTextures = new JsonObject();
+                iconTextures.addProperty("layer0", texture);
+                icon.add("textures", iconTextures);
+                JsonObject perspectives = new JsonObject();
+                perspectives.add("gui", icon);
+                JsonObject wrapped = new JsonObject();
+                wrapped.addProperty("loader", "neoforge:separate_transforms");
+                wrapped.add("base", itemModel);
+                wrapped.add("perspectives", perspectives);
+                itemModel = wrapped;
             }
             writeJson(itemModel, assets.resolve("models/item/" + id + ".json"));
 
@@ -1382,7 +1433,7 @@ public final class PackBuilder {
      * {@code minecraft:dirt} = {@code minecraft:block/dirt} (or {@code item/...} for items, when that exists);
      * anything with a folder ({@code minecraft:block/dirt}, {@code ruby_rush:items/gem}) is kept.
      */
-    static String texturePath(String texture, String projectId, String kind) {
+    public static String texturePath(String texture, String projectId, String kind) {
         if (texture == null || texture.isBlank()) {
             return UNLOADED_TEXTURE;
         }

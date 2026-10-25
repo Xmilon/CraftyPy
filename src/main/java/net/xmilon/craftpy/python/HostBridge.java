@@ -122,6 +122,25 @@ public final class HostBridge {
                     result.add("window", window.snapshot());
                     return result;
                 });
+                case "ui.screen_slots", "ui.screen_take", "ui.screen_sort" -> onServer(server -> {
+                    ServerPlayer player = findPlayer(server, string(params, "player", ""));
+                    if (player == null) return error("player not found");
+                    if (!(player.containerMenu instanceof net.xmilon.craftpy.menu.MachineMenu menu
+                            && menu.source() instanceof net.xmilon.craftpy.menu.VirtualSource window)) {
+                        return error("this player has no window opened with ui.open_screen");
+                    }
+                    String group = string(params, "group", "storage");
+                    JsonObject result = ok();
+                    switch (method) {
+                        case "ui.screen_take" -> result.addProperty("taken", window.take(group, params.has("index") ? params.get("index").getAsInt() : 0,
+                                params.has("count") ? params.get("count").getAsInt() : 1));
+                        case "ui.screen_sort" -> window.sort(group);
+                        default -> {
+                        }
+                    }
+                    result.add("slots", window.slots(group));
+                    return result;
+                });
                 case "ui.screen_set" -> onServer(server -> {
                     ServerPlayer player = findPlayer(server, string(params, "player", ""));
                     if (player == null) return error("player not found");
@@ -186,6 +205,31 @@ public final class HostBridge {
                 case "entity.get" -> onServer(server -> entityGet(server, params));
                 case "entity.kill" -> onServer(server -> entityKill(server, params));
                 case "entity.teleport" -> onServer(server -> entityTeleport(server, params));
+                case "entity.effect" -> onServer(server -> {
+                    Entity entity = findEntity(server, string(params, "uuid", ""));
+                    if (!(entity instanceof net.minecraft.world.entity.LivingEntity living)) return error("entity not found or not a living one");
+                    ResourceLocation id = parseId(SlotRegistry.resolve(string(params, "effect", ""), SlotRegistry.Kind.EFFECT));
+                    var holder = id == null ? java.util.Optional.<net.minecraft.core.Holder.Reference<net.minecraft.world.effect.MobEffect>>empty()
+                            : BuiltInRegistries.MOB_EFFECT.getHolder(id);
+                    if (holder.isEmpty()) return error("unknown effect: " + string(params, "effect", ""));
+                    living.addEffect(new net.minecraft.world.effect.MobEffectInstance(holder.get(), (int) Math.max(1, Math.min(72000, number(params, "seconds", 10) * 20)),
+                            (int) Math.max(0, Math.min(255, number(params, "level", 1) - 1)), false, bool(params, "particles", true)));
+                    return ok();
+                });
+                case "entity.damage" -> onServer(server -> {
+                    Entity entity = findEntity(server, string(params, "uuid", ""));
+                    if (!(entity instanceof net.minecraft.world.entity.LivingEntity living)) return error("entity not found or not a living one");
+                    float amount = (float) Math.max(0, Math.min(1000, number(params, "amount", 1)));
+                    // magic damage ignores armor but not the entity's own protection: the same as a harming potion
+                    living.hurt(living.damageSources().magic(), amount);
+                    return ok();
+                });
+                case "entity.heal" -> onServer(server -> {
+                    Entity entity = findEntity(server, string(params, "uuid", ""));
+                    if (!(entity instanceof net.minecraft.world.entity.LivingEntity living)) return error("entity not found or not a living one");
+                    living.heal((float) Math.max(0, Math.min(1000, number(params, "amount", 1))));
+                    return ok();
+                });
                 case "entity.set_name" -> onServer(server -> entityName(server, params));
                 case "entity.state" -> onServer(server -> entityState(server, owner, params));
                 case "entity.owner" -> onServer(server -> entityOwner(server, owner, params));
@@ -348,7 +392,7 @@ public final class HostBridge {
         if (id == null) {
             return error("bad sound id");
         }
-        var sound = BuiltInRegistries.SOUND_EVENT.get(id);
+        var sound = net.xmilon.craftpy.content.SoundIds.of(id);
         float volume = p.has("volume") ? p.get("volume").getAsFloat() : 1.0f;
         float pitch = p.has("pitch") ? p.get("pitch").getAsFloat() : 1.0f;
         level.playSound(null, pos(p), sound, net.minecraft.sounds.SoundSource.PLAYERS, volume, pitch);

@@ -216,6 +216,58 @@ public final class VirtualSource implements MenuSource {
         return out;
     }
 
+    /** The slots of one group as Python sees them: item (project id), count, name, and food values when it is food. */
+    public com.google.gson.JsonArray slots(String group) {
+        com.google.gson.JsonArray out = new com.google.gson.JsonArray();
+        for (int i = 0; i < inventory.getSlots(); i++) {
+            if (!group.equals(inventory.groupOf(i))) continue;
+            ItemStack stack = inventory.getStackInSlot(i);
+            JsonObject entry = new JsonObject();
+            entry.addProperty("item", EventBridge.itemId(stack));
+            entry.addProperty("count", stack.getCount());
+            entry.addProperty("name", stack.isEmpty() ? "" : stack.getHoverName().getString());
+            var food = stack.getFoodProperties(null);
+            if (food != null) {
+                entry.addProperty("food", food.nutrition());
+                entry.addProperty("saturation", food.saturation());
+            }
+            out.add(entry);
+        }
+        return out;
+    }
+
+    /** Removes up to {@code count} items from slot {@code index} of {@code group}; how many came out. */
+    public int take(String group, int index, int count) {
+        int slot = inventory.slotOf(group, index);
+        if (slot < 0 || count <= 0) return 0;
+        return inventory.extractItem(slot, count, false).getCount();
+    }
+
+    /** Merges equal stacks of a group and puts them in order (by item id, then name, then the fullest first). */
+    public void sort(String group) {
+        java.util.List<Integer> slots = new java.util.ArrayList<>();
+        java.util.List<ItemStack> merged = new java.util.ArrayList<>();
+        for (int i = 0; i < inventory.getSlots(); i++) {
+            if (!group.equals(inventory.groupOf(i))) continue;
+            slots.add(i);
+            ItemStack rest = inventory.getStackInSlot(i).copy();
+            for (ItemStack into : merged) {
+                if (rest.isEmpty()) break;
+                if (ItemStack.isSameItemSameComponents(into, rest) && into.getCount() < into.getMaxStackSize()) {
+                    int moved = Math.min(rest.getCount(), into.getMaxStackSize() - into.getCount());
+                    into.grow(moved);
+                    rest.shrink(moved);
+                }
+            }
+            if (!rest.isEmpty()) merged.add(rest);
+        }
+        merged.sort(java.util.Comparator.<ItemStack, String>comparing(stack -> EventBridge.itemId(stack))
+                .thenComparing(stack -> stack.getHoverName().getString()).thenComparing(stack -> -stack.getCount()));
+        for (int n = 0; n < slots.size(); n++) {
+            inventory.setStackInSlot(slots.get(n), n < merged.size() ? merged.get(n) : ItemStack.EMPTY);
+        }
+    }
+
     /** The player inventory slot that holds this window's item (it may not be moved while open), or -1. */
     public int lockedSlot() {
         return lockedSlot;
