@@ -114,8 +114,10 @@ Menus close when you click outside, press Esc or move the pointer away from them
 Complete examples are in the **Cookbook** tab of the docs: a block and its drops, tags other mods understand, events,
 storage and timers, a machine with energy and its window, a liquid, windows for players and mobs, a shop window, a block
 with its own mesh, client-side screens. Each is a whole `main.py` to paste into a new project. The examples folder has
-whole projects: **Power Cell** (a liquid, a generator, energy for any mod's cables), **Backpack** (windows for players and
-villagers), **Bank** (a window with fields and server checks) and **Dust Works** (tagged dusts, a grinder, statistics).
+whole projects. To try together: **Bank** (a Hub app: a window with fields and server checks), **Armory** (3D weapons, bows,
+thrown spears and five GeckoLib legends), **Archery** (a client-side charge bar for every bow) and **Backpack** (packs with tanks,
+energy and buttons that can be set down, Starbrine). More to read: **Power Cell** (a liquid, a generator, energy for any mod's
+cables) and **Dust Works** (tagged dusts, a grinder, statistics).
 
 ## Extensions
 
